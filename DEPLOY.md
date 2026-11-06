@@ -463,6 +463,35 @@ adapter; it does not simulate physical ProPresenter rendering. Complete a venue
 rehearsal before claiming physical-device acceptance. This catalog slice is not
 a production release and does not complete the rest of Phase 2.5.
 
+### Named rundown jumps and lighting blackout
+
+`rundown-goto-item` selects a playable item from the current show's rundown.
+It marks the previous item complete and starts the selected item at zero,
+including when re-firing a completed item. Headers, deleted items and items
+from another show fail without changing the live rundown. Cloud execution and
+the native offline journal use the same `timer-goto` transition. Release matching
+web and native builds; an older engine does not understand this command.
+
+`lighting-blackout` selects an enabled lighting device that supports blackout.
+It always sends the dedicated `blackout` command with empty parameters; a scene
+or action override cannot turn it into a scene recall. Device latency is captured
+when the clock starts. The connect and command steps remain bound to one Bridge
+installation, and the cue succeeds only after its acknowledgment. DMX output
+stays black until restored through the device controls.
+
+Both actions use named target selectors with a ten-second loading deadline and
+Retry. Disabled events cannot fire. Failed events support explicit retry, and
+acknowledged events require reviewed re-arming before another fire.
+
+After building web and Bridge, run `node apps/web/scripts/smoke-catalog-targets.mjs`.
+It saves and fires both cues through Chromium, real local authentication and
+relay implementations. The compiled DMX adapter sends Art-Net to a loopback UDP
+receiver, which checks all 512 channels are zero and restore recovers the prior
+level. The script also captures both selectors at 320px. The compiled local-show
+probe in `apps/bridge/scripts/check-local-show.mjs` checks the same jump through
+the native engine and reconciles its journal. These are local checks, not a
+production deployment or a physical lighting rehearsal.
+
 ### Native configuration credential migration
 
 Desktop, Bridge Desktop and standalone Bridge now store both the installation

@@ -1,4 +1,5 @@
-import { proPresenterPayloadProblem } from "@/lib/automation-propresenter";
+import { automationPayloadProblem } from "@/lib/automation-payload";
+import { AutomationTargetPicker, type AutomationTargetOption, type LoadAutomationTargets } from "./AutomationTargetPicker";
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES } from "@/types/timecode";
 import { isValidTimingMs, MAX_AUTOMATION_LEAD_MS } from "@/lib/automation-timing";
 import { workspaceCopy } from "@showpilot/shared";
@@ -15,6 +16,7 @@ import { isValidTimecode, isValidTimecodeTolerance, parseTimecodeString } from "
 interface AutomationEventEditorProps {
   onAdd: (event: NewAutomationEvent) => Promise<void>;
   connected: boolean;
+  loadTargets?: LoadAutomationTargets;
   format: import("@/types/timecode").TimecodeFormat;
 }
 
@@ -27,6 +29,7 @@ const ACTION_OPTIONS: {
   { value: "lower-third-clear", label: "Clear Lower Third", category: "Lower Thirds" },
   { value: "rundown-advance", label: "Advance Rundown", category: "Rundown" },
   { value: "rundown-start-item", label: "Start Rundown Item", category: "Rundown" },
+  { value: "rundown-goto-item", label: "Jump to Rundown Item", category: "Rundown" },
   { value: "rundown-previous", label: "Previous Rundown Item", category: "Rundown" },
   { value: "rundown-pause", label: "Pause Rundown Timer", category: "Rundown" },
   { value: "rundown-resume", label: "Resume Rundown Timer", category: "Rundown" },
@@ -36,6 +39,7 @@ const ACTION_OPTIONS: {
   { value: "stage-clear", label: "Clear Stage Message", category: "Stage Display" },
   { value: "device-action", label: "Trigger Device Action", category: "Devices" },
   { value: "lighting-scene", label: "Recall Lighting Scene", category: "Devices" },
+  { value: "lighting-blackout", label: "Lighting Blackout", category: "Devices" },
   { value: "lyrics-goto", label: "Show Lyrics Section", category: "Lyrics" },
   { value: "lyrics-clear", label: "Clear Lyrics", category: "Lyrics" },
   { value: "pp-trigger-slide", label: "Trigger ProPresenter Slide", category: "Lyrics" },
@@ -47,12 +51,14 @@ const ACTION_OPTIONS: {
   { value: "custom-webhook", label: "Custom Webhook", category: "Other" },
 ];
 
-export function AutomationEventEditor({ onAdd, format, connected }: AutomationEventEditorProps) {
+export function AutomationEventEditor({ onAdd, format, connected, loadTargets }: AutomationEventEditorProps) {
   const workspaceTerms = useWorkspaceTerms();
   const [tcString, setTcString] = useState("");
   const [action, setAction] = useState<AutomationActionType>("lower-third-show");
   const [label, setLabel] = useState("");
   const [payloadJson, setPayloadJson] = useState("{}");
+  const [targetSelection, setTargetSelection] = useState<AutomationTargetOption | null>(null);
+  const usesTargetPicker = action === "rundown-goto-item" || action === "lighting-blackout";
   const propNameId = useId();
   const targetId = useId();
   const [propName, setPropName] = useState("");
@@ -87,7 +93,9 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
 
     let payload: Record<string, unknown>;
     try {
-      const parsed: unknown = structuredProPresenter
+      const parsed: unknown = usesTargetPicker
+        ? action === "rundown-goto-item" ? { itemId: targetSelection?.id } : { deviceId: targetSelection?.id }
+        : structuredProPresenter
         ? { ...(action === "pp-trigger-prop" ? { propName: propName.trim() } : {}), ...(propTarget.trim() ? { target: propTarget.trim() } : {}) }
         : JSON.parse(payloadJson);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Expected an object");
@@ -97,14 +105,15 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
       return;
     }
 
-    const payloadProblem = proPresenterPayloadProblem(action, payload);
+    if (usesTargetPicker && !targetSelection) { setError("Choose a target before saving this cue."); return; }
+    const payloadProblem = automationPayloadProblem({ action, payload });
     if (payloadProblem) { setError(payloadProblem); return; }
     const draft: NewAutomationEvent = {
       enabled: true,
       triggerTimecode: tc,
       action,
       payload,
-      label: label || ACTION_OPTIONS.find((o) => o.value === action)?.label || action,
+      label: label || (usesTargetPicker && targetSelection ? `${action === "rundown-goto-item" ? "Jump to" : "Blackout"} ${targetSelection.label}` : "") || ACTION_OPTIONS.find((o) => o.value === action)?.label || action,
       toleranceFrames,
       leadMs,
       category: ACTION_OPTIONS.find((o) => o.value === action)?.category,
@@ -114,7 +123,7 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
     setSaving(true);
     try {
       await onAdd({ ...draft, id: attemptRef.current.id });
-      setTcString(""); setLabel(""); setPayloadJson("{}"); setPropName(""); setPropTarget(""); setToleranceText(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES)); setLeadText("0"); attemptRef.current = null;
+      setTcString(""); setLabel(""); setPayloadJson("{}"); setPropName(""); setPropTarget(""); setTargetSelection(null); setToleranceText(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES)); setLeadText("0"); attemptRef.current = null;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Save was not confirmed. Your changes have been kept.");
     } finally { setSaving(false); }
@@ -153,7 +162,7 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
           </label>
           <select
             value={action}
-            onChange={(e) => setAction(e.target.value as AutomationActionType)}
+            onChange={(e) => { setAction(e.target.value as AutomationActionType); setTargetSelection(null); }}
             className={INPUT_CLASS}
           >
             {ACTION_OPTIONS.map((opt) => (
@@ -202,7 +211,7 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
         {!toleranceValid && <p role="alert" className="mt-1 text-xs text-red-400">{toleranceError}</p>}
       </div>
 
-      {structuredProPresenter ? <div className="space-y-3">
+      {usesTargetPicker ? <AutomationTargetPicker key={action} kind={action} loadOptions={loadTargets} selection={targetSelection} onSelect={setTargetSelection} /> : structuredProPresenter ? <div className="space-y-3">
         {action === "pp-trigger-prop" && <div>
           <label htmlFor={propNameId} className="mb-1 block text-xs text-board-muted">Prop name</label>
           <input id={propNameId} value={propName} onChange={event => setPropName(event.target.value)} required maxLength={200} className={INPUT_CLASS} />
@@ -233,7 +242,7 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
 
       <button
         type="submit"
-        disabled={!toleranceValid || !leadValid}
+        disabled={!toleranceValid || !leadValid || (usesTargetPicker && !targetSelection)}
         className="flex min-h-11 items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2 text-sm font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
       >
         <Plus className="w-3.5 h-3.5" />

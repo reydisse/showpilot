@@ -64,12 +64,15 @@ export async function resolveTimecodeDeviceAction(
        FROM device WHERE id = ? AND orgId = ? LIMIT 1`,
     ).bind(deviceId, orgId).first<TimecodeDeviceRow>();
     if (!device || !device.enabled) throw new Error("The selected device does not exist or is disabled.");
-  } else if (event.action === "lighting-scene") {
+  } else if (event.action === "lighting-scene" || event.action === "lighting-blackout") {
     device = await resolveLightingDevice(db, orgId);
   } else {
     throw new Error("Choose a target device for this automation event.");
   }
 
+  if (event.action === "lighting-blackout" && device.category !== "lighting") {
+    throw new Error("Choose a lighting device for blackout.");
+  }
   const settings = await readDeviceSettingsForUse(encryptionKeys, { ...device, orgId });
   const remote = resolveRemoteDeviceControl(device.adapterType, settings);
   if (!remote) throw new Error(`Device “${device.name}” does not support remote control.`);
@@ -79,14 +82,14 @@ export async function resolveTimecodeDeviceAction(
     event.payload.actionId,
     event.payload.targetActionId,
   );
-  const actionId = requestedActionId || (event.action === "lighting-scene" ? "recall_scene" : "");
+  const actionId = event.action === "lighting-blackout" ? "blackout" : requestedActionId || (event.action === "lighting-scene" ? "recall_scene" : "");
   if (!actionId) throw new Error("Choose a device action for this automation event.");
   if (!remote.actions.some((action) => action.id === actionId)) {
     throw new Error(`Action “${actionId}” is not available on device “${device.name}”.`);
   }
 
   const explicitParams = event.payload.params;
-  const params = isRecord(explicitParams)
+  const params = event.action === "lighting-blackout" ? {} : isRecord(explicitParams)
     ? explicitParams
     : Object.fromEntries(Object.entries(event.payload).filter(([key]) => ![
         "deviceId",
