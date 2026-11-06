@@ -709,8 +709,13 @@
       "phase": "1",
       "section": "1.5 Master only mutations, jump threshold, format change guard (audit H19, H18, H21, TC/M4)",
       "line": 129,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "TimecodeRelay disables the existing triggersEnabled gate on forward or backward jumps greater than two nominal seconds. Feed updates and explicit seeks are guarded, including fresh Bridge standby handover. Normal midnight rollover is continuous. Clock/display updates continue; fired flags are never reset by a jump.",
+        "The clock journal persists the hold reason and disabled gate before evaluation. Re-arm requires confirmation of the current server-generated hold ID; a newer jump invalidates an older confirmation. Re-arm starts from the current frame, skips missed cues, and does not startup-match an unchanged position after signal loss. Reset and Stop do not clear the review requirement.",
+        "Generation checks cancel queued scheduled work across jumps, disable, Stop, seek and signal loss, including when re-arm arrives before a slow predecessor acknowledges. Already-dispatched remote effects cannot be recalled. The UI shows the from/to positions and an explicit review/resume dialog; emergency Disable remains immediate.",
+        "timecode-jump.worker.test.ts covers forward skips, hibernation persistence, backward jumps, stale confirmations, two-second boundaries, queued output cancellation and Bridge handover. Unit tests cover SMPTE rates/midnight and dialog confirmation/cancellation. Full suite: 1311 unit tests and 245 Worker tests passed, typecheck and production build passed. Built smoke-timecode-jump.mjs verified the rendered flow using a real authenticated Worker with disposable local data."
+      ]
     },
     {
       "id": "f1e8e688dd4d8aee",

@@ -45,6 +45,8 @@ export interface TimecodeShow {
 }
 
 export interface TimecodeState {
+  /** Persisted review reason. triggersEnabled remains the automation gate. */
+  automationHold?: { id: string; reason: "timecode-jump"; from: string; to: string; detectedAt: number } | null;
   /** Absent only on snapshots/clients predating the feed watchdog. */
   signal?: {
     status: "idle" | "waiting" | "live" | "timecode-stalled" | "timecode-lost";
