@@ -1,10 +1,15 @@
+import { useGraphicLibraryMutation } from "@/hooks/useGraphicLibraryMutation";
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { LibraryMutationNotice } from "@/components/graphics/LibraryMutationNotice";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useGraphicsOutput } from "@/hooks/useGraphicsOutput";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
-import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   Play,
   Square,
@@ -25,9 +30,6 @@ import { EmptyState, EmptyStateButton } from "@/components/ui/empty-state";
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import {
   getGraphicTemplates,
-  addGraphicTemplate,
-  updateGraphicTemplate,
-  deleteGraphicTemplate,
   getActiveGraphics,
 } from "@/lib/graphics";
 import {
@@ -111,12 +113,28 @@ export const Route = createFileRoute("/$slug/streaming/graphics")({
       },
     };
   },
-  component: GraphicsPage,
+  component: GraphicsRoute,
 });
 
+function GraphicsRoute() {
+  return <GraphicsPage key={Route.useLoaderData().orgId} />;
+}
+
 function GraphicsPage() {
-  const { templates, activeIds: initialActiveIds, orgId, slug, role, grantedPermissions, proPresenter: proPresenterConfig } = Route.useLoaderData();
-  const router = useRouter();
+  const { templates: initialTemplates, activeIds: initialActiveIds, orgId, slug, role, grantedPermissions, proPresenter: proPresenterConfig } = Route.useLoaderData();
+  const [libraryRevision, setLibraryRevision] = useState(0);
+  const retainedTemplates = useRef(initialTemplates);
+  const refreshLibrary = () => setLibraryRevision(revision => revision + 1);
+  const library = useOperatorRead({ key: JSON.stringify([orgId, libraryRevision]), initialValue: retainedTemplates.current,
+    read: useCallback((signal: AbortSignal) => getGraphicTemplates({ data: { orgId }, signal }), [orgId]),
+    errorMessage: "Graphics library could not refresh. Showing the last confirmed library.",
+  });
+  const templates = library.value;
+  retainedTemplates.current = templates;
+  const mutation = useGraphicLibraryMutation(orgId);
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
+  const currentScope = useRef(orgId);
+  currentScope.current = orgId;
   const canTriggerGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:trigger");
   const canConfigureGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:configure");
   const output = useGraphicsOutput(orgId, initialActiveIds, canTriggerGraphics);
@@ -149,15 +167,21 @@ function GraphicsPage() {
       ? visibleTemplates
       : visibleTemplates.filter((t) => parseStyle(t.style).type === filterType);
 
-  const handleToggle = (id: string) => output.run({ kind: activeIds.includes(id) ? "hide" : "show", graphicId: id });
-  const handleClearAll = () => output.run({ kind: "clear" });
-
+  const handleToggle = async (id: string) => {
+    const operation = { kind: activeIds.includes(id) ? "hide" as const : "show" as const, graphicId: id };
+    const title = templates.find(template => template.id === id)?.title ?? "this graphic";
+    if (!await confirm({ title: operation.kind === "show" ? "Show this graphic?" : "Hide this graphic?", description: `This changes live output for “${title}”.`, confirmLabel: operation.kind === "show" ? "Show graphic" : "Hide graphic", variant: "warning" })) return;
+    if (currentScope.current === orgId) await output.run(operation);
+  };
+  const handleClearAll = async () => {
+    if (!await confirm({ title: "Clear all graphics?", description: "This removes every graphic currently on air. The library is kept.", confirmLabel: "Clear all graphics" })) return;
+    if (currentScope.current === orgId) await output.run({ kind: "clear" });
+  };
   const handleDelete = async (id: string) => {
-    if (activeIds.includes(id)) {
-      if (!await output.run({ kind: "hide", graphicId: id })) return;
-    }
-    await deleteGraphicTemplate({ data: { orgId, id } });
-    router.invalidate();
+    if (!await confirm({ title: "Delete graphic?", description: "This permanently deletes the graphic from the library and removes it from live output if it is on air.", confirmLabel: "Delete graphic" })) return;
+    if (currentScope.current !== orgId) return;
+    if (activeIds.includes(id) && !await output.run({ kind: "hide", graphicId: id })) return;
+    if (await mutation.run({ kind: "delete", id })) { refreshLibrary(); output.retry(); }
   };
 
   const overlayLink = useDisplayLink(slug, "overlay");
@@ -173,9 +197,7 @@ function GraphicsPage() {
       .replace(/\s+/g, " ")
       .slice(0, 120);
 
-    await addGraphicTemplate({
-      data: {
-        orgId,
+    const saved = await mutation.run({ kind: "create", content: {
         name,
         title,
         subtitle: secondary,
@@ -191,9 +213,10 @@ function GraphicsPage() {
         }),
       },
     });
+    if (!saved) return;
     setProPresenterMessage(`${isScripture ? "Scripture" : "Graphic"} saved to the library`);
     setTimeout(() => setProPresenterMessage(null), 2500);
-    router.invalidate();
+    refreshLibrary();
   };
 
   const types: (GraphicType | "all")[] = [
@@ -206,6 +229,7 @@ function GraphicsPage() {
 
   return (
     <div className="h-full overflow-auto">
+      {ConfirmDialogEl}
       <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-4 md:px-6 py-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -221,19 +245,19 @@ function GraphicsPage() {
               <Link
                 to="/$slug/streaming/lt-preview"
                 params={{ slug }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors"
+                className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors"
               >
                 <Sparkles className="w-3 h-3" />
                 Template Studio
               </Link>
             )}
-            {canConfigureGraphics && (
+            {canConfigureGraphics && visibleTemplates.length > 0 && (
               <button
                 onClick={() => {
                   setEditTemplate(null);
                   setShowForm(true);
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors"
+                className="min-h-11 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors"
               >
                 <Plus className="w-3 h-3" />
                 New Graphic
@@ -244,6 +268,8 @@ function GraphicsPage() {
       </div>
 
       <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
+        <ReadFailureNotice error={library.error} refreshing={library.refreshing} retry={library.retry} label="Refresh graphics library" />
+        <LibraryMutationNotice mutation={mutation} onConfirmed={() => { refreshLibrary(); output.retry(); }} />
         <ReadFailureNotice error={output.readFailure} refreshing={output.refreshing} retry={output.retry} label="Refresh graphics output" />
         {output.failure && <div role="alert" aria-label="Graphics change confirmation" className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{output.failure.message} <time dateTime={new Date(output.failure.occurredAt).toISOString()}>{new Date(output.failure.occurredAt).toLocaleTimeString()}</time></div>}
         {!output.fresh && <p role="status" aria-live="polite" className="text-sm text-amber-200">{output.pending ? "Waiting for graphics output confirmation…" : "Refreshing graphics output. Showing the last confirmed state."}</p>}
@@ -298,9 +324,9 @@ function GraphicsPage() {
                     )}
                   </div>
                   <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                    <button onClick={() => void generateFromProPresenter("scripture")} className="min-h-11 px-2.5 py-1.5 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-500/25 text-xs font-medium hover:bg-purple-500/25">Scripture</button>
-                    <button onClick={() => void generateFromProPresenter("lower-third")} className="min-h-11 px-2.5 py-1.5 rounded-lg bg-blue-500/15 text-blue-300 border border-blue-500/25 text-xs font-medium hover:bg-blue-500/25">Lower third</button>
-                    <button onClick={() => void generateFromProPresenter("title")} className="min-h-11 px-2.5 py-1.5 rounded-lg bg-green-500/15 text-green-300 border border-green-500/25 text-xs font-medium hover:bg-green-500/25">Title</button>
+                    <button disabled={mutation.locked} onClick={() => void generateFromProPresenter("scripture")} className="min-h-11 px-2.5 py-1.5 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-500/25 text-xs font-medium hover:bg-purple-500/25">Scripture</button>
+                    <button disabled={mutation.locked} onClick={() => void generateFromProPresenter("lower-third")} className="min-h-11 px-2.5 py-1.5 rounded-lg bg-blue-500/15 text-blue-300 border border-blue-500/25 text-xs font-medium hover:bg-blue-500/25">Lower third</button>
+                    <button disabled={mutation.locked} onClick={() => void generateFromProPresenter("title")} className="min-h-11 px-2.5 py-1.5 rounded-lg bg-green-500/15 text-green-300 border border-green-500/25 text-xs font-medium hover:bg-green-500/25">Title</button>
                   </div>
                 </div>
               </div>
@@ -339,7 +365,7 @@ function GraphicsPage() {
             <button
               key={t}
               onClick={() => setFilterType(t)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+              className={`min-h-11 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                 filterType === t
                   ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
                   : "text-board-muted hover:text-board-text hover:bg-board-border/50 border border-transparent"
@@ -440,14 +466,15 @@ function GraphicsPage() {
                             setEditTemplate(template);
                             setShowForm(true);
                           }}
-                          className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+                          className="min-w-11 min-h-11 flex items-center justify-center rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
                           aria-label={`Edit ${template.title}`}
                         >
                           <Pencil className="w-3 h-3" />
                         </button>
                         <button
                           onClick={() => handleDelete(template.id)}
-                          className="p-1.5 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                          disabled={mutation.locked || (isActive && !canTriggerGraphics)}
+                          className="min-w-11 min-h-11 flex items-center justify-center rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
                           aria-label={`Delete ${template.title}`}
                         >
                           <Trash2 className="w-3 h-3" />
@@ -514,16 +541,18 @@ function GraphicsPage() {
         {/* ProPresenter slide import */}
         {canConfigureGraphics && showForm && (
           <GraphicFormModal
+            key={`${orgId}:${editTemplate?.id ?? "new"}`}
             existing={editTemplate}
             orgId={orgId}
             onClose={() => {
               setShowForm(false);
               setEditTemplate(null);
+              refreshLibrary();
             }}
             onSaved={() => {
               setShowForm(false);
               setEditTemplate(null);
-              router.invalidate();
+              refreshLibrary();
             }}
           />
         )}
@@ -590,71 +619,48 @@ function GraphicFormModal({
   const [accentColor, setAccentColor] = useState<string>(
     existingControls.accentColor ?? DEFAULT_CONTROLS.accentColor
   );
-  const [saving, setSaving] = useState(false);
+  const mutation = useGraphicLibraryMutation(orgId);
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
+  const saving = mutation.pending;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
-    setSaving(true);
-
-    // Store real controls (position + accent) so library graphics render where
-    // they're placed and two can sit side-by-side without overlapping.
+    if (mutation.locked) return;
     const controls = { ...DEFAULT_CONTROLS, ...existingControls, posX, posY, accentColor };
-    const styleJson = JSON.stringify({ type, templateId, controls });
-
-    if (existing) {
-      await updateGraphicTemplate({
-        data: {
-          orgId,
-          id: existing.id,
-          updates: {
-            name: name.trim() || title.trim(),
-            title: title.trim(),
-            subtitle: subtitle.trim(),
-            style: styleJson,
-          },
-        },
-      });
-      // If it's live, the overlay detects the content change and updates in place.
-    } else {
-      await addGraphicTemplate({
-        data: {
-          orgId,
-          name: name.trim() || title.trim(),
-          title: title.trim(),
-          subtitle: subtitle.trim(),
-          style: styleJson,
-        },
-      });
-    }
-
-    setSaving(false);
-    onSaved();
+    const content = { name: (name.trim() || title.trim()).slice(0, 200), title: title.trim(), subtitle: subtitle.trim(), style: JSON.stringify({ type, templateId, controls }) };
+    if (existing && !await confirm({ title: "Update graphic?", description: "If this graphic is on air, its content changes immediately on every output.", confirmLabel: "Update graphic", variant: "warning" })) return;
+    if (await mutation.run(existing ? { kind: "update", id: existing.id, content } : { kind: "create", content })) onSaved();
   };
 
+  const requestClose = async () => {
+    if (saving) return;
+    if (mutation.locked && !await confirm({ title: "Close an unconfirmed save?", description: "The change may already be saved. Check the library before creating another graphic. You can also keep this editor open and retry the original change.", confirmLabel: "Close and review library", variant: "warning" })) return;
+    onClose();
+  };
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={existing ? "Edit graphic" : "New graphic"}
-        className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl"
-      >
+    <Dialog open onOpenChange={open => { if (!open) void requestClose(); }}>
+      <DialogContent showCloseButton={false} className="bg-board-card border-board-border max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-md">
+        {ConfirmDialogEl}
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold text-board-text">
+          <DialogTitle className="text-lg font-semibold text-board-text">
             {existing ? "Edit Graphic" : "New Graphic"}
-          </h2>
+          </DialogTitle>
           <button
             type="button"
-            onClick={onClose}
-            className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
+            onClick={() => void requestClose()}
+            disabled={saving}
+            className="min-w-11 min-h-11 flex items-center justify-center rounded-lg hover:bg-board-border transition-colors text-board-muted"
             aria-label="Close graphic editor"
           >
             <X className="size-4" />
           </button>
         </div>
 
+        <DialogDescription>Save a reusable graphic to the library. Showing it on air is a separate action.</DialogDescription>
+        <LibraryMutationNotice mutation={mutation} onConfirmed={onSaved} />
         <form onSubmit={handleSubmit} className="space-y-4">
+          <fieldset disabled={mutation.locked} className="space-y-4">
           {/* ProPresenter slide import */}
           <div>
             <label className="block text-sm text-board-muted mb-1.5">
@@ -672,7 +678,8 @@ function GraphicFormModal({
                       setType(t);
                       if (!existing) setTemplateId(defaultTemplateForType(t));
                     }}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                    aria-pressed={type === t}
+                    className={`min-h-11 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
                       type === t
                         ? "bg-fire-500/15 text-fire-500 border-fire-500/25"
                         : "text-board-muted border-board-border hover:border-board-muted/50"
@@ -688,10 +695,12 @@ function GraphicFormModal({
 
           {/* Name */}
           <div>
-            <label className="block text-sm text-board-muted mb-1.5">
+            <label htmlFor="graphic-name" className="block text-sm text-board-muted mb-1.5">
               Label (internal reference)
             </label>
             <input
+              id="graphic-name"
+              maxLength={200}
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -702,10 +711,12 @@ function GraphicFormModal({
 
           {/* Title */}
           <div>
-            <label className="block text-sm text-board-muted mb-1.5">
+            <label htmlFor="graphic-title" className="block text-sm text-board-muted mb-1.5">
               {type === "scripture" ? "Verse Text" : "Primary Text"}
             </label>
             <input
+              id="graphic-title"
+              maxLength={500}
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -722,10 +733,12 @@ function GraphicFormModal({
 
           {/* Subtitle */}
           <div>
-            <label className="block text-sm text-board-muted mb-1.5">
+            <label htmlFor="graphic-subtitle" className="block text-sm text-board-muted mb-1.5">
               {type === "scripture" ? "Reference" : "Secondary Text"}
             </label>
             <input
+              id="graphic-subtitle"
+              maxLength={500}
               type="text"
               value={subtitle}
               onChange={(e) => setSubtitle(e.target.value)}
@@ -752,7 +765,8 @@ function GraphicFormModal({
                   key={template.id}
                   type="button"
                   onClick={() => setTemplateId(template.id)}
-                  className={`text-left px-2.5 py-2 rounded-lg border transition-colors ${templateId === template.id ? "border-fire-500/35 bg-fire-500/10" : "border-board-border text-board-muted hover:border-board-muted/50"}`}
+                  aria-pressed={templateId === template.id}
+                  className={`min-h-11 text-left px-2.5 py-2 rounded-lg border transition-colors ${templateId === template.id ? "border-fire-500/35 bg-fire-500/10" : "border-board-border text-board-muted hover:border-board-muted/50"}`}
                 >
                   <span className={`block text-[11px] font-medium ${templateId === template.id ? "text-fire-400" : "text-board-text"}`}>{template.name}</span>
                   <span className="block text-[9px] text-board-muted/60 mt-0.5">{template.category}</span>
@@ -779,7 +793,9 @@ function GraphicFormModal({
                       setPosY(preset.y);
                     }}
                     title={preset.label}
-                    className={`aspect-video rounded transition-all flex items-center justify-center ${
+                    aria-label={`Position: ${preset.label}`}
+                    aria-pressed={isActive}
+                    className={`min-h-11 aspect-video rounded transition-all flex items-center justify-center ${
                       isActive
                         ? "bg-fire-500/25 border border-fire-500/40"
                         : "bg-board-border/30 border border-transparent hover:bg-board-border/60"
@@ -811,7 +827,9 @@ function GraphicFormModal({
                   type="button"
                   onClick={() => setAccentColor(p.value)}
                   title={p.label}
-                  className="w-7 h-7 rounded-full border-2 transition-all"
+                  aria-label={`Accent: ${p.label}`}
+                  aria-pressed={accentColor === p.value}
+                  className="w-11 h-11 rounded-full border-2 transition-all"
                   style={{
                     background: p.value,
                     borderColor: accentColor === p.value ? "white" : "transparent",
@@ -821,25 +839,27 @@ function GraphicFormModal({
             </div>
           </div>
 
+          </fieldset>
           {/* Buttons */}
           <div className="flex gap-3 pt-2">
             <button
               type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
+              onClick={() => void requestClose()}
+              disabled={saving}
+              className="min-h-11 flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={saving || !title.trim()}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
+              disabled={mutation.locked || !title.trim()}
+              className="min-h-11 flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
             >
               {saving ? "Saving..." : existing ? "Update" : "Create"}
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
