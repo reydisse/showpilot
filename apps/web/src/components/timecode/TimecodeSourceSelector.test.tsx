@@ -1,8 +1,9 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { TimecodeSourceSelector } from "./TimecodeSourceSelector";
+import { MidiAccessFixture, MidiInputFixture } from "@/test/midi-fixture";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 const fmt30 = { frameRate: 30, dropFrame: "ndf" } as const;
 const fmt25 = { frameRate: 25, dropFrame: "ndf" } as const;
 function props() {
@@ -43,4 +44,59 @@ it("confirms the exact stable input proposal without enabling automation", () =>
   fireEvent.click(screen.getByRole("button", { name: "Reformat timeline to 25 fps NDF" }));
   fireEvent.click(screen.getByRole("button", { name: "Reformat timeline" }));
   expect(test.onSetFormat).toHaveBeenCalledExactlyOnceWith(fmt25, fmt30, "input-1");
+});
+
+it("updates port discovery on hotplug and rescan while preserving the selected device", async () => {
+  vi.useFakeTimers();
+  const input = new MidiInputFixture("daw", "DAW MTC");
+  const access = new MidiAccessFixture(input);
+  const request = vi.fn().mockResolvedValue(access);
+  vi.stubGlobal("navigator", { requestMIDIAccess: request });
+  const test = props();
+  const view = render(<TimecodeSourceSelector {...test} mtcSupported />);
+  await act(async () => {});
+  fireEvent.change(screen.getByLabelText("MIDI timecode input"), { target: { value: input.id } });
+  act(() => access.disconnect(input));
+  expect(screen.getByRole("option", { name: "DAW MTC (disconnected)" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Start MTC" })).toHaveProperty("disabled", true);
+  const replacement = new MidiInputFixture("daw-replugged", input.name);
+  act(() => { access.connect(replacement, false); vi.advanceTimersByTime(2_000); });
+  expect(screen.getByLabelText("MIDI timecode input")).toHaveProperty("value", replacement.id);
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start MTC" })));
+  expect(test.onStartMtc).toHaveBeenCalledExactlyOnceWith(replacement.id);
+  expect(request).toHaveBeenCalledTimes(1);
+  view.unmount();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("shows permission failure with a working retry and cancels a late permission result on unmount", async () => {
+  vi.useFakeTimers();
+  const access = new MidiAccessFixture(new MidiInputFixture("daw"));
+  const request = vi.fn().mockRejectedValueOnce(new Error("MIDI permission denied")).mockResolvedValue(access);
+  vi.stubGlobal("navigator", { requestMIDIAccess: request });
+  const view = render(<TimecodeSourceSelector {...props()} mtcSupported />);
+  await act(async () => {});
+  expect(screen.getByRole("alert").textContent).toContain("MIDI permission denied");
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Refresh" })));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.getByRole("option", { name: "daw" })).toBeTruthy();
+  view.unmount();
+  let permit: ((value: MidiAccessFixture) => void) | undefined;
+  request.mockImplementationOnce(() => new Promise(resolve => { permit = resolve; }));
+  const pending = render(<TimecodeSourceSelector {...props()} mtcSupported />);
+  pending.unmount();
+  await act(async () => { permit?.(access); });
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("keeps the age of the last MTC frame visible after the signal stalls", () => {
+  vi.useFakeTimers(); vi.setSystemTime(10_000);
+  const view = render(<TimecodeSourceSelector {...props()} source="mtc" signal={{ status: "waiting", lastFeedAt: null }} />);
+  expect(screen.getByText("Waiting for an MTC frame")).toBeTruthy();
+  view.rerender(<TimecodeSourceSelector {...props()} source="mtc" signal={{ status: "timecode-lost", lastFeedAt: 9_000 }} />);
+  expect(screen.getByText("Last MTC frame received 1s ago")).toBeTruthy();
+  act(() => vi.advanceTimersByTime(3_000));
+  expect(screen.getByText("Last MTC frame received 4s ago")).toBeTruthy();
+  view.unmount();
+  expect(vi.getTimerCount()).toBe(0);
 });

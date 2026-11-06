@@ -1,18 +1,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MtcSource } from "../timecode-sources/mtc-source";
 
-afterEach(() => vi.unstubAllGlobals());
+import { MidiAccessFixture, MidiInputFixture } from "@/test/midi-fixture";
+
+const sources: MtcSource[] = [];
+afterEach(() => {
+  sources.splice(0).forEach(source => source.stop());
+  vi.unstubAllGlobals();
+});
 
 async function receiver() {
-  const input: { id: string; onmidimessage: ((event: Pick<MIDIMessageEvent, "data">) => void) | null } = {
-    id: "fixture-midi", onmidimessage: null,
-  };
-  const request = vi.fn().mockResolvedValue({ inputs: new Map([[input.id, input]]), sysexEnabled: false });
+  const input = new MidiInputFixture("fixture-midi");
+  const request = vi.fn().mockResolvedValue(new MidiAccessFixture(input));
   vi.stubGlobal("navigator", { requestMIDIAccess: request });
   const callback = vi.fn();
   const source = new MtcSource(callback);
+  sources.push(source);
   await source.start(input.id);
-  return { callback, source, request, input, send: (bytes: number[]) => input.onmidimessage?.({ data: Uint8Array.from(bytes) }) };
+  return { callback, source, request, input, send: (bytes: number[]) => input.send(bytes) };
 }
 
 // Synthetic parser fixtures, not evidence that unprivileged Web MIDI delivers SysEx.
@@ -69,10 +74,11 @@ describe("MTC full-frame boundary", () => {
   });
 
   it("keeps browser permission requests limited to quarter-frame MIDI", async () => {
-    const { request, input, source } = await receiver();
+    const { request, input, source, callback } = await receiver();
     expect(await MtcSource.getInputs()).toEqual([input]);
     expect(request.mock.calls).toEqual([[], []]);
     source.stop();
-    expect(input.onmidimessage).toBeNull();
+    input.send(frame);
+    expect(callback).not.toHaveBeenCalled();
   });
 });

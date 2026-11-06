@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Play, Square, Radio, Usb, AlertTriangle } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { sameTimecodeFormat, timecodeFormatLabel } from "@/lib/timecode";
-import { MtcSource } from "@/lib/timecode-sources/mtc-source";
+import { findMidiInput, observeMidiInputs } from "@/lib/timecode-sources/midi-inputs";
 import type { TimecodeFormat, FrameRate, DropFrameMode, TimecodeState } from "@/types/timecode";
 
 interface TimecodeSourceSelectorProps {
@@ -41,40 +41,35 @@ export function TimecodeSourceSelector({
   const [reformat, setReformat] = useState<{ from: TimecodeFormat; to: TimecodeFormat; incomingId?: string } | null>(null);
   const reviewChanged = reformat && (!sameTimecodeFormat(reformat.from, format) || reformat.incomingId !== incomingFormat?.id);
   const [midiInputs, setMidiInputs] = useState<MIDIInput[]>([]);
-  const [selectedMidi, setSelectedMidi] = useState("");
+  const [selectedMidi, setSelectedMidi] = useState<MIDIInput | null>(null);
+  const availableMidi = selectedMidi ? findMidiInput(midiInputs, selectedMidi) : null;
+  const [scanAttempt, setScanAttempt] = useState(0);
   const [loadingMidi, setLoadingMidi] = useState(false);
   const [midiError, setMidiError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (mtcSupported) {
-      MtcSource.getInputs()
-        .then((inputs) => {
-          setMidiInputs(inputs);
-          setMidiError(null);
-        })
-        .catch((cause) => {
-          setMidiError(cause instanceof Error ? cause.message : "MIDI access was denied");
-        });
-    }
-  }, [mtcSupported]);
-
-  async function refreshMidi() {
+    if (!mtcSupported) return;
+    let disposed = false;
+    let release: (() => void) | undefined;
     setLoadingMidi(true);
     setMidiError(null);
-    try {
-      const inputs = await MtcSource.getInputs();
-      setMidiInputs(inputs);
-    } catch (cause) {
-      setMidiError(cause instanceof Error ? cause.message : "MIDI access was denied");
-    }
-    setLoadingMidi(false);
-  }
+    navigator.requestMIDIAccess().then(access => {
+      if (!disposed) release = observeMidiInputs(access, setMidiInputs);
+    }).catch((cause: unknown) => {
+      if (!disposed) {
+        setMidiInputs([]);
+        setMidiError(cause instanceof Error ? cause.message : "MIDI access was denied");
+      }
+    }).finally(() => { if (!disposed) setLoadingMidi(false); });
+    return () => { disposed = true; release?.(); };
+  }, [mtcSupported, scanAttempt]);
 
   return (
     <fieldset disabled={!connected || pending !== null} className="min-w-0 rounded-xl border border-board-border bg-board-card p-4 space-y-4 disabled:opacity-60">
       <h3 className="text-xs font-medium text-board-muted uppercase tracking-wider">
         Timecode Source
       </h3>
+      {source === "mtc" && <MtcFrameAge lastFeedAt={signal?.lastFeedAt ?? null} />}
       {(signal?.status === "timecode-stalled" || signal?.status === "timecode-lost") && (
         <p role="alert" className="flex items-center gap-2 text-sm text-amber-400">
           <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -146,21 +141,23 @@ export function TimecodeSourceSelector({
                 MIDI Timecode (MTC)
               </span>
               <button
-                onClick={refreshMidi}
+                onClick={() => setScanAttempt(attempt => attempt + 1)}
                 disabled={loadingMidi}
-                className="text-[10px] text-fire-500 hover:underline disabled:opacity-50"
+                className="min-h-11 px-2 text-xs text-fire-500 hover:underline disabled:opacity-50"
               >
                 {loadingMidi ? "Scanning..." : "Refresh"}
               </button>
             </div>
-            {midiInputs.length > 0 ? (
+            {midiInputs.length > 0 || selectedMidi ? (
               <div className="flex items-center gap-2">
                 <select
-                  value={selectedMidi}
-                  onChange={(e) => setSelectedMidi(e.target.value)}
-                  className="flex-1 rounded-lg border border-board-border bg-board-card px-2 py-1.5 text-xs text-board-text"
+                  aria-label="MIDI timecode input"
+                  value={availableMidi?.id ?? selectedMidi?.id ?? ""}
+                  onChange={(e) => setSelectedMidi(midiInputs.find(input => input.id === e.target.value) ?? null)}
+                  className="min-w-0 min-h-11 flex-1 rounded-lg border border-board-border bg-board-card px-2 py-1.5 text-xs text-board-text"
                 >
                   <option value="">Select MIDI input...</option>
+                  {selectedMidi && !availableMidi && <option value={selectedMidi.id}>{selectedMidi.name || selectedMidi.id} (disconnected)</option>}
                   {midiInputs.map((input) => (
                     <option key={input.id} value={input.id}>
                       {input.name || input.id}
@@ -169,27 +166,27 @@ export function TimecodeSourceSelector({
                 </select>
                 <button
                   onClick={async () => {
-                    if (!selectedMidi) return;
+                    if (!availableMidi) return;
                     setMidiError(null);
                     try {
-                      await onStartMtc(selectedMidi);
+                      await onStartMtc(availableMidi.id);
                     } catch (cause) {
                       setMidiError(cause instanceof Error ? cause.message : "Could not start this MIDI input");
                     }
                   }}
-                  disabled={!selectedMidi}
-                  className="rounded-lg bg-fire-500/10 border border-fire-500/20 px-3 py-1.5 text-xs font-medium text-fire-500 hover:bg-fire-500/20 disabled:opacity-40 transition-colors"
+                  disabled={!availableMidi}
+                  className="min-h-11 rounded-lg bg-fire-500/10 border border-fire-500/20 px-3 py-1.5 text-xs font-medium text-fire-500 hover:bg-fire-500/20 disabled:opacity-40 transition-colors"
                 >
                   Start MTC
                 </button>
               </div>
             ) : (
-              <p className="text-[10px] text-board-muted/60">
-                No MIDI inputs found. Connect a MIDI device and click Refresh.
+              <p className="text-xs text-board-muted">
+                {loadingMidi ? "Checking MIDI inputs…" : "No MIDI inputs found. Connect a MIDI device; inputs refresh automatically."}
               </p>
             )}
             {midiError && (
-              <p role="alert" className="text-[10px] leading-relaxed text-red-400">
+              <p role="alert" className="text-xs leading-relaxed text-red-400">
                 {midiError.replace(/[.!?]+$/, "")}. Check the browser&apos;s MIDI permission, then click Refresh.
               </p>
             )}
@@ -212,4 +209,14 @@ export function TimecodeSourceSelector({
       )}
     </fieldset>
   );
+}
+
+function MtcFrameAge({ lastFeedAt }: { lastFeedAt: number | null }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, []);
+  const seconds = lastFeedAt === null ? null : Math.max(0, Math.floor((now - lastFeedAt) / 1_000));
+  return <p className="text-xs text-board-muted">{seconds === null ? "Waiting for an MTC frame" : `Last MTC frame received ${seconds}s ago`}</p>;
 }
