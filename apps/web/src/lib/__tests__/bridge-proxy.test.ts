@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BridgeProxy } from "@/lib/device-modules/bridge-proxy";
+import { atemModuleDefinition } from "@/lib/device-modules/atem/atem-module";
+import { BridgeProxy, getSharedBridgeProxy } from "@/lib/device-modules/bridge-proxy";
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
@@ -71,6 +72,49 @@ describe("BridgeProxy", () => {
     await expect(result).resolves.toBe("ok");
     expect(slides).toEqual(['{"text":"Welcome"}']);
     proxy.disconnect();
+  });
+
+
+  it("preserves device connection failure details for the originating target", () => {
+    const proxy = new BridgeProxy("org-1"); const status = vi.fn();
+    proxy.onDeviceStatus(status); proxy.connect();
+    const socket = FakeWebSocket.instances[0]; socket.open();
+    socket.receive({ type: "device-status", target: "venue:23", connected: false, success: false, error: "Destination approval required" });
+    expect(status).toHaveBeenCalledWith("venue:23", false, "Destination approval required");
+    proxy.disconnect();
+  });
+
+  it("reports a failed ping through Bridge availability with its reason", () => {
+    const proxy = new BridgeProxy("org-1"); const status = vi.fn();
+    proxy.onBridgeStatus(status); proxy.connect();
+    const socket = FakeWebSocket.instances[0]; socket.open(); socket.receive({ type: "bridge-status", online: true });
+    socket.receive({ type: "ping-response", success: false, error: "Venue Bridge disconnected" });
+    expect(proxy.isBridgeOnline()).toBe(false);
+    expect(status).toHaveBeenLastCalledWith(false, "Venue Bridge disconnected");
+    proxy.disconnect();
+  });
+
+  it("reports an unavailable browser socket without leaving a device connect waiting", () => {
+    const proxy = new BridgeProxy("org-1"); const status = vi.fn(); proxy.onDeviceStatus(status);
+    proxy.connectDevice("tcp-command", "venue:23");
+    expect(status).toHaveBeenCalledWith("venue:23", false, "Bridge connection is unavailable. Reconnect and try again.");
+  });
+
+  it("carries a relay rejection into the real ATEM module and allows retry", async () => {
+    const proxy = getSharedBridgeProxy("atem-error-fixture");
+    const socket = FakeWebSocket.instances[0]; socket.open(); socket.receive({ type: "bridge-status", online: true });
+    const module = atemModuleDefinition.createInstance({ orgId: "atem-error-fixture", host: "venue", port: 9910 });
+    const status = vi.fn(); module.onStatusChange(status);
+    const first = module.connect();
+    socket.receive({ type: "device-status", target: "venue:9910", connected: false, error: "Destination approval required" });
+    await first;
+    expect(module.connectionStatus()).toBe("error");
+    expect(status).toHaveBeenLastCalledWith("error", "Destination approval required");
+    const retry = module.connect(); await Promise.resolve();
+    socket.receive({ type: "device-status", target: "venue:9910", connected: true });
+    await retry;
+    expect(module.connectionStatus()).toBe("connected");
+    module.disconnect(); proxy.disconnect();
   });
 
   it("does not reconnect after an intentional disconnect", () => {

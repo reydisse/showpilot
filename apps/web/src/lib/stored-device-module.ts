@@ -90,8 +90,8 @@ export class StoredDeviceModule extends BaseDeviceModule {
     const target = this.remote.target(this.settings);
     const proxy = getSharedBridgeProxy(this.orgId);
     this.unsubscribe = [
-      proxy.onDeviceStatus((address, connected) => {
-        if (address === target && !controller.signal.aborted) this.setStatus(connected ? "connected" : "disconnected");
+      proxy.onDeviceStatus((address, connected, error) => {
+        if (address === target && !controller.signal.aborted) this.setStatus(connected ? "connected" : error ? "error" : "disconnected", error);
       }),
       proxy.onDeviceEvent((address, eventName, data) => {
         if (address === target && !controller.signal.aborted && this.remote.parseEvent) this.values(this.remote.parseEvent(eventName, data, this.settings));

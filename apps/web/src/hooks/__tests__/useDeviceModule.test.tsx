@@ -10,7 +10,7 @@ import { useDeviceModule } from "@/hooks/useDeviceModule";
 
 const mocks = vi.hoisted(() => ({
   bridgeOnline: false,
-  bridgeStatusListener: null as ((online: boolean) => void) | null,
+  bridgeStatusListener: null as ((online: boolean, error?: string) => void) | null,
   createInstance: vi.fn(),
 }));
 
@@ -38,7 +38,7 @@ vi.mock("@/lib/device-modules/registry", () => {
 vi.mock("@/lib/device-modules/bridge-proxy", () => ({
   getSharedBridgeProxy: () => ({
     isBridgeOnline: () => mocks.bridgeOnline,
-    onBridgeStatus: (listener: (online: boolean) => void) => {
+    onBridgeStatus: (listener: (online: boolean, error?: string) => void) => {
       mocks.bridgeStatusListener = listener;
       return () => {
         if (mocks.bridgeStatusListener === listener) mocks.bridgeStatusListener = null;
@@ -120,6 +120,18 @@ describe("useDeviceModule", () => {
     act(() => mocks.bridgeStatusListener?.(true));
 
     expect(result.current.status).toBe("connected");
+  });
+
+  it("keeps the Bridge failure reason visible and clears it after reconnection", async () => {
+    mocks.bridgeOnline = true;
+    const { result } = renderHook(() => useDeviceModule(device, "org-1"));
+    await waitFor(() => expect(result.current.status).toBe("connected"));
+    act(() => { mocks.bridgeOnline = false; mocks.bridgeStatusListener?.(false, "Venue Bridge disconnected"); });
+    expect(result.current.status).toBe("bridge-required");
+    expect(result.current.error).toBe("Venue Bridge disconnected");
+    await act(async () => { mocks.bridgeOnline = true; mocks.bridgeStatusListener?.(true); });
+    await waitFor(() => expect(result.current.status).toBe("connected"));
+    expect(result.current.error).toBeNull();
   });
 
   it("returns visible feedback instead of silently ignoring Connect before controls are ready", async () => {

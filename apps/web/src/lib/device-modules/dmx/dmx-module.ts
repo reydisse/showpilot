@@ -106,12 +106,12 @@ class DMXModule extends BaseDeviceModule {
         unsubscribe();
         reject(new Error("DMX connection timed out"));
       }, 5_000);
-      const unsubscribe = this.proxy!.onDeviceStatus((eventTarget, connected) => {
+      const unsubscribe = this.proxy!.onDeviceStatus((eventTarget, connected, error) => {
         if (eventTarget !== target) return;
         window.clearTimeout(timeout);
         unsubscribe();
         if (connected) resolve();
-        else reject(new Error("Bridge could not prepare the DMX output"));
+        else reject(new Error(error ?? "Bridge could not prepare the DMX output"));
       });
       this.proxy!.connectDevice(this.protocol, target, this.settings);
     });

@@ -1550,8 +1550,14 @@
       "phase": "2",
       "section": "2.8 Error visibility and render cost (audit H25, H26, H27, H28)",
       "line": 245,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "BridgeRelay sends requester-only success:false replies for offline, revoked and socket-send-failed connect-device/ping requests. The proxy preserves target-specific connection errors, reports local socket unavailability and failed ping state, and all native connection waiters preserve the reason into module status. Device panels offer Retry connection and clear errors on successful reconnect.",
+        "2026-11-06: six real Worker tests verify offline/revoked responses, injected native socket-send failures and no rejection sent to another client. Proxy tests reproduce and fix discarded error details and silent offline sends; a real ATEM module test verifies rejection and successful retry. Hook tests verify visible failure state and clearing on reconnect.",
+        "2026-11-06: smoke-device-connection-errors.mjs passed against the final built Worker, real browser, fixture D1 and protocol-compatible fixture Bridge. A refused ATEM connection shows its exact reason in role=alert and Retry connection; retry connects and clears the alert. Screenshot inspected. No physical device was connected.",
+        "The browser rehearsal also reproduced a real form defect: a blank optional numeric port was stored as 0 and rejected by destination approval. The form now omits blank numeric settings, preserving adapter defaults and explicit numeric values. The rehearsal verifies the stored port is absent and a connection succeeds via the default.",
+        "2026-11-06 final validation: 1673 unit and 620 Worker tests, web tsc --noEmit, production build and browser rehearsal passed. No deployment or production data changes."
+      ]
     },
     {
       "id": "01938da22bad50e9",
@@ -1639,7 +1645,9 @@
       "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
       "line": 267,
       "status": "pending",
-      "evidence": []
+      "evidence": [
+        "2026-11-06 follow-up finding: navigating directly to /$slug/dashboard/devices/$deviceId in a disposable browser still renders the parent Devices list. routeTree.gen.ts nests this route under devices.tsx, whose component has no Outlet. The device-error rehearsal uses the actual inline panel; fixing detail/parent navigation remains part of this pending product-wide audit."
+      ]
     },
     {
       "id": "9a197d9687fde3ba",
