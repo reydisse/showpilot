@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { CueTable } from "../cue-table";
 import type { CueColumnRow, CueRow } from "@/lib/cue-sheet-derive";
+
+afterEach(cleanup);
 
 const originalResizeObserver = globalThis.ResizeObserver;
 const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(
@@ -71,6 +73,7 @@ describe("CueTable note editor", () => {
 
     const editor = screen.getByRole("textbox");
     expect(editor.style.height).toBe("30px");
+    expect(editor.getAttribute("maxlength")).toBe("2000");
     expect(editor.classList.contains("overflow-hidden")).toBe(true);
 
     fireEvent.change(editor, {
@@ -101,4 +104,28 @@ describe("CueTable note editor", () => {
     fireEvent.pointerUp(rowResizer, { clientY: 180, pointerId: 1 });
     expect(row.style.height).toBe("176px");
   });
+});
+
+
+it("compares an edit with the note seen on focus even if another operator changes it", () => {
+  const onNoteChange = vi.fn();
+  const props = { columns, hidden: new Set<string>(), currentItemId: null, canEdit: true, onNoteChange, onWidthChange: vi.fn(), onReorder: vi.fn() };
+  const { rerender } = render(<CueTable {...props} rows={[{ ...rows[0], notes: { lighting: "Original" } }]} />);
+  const editor = screen.getByRole("textbox");
+  fireEvent.focus(editor); fireEvent.change(editor, { target: { value: "My edit" } });
+  rerender(<CueTable {...props} rows={[{ ...rows[0], notes: { lighting: "Other operator" } }]} />);
+  expect((editor as HTMLTextAreaElement).value).toBe("My edit");
+  fireEvent.blur(editor);
+  expect(onNoteChange).toHaveBeenCalledExactlyOnceWith("item-1", "lighting", "My edit", "Original");
+});
+
+it("does not save an escaped edit or offer column writes to a note-only operator", () => {
+  const onNoteChange = vi.fn();
+  render(<CueTable rows={rows} columns={columns} hidden={new Set()} currentItemId={null} canEdit canManageColumns={false} onNoteChange={onNoteChange} onWidthChange={vi.fn()} onReorder={vi.fn()} />);
+  const editor = screen.getByRole("textbox");
+  fireEvent.focus(editor); fireEvent.change(editor, { target: { value: "Discard me" } });
+  fireEvent.keyDown(editor, { key: "Escape" }); fireEvent.blur(editor);
+  expect(onNoteChange).not.toHaveBeenCalled();
+  expect(screen.queryByRole("separator", { name: "Resize column" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Move Lighting column/ })).toBeNull();
 });

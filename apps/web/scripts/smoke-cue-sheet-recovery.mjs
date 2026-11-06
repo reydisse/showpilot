@@ -27,15 +27,22 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
           window.cuePosts++; window.cuePostCalls.push({url,body:typeof init?.body === "string" ? init.body : "request body"});
           if (window.cueRejectWrite) { window.cueRejectWrite = false; return Promise.resolve(new Response('Fixture write failure', { status: 503 })); }
         }
-        if (method === 'GET' && window.cueDelayReads) {
+        if (method === 'GET' && window.cueDelayReads && url.split('?')[0] === window.cueReadUrl) {
           // Capture a real response, deliberately ignore cancellation, and
           // release it after the UI's deadline to exercise stale-result guards.
           window.cueReadSignals.push(init?.signal ?? (input instanceof Request ? input.signal : null));
-          const response = nativeFetch(input, init);
+          const response = nativeFetch(input, { ...init, signal: new AbortController().signal }).then(async response =>
+            new Response(await response.arrayBuffer(), { status: response.status, statusText: response.statusText, headers: response.headers }));
           return new Promise(resolve => window.cueDelayed.push(async () => resolve(await response)));
         }
       }
-      return nativeFetch(input, init);
+      return nativeFetch(input, init).then(async response => {
+        if (method === 'GET' && url.includes('/_serverFn/')) {
+          const body = await response.clone().text();
+          if (body.includes('serviceName') && body.includes('rundownStatus') && body.includes('columns')) window.cueReadUrl = url.split('?')[0];
+        }
+        return response;
+      });
     }; return true;
   })()`);
   await browser("click", `a[href='/${orgId}/production/cue-sheets']`);
@@ -75,6 +82,8 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
   await poll(async () => (await queryFixture("SELECT text FROM cue_note WHERE orgId='display-smoke' AND text='Keep this unsaved cue'")).length === 1, "explicit retry saves the retained note");
   await browser("wait", "--fn", "!document.body.textContent.includes('Your edits are kept.')");
 
+  await browser("wait", "text=Synced");
+  assert.ok(await evaluate("window.cueReadUrl"), "identified the actual cue-sheet read endpoint");
   console.log("Explicit retained-note save passed");
 
   // A delayed read must stop loading, retain the last sheet, and keep its error

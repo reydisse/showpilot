@@ -36,25 +36,9 @@ import { markDefaultCueColumnsInitialized, seedDefaultCueColumnsOnce } from "@/l
 export { resolveCueSheetDate, toCueRows };
 export type { CueColumnRow, CueRow };
 
-/** Column header tints. A fixed palette so contrast is guaranteed. */
-export const CUE_COLUMN_COLORS = [
-  "slate",
-  "amber",
-  "green",
-  "blue",
-  "purple",
-  "pink",
-  "cyan",
-  "red",
-] as const;
+import { CUE_COLUMN_COLORS, cueSheetOperationSchema } from "./cue-sheet-writes";
+export { CUE_COLUMN_COLORS } from "./cue-sheet-writes";
 export type CueColumnColor = (typeof CUE_COLUMN_COLORS)[number];
-
-/** Widths a resizer may persist. Narrow enough to fit, wide enough to read. */
-const MIN_COLUMN_WIDTH = 80;
-const MAX_COLUMN_WIDTH = 640;
-
-/** A cue note cell is a line or two of instruction, not an essay. */
-const MAX_NOTE_LENGTH = 2000;
 
 /**
  * What a new org gets the first time it opens the cue sheet. Seeded from
@@ -138,7 +122,7 @@ async function readColumns(orgId: string): Promise<CueColumnRow[]> {
           `SELECT id, label, color, sortOrder, width
              FROM cue_column
             WHERE orgId = ?
-            ORDER BY sortOrder ASC, createdAt ASC`,
+            ORDER BY sortOrder ASC, createdAt ASC, id ASC`,
         )
         .bind(orgId)
         .all<CueColumnRow>()
@@ -299,187 +283,15 @@ async function readNotes(
   );
 }
 
-// ─── Write: cells ────────────────────────────────────────────
-
-export const setCueNote = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        showId: idSchema,
-        serviceDate: serviceDateSchema,
-        itemId: z.string().min(1).max(200),
-        columnId: idSchema,
-        text: z.string().max(MAX_NOTE_LENGTH),
-      }),
-      data,
-    ),
-  )
+// All cue-sheet writes use captured requests with atomic receipts. Current
+// permissions are checked on every attempt, including an idempotent retry.
+export const mutateCueSheet = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, requestId: z.string().uuid(), operation: cueSheetOperationSchema }), data))
   .handler(async ({ data }) => {
-    // add_notes is deliberately enough: a camera operator writing in the
-    // Camera column should not need rights to restructure the sheet.
-    const userName = await assertCuePermission(data.orgId, [
-      "cuesheet:edit",
-      "cuesheet:add_notes",
-    ]);
-
-    // The column must belong to this org. Without this a valid columnId
-    // from another tenant would key a row into their sheet.
-    const owns = await getD1()
-      .prepare(`SELECT id FROM cue_column WHERE id = ? AND orgId = ?`)
-      .bind(data.columnId, data.orgId)
-      .first<{ id: string }>();
-    if (!owns) throw new Error("Unknown column");
-    const show = await getD1()
-      .prepare(`SELECT id FROM rundown WHERE id = ? AND orgId = ? AND serviceDate = ?`)
-      .bind(data.showId, data.orgId, data.serviceDate)
-      .first<{ id: string }>();
-    if (!show) throw new Error("Show not found");
-
-    const now = new Date().toISOString();
-    // ON CONFLICT against the unique cell index: two operators typing in
-    // the same cell converge on one row rather than racing to insert two.
-    await getD1()
-      .prepare(
-        `INSERT INTO cue_note (id, orgId, showId, serviceDate, itemId, columnId, text, updatedAt, updatedBy)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (orgId, showId, itemId, columnId)
-         DO UPDATE SET text = excluded.text, updatedAt = excluded.updatedAt, updatedBy = excluded.updatedBy`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        data.orgId,
-        data.showId,
-        data.serviceDate,
-        data.itemId,
-        data.columnId,
-        data.text,
-        now,
-        userName,
-      )
-      .run();
-
-    return { ok: true as const };
-  });
-
-// ─── Write: columns ──────────────────────────────────────────
-
-export const addCueColumn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        label: z.string().min(1).max(60),
-        color: z.enum(CUE_COLUMN_COLORS).optional(),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertCuePermission(data.orgId, ["cuesheet:edit"]);
-    const db = getD1();
-    const next = await db
-      .prepare(`SELECT COALESCE(MAX(sortOrder), -1) + 1 AS next FROM cue_column WHERE orgId = ?`)
-      .bind(data.orgId)
-      .first<{ next: number }>();
-    const id = crypto.randomUUID();
-    const now = new Date().toISOString();
-    await db
-      .prepare(
-        `INSERT INTO cue_column (id, orgId, label, color, sortOrder, width, createdAt, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(id, data.orgId, data.label.trim(), data.color ?? "slate", next?.next ?? 0, 160, now, now)
-      .run();
-    return { id };
-  });
-
-export const updateCueColumn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        id: idSchema,
-        label: z.string().min(1).max(60).optional(),
-        color: z.enum(CUE_COLUMN_COLORS).optional(),
-        width: z.number().int().min(MIN_COLUMN_WIDTH).max(MAX_COLUMN_WIDTH).optional(),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertCuePermission(data.orgId, ["cuesheet:edit"]);
-
-    const sets: string[] = [];
-    const values: (string | number)[] = [];
-    if (data.label !== undefined) {
-      sets.push("label = ?");
-      values.push(data.label.trim());
-    }
-    if (data.color !== undefined) {
-      sets.push("color = ?");
-      values.push(data.color);
-    }
-    if (data.width !== undefined) {
-      sets.push("width = ?");
-      values.push(data.width);
-    }
-    if (sets.length === 0) return { ok: true as const };
-    sets.push("updatedAt = ?");
-    values.push(new Date().toISOString());
-
-    // orgId in the WHERE, not just the permission check: the check proves
-    // the caller may edit their own columns, not that this one is theirs.
-    await getD1()
-      .prepare(`UPDATE cue_column SET ${sets.join(", ")} WHERE id = ? AND orgId = ?`)
-      .bind(...values, data.id, data.orgId)
-      .run();
-
-    return { ok: true as const };
-  });
-
-export const reorderCueColumns = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({ orgId: idSchema, ids: z.array(idSchema).min(1).max(40) }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertCuePermission(data.orgId, ["cuesheet:edit"]);
-    const db = getD1();
-    const now = new Date().toISOString();
-    await db.batch(
-      data.ids.map((id, index) =>
-        db
-          .prepare(`UPDATE cue_column SET sortOrder = ?, updatedAt = ? WHERE id = ? AND orgId = ?`)
-          .bind(index, now, id, data.orgId),
-      ),
-    );
-    return { ok: true as const };
-  });
-
-export const deleteCueColumn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
-  )
-  .handler(async ({ data }) => {
-    await assertCuePermission(data.orgId, ["cuesheet:edit"]);
-    const db = getD1();
-    // The notes are deleted explicitly rather than left to ON DELETE
-    // CASCADE. The foreign key only fires when the connection has
-    // `PRAGMA foreign_keys = ON`, which is an environment setting, not a
-    // property of the schema — verified: with it off the notes survive
-    // their column and become unreachable rows that still count against
-    // storage. Deleting both is deterministic everywhere.
-    //
-    // This is destructive across every service date, which is why the UI
-    // requires typing the column name before calling it.
-    await db.batch([
-      db.prepare(`DELETE FROM cue_note WHERE orgId = ? AND columnId = ?`).bind(data.orgId, data.id),
-      db.prepare(`DELETE FROM cue_column WHERE id = ? AND orgId = ?`).bind(data.id, data.orgId),
-    ]);
-    return { ok: true as const };
+    const userName = await assertCuePermission(data.orgId, data.operation.kind === "note"
+      ? ["cuesheet:edit", "cuesheet:add_notes"] : ["cuesheet:edit"]);
+    const { applyCueSheetWrite } = await import("./cue-sheet-writes.server");
+    return applyCueSheetWrite(getD1(), data, userName);
   });
 
 /** Exported for tests: the shape the page renders from. */

@@ -1,0 +1,125 @@
+import assert from "node:assert/strict";
+import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
+import { poll } from "./real-browser-fixture.mjs";
+
+await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCookie, operatorEmail, operatorPassword, queryFixture }) => {
+  const evaluate = async expression => (await browser("eval", expression)).result;
+  const click = name => browser("find", "role", "button", "click", "--name", name, "--exact");
+  const response = await fetch(`${origin}/api/rundown/${orgId}/command?showId=smoke-show&serviceDate=${date}`, { method:"POST", headers:{Cookie:operatorCookie,Origin:origin,"Content-Type":"application/json"}, body:JSON.stringify({action:"add-item",payload:{id:"write-item",title:"Cue write fixture",type:"segment",duration:300000,notes:"",assignee:"",cue:"",hardStop:false}}) });
+  assert.equal(response.status,200); assert.equal((await response.json()).ok,true);
+  await browser("open",`${origin}/login`); await browser("fill","#email",operatorEmail); await browser("fill","#password",operatorPassword); await click("Sign in"); await browser("wait","--url",`**/${orgId}/**`);
+  await browser("click",`a[href='/${orgId}/production/cue-sheets']`); await browser("wait","text=Synced"); await browser("wait","text=Cue write fixture");
+  const install = async () => evaluate(`(() => {
+    document.querySelectorAll('table textarea').forEach((node,index) => node.dataset.testid='write-note-'+index);
+    window.nativeCueFetch = window.fetch; window.cueRequests=[]; window.releaseCueResponse=null;
+    window.fetch=(input,init) => {
+      const body=init?.body;
+      const kinds=['note','add-column','rename-column','color-column','resize-column','reorder-columns','delete-column'];
+      const kind=typeof body==='string' ? kinds.find(kind=>body.includes('"s":"'+kind+'"')) : undefined;
+      if(!kind) return window.nativeCueFetch(input,init);
+      const packet={input,init,kind}; window.cueRequests.push(packet);
+      const fault=window.cueFault;
+      if(!fault || fault.kind!==kind) return window.nativeCueFetch(input,init);
+      window.cueFault=null;
+      if(fault.mode==='before') return Promise.resolve(new Response('Fixture rejected before write',{status:503}));
+      return window.nativeCueFetch(input,init).then(async response=>{
+        await response.clone().text();
+        if(fault.mode==='lost') throw new Error('Fixture response lost after committed write');
+        return new Promise(resolve=>{window.releaseCueResponse=()=>resolve(response);});
+      });
+    }; return true;
+  })()`);
+  await install();
+  const columns = async () => queryFixture("SELECT id,label,color,width,sortOrder FROM cue_column WHERE orgId='display-smoke' ORDER BY sortOrder,createdAt,id");
+  const initialColumns = await columns(); const firstId=initialColumns[0].id, secondId=initialColumns[1].id;
+  const savedNote = async columnId => (await queryFixture(`SELECT text FROM cue_note WHERE orgId='display-smoke' AND itemId='write-item' AND columnId='${columnId}'`))[0]?.text ?? "";
+  const edit = async (index,text) => { await browser("fill",`[data-testid="write-note-${index}"]`,text); await browser("click","h1"); };
+  await evaluate("window.cueFault={kind:'note',mode:'hang'}");
+  await edit(0,"First committed note");
+  await poll(async()=>await savedNote(firstId)==="First committed note","original note committed");
+  await browser("wait","text=Your edits are kept.");
+  assert.equal(await evaluate("document.querySelector('[data-testid=write-note-0]').value"),"First committed note");
+  await browser("tab","new",`${origin}/${orgId}/production/cue-sheets`); await browser("wait","text=Synced"); await install();
+  await edit(0,"Newer note from another tab"); await poll(async()=>await savedNote(firstId)==="Newer note from another tab","newer note committed");
+  await browser("tab","0");
+  await click("Retry saves");
+  await browser("wait","--fn","!document.body.textContent.includes('Your edits are kept.') && document.querySelector('[data-testid=write-note-0]').value==='Newer note from another tab'");
+  assert.equal(await savedNote(firstId),"Newer note from another tab");
+  assert.equal(await evaluate("window.cueRequests[0].init.body===window.cueRequests[1].init.body"),true);
+  await evaluate("window.releaseCueResponse(); true");
+  assert.equal(await evaluate("document.querySelector('[data-testid=write-note-0]').value"),"Newer note from another tab");
+  console.log("Committed response loss and delayed acknowledgement passed");
+
+  await evaluate("window.cueFault={kind:'note',mode:'before'}"); await edit(1,"Preserved local draft"); await browser("wait","text=Your edits are kept.");
+  await browser("tab","1"); await edit(1,"Other saved value"); await poll(async()=>await savedNote(secondId)==="Other saved value","other tab saves conflicting value");
+  await browser("tab","0"); await click("Retry saves"); await browser("wait","text=Review saved note");
+  assert.equal(await savedNote(secondId),"Other saved value");
+  assert.equal(await evaluate("document.querySelector('[data-testid=write-note-1]').value"),"Preserved local draft");
+  await click("Review saved note"); await browser("wait",'[role="dialog"]'); await click("Cancel");
+  assert.equal(await savedNote(secondId),"Other saved value");
+  await click("Review saved note"); await click("Replace with my edit");
+  await poll(async()=>await savedNote(secondId)==="Preserved local draft","explicit reviewed replacement");
+  await browser("wait","--fn","!document.body.textContent.includes('Your edits are kept.')");
+  console.log("Concurrent note conflict, retained draft and confirmed replacement passed");
+
+  // A second local edit waits behind the captured first request; a different
+  // cell still saves, and the eventual retry commits the latest draft in order.
+  const thirdId=initialColumns[2].id, fourthId=initialColumns[3].id;
+  await evaluate("window.cueFault={kind:'note',mode:'hang'}");
+  await edit(2,"Queued edit first");
+  await poll(async()=>await savedNote(thirdId)==="Queued edit first","first queued write committed");
+  await edit(2,"Queued edit latest"); await edit(3,"Independent cell saves");
+  await poll(async()=>await savedNote(fourthId)==="Independent cell saves","another cell remains writable");
+  assert.equal(await savedNote(thirdId),"Queued edit first");
+  await browser("wait","text=Your edits are kept.");
+  assert.equal(await evaluate("document.querySelector('[data-testid=write-note-2]').value"),"Queued edit latest");
+  await click("Retry saves");
+  await poll(async()=>await savedNote(thirdId)==="Queued edit latest","queued second edit follows original acknowledgement");
+  await browser("wait","--fn","!document.body.textContent.includes('Your edits are kept.')");
+  await evaluate("window.releaseCueResponse(); true");
+  assert.equal(await evaluate("document.querySelector('[data-testid=write-note-2]').value"),"Queued edit latest");
+  console.log("Queued local edits and independent cells passed");
+
+  await click("Columns"); await browser("fill",'input[placeholder="SM, SC, V2…"]',"Camera recovery");
+  await evaluate("window.cueFault={kind:'add-column',mode:'lost'}"); await click("Add"); await browser("wait","text=Retry column change");
+  const created=(await columns()).find(column=>column.label==="Camera recovery"); assert.ok(created);
+  await browser("set","viewport","320","740"); await browser("scrollintoview",'header button:text-is("Retry column change")');
+  const bounds=await evaluate(`(() => {const node=[...document.querySelectorAll('button')].find(node=>node.textContent==='Retry column change');const r=node.getBoundingClientRect();return {left:r.left,right:r.right,height:r.height,reachable:node.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))};})()`);
+  assert.ok(bounds.left>=0 && bounds.right<=320 && bounds.height>=44 && bounds.reachable,JSON.stringify(bounds));
+  await browser("screenshot","/tmp/showpilot-cue-write-retry-320.png");
+  await click("Retry column change");
+  await browser("wait","--fn","!document.body.textContent.includes('Retry column change')");
+  assert.equal((await columns()).filter(column=>column.label==="Camera recovery").length,1);
+  assert.equal(await evaluate("document.querySelector('input[placeholder=\"SM, SC, V2…\"]').value"),"");
+  await browser("set","viewport","1440","900");
+  await evaluate("window.cueFault={kind:'rename-column',mode:'lost'}");
+  await browser("fill",'input[aria-label="Rename Camera recovery"]',"Camera renamed"); await browser("click","h1"); await browser("wait","text=Retry column change");
+  await click("Retry column change"); await browser("wait",'input[aria-label="Rename Camera renamed"]');
+  await browser("fill",'input[aria-label="Rename Camera renamed"]',"Camera latest"); await browser("click","h1"); await browser("wait",'input[aria-label="Rename Camera latest"]');
+  assert.equal(await evaluate(`(() => {const old=window.cueRequests.find(packet=>packet.kind==='rename-column');return window.nativeCueFetch(old.input,{...old.init,signal:undefined}).then(async response=>{await response.text();return response.status;});})()`),200);
+  assert.equal((await columns()).find(column=>column.id===created.id).label,"Camera latest");
+  await evaluate("window.cueFault={kind:'color-column',mode:'before'}"); await browser("select",'select[aria-label="Colour for Camera latest"]',"green"); await browser("wait","text=Retry column change");
+  await click("Retry column change"); await poll(async()=>(await columns()).find(column=>column.id===created.id).color==="green","color retry");
+  await browser("wait","--fn","!document.body.textContent.includes('Retry column change')");
+  await click("Close column settings");
+  const resize=`th[data-cue-column-id="${created.id}"] [role="separator"]`;
+  await browser("scrollintoview",resize); await browser("focus",resize);
+  await evaluate("window.cueFault={kind:'resize-column',mode:'before'}"); await browser("press","ArrowRight"); await browser("wait","text=Retry column change");
+  assert.equal((await columns()).find(column=>column.id===created.id).width,160);
+  await click("Retry column change"); await poll(async()=>(await columns()).find(column=>column.id===created.id).width===170,"width retry");
+  await browser("wait","--fn","!document.body.textContent.includes('Retry column change')");
+  const beforeOrder=(await columns()).map(column=>column.id); const expectedOrder=[...beforeOrder]; const index=expectedOrder.indexOf(created.id); [expectedOrder[index-1],expectedOrder[index]]=[expectedOrder[index],expectedOrder[index-1]];
+  const mover=`th[data-cue-column-id="${created.id}"] button`;
+  await browser("scrollintoview",mover); await browser("focus",mover); await evaluate("window.cueFault={kind:'reorder-columns',mode:'before'}"); await browser("press","ArrowLeft"); await browser("wait","text=Retry column change");
+  assert.deepEqual((await columns()).map(column=>column.id),beforeOrder); await click("Retry column change"); await poll(async()=>JSON.stringify((await columns()).map(column=>column.id))===JSON.stringify(expectedOrder),"reorder retry");
+  await browser("wait","--fn","!document.body.textContent.includes('Retry column change')");
+  console.log("Create, rename, color, resize and reorder retries passed");
+
+  await click("Columns"); await click("Delete Camera latest"); await browser("wait",'[role="dialog"]'); await click("Cancel"); assert.ok((await columns()).some(column=>column.id===created.id));
+  await click("Delete Camera latest"); await evaluate("window.cueFault={kind:'delete-column',mode:'lost'}"); await click("Delete column"); await browser("wait","text=Retry column change"); assert.equal((await columns()).some(column=>column.id===created.id),false);
+  await click("Retry column change"); await browser("wait","--fn","!document.body.textContent.includes('Retry column change')");
+  await evaluate(`(() => {const old=window.cueRequests.find(packet=>packet.kind==='add-column');return window.nativeCueFetch(old.input,{...old.init,signal:undefined}).then(async response=>{await response.text();return response.status;});})()`);
+  assert.equal((await columns()).some(column=>column.id===created.id),false,"late create must not resurrect a deleted column");
+  const errors=await browser("errors"); assert.deepEqual(errors.errors,[]);
+  console.log(JSON.stringify({passed:true,realCommittedResponseLoss:true,noteTimeout:true,identicalRetries:true,newerNotePreserved:true,explicitConflictReplacement:true,queuedEditsStayOrdered:true,otherCellsRemainEditable:true,allColumnMutationsRetried:true,deleteConfirmed:true,noResurrection:true,retryFits320:true,pageErrors:errors.errors}));
+});

@@ -18,6 +18,9 @@ import { hasEffectivePermission } from "@/lib/app-permissions";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 import { getCueSheet, type CueSheetModel } from "@/lib/cue-sheet";
 import { withOperationTimeout } from "@/lib/operation-timeout";
+import { useCueSheetWrites } from "@/hooks/useCueSheetWrites";
+import { describeCueSheetWrite, type CueSheetOperation } from "@/lib/cue-sheet-writes";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CueTable, TOGGLEABLE_COLUMNS } from "@/components/cue-sheet/cue-table";
 import { useRundownSync } from "@/hooks/useRundownSync";
 import { toCueRows } from "@/lib/cue-sheet-derive";
@@ -96,9 +99,11 @@ function CueSheetsPage() {
   const selectedShow = useRef(showId);
   selectedShow.current = showId;
   const noteVersion = useRef(0);
-  const localNotes = useRef(new Map<string, { showId: string; itemId: string; columnId: string; text: string; pending: boolean; version: number }>());
-  const noteWrites = useRef(new Map<string, Promise<void>>());
-  const [noteErrors, setNoteErrors] = useState(new Map<string, string>());
+  const localNotes = useRef(new Map<string, { showId: string; itemId: string; columnId: string; text: string; expectedText: string; pending: boolean; version: number }>());
+  const notePumps = useRef(new Set<string>());
+  const writes = useCueSheetWrites(orgId);
+  const [confirmedColumnWrite, setConfirmedColumnWrite] = useState<CueSheetOperation | null>(null);
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const [managing, setManaging] = useState(false);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const sheetScroll = useEdgeScroll();
@@ -190,21 +195,12 @@ function CueSheetsPage() {
 
   // ── Live ──────────────────────────────────────────────────
 
-  const applyRemoteNote = useCallback(
-    (event: { showId: string; serviceDate: string; itemId: string; columnId: string; text: string }) => {
-      if (event.showId !== showId || localNotes.current.get(JSON.stringify([event.showId, event.itemId, event.columnId]))?.pending) return;
-      setNotes((prev) => ({
-        ...prev,
-        [event.itemId]: { ...(prev[event.itemId] ?? {}), [event.columnId]: event.text },
-      }));
-    },
-    [showId],
-  );
-
   const { connected, status: syncStatus, publish, syncError, syncErrorAt, retrySync } = useCueSheetSync({
     orgId,
     scope: showId ?? "",
-    onNote: applyRemoteNote,
+    // Notifications invalidate the D1 read. A delayed receipt retry must never
+    // replace a newer note using an older notification payload.
+    onNote: (event) => { if (event.showId === showId) retrySync(); },
     onRefresh: async (signal) => { if (showId) await load(showId, signal); },
   });
 
@@ -291,68 +287,82 @@ function CueSheetsPage() {
 
   // ── Edits ─────────────────────────────────────────────────
 
-  const handleNoteChange = useCallback(
-    async (itemId: string, columnId: string, text: string) => {
-      // Optimistic: the cell already shows what was typed. Reverting on a
-      // failed write would be worse than a stale cell — the operator has
-      // moved on and the rundown is running.
-      setNotes((prev) => ({
-        ...prev,
-        [itemId]: { ...(prev[itemId] ?? {}), [columnId]: text },
-      }));
-      if (!showId) return;
-      const key = JSON.stringify([showId, itemId, columnId]);
-      const draft = { showId, itemId, columnId, text, pending: true, version: ++noteVersion.current };
-      localNotes.current.set(key, draft);
-      const previous = noteWrites.current.get(key);
-      const write = (async () => {
-        await previous?.catch(() => {});
-        const { setCueNote } = await import("@/lib/cue-sheet");
-        await setCueNote({ data: { orgId, showId, serviceDate, itemId, columnId, text } });
-        if (localNotes.current.get(key) === draft) { draft.pending = false; draft.version = ++noteVersion.current; }
-        publish({ type: "note", showId, serviceDate, itemId, columnId, text, by: "", at: Date.now() });
-      })();
-      noteWrites.current.set(key, write);
-      try {
-        await write;
-        if (localNotes.current.get(key) === draft) setNoteErrors(previous => { const next = new Map(previous); next.delete(key); return next; });
-      } catch (cause) {
-        if (localNotes.current.get(key) === draft) setNoteErrors(previous => new Map(previous).set(key, cause instanceof Error ? cause.message : "Could not save cue note."));
+  const saveNote = async (key: string, retry = false) => {
+    if (notePumps.current.has(key)) return;
+    notePumps.current.add(key);
+    try {
+      while (true) {
+        const draft = localNotes.current.get(key);
+        if (!draft?.pending || (!retry && writes.has(key))) return;
+        const ack = await writes.run(key, retry ? undefined : {
+          kind: "note", showId: draft.showId, serviceDate, itemId: draft.itemId,
+          columnId: draft.columnId, text: draft.text, expectedText: draft.expectedText,
+        });
+        retry = false;
+        if (!ack || ack.result.outcome !== "applied" || ack.attempt.operation.kind !== "note") return;
+        const op = ack.attempt.operation;
+        const latest = localNotes.current.get(key);
+        if (!latest) return;
+        if (latest.text === op.text) {
+          latest.pending = false; latest.version = ++noteVersion.current;
+          latest.text = ack.result.currentText ?? op.text;
+          latest.expectedText = latest.text;
+          if (selectedShow.current === latest.showId) setNotes(previous => ({ ...previous, [latest.itemId]: { ...previous[latest.itemId], [latest.columnId]: latest.text } }));
+        } else {
+          // A newer local edit follows the confirmed value, never the result
+          // of another operator's intervening edit. The server checks this base.
+          latest.expectedText = op.text;
+        }
+        publish({ type: "note", showId: op.showId, serviceDate: op.serviceDate, itemId: op.itemId, columnId: op.columnId, text: ack.result.currentText ?? op.text, by: "", at: Date.now() });
+        if (!latest.pending) return;
       }
-      finally { if (noteWrites.current.get(key) === write) noteWrites.current.delete(key); }
-    },
-    [orgId, showId, serviceDate, publish],
-  );
+    } finally { notePumps.current.delete(key); }
+  };
 
-  const handleWidthChange = useCallback(
-    async (columnId: string, width: number) => {
-      setModel((prev) => ({
-        ...prev,
-        columns: prev.columns.map((c) => (c.id === columnId ? { ...c, width } : c)),
-      }));
-      const { updateCueColumn } = await import("@/lib/cue-sheet");
-      await updateCueColumn({ data: { orgId, id: columnId, width } });
-    },
-    [orgId],
-  );
+  const handleNoteChange = (itemId: string, columnId: string, text: string, expectedText: string) => {
+    if (!showId) return;
+    const key = JSON.stringify([showId, itemId, columnId]);
+    setNotes(previous => ({ ...previous, [itemId]: { ...previous[itemId], [columnId]: text } }));
+    localNotes.current.set(key, { showId, itemId, columnId, text, expectedText, pending: true, version: ++noteVersion.current });
+    void saveNote(key);
+  };
 
-  const handleReorder = useCallback(
-    async (fromId: string, toId: string) => {
-      const ids = model.columns.map((c) => c.id);
-      const from = ids.indexOf(fromId);
-      const to = ids.indexOf(toId);
-      if (from < 0 || to < 0) return;
-      ids.splice(to, 0, ...ids.splice(from, 1));
-      setModel((prev) => ({
-        ...prev,
-        columns: [...prev.columns].sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)),
-      }));
-      const { reorderCueColumns } = await import("@/lib/cue-sheet");
-      await reorderCueColumns({ data: { orgId, ids } });
-      publish({ type: "columns", at: Date.now() });
-    },
-    [model.columns, orgId, publish],
-  );
+  const reviewNote = async (key: string) => {
+    const entry = writes.entries.get(key), draft = localNotes.current.get(key);
+    if (!entry?.conflict || !draft || selectedShow.current !== draft.showId) return;
+    const text = draft.text, saved = entry.conflict.currentText ?? "";
+    const accepted = await confirm({ title: "Replace the saved cue note?", description: `Saved note: ${saved || "(empty)"}\nYour edit: ${text || "(empty)"}\nThe saved note will be checked again before replacement.`, confirmLabel: "Replace with my edit", variant: "warning" });
+    if (!accepted || localNotes.current.get(key)?.text !== text || selectedShow.current !== draft.showId) return;
+    if (!writes.clearConflict(key, entry.attempt.requestId)) return;
+    draft.expectedText = saved;
+    void saveNote(key);
+  };
+
+  const runColumn = async (operation?: CueSheetOperation) => {
+    const ack = await writes.run("columns", operation);
+    if (!ack || ack.result.outcome !== "applied") return false;
+    setConfirmedColumnWrite(ack.attempt.operation);
+    publish({ type: "columns", at: Date.now() });
+    if (selectedShow.current) await load(selectedShow.current).catch(() => {});
+    return true;
+  };
+  const columnWrite = writes.entries.get("columns");
+  const columnLocked = !!columnWrite || loading;
+  const noteWrites = [...writes.entries].filter(([, entry]) => entry.attempt.operation.kind === "note" && entry.attempt.operation.showId === showId);
+  const noteFailures = noteWrites.filter(([, entry]) => entry.failure);
+  const handleWidthChange = (id: string, width: number) => {
+    const column = model.columns.find(column => column.id === id);
+    if (!column || columnLocked || column.width === width) return;
+    void runColumn({ kind: "resize-column", id, before: column.width, width });
+  };
+  const handleReorder = (fromId: string, toId: string) => {
+    if (columnLocked) return;
+    const before = model.columns.map(column => column.id), ids = [...before];
+    const from = ids.indexOf(fromId), to = ids.indexOf(toId);
+    if (from < 0 || to < 0 || from === to) return;
+    ids.splice(to, 0, ...ids.splice(from, 1));
+    void runColumn({ kind: "reorder-columns", before, ids });
+  };
 
   const pickerShows = useMemo(() => [...model.shows].reverse(), [model.shows]);
 
@@ -365,6 +375,7 @@ function CueSheetsPage() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      {ConfirmDialogEl}
       <div className="shrink-0 max-h-[50%] overflow-y-auto" aria-label="Cue sheet controls">
       <header className="shrink-0 bg-board-bg/85 backdrop-blur-xl border-b border-board-border">
         <div className="flex items-center gap-3 flex-wrap px-6 py-3">
@@ -395,11 +406,34 @@ function CueSheetsPage() {
           />
 
           <RelaySyncNotice error={loadError ?? syncError} occurredAt={loadError ? loadErrorAt : syncErrorAt} status={syncStatus} onRetry={retrySync} />
-          {noteErrors.size > 0 && <div role="alert" className="flex items-center gap-3 text-sm text-amber-300">
-            <p>{noteErrors.size} cue note(s) have not saved. Your edits are kept.</p>
-            <button type="button" className="min-h-11 px-3 font-semibold underline" onClick={() => {
-              for (const [key, draft] of localNotes.current) if (draft.showId === showId && draft.pending && !noteWrites.current.has(key)) void handleNoteChange(draft.itemId, draft.columnId, draft.text);
-            }}>Retry saves</button>
+          {noteWrites.some(([, entry]) => entry.pending) && <p role="status" className="text-sm text-board-muted">Saving cue notes…</p>}
+          {noteFailures.length > 0 && <div role="alert" className="min-w-0 basis-full space-y-2 text-sm text-amber-300">
+            <p>{noteFailures.length} cue note(s) have not saved. Your edits are kept.</p>
+            {noteFailures.map(([key, entry]) => {
+              const failure = entry.failure, op = entry.attempt.operation;
+              if (!failure || op.kind !== "note") return null;
+              const column = model.columns.find(column => column.id === op.columnId)?.label ?? "Removed department";
+              const title = rows.find(row => row.itemId === op.itemId)?.title ?? "Cue note";
+              return <div key={key} className="flex flex-wrap items-center gap-2">
+                <p className="min-w-0 flex-1"><strong>{title} · {column}</strong> {failure.message} <time dateTime={new Date(failure.occurredAt).toISOString()}>{new Date(failure.occurredAt).toLocaleTimeString()}</time></p>
+                {entry.conflict && <>
+                  <button type="button" className="min-h-11 px-3 underline" onClick={() => void reviewNote(key)}>Review saved note</button>
+                  <button type="button" className="min-h-11 px-3 underline" onClick={() => {
+                    if (!writes.clearConflict(key, entry.attempt.requestId)) return;
+                    const draft = localNotes.current.get(key);
+                    if (draft) { draft.text = entry.conflict?.currentText ?? ""; draft.expectedText = draft.text; draft.pending = false; draft.version = ++noteVersion.current; }
+                    setNotes(previous => ({ ...previous, [op.itemId]: { ...previous[op.itemId], [op.columnId]: entry.conflict?.currentText ?? "" } }));
+                    retrySync();
+                  }}>Use saved note</button>
+                </>}
+              </div>;
+            })}
+            {noteFailures.some(([, entry]) => !entry.conflict) && <button type="button" className="min-h-11 px-3 font-semibold underline" disabled={noteFailures.every(([, entry]) => entry.pending || entry.conflict)} onClick={() => { for (const [key, entry] of noteFailures) if (!entry.conflict) void saveNote(key, true); }}>Retry saves</button>}
+          </div>}
+          {columnWrite?.pending && <p role="status" className="text-sm text-board-muted">Saving column change…</p>}
+          {columnWrite?.failure && <div role="alert" className="min-w-0 basis-full flex flex-wrap items-center gap-2 text-sm text-amber-300">
+            <div className="min-w-0 flex-1 basis-40"><p>{describeCueSheetWrite(columnWrite.attempt.operation)}. {columnWrite.failure.message}</p><time dateTime={new Date(columnWrite.failure.occurredAt).toISOString()}>{new Date(columnWrite.failure.occurredAt).toLocaleTimeString()}</time></div>
+            {columnWrite.conflict ? <button type="button" className="min-h-11 px-3 underline" onClick={() => { if (writes.clearConflict("columns", columnWrite.attempt.requestId)) retrySync(); }}>Refresh saved columns</button> : <button type="button" className="min-h-11 px-3 underline disabled:opacity-50" disabled={columnWrite.pending} onClick={() => void runColumn()}>Retry column change</button>}
           </div>}
           <div className="ml-auto flex items-center gap-3">
             {/* Connection state is worth showing here, unlike in the
@@ -494,12 +528,10 @@ function CueSheetsPage() {
 
       {managing && canManageColumns && (
         <ColumnManager
-          orgId={orgId}
           columns={model.columns}
-          onChanged={() => {
-            if (showId) void load(showId).catch(() => {});
-            publish({ type: "columns", at: Date.now() });
-          }}
+          onMutation={runColumn}
+          locked={columnLocked}
+          confirmedOperation={confirmedColumnWrite}
           onClose={() => setManaging(false)}
         />
       )}
@@ -520,6 +552,7 @@ function CueSheetsPage() {
             hidden={hidden}
             currentItemId={currentItemId}
             canEdit={canAddNotes}
+            canManageColumns={canManageColumns && !columnLocked}
             onNoteChange={handleNoteChange}
             onWidthChange={handleWidthChange}
             onReorder={handleReorder}
