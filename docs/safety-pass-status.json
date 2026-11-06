@@ -1224,8 +1224,15 @@
       "phase": "2",
       "section": "2.4 Offset, latency, and clock drive (audit H20, H22)",
       "line": 203,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "InternalTimecodeSource now uses a dedicated bundled module worker instead of requestAnimationFrame. It samples the monotonic elapsed clock at 60 Hz and emits changed frames up to 30 fps. Sampling at twice the maximum frame rate avoids timer jitter reducing fresh output to roughly 27\u201328 fps. Unsupported/failed module workers use a cancellable interval fallback; browser suspension remains subject to the relay feed watchdog.",
+        "useTimecode sends fresh internal observations directly instead of batching them through the old 100ms interval. MTC flushes fresh observations on a 30 Hz worker and never repeats its last input to hide signal loss. Pause, Stop, disconnect, ownership loss and scope changes cancel local schedulers; resume starts at the relay's exact held frame. A failed first feed cannot leave the UI claiming generator ownership.",
+        "Regressions cover all four frame formats, exact held-frame resume, no animation dependency, coalesced tick deduplication, worker replacement on repeated seeks, fallback and cleanup, roughly 30 fresh internal frames per second, disconnect and failed-start handling. Full validation: 1478 web unit tests and 424 Worker tests passed, plus web tsc and production build. Logs: /tmp/showpilot-clock-web-tests.log, /tmp/showpilot-clock-tsc.log, /tmp/showpilot-clock-build.log.",
+        "node apps/web/scripts/smoke-timecode-clock.mjs passed against the built application, real local authentication and relay in a disposable organization. It disables animation callbacks, verifies the bundled worker loads, confirms an actual hidden-tab visibility transition, and measured 29.87 foreground / 29.77 background fresh feeds per second. Killing the worker while the socket remains open causes the relay to hold the frame at stalled and keep that same frame through signal-lost. Log: /tmp/showpilot-clock-browser.log. This is a short browser rehearsal, not the final full-show or physical-device gate.",
+        "The browser rehearsal uses scripts/real-browser-fixture.mjs with a temporary Chrome profile because Playwright forces focus/visibility on its pages. No real workspace, existing browser profile, or equipment is touched. SHOWPILOT_CHROME_EXECUTABLE can select another Chrome/Chromium installation.",
+        "Not deployed or released. Remaining Phase 2.4 requirements, per-event leadMs/device latency, display interpolation and offset UI, retain separate pending entries."
+      ]
     },
     {
       "id": "ee73b9245260f50a",
