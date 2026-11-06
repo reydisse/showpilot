@@ -41,6 +41,8 @@ const ACTION_OPTIONS: {
   { value: "lighting-scene", label: "Recall Lighting Scene", category: "Devices" },
   { value: "lighting-blackout", label: "Lighting Blackout", category: "Devices" },
   { value: "lyrics-goto", label: "Show Lyrics Section", category: "Lyrics" },
+  { value: "lyrics-next-section", label: "Next Lyrics Section", category: "Lyrics" },
+  { value: "lyrics-previous-section", label: "Previous Lyrics Section", category: "Lyrics" },
   { value: "lyrics-clear", label: "Clear Lyrics", category: "Lyrics" },
   { value: "pp-trigger-slide", label: "Trigger ProPresenter Slide", category: "Lyrics" },
   { value: "pp-trigger-next", label: "Next ProPresenter Slide", category: "Lyrics" },
@@ -59,6 +61,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
   const [payloadJson, setPayloadJson] = useState("{}");
   const [targetSelection, setTargetSelection] = useState<AutomationTargetOption | null>(null);
   const usesTargetPicker = action === "rundown-goto-item" || action === "lighting-blackout";
+  const stepsLyrics = action === "lyrics-next-section" || action === "lyrics-previous-section";
   const propNameId = useId();
   const targetId = useId();
   const [propName, setPropName] = useState("");
@@ -93,7 +96,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
 
     let payload: Record<string, unknown>;
     try {
-      const parsed: unknown = usesTargetPicker
+      const parsed: unknown = stepsLyrics ? {} : usesTargetPicker
         ? action === "rundown-goto-item" ? { itemId: targetSelection?.id } : { deviceId: targetSelection?.id }
         : structuredProPresenter
         ? { ...(action === "pp-trigger-prop" ? { propName: propName.trim() } : {}), ...(propTarget.trim() ? { target: propTarget.trim() } : {}) }
@@ -211,7 +214,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
         {!toleranceValid && <p role="alert" className="mt-1 text-xs text-red-400">{toleranceError}</p>}
       </div>
 
-      {usesTargetPicker ? <AutomationTargetPicker key={action} kind={action} loadOptions={loadTargets} selection={targetSelection} onSelect={setTargetSelection} /> : structuredProPresenter ? <div className="space-y-3">
+      {stepsLyrics ? <p className="text-xs text-board-muted">Move to the {action === "lyrics-next-section" ? "next" : "previous"} section of the currently displayed song, using its saved section order. Show a section first. At the song boundary, the cue reports an error and keeps the current lyrics.</p> : usesTargetPicker ? <AutomationTargetPicker key={action} kind={action} loadOptions={loadTargets} selection={targetSelection} onSelect={setTargetSelection} /> : structuredProPresenter ? <div className="space-y-3">
         {action === "pp-trigger-prop" && <div>
           <label htmlFor={propNameId} className="mb-1 block text-xs text-board-muted">Prop name</label>
           <input id={propNameId} value={propName} onChange={event => setPropName(event.target.value)} required maxLength={200} className={INPUT_CLASS} />

@@ -33,6 +33,7 @@ import { startPositionProblem, timecodeStartPositionSchema } from "@/lib/timecod
 import { z } from "zod";
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMECODE_COMMANDS, TIMECODE_FEED_STALL_MS as FEED_STALL_MS } from "@/types/timecode";
 import { automationPayloadProblem } from "@/lib/automation-payload";
+import { resolveLyricsStep } from "@/lib/lyrics-step.server";
 import { runProPresenterCue } from "@/lib/automation-propresenter";
 import { AutomationExecutor, automationOutput } from "@/lib/automation-execution";
 import { cueReviewMatches, nextAutomationEvent } from "@/lib/automation-cues";
@@ -64,6 +65,8 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
   "lighting-scene",
   "lighting-blackout",
   "lyrics-goto",
+  "lyrics-next-section",
+  "lyrics-previous-section",
   "lyrics-clear",
   "pp-trigger-slide",
   "pp-trigger-next",
@@ -1573,6 +1576,17 @@ export class TimecodeRelay extends DurableObject {
           generationKey: event.sourceKey,
         } satisfies LyricsDisplayState;
         this.broadcastLyrics(this.state.lyrics);
+        break;
+      }
+
+      case "lyrics-next-section":
+      case "lyrics-previous-section": {
+        const current = this.state.lyrics;
+        const next = await resolveLyricsStep(this.env.DB, this.orgId, current, event.action === "lyrics-next-section" ? "next" : "previous");
+        assertCanDispatch();
+        if (this.state.lyrics !== current) throw new Error("Lyrics changed while the cue was resolving. Review the current section before retrying.");
+        this.state.lyrics = next;
+        this.broadcastLyrics(next);
         break;
       }
 
