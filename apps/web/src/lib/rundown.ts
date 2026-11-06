@@ -1,3 +1,4 @@
+import { createSavedRundown } from "./saved-rundown-create.server";
 import { parseProPresenterFeedEvent, type ProPresenterFeedState } from "./propresenter-client";
 import { readProPresenterSettings, proPresenterConnection } from "./propresenter-settings.server";
 import { markDatabaseWrite, requestDatabase } from "@/lib/request-database.server";
@@ -1061,6 +1062,7 @@ export const saveRundownTemplate = createServerFn({ method: "POST" })
     parseOrThrow(
       z.object({
         orgId: idSchema,
+        id: idSchema,
         name: labelSchema,
         serviceName: z.string().max(120).default(""),
         scheduledStartTime: z
@@ -1074,10 +1076,6 @@ export const saveRundownTemplate = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
-    const prisma = getPrisma();
-    const id = crypto.randomUUID();
-    const now = new Date().toISOString();
-
     const cleanItems = normalizeLegacyRundownItems(data.items).map((item) => ({
       ...item,
       status: "upcoming" as const,
@@ -1085,27 +1083,15 @@ export const saveRundownTemplate = createServerFn({ method: "POST" })
       actualEnd: null,
     }));
 
-    const saved: SavedRundown = {
-      id,
+    const result = await createSavedRundown(requestDatabase, data.orgId, {
+      id: data.id,
       name: data.name,
       serviceName: data.serviceName,
       scheduledStartTime: data.scheduledStartTime,
       items: cleanItems,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    await prisma.appSetting.upsert({
-      where: { orgId_key: { orgId: data.orgId, key: savedRundownKey(id) } },
-      update: { value: JSON.stringify(saved) },
-      create: {
-        orgId: data.orgId,
-        key: savedRundownKey(id),
-        value: JSON.stringify(saved),
-      },
     });
-
-    return { ok: true, id };
+    markDatabaseWrite();
+    return result;
   });
 
 /**
