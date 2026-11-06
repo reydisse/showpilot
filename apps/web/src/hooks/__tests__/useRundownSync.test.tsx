@@ -314,4 +314,19 @@ describe("useRundownSync command confirmation", () => {
       payload: { message: "Stay ready" },
     });
   });
+
+  it("hands pending work off on pagehide only once, even if the route then unmounts", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ ok: true, revision: 5 }));
+    globalThis.fetch = fetchMock;
+    const { result, unmount } = renderHook(() => useRundownSync("org-pagehide", "2026-09-06", "show-1"));
+    const socket = await waitForSocket();
+    act(() => { socket.open(); hydrate(socket); result.current.sendCommand("stage-message", { message: "Review me" }); });
+    const original = JSON.parse(socket.sent[0]);
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    expect(result.current.hasPendingCommands()).toBe(false);
+    unmount(); await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({ id: original.id, expectedRevision: original.expectedRevision });
+  });
+
 });
