@@ -621,6 +621,31 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Retrying a saved-template write
+
+Deploy the browser and Worker together. Saving a template now requires the
+browser's stable save ID; an older cached browser must reload before saving.
+The dialog captures its fields and items on first submission, keeps them fixed
+for retries, and reports an unconfirmed save with a timestamp after ten seconds.
+It stays open on failure. A retry checks the same save rather than creating a
+second copy; a successful acknowledgement closes the dialog.
+
+The existing edit-permission and PIN checks run before every attempt. One atomic
+D1 batch creates the template and a `rundown-template-save:<id>` receipt in
+`app_setting`. The receipt contains a SHA-256 content digest. Reusing an ID with
+different content cannot overwrite the first save. The receipt remains after
+template deletion so a delayed retry cannot recreate the removed template;
+organization deletion removes both. Receipt keys are separate from the
+`rundown-saved:` list prefix. Existing templates need no backfill or migration.
+
+After building, run `node apps/web/scripts/smoke-template-save-retry.mjs`. It
+allows a real authenticated save to commit in disposable D1, discards the response
+at the browser network boundary, changes the live rundown, and retries from the
+dialog. It checks unchanged template content and timestamps, exactly one template
+and receipt, labelled fields and a 320px layout. Worker tests cover concurrent
+retries, changed content, deletion, organization isolation, legacy-ID collisions
+and rollback when the receipt cannot be written.
+
 ### Rundown loading and replacement
 
 Load from date or template now reports failed reads with a timestamp and Retry.
