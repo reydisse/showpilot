@@ -90,4 +90,18 @@ describe("route recovery", () => {
     fireEvent.click(retry);
     expect(await screen.findByRole("heading", { name: "Workspace recovered" })).toBeTruthy();
   });
+
+  it("contains a rejected retry and retains a full page reload escape", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const router = recoveryRouter({ loader: () => { throw new Error("failed"); } });
+    await router.load();
+    vi.spyOn(router, "invalidate").mockRejectedValue(new Error("private retry failure"));
+    render(<RouterProvider router={router} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    expect(await screen.findByText(/Still unable to load/)).toBeTruthy();
+    expect(screen.queryByText("private retry failure")).toBeNull();
+    expect(screen.getByRole("link", { name: "Reload page" }).getAttribute("href")).toBe("/test");
+    expect(screen.getByRole("button", { name: "Try again" }).hasAttribute("disabled")).toBe(false);
+  });
 });
