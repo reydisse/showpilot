@@ -1,3 +1,4 @@
+import { reportRelayError } from "@/lib/operational-errors.server";
 import { parseLocalRundownJournal, reconcileLocalRundown } from "@showpilot/shared/local-rundown";
 import { applyRundownTransport, parseRundownTransport } from "@showpilot/shared/rundown-transport";
 import { readStoredRundownItems, rundownItemDiffStatements, rundownItemStorageStatements, samePersistedRundownItem, type RundownDatabase, type RundownStatement } from "@/lib/rundown-item-storage.server";
@@ -536,7 +537,7 @@ export class RundownRelay extends DurableObject {
         await this.persistAuthoritativeSnapshot("activate", this.cloneState());
         return this.targetJson({ ok: true, showId: this.state.showId, serviceDate: this.state.serviceDate, revision: this.state.revision });
       } catch (error) {
-        console.error("[RundownRelay] show activation failed", error);
+        reportRelayError(this.ctx, this.env.DB, this.orgId, "rundown_activation", error);
         return this.targetJson({ ok: false, error: "Could not confirm this show is live. Refresh the active show before retrying.", showId: this.state.showId, serviceDate: this.state.serviceDate }, { status: 503 });
       }
     }
@@ -1030,7 +1031,7 @@ export class RundownRelay extends DurableObject {
       await this.persistAuthoritativeSnapshot(action, previousState);
     } catch (error) {
       this.state = previousState;
-      console.error("[RundownRelay] authoritative persistence failed", error);
+      reportRelayError(this.ctx, this.env.DB, this.orgId, "rundown_persistence", error);
       return false;
     }
 

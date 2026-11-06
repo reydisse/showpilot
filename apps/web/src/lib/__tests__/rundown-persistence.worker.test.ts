@@ -152,6 +152,8 @@ it("rolls back failed row batches without acknowledging new relay state", async 
   await expect(persistRundownItemsForOrg(f.orgId, serviceDate, [{ ...item(0), title: "Uncommitted change" }, { ...item(1), title: "Injected write failure" }], f.showId)).rejects.toThrow();
   expect(await f.rows()).toEqual(before);
   await f.command("update-item", { id: "cue-1", updates: { title: "Injected write failure" } }, 400);
+  await expect.poll(async () => (await env.DB.prepare("SELECT source,code FROM operational_error WHERE orgId=?").bind(f.orgId).all()).results)
+    .toEqual([{ source: "RundownRelay", code: "rundown_persistence" }]);
   expect(await f.rows()).toEqual(before);
   expect((await f.state()).items[1].title).toBe("Cue 1");
   await env.DB.prepare("DROP TRIGGER reject_persistence_update").run();

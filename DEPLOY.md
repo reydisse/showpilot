@@ -621,6 +621,37 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Operational error reports
+
+Apply `0052_operational_errors.sql` before deploying this Worker. The migration
+has not been applied to production. It adds an organization-scoped D1 error log;
+no external reporting service is required. Reports retain a fixed error code,
+source, allowlisted exception name, server timestamp and optional public build
+asset basename and line/column. Raw messages, stacks, URLs, query strings and
+show/device content are omitted.
+
+The authenticated organization shell listens for browser errors and unhandled
+rejections, shows a dismissible timestamped notice, and sends reports without
+waiting for a response. Reporting requests abort after three seconds. A browser
+sends at most five reports per minute and suppresses identical reports for one
+minute. Durable Object reports also suppress identical organization/code pairs
+for one minute. Atomic D1 inserts cap each organization at 30 reports per minute
+and 2,000 per day. Scheduled cleanup deletes records older than seven days;
+organization deletion cascades to its reports.
+
+`POST /api/operational-errors/:orgId` requires a same-origin request and current
+membership. A 202 response acknowledges receipt; rate limits or a storage outage
+may prevent persistence. Reporting failures do not reject the original live
+operation. `GET` on the same endpoint requires `settings:api_keys` permission and
+returns the organization's latest 50 reports with `Cache-Control: no-store`.
+
+After building, run `node apps/web/scripts/smoke-operational-errors.mjs`. It uses
+real authentication, the built Worker and disposable D1 to verify report storage,
+safe payloads, duplicate suppression, authorization and the notice at 320px and
+1440px. Worker tests inject actual rundown persistence and activation failures
+and verify both reporting and existing rollback behavior. This does not complete
+the broader audit of caught operator failures and display failure visibility.
+
 ### Device connection failures
 
 Bridge relay requests now return an explicit failure to the requesting browser
