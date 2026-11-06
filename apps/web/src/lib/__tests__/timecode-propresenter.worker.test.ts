@@ -6,6 +6,8 @@ import {
   openTestBridge,
 } from "@/test/bridge-fixtures";
 import type { AutomationActionType, AutomationEvent } from "@/types/timecode";
+import { TIMECODE_FEED_STALL_MS } from "@/types/timecode";
+import { framesToTimecode } from "@/lib/timecode";
 
 afterEach(abortAllDurableObjects);
 const target = "propresenter:192.168.1.20:50001";
@@ -85,17 +87,44 @@ async function setup() {
   };
 }
 
+async function feedClock(
+  test: Awaited<ReturnType<typeof setup>>,
+  continuous = true,
+) {
+  const socket = test.controlSocket;
+  if (!socket) throw new Error("Missing clock owner socket");
+  await test.command("start");
+  const format = { frameRate: 30, dropFrame: "ndf" } as const;
+  let frame = 0;
+  // The first feed waits for the cue. Continue sending frames independently,
+  // as a real source does while ProPresenter acknowledges its commands.
+  const interval = continuous
+    ? setInterval(() => {
+        socket.send(JSON.stringify({
+          type: "command",
+          action: "feed-tc",
+          payload: { timecode: framesToTimecode(++frame, format), format },
+        }));
+      }, 50)
+    : undefined;
+  return {
+    finished: test.command("feed-tc", { timecode: atZero, format }),
+    stop: () => clearInterval(interval),
+  };
+}
+
 it("resolves the exact prop before clearing only props, waits, then triggers with unique receipts", async () => {
   const test = await setup();
   await test.command("add-event", {
     ...cue,
     payload: { propName: "Standby", action: "clear-all", propUuid: "injected" },
   });
-  await test.command("start");
-  await test.command("feed-tc", {
-    timecode: atZero,
-    format: { frameRate: 30, dropFrame: "ndf" },
-  });
+  const feed = await feedClock(test);
+  try {
+    await feed.finished;
+  } finally {
+    feed.stop();
+  }
   expect(test.received.map((row) => row.command)).toEqual([
     { action: "resolve-prop", propName: "Standby" },
     { action: "clear-props" },
@@ -107,6 +136,43 @@ it("resolves the exact prop before clearing only props, waits, then triggers wit
     expect.objectContaining({ fired: true, executionStatus: "acknowledged" }),
   ]);
 });
+
+it.each([true, false])(
+  "finishes a slow automatic prop sequence only with a continuous feed: %s",
+  async (continuous) => {
+    const test = await setup();
+    test.pause("clear-props");
+    await test.command("add-event", cue);
+    const feed = await feedClock(test, continuous);
+    try {
+      await expect.poll(() => test.received.at(-1)?.action).toBe("clear-props");
+      await new Promise((resolve) => setTimeout(resolve, TIMECODE_FEED_STALL_MS + 250));
+    } finally {
+      const clear = test.received.find((row) => row.action === "clear-props");
+      if (clear) test.acknowledge(clear.id, clear.action);
+      try {
+        await feed.finished;
+      } finally {
+        feed.stop();
+      }
+    }
+    expect((await test.events())[0]).toMatchObject({
+      fired: continuous,
+      executionStatus: continuous ? "acknowledged" : "failed",
+    });
+    expect(test.received.map((row) => row.action)).toEqual(
+      continuous
+        ? ["resolve-prop", "clear-props", "trigger-prop"]
+        : ["resolve-prop", "clear-props"],
+    );
+    if (!continuous) {
+      expect((await test.events())[0]).toMatchObject({
+        executionRetryable: false,
+        executionError: expect.stringContaining("interrupted after dispatch"),
+      });
+    }
+  },
+);
 
 it.each(["resolve-prop", "clear-props", "trigger-prop"])(
   "fails on %s rejection and permits an explicit retry with fresh receipt IDs",
