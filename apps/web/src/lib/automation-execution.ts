@@ -1,4 +1,5 @@
 import type { AutomationActionType, AutomationEvent } from "@/types/timecode";
+import { namedTimerKey } from "./named-timers";
 import { automationDeviceId } from "./automation-timing";
 
 export function isTriggerControlAction(action: AutomationActionType): action is "triggers-disable" | "triggers-enable" {
@@ -24,6 +25,8 @@ export function automationOutput(event: AutomationEvent): string {
     case "rundown-adjust":
     case "stage-message":
     case "stage-clear": return "rundown";
+    case "timer-start":
+    case "timer-stop": return `named-timer:${namedTimerKey(String(event.payload.name ?? ""))}`;
     case "crew-message": return "production-chat";
     case "triggers-disable":
     case "triggers-enable": return "automation-control";

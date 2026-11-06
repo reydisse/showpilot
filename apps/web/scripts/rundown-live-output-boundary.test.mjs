@@ -24,5 +24,7 @@ test("taking a different show live preserves each show's timecode lyrics", () =>
   const boundary = serverSource.slice(start, end);
   assert.doesNotMatch(boundary, /action:\s*"clear-lyrics"/);
   const display = readFileSync(new URL("../src/routes/timer/$orgSlug.tsx", import.meta.url), "utf8");
-  assert.match(display, /showId=\$\{encodeURIComponent\(relayShowId\)\}/);
+  assert.match(display, /const timecodeShowId = pinnedTimerShow \?\? relayShowId/);
+  assert.match(display, /setPinnedTimerShow\(params\.get\("namedTimer"\) \? params\.get\("showId"\) : null\)/);
+  assert.match(display, /showId=\$\{encodeURIComponent\(timecodeShowId\)\}/);
 });
