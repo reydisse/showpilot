@@ -597,6 +597,23 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Rundown clock rendering
+
+The 10 Hz clock runs inside the memoized clock card and current-item offset.
+Clock ticks no longer rebuild rundown rows, keyboard handlers or cascaded times.
+Progress bars own their DOM animation, including the 350 ms reset on item change,
+and stop scheduling animation frames while paused. Timer transport still uses the
+existing authoritative relay commands.
+
+Run `node apps/web/scripts/smoke-rundown-clock-rendering.mjs` after building. The
+browser probe samples React's installed row handler identity while the displayed
+seconds advance. It fails if that handler is rebuilt by clock ticks, then checks
+warning/overtime colors, pause and next-item reset through the real local relay.
+The probe requires React's DOM props metadata and fails explicitly if unavailable.
+Run `smoke-rundown-layout.mjs` for the keyboard, drag, focus and five-width regression.
+No migration or native change is needed. Large-list virtualization remains separate
+work; this change does not establish the full Phase 2 render-cost gate.
+
 ### Template Studio scene and Program confirmation
 
 Template Studio now uses the Graphics output hook for bounded reads, publication

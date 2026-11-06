@@ -18,7 +18,10 @@ test("moving clocks hydrate from the server-provided reference instant", async (
   assert.match(show, /useLiveNow\(initialNow\)/);
   assert.doesNotMatch(show, /statusClock=\{formatTime\(new Date\(\)/);
   assert.match(rundown, /initialNow: Date\.now\(\)/);
-  assert.match(rundown, /useState\(initialNow\)/);
+  assert.match(rundown, /initialNow=\{initialNow\}/);
+  const clock = await readFile(new URL("../src/components/rundown/RundownClock.tsx", import.meta.url), "utf8");
+  assert.match(clock, /useState\(initialNow\)/);
+  assert.doesNotMatch(rundown, /setNow|setInterval/);
 });
 
 test("service and incident times have a deterministic timezone fallback", async () => {
