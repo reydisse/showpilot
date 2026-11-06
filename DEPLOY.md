@@ -726,6 +726,15 @@ cancel keeps its draft, and a changed show, clock, format or control ownership
 blocks a stale confirmation. Frame-rate and input settings remain in the source
 panel. The source and MIDI panels have distinct show-scoped React keys.
 
+A lost connection retains the selected show's last confirmed timeline and clock
+sample with an explicit reconnecting label. Controls remain disabled until a
+fresh hydration confirms that show. Construction failures, an unreadable update
+and a connection that fails to hydrate report the last error with its timestamp.
+Reconnect timecode retries immediately; it neither replays cues nor restarts a
+local source. Automatic retries back off until hydration succeeds, including
+when sockets open but never deliver a state. Switching shows or organizations
+clears retained state and errors.
+
 Timeline rows render a sorted copy in nominal cue-time order. Next and its
 countdown use the same compensated dispatch order as the relay and controller
 feedback, including while stopped or paused. A later nominal cue can therefore

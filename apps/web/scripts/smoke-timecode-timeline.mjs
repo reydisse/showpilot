@@ -88,10 +88,19 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await click("Fire Earlier nominal cue");
   await poll(async () => (await events()).some(event => event.id === "Earlier nominal cue" && event.fired), "successful fired row");
   await assertOperatorReadability(browser, "[data-timecode-page]");
+  const rememberedAttempts = (await events()).map(event => ({ id: event.id, executionId: event.executionId }));
+  const rememberedRows = await evaluate("[...document.querySelectorAll('[data-automation-event]')].map(row => row.dataset.automationEvent)");
   await stopServer();
   await browser("wait", "--fn", "document.querySelector('[data-timecode-header] [role=status]').textContent.includes('Disconnected')");
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('[data-automation-event]')].map(row => row.dataset.automationEvent)"), rememberedRows);
+  await browser("wait", "text=Reconnecting, showing last known timecode state.");
+  assert.ok(await evaluate("document.querySelector('[data-timecode-error] time')?.dateTime"));
   assert.equal(await evaluate("[...document.querySelectorAll('[data-timecode-header] button')].every(button => button.disabled)"), true);
   await startServer();
+  // The automatic retry may already have hydrated while the fixture restarts.
+  if (await evaluate("[...document.querySelectorAll('button')].some(button => button.textContent === 'Reconnect timecode')")) await click("Reconnect timecode");
   await browser("wait", "--fn", "[...document.querySelectorAll('[data-timecode-header] button')].some(button => !button.disabled)");
-  console.log(JSON.stringify({ passed: true, nominalOrder: true, compensatedNextWhileStopped: true, deviceNamesAndSummaries: true, webhookOriginOnly: true, stickyTransport1440And320: true, minimum44pxActions: true, startPauseResumeStop: true, failedRowRetry: true, disconnectHonesty: true, physicalEquipmentConnected: false, operationalTextFloorAndMutedContrast: true }));
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('[data-automation-event]')].map(row => row.dataset.automationEvent)"), rememberedRows);
+  assert.deepEqual((await events()).map(event => ({ id: event.id, executionId: event.executionId })), rememberedAttempts, "Reconnection must not replay any cues");
+  console.log(JSON.stringify({ passed: true, nominalOrder: true, compensatedNextWhileStopped: true, deviceNamesAndSummaries: true, webhookOriginOnly: true, stickyTransport1440And320: true, minimum44pxActions: true, startPauseResumeStop: true, failedRowRetry: true, disconnectHonesty: true, retainedTimeline: true, timestampedError: true, noReplayAfterReconnect: true, physicalEquipmentConnected: false, operationalTextFloorAndMutedContrast: true }));
 }, { paidPlan: true });
