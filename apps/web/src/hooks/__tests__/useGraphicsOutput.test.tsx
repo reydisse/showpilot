@@ -1,8 +1,8 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useGraphicsOutput } from "../useGraphicsOutput";
-const mocks = vi.hoisted(() => ({ read: vi.fn(), show: vi.fn(), hide: vi.fn(), clear: vi.fn() }));
-vi.mock("@/lib/graphics", () => ({ getActiveGraphics: mocks.read, addActiveGraphic: mocks.show, removeActiveGraphic: mocks.hide, clearActiveGraphics: mocks.clear }));
+const mocks = vi.hoisted(() => ({ read: vi.fn(), show: vi.fn(), hide: vi.fn(), clear: vi.fn(), publish: vi.fn() }));
+vi.mock("@/lib/graphics", () => ({ getActiveGraphics: mocks.read, addActiveGraphic: mocks.show, removeActiveGraphic: mocks.hide, clearActiveGraphics: mocks.clear, publishGraphicComposition: mocks.publish }));
 const rows = (...ids: string[]) => ids.map(id => ({ id }));
 beforeEach(() => { vi.useFakeTimers(); vi.resetAllMocks(); vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible"); mocks.read.mockResolvedValue(rows("old")); mocks.show.mockResolvedValue(["old", "new"]); mocks.hide.mockResolvedValue([]); mocks.clear.mockResolvedValue([]); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
@@ -97,4 +97,43 @@ it("permits read recovery but no writes for a viewer", async () => {
   await tick();
   await act(async () => { await result.current.run({ kind: "show", graphicId: "new" }); await result.current.run({ kind: "clear" }); });
   expect(mocks.read).toHaveBeenCalledOnce(); expect(mocks.show).not.toHaveBeenCalled(); expect(mocks.clear).not.toHaveBeenCalled();
+});
+
+const publish = { kind: "publish" as const, requestId: "revision", items: [{ key: "one", name: "Name", title: "Name", subtitle: "", style: "{}" }] };
+it("reconciles a lost publication response without replaying or inventing that the prior output stayed live", async () => {
+  const { result } = renderHook(() => useGraphicsOutput("org", ["old"], true));
+  await tick();
+  mocks.publish.mockRejectedValueOnce(new Error("lost successful reply"));
+  mocks.read.mockResolvedValue(rows("new"));
+  await act(async () => { expect(await result.current.run(publish)).toBe(false); });
+  expect(result.current.activeIds).toEqual(["new"]);
+  expect(result.current.failure?.occurredAt).toBe(Date.now());
+  expect(result.current.failure?.message).toContain("not confirmed");
+  await tick(10_000); expect(mocks.publish).toHaveBeenCalledOnce();
+});
+it("reports a superseded publication and retains the actually observed Program", async () => {
+  const { result } = renderHook(() => useGraphicsOutput("org", ["old"], true));
+  await tick();
+  mocks.publish.mockResolvedValueOnce({ revision: "revision", activeIds: ["newer"], publishedIds: ["mine"], isActive: false });
+  mocks.read.mockResolvedValue(rows("newer"));
+  await act(async () => { expect(await result.current.run(publish)).toBe(false); });
+  expect(result.current.activeIds).toEqual(["newer"]); expect(result.current.fresh).toBe(true);
+  expect(result.current.failure?.message).toContain("newer Program");
+});
+it("requires a matching publication acknowledgement", async () => {
+  const { result } = renderHook(() => useGraphicsOutput("org", ["old"], true)); await tick();
+  mocks.publish.mockResolvedValueOnce({ revision: "wrong", activeIds: ["wrong"], isActive: true });
+  await act(async () => { expect(await result.current.run(publish)).toBe(false); });
+  expect(result.current.activeIds).toEqual(["old"]); expect(result.current.failure).not.toBeNull();
+});
+it("bounds a stalled publication and prevents overlapping Clear until it settles", async () => {
+  mocks.publish.mockImplementationOnce(() => new Promise(() => {}));
+  const { result } = renderHook(() => useGraphicsOutput("org", ["old"], true)); await tick();
+  act(() => { void result.current.run(publish); void result.current.run({kind:"clear"}); });
+  expect(mocks.clear).not.toHaveBeenCalled();
+  await tick(10_000);
+  expect(mocks.publish.mock.calls[0][0].signal.aborted).toBe(true);
+  expect(result.current.pending).toBeNull(); expect(result.current.failure).not.toBeNull();
+  await act(async () => { expect(await result.current.run({kind:"clear"})).toBe(true); });
+  expect(mocks.clear).toHaveBeenCalledOnce();
 });
