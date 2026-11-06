@@ -1,3 +1,4 @@
+import { redactCredentialText } from "@/lib/credential-fields";
 import { approveBridgeTarget, removeBridgeTarget, listBridgeTargets, authorizeBridgeTarget, type BridgeTargetActor } from "@/lib/bridge-targets.server";
 import { BridgeTargetError, type BridgeEndpoint } from "@showpilot/shared/bridge-target";
 import { SerialCommandExecutor } from "@/lib/serial-command-executor";
@@ -128,7 +129,7 @@ function parseBridgeInfo(value: unknown): BridgeRelayStatusInfo | null {
       ) {
         deviceEvents[target] = {
           eventName: event.eventName,
-          data: event.data,
+          data: redactCredentialText(event.data),
           receivedAt: event.receivedAt,
         };
       }
@@ -223,6 +224,9 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
             ws.close(4406, "Update the Bridge to support approved device destinations");
             continue;
           }
+          // Re-save only parsed fields so pre-upgrade event snapshots cannot
+          // retain credentials in hibernating socket attachments.
+          ws.serializeAttachment(attachment);
           const installation = { installationId: authority.installationId, label: authority.label };
           this.bridges.set(ws, { ...installation, credentialId: authority.credentialId });
           // Existing releases had only one Bridge socket. Preserve its identity
@@ -719,8 +723,8 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
             this.pendingCommands.delete(msg.id);
             pending.resolve({
               success: msg.success === true,
-              response: typeof msg.response === "string" ? msg.response : undefined,
-              error: typeof msg.error === "string" ? msg.error : undefined,
+              response: typeof msg.response === "string" ? redactCredentialText(msg.response) : undefined,
+              error: typeof msg.error === "string" ? redactCredentialText(msg.error) : undefined,
             });
             break;
           }
@@ -728,7 +732,11 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           if (owner) {
             this.pendingClientCommands.delete(msg.id);
             try {
-              owner.socket.send(JSON.stringify({ ...msg, id: owner.clientId }));
+              owner.socket.send(JSON.stringify({
+                type: "command-response", id: owner.clientId, success: msg.success === true,
+                response: typeof msg.response === "string" ? redactCredentialText(msg.response) : undefined,
+                error: typeof msg.error === "string" ? redactCredentialText(msg.error) : undefined,
+              }));
             } catch {
               this.clientSessions.delete(owner.socket);
             }
@@ -736,35 +744,32 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         }
         break;
 
-      case "device-event":
-        if (msg.eventName === "slide" && typeof msg.data === "string") {
-          const data = msg.data;
+      case "device-event": {
+        if (typeof msg.target !== "string" || typeof msg.eventName !== "string" || typeof msg.data !== "string") break;
+        // Only the documented event fields are public. A native adapter must
+        // never publish an attached settings/authentication blob to operators.
+        const data = redactCredentialText(msg.data);
+        if (msg.eventName === "slide") {
           this.previewWrite = this.previewWrite.then(() => this.pushPreviewSlide(data));
           await this.previewWrite;
         }
-        if (
-          msg.type === "device-event" &&
-          typeof msg.target === "string" &&
-          typeof msg.eventName === "string" &&
-          typeof msg.data === "string"
-        ) {
-          this.bridgeInfo = {
-            ...this.bridgeInfo,
-            deviceEvents: {
-              ...this.bridgeInfo.deviceEvents,
-              [msg.target]: {
-                eventName: msg.eventName,
-                data: msg.data,
-                receivedAt: Date.now(),
-              },
+        this.bridgeInfo = {
+          ...this.bridgeInfo,
+          deviceEvents: {
+            ...this.bridgeInfo.deviceEvents,
+            [msg.target]: {
+              eventName: msg.eventName,
+              data,
+              receivedAt: Date.now(),
             },
-          };
-          this.serializeBridgeAttachment();
-        }
+          },
+        };
+        this.serializeBridgeAttachment();
         // Unsolicited device events are shared venue state and reach every
         // operator. Command replies above are deliberately point-to-point.
-        this.broadcastToClients(JSON.stringify(msg));
+        this.broadcastToClients(JSON.stringify({ type: "device-event", target: msg.target, eventName: msg.eventName, data }));
         break;
+      }
 
       case "device-status":
         if (typeof msg.target === "string") {
@@ -785,8 +790,11 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
             });
           }
         }
-        // Forward directly to all browser clients
-        this.broadcastToClients(JSON.stringify(msg));
+        // Status carries connection metadata only, never native adapter settings.
+        if (typeof msg.target === "string") this.broadcastToClients(JSON.stringify({
+          type: "device-status", target: msg.target, connected: msg.connected === true,
+          error: typeof msg.error === "string" ? redactCredentialText(msg.error) : undefined,
+        }));
         break;
 
       case "pong":
