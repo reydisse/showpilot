@@ -1,3 +1,4 @@
+import { useSettingsReturnTo } from "@/components/layout/AppShell";
 import { CredentialSettingInput } from "@/components/settings/CredentialSettingInput";
 import type { CredentialChange } from "@/lib/credential-fields";
 import { BridgeTargetSettings } from "@/components/settings/BridgeTargetSettings";
@@ -5,7 +6,7 @@ import { BridgeInstallationSettings } from "@/components/settings/BridgeInstalla
 import { ConfidenceSection } from "@/components/settings/ConfidenceSection";
 import { CONFIDENCE_LAYOUT_KEY } from "@/lib/confidence-layout";
 import { WorkspaceSettings } from "@/components/workspace/WorkspaceSettings";
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { formatServicePickerLabel } from "@/lib/service-picker";
 import { lazy, Suspense, useState, useCallback, useEffect } from "react";
@@ -210,6 +211,9 @@ function OrganizationSettingsPage({
   const { section } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
+  const settingsReturnTo = useSettingsReturnTo();
+  const goBack = () => void router.navigate({ href: settingsReturnTo ?? `/${slug}/show` });
+  const backLabel = settingsReturnTo ? "Back to previous page" : "Back to Show Flow";
   const persistSetting = useCallback(
     (key: string, value: string) =>
       updateOrgSetting({ data: { orgId, key, value } }),
@@ -279,14 +283,14 @@ function OrganizationSettingsPage({
     <div className="flex h-full min-h-0 flex-col overflow-hidden lg:flex-row">
       <aside className="hidden w-72 shrink-0 border-r border-board-border bg-board-bg/75 lg:flex lg:min-h-0 lg:flex-col">
         <div className="shrink-0 border-b border-board-border px-5 py-5">
-          <Link
-            to="/$slug/show"
-            params={{ slug }}
-            className="flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm text-board-muted transition-colors hover:bg-board-border/40 hover:text-board-text"
+          <button
+            type="button"
+            onClick={goBack}
+            className="flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm text-board-muted transition-colors hover:bg-board-border/40 hover:text-board-text"
           >
             <ArrowLeft className="size-4" />
-            <span>Back to ShowPilot</span>
-          </Link>
+            <span>{backLabel}</span>
+          </button>
           <div className="mt-4 px-2">
             <h1 className="text-lg font-semibold text-board-text">Settings</h1>
             <p className="mt-1 text-xs leading-5 text-board-muted">Organization, production, and integrations</p>
@@ -321,10 +325,10 @@ function OrganizationSettingsPage({
       </aside>
 
       <div className="shrink-0 border-b border-board-border bg-board-bg/90 px-4 py-3 lg:hidden">
-        <Link to="/$slug/show" params={{ slug }} className="flex min-h-10 items-center gap-2 text-sm text-board-muted transition-colors hover:text-board-text">
+        <button type="button" onClick={goBack} className="flex min-h-11 items-center gap-2 text-sm text-board-muted transition-colors hover:text-board-text">
           <ArrowLeft className="size-4" />
-          Back to ShowPilot
-        </Link>
+          {backLabel}
+        </button>
         <Select
           value={resolvedSection}
           onValueChange={(value) => {

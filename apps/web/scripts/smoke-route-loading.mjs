@@ -53,15 +53,19 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
       assert.equal(await evaluate('window.routeDocument'), 'same-document');
       if (path === 'timecode') {
         await page('Emulation.setDeviceMetricsOverride', { width: 320, height: 480, deviceScaleFactor: 1, mobile: false });
+        // The media-query listener updates React after Chrome accepts the resize.
+        // Measure after that commit so the newly inserted header cannot move Retry.
+        await poll(() => evaluate(`!!document.querySelector('button[aria-label="Open menu"]')`), 'mobile layout committed');
         const bounds = await evaluate(`(() => {
           const button = [...document.querySelectorAll('button')].find(node => node.textContent.trim() === 'Try again');
           button.scrollIntoView({ block: 'center' }); const r = button.getBoundingClientRect();
-          return { left: r.left, right: r.right, height: r.height, reachable: button.contains(document.elementFromPoint(r.x + r.width/2, r.y + r.height/2)) };
+          return { left: r.left, right: r.right, top:r.top, bottom:r.bottom, hit:document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.tagName, height: r.height, reachable: button.contains(document.elementFromPoint(r.x + r.width/2, r.y + r.height/2)) };
         })()`);
-        assert.ok(bounds.left >= 0 && bounds.right <= 320 && bounds.height >= 44 && bounds.reachable, JSON.stringify(bounds));
         const screenshot = await page('Page.captureScreenshot', { format: 'png' });
         await writeFile('/tmp/showpilot-route-timeout-320.png', Buffer.from(screenshot.data, 'base64'));
+        assert.ok(bounds.left >= 0 && bounds.right <= 320 && bounds.height >= 44 && bounds.reachable, JSON.stringify(bounds));
         await page('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+        await poll(() => evaluate(`!document.querySelector('button[aria-label="Open menu"]')`), 'desktop layout committed');
         // Retry also has to finish while the endpoint remains stuck.
         await click('Try again');
         await poll(() => evaluate('window.heldReads.length >= 2'), 'second attempt held');
