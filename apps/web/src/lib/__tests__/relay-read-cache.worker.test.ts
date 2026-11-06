@@ -64,7 +64,7 @@ describe("relay read authorization cache", () => {
     expect(await closed).toMatchObject({ code: 4403 });
   });
 
-  it.each(["graphics", "cue-sheet", "chat"] as const)("rejects an expired %s member on upgrade instead of granting a display session", async kind => {
+  it.each(["timecode", "rundown", "graphics", "cue-sheet", "chat"] as const)("rejects an expired %s member on upgrade instead of granting a display session", async kind => {
     const test = await readRoom(kind);
     await env.DB.prepare("UPDATE session SET expiresAt='2000-01-01' WHERE id=?").bind(test.member.sessionId).run();
     const response = await test.stub.fetch(test.url, { headers: { Upgrade: "websocket" } });

@@ -630,7 +630,13 @@
       "section": "1.3 Stop re-authenticating every broadcast (audit C6, H15)",
       "line": 117,
       "status": "pending",
-      "evidence": []
+      "evidence": [
+        "Partial: relay-upgrade-cache.server.ts caches completed session, org-resolution and effective-access values for WebSocket upgrade routes only. Authority/org entries are keyed by authenticated session ID and org; credential lookup keys are SHA-256 digests. Entries expire after 15 seconds or session expiry and are bounded to 500 per map. No request-owned I/O promise crosses requests. Local permission/session changes invalidate caches; generation checks prevent an in-flight lookup from repopulating invalidated entries.",
+        "Timecode and rundown now reject invalid claimed member upgrades instead of downgrading them to displays. Every relay still checks live D1 authority on upgrade and on commands, so stale cache entries in another isolate cannot authorize a revoked member.",
+        "relay-upgrade-cache.worker.test.ts: seven tests use real D1 to count repeated upgrade reads, verify HTTP bypass even with spoofed Upgrade headers, check expiry, invalidation, session/org isolation, rejected-login behavior and in-flight invalidation. The first upgrade performs D1 queries; five subsequent upgrades perform none in this Worker cache layer. DO admission checks intentionally remain live.",
+        "2026-11-05: full web tests passed (1288 unit, 214 Worker), typecheck and production build passed. Built-app smoke-permission-push and smoke-display-access passed on disposable local fixtures.",
+        "Remaining: scope first-primary to post-write loader reads, support steady-state replicas without weakening authentication reads, and verify Prisma reuse across request contexts. This requirement remains pending."
+      ]
     },
     {
       "id": "d73ecb45955135b4",

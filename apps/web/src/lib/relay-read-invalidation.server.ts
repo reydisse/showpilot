@@ -1,11 +1,13 @@
 import { env } from "cloudflare:workers";
 import { chatRelayKey } from "./chat-relay-key";
 import { rundownRelayKey } from "./rundown-relay-key";
+import { relayUpgradeCache } from "./relay-upgrade-cache.server";
 
 type ReadAuthorityBindings = Pick<Env, "DB" | "CHAT_RELAY" | "RUNDOWN_RELAY" | "TIMECODE_RELAY" | "BRIDGE_RELAY" | "LOWER_THIRDS_RELAY" | "CUE_SHEET_RELAY">;
 
 /** Called after committing access changes. Alarms remain the fallback if a push fails. */
 export async function refreshOrgReadAuthority(orgId: string, userId?: string, bindings: ReadAuthorityBindings = env): Promise<void> {
+  relayUpgradeCache.invalidate({ orgId, userId });
   try {
     const [rooms, shows] = await Promise.all([
       bindings.DB.prepare("SELECT DISTINCT roomId FROM chat_user_room WHERE orgId = ?")
@@ -36,6 +38,7 @@ export async function refreshOrgReadAuthority(orgId: string, userId?: string, bi
 }
 
 export async function refreshUserReadAuthority(userId: string, bindings: ReadAuthorityBindings = env): Promise<void> {
+  relayUpgradeCache.invalidate({ userId });
   try {
     const memberships = await bindings.DB.prepare("SELECT organizationId FROM member WHERE userId = ?")
       .bind(userId).all<{ organizationId: string }>();

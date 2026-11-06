@@ -2,7 +2,7 @@ import handler from "@tanstack/react-start/server-entry";
 import { authenticateBridgeRequest, backfillLegacyBridgeInstallations, migrateLegacyBridgeInstallation } from "./lib/bridge-credentials.server";
 import { authenticateDisplayRequest } from "./lib/display-access.server";
 import { getAuth } from "./lib/auth";
-import { resolveEffectiveAccess } from "./lib/effective-access";
+import { relayUpgradeCache } from "./lib/relay-upgrade-cache.server";
 import type { Permission } from "./lib/permissions";
 import { verifyCrewChatPass } from "./lib/crew-chat-pass";
 import { chatRelayKey } from "./lib/chat-relay-key";
@@ -93,38 +93,10 @@ async function guestAttachmentOwnerId(token: string): Promise<string> {
   return `guest:${value}`;
 }
 
-interface OrgIdentity {
-  userId: string;
-  sessionId: string | null;
-  name: string;
-  role: string;
-  permissions: Permission[];
-}
-
-async function getOrgIdentity(
-  request: Request,
-  orgId: string,
-  db: Env["DB"],
-): Promise<OrgIdentity | null> {
-  try {
-    const session = await getAuth().api.getSession({ headers: request.headers });
-    if (!session) return null;
-    const access = await resolveEffectiveAccess(db, session.user.id, orgId);
-    if (!access) return null;
-    return {
-      userId: session.user.id,
-      sessionId: session.session?.id ?? null,
-      name: session.user.name,
-      role: access.role,
-      permissions: access.permissions,
-    };
-  } catch {
-    return null;
-  }
-}
+const loadRelaySession = (request: Request) => getAuth().api.getSession({ headers: request.headers });
 
 async function getRelayAccess(request: Request, orgId: string, db: Env["DB"]) {
-  return { identity: await getOrgIdentity(request, orgId, db) };
+  return { identity: await relayUpgradeCache.identity(request, orgId, db, loadRelaySession) };
 }
 
 function canUse(
@@ -155,21 +127,8 @@ async function canAccessChatRoom(
   return members.every(Boolean);
 }
 
-async function resolveOrgId(slugOrId: string, db: Env["DB"]): Promise<string | null> {
-  const byId = await db
-    .prepare("SELECT id FROM organization WHERE id = ?")
-    .bind(slugOrId)
-    .first<{ id: string }>();
-  const resolved = byId ?? await db
-    .prepare("SELECT id FROM organization WHERE slug = ?")
-    .bind(slugOrId)
-    .first<{ id: string }>();
-  if (!resolved) return null;
-
-  const tombstone = await db.prepare(
-    "SELECT value FROM app_setting WHERE orgId = ? AND key = 'organization-deleting' LIMIT 1",
-  ).bind(resolved.id).first<{ value: string }>();
-  return tombstone ? null : resolved.id;
+function resolveOrgId(slugOrId: string, db: Env["DB"], request: Request): Promise<string | null> {
+  return relayUpgradeCache.resolveOrgId(request, slugOrId, db, loadRelaySession);
 }
 
 async function isShowAvailable(orgId: string, showId: string, db: Env["DB"]): Promise<boolean> {
@@ -237,7 +196,7 @@ const appServer = {
 
     const slackEventsMatch = url.pathname.match(/^\/api\/integrations\/slack\/events\/([^/]+)$/);
     if (slackEventsMatch && request.method === "POST") {
-      const orgId = await resolveOrgId(slackEventsMatch[1], e.DB);
+      const orgId = await resolveOrgId(slackEventsMatch[1], e.DB, request);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const [adapter, signingSecret, channel] = await Promise.all([
         e.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'chat-adapter' LIMIT 1").bind(orgId).first<{ value: string }>(),
@@ -286,7 +245,7 @@ const appServer = {
     if (tcMatch) {
       const [, slugOrId, subpath] = tcMatch;
       if (!["ws", "state", "events", "command"].includes(subpath)) return new Response("Not found", { status: 404 });
-      const orgId = await resolveOrgId(slugOrId, e.DB);
+      const orgId = await resolveOrgId(slugOrId, e.DB, request);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const publicDisplayRead = request.method === "GET"
@@ -314,7 +273,7 @@ const appServer = {
     if (bridgeMatch) {
       const [, slugOrId, subpath] = bridgeMatch;
       if (!["ws", "status"].includes(subpath)) return new Response("Not found", { status: 404 });
-      const orgId = await resolveOrgId(slugOrId, e.DB);
+      const orgId = await resolveOrgId(slugOrId, e.DB, request);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const requestedRole = url.searchParams.get("role") ?? "client";
@@ -353,7 +312,7 @@ const appServer = {
     if (rundownMatch) {
       const [, slugOrId, subpath] = rundownMatch;
       if (!["ws", "state", "command"].includes(subpath)) return new Response("Not found", { status: 404 });
-      const orgId = await resolveOrgId(slugOrId, e.DB);
+      const orgId = await resolveOrgId(slugOrId, e.DB, request);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const showId = url.searchParams.get("showId");
       if (showId && !(await isShowAvailable(orgId, showId, e.DB))) {
@@ -430,7 +389,7 @@ const appServer = {
     if (cueMatch) {
       const [, slugOrId, subpath] = cueMatch;
       if (!["ws", "broadcast"].includes(subpath)) return new Response("Not found", { status: 404 });
-      const orgId = await resolveOrgId(slugOrId, e.DB);
+      const orgId = await resolveOrgId(slugOrId, e.DB, request);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const canWriteColumns = canUse(access, "cuesheet:edit");
@@ -466,7 +425,7 @@ const appServer = {
     const chatFileMatch = url.pathname.match(/^\/api\/chat-file\/([^/]+)\/([^/]+)\/(.+)$/);
     if (chatFileMatch && (request.method === "GET" || request.method === "DELETE")) {
       const [, slugOrId, fileId, encodedName] = chatFileMatch;
-      const orgId = await resolveOrgId(slugOrId, e.DB);
+      const orgId = await resolveOrgId(slugOrId, e.DB, request);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const guestToken = url.searchParams.get("guestToken");
@@ -512,7 +471,7 @@ const appServer = {
     if (chatMatch) {
       const [, slugOrId, subpath] = chatMatch;
       if (!["ws", "send", "history", "unread", "upload"].includes(subpath)) return new Response("Not found", { status: 404 });
-      const orgId = await resolveOrgId(slugOrId, e.DB);
+      const orgId = await resolveOrgId(slugOrId, e.DB, request);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const guestToken = url.searchParams.get("guestToken");
@@ -697,7 +656,7 @@ const appServer = {
     if (ltMatch) {
       const [, slugOrId, subpath] = ltMatch;
       if (!["ws", "current", "trigger", "clear", "queue"].includes(subpath)) return new Response("Not found", { status: 404 });
-      const orgId = await resolveOrgId(slugOrId, e.DB);
+      const orgId = await resolveOrgId(slugOrId, e.DB, request);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const isMutation = subpath !== "current" && subpath !== "ws";

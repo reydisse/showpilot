@@ -78,7 +78,7 @@ function database(): MobileApiDatabase {
 describe("rundown PIN boundaries", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.session.mockResolvedValue({ user: { id: "tm-1", name: "Technical Manager", email: "tm@example.com" } });
+    mocks.session.mockResolvedValue({ session: { id: "fixture-session", expiresAt: new Date("2099-01-01") }, user: { id: "tm-1", name: "Technical Manager", email: "tm@example.com" } });
     mocks.access.mockResolvedValue({
       role: "tm",
       permissions: ["show:view", "rundown:view"],

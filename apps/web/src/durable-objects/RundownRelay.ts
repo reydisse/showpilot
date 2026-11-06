@@ -576,6 +576,7 @@ export class RundownRelay extends DurableObject {
     }
 
     if (url.pathname === "/ws") {
+      if (authClaim && !canWrite && !canObserve) return new Response("Unauthorized", { status: 401 });
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
