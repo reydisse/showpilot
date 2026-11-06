@@ -20,7 +20,7 @@ vi.mock("@tanstack/react-start", () => {
     };
     return chain;
   };
-  return { createServerFn: builder, createMiddleware: builder };
+  return { createServerFn: builder, createMiddleware: builder, createServerOnlyFn: <T>(fn: T): T => fn };
 });
 afterEach(() => { request.cookie = ""; });
 

@@ -1,7 +1,9 @@
+import { markDatabaseWrite, requestDatabase } from "@/lib/request-database.server";
+import { migrateRundownItemSnapshot, readStoredRundownItems, rundownItemDiffStatements, rundownItemStorageKey, rundownItemStorageStatements } from "@/lib/rundown-item-storage.server";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import type { RelayPPSlide } from "@/lib/rundown-relay-payload";
 import { parseRelayPPSlide } from "@/lib/rundown-relay-payload";
-import { createServerFn } from "@tanstack/react-start";
+import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { env } from "cloudflare:workers";
 import { getPrisma } from "@/lib/db";
 import {
@@ -87,67 +89,6 @@ const VALID_ITEM_STATUSES = new Set<ItemStatus>([
   "complete",
 ]);
 
-type RawRundownItemRow = {
-  itemId: string;
-  title: string;
-  type: string;
-  duration: number;
-  notes: string;
-  assignee: string;
-  cue: string;
-  status: string;
-  sortOrder: number;
-  hardStop: boolean;
-  lowerThirdId: string | null;
-  scheduledStart: Date | null;
-  expectedEnd: Date | null;
-  actualStart: Date | null;
-  actualEnd: Date | null;
-};
-
-type RelationalRundownStore = {
-  findMany(args: {
-    where: { orgId: string; serviceDate?: string; showId?: string };
-    orderBy: { sortOrder: "asc" | "desc" };
-  }): Promise<RawRundownItemRow[]>;
-  findFirst(args: {
-    where: { orgId: string; serviceDate?: string; showId?: string };
-  }): Promise<RawRundownItemRow | null>;
-  upsert(args: {
-    where: {
-      orgId_showId_itemId: { orgId: string; showId: string; itemId: string };
-    };
-    update: Record<string, unknown>;
-    create: Record<string, unknown>;
-  }): Promise<unknown>;
-  deleteMany(args: {
-    where: {
-      orgId: string;
-      serviceDate?: string;
-      showId?: string;
-      itemId?: { notIn: string[] };
-    };
-  }): Promise<unknown>;
-};
-
-function getRelationalRundownStore(
-  prisma: ReturnType<typeof getPrisma>,
-): RelationalRundownStore | null {
-  const store = (prisma as unknown as { rundownItem?: RelationalRundownStore })
-    .rundownItem;
-  if (
-    !store ||
-    typeof store.findMany !== "function" ||
-    typeof store.findFirst !== "function" ||
-    typeof store.upsert !== "function" ||
-    typeof store.deleteMany !== "function"
-  ) {
-    return null;
-  }
-
-  return store;
-}
-
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -183,13 +124,6 @@ function normalizeItemType(value: unknown): ItemType {
   return typeof value === "string" && VALID_ITEM_TYPES.has(value as ItemType)
     ? (value as ItemType)
     : "segment";
-}
-
-function normalizeItemStatus(value: unknown): ItemStatus {
-  return typeof value === "string" &&
-    VALID_ITEM_STATUSES.has(value as ItemStatus)
-    ? (value as ItemStatus)
-    : "upcoming";
 }
 
 export function normalizeLegacyRundownItems(value: unknown): RundownItem[] {
@@ -296,130 +230,12 @@ function normalizeTimerState(
   };
 }
 
-function mapRundownRowsToItems(
-  rows: Array<{
-    itemId: string;
-    title: string;
-    type: string;
-    duration: number;
-    notes: string;
-    assignee: string;
-    cue: string;
-    status: string;
-    sortOrder: number;
-    hardStop: boolean;
-    lowerThirdId: string | null;
-    scheduledStart?: Date | null;
-    expectedEnd?: Date | null;
-    actualStart?: Date | null;
-    actualEnd?: Date | null;
-  }>,
-): RundownItem[] {
-  return rows.map((row) => ({
-    id: row.itemId,
-    title: row.title,
-    type: normalizeItemType(row.type),
-    duration: Math.max(0, row.duration),
-    notes: row.notes,
-    assignee: row.assignee,
-    cue: row.cue,
-    status: normalizeItemStatus(row.status),
-    sortOrder: row.sortOrder,
-    hardStop: row.hardStop,
-    lowerThirdId: row.lowerThirdId || undefined,
-    scheduledStart: row.scheduledStart
-      ? row.scheduledStart.toISOString()
-      : null,
-    expectedEnd: row.expectedEnd ? row.expectedEnd.toISOString() : null,
-    actualStart: row.actualStart ? row.actualStart.toISOString() : null,
-    actualEnd: row.actualEnd ? row.actualEnd.toISOString() : null,
-  }));
-}
-
-async function migrateLegacyRundownItems(
-  prisma: ReturnType<typeof getPrisma>,
-  orgId: string,
-  serviceDate: string,
-  legacyItems: RundownItem[],
-  showId: string,
-) {
-  const store = getRelationalRundownStore(prisma);
-  if (!store) return;
-
-  const hasRows = await store.findFirst({
-    where: { orgId, showId },
-  });
-
-  if (hasRows) return;
-
-  if (legacyItems.length === 0) return;
-
-  const itemIds = legacyItems.map((item) => item.id);
-
-  await store.deleteMany({
-    where: {
-      orgId,
-      showId,
-      ...(itemIds.length > 0 ? { itemId: { notIn: itemIds } } : {}),
-    },
-  });
-
-  await Promise.all(
-    legacyItems.map((item, index) =>
-      store.upsert({
-        where: { orgId_showId_itemId: { orgId, showId, itemId: item.id } },
-        update: {
-          title: item.title,
-          type: item.type,
-          duration: item.duration,
-          notes: item.notes,
-          assignee: item.assignee,
-          cue: item.cue,
-          status: item.status,
-          sortOrder: index,
-          hardStop: item.hardStop,
-          lowerThirdId: item.lowerThirdId ?? null,
-          scheduledStart: item.scheduledStart
-            ? new Date(item.scheduledStart)
-            : null,
-          expectedEnd: item.expectedEnd ? new Date(item.expectedEnd) : null,
-          actualStart: item.actualStart ? new Date(item.actualStart) : null,
-          actualEnd: item.actualEnd ? new Date(item.actualEnd) : null,
-        },
-        create: {
-          orgId,
-          showId,
-          serviceDate,
-          itemId: item.id,
-          title: item.title,
-          type: item.type,
-          duration: item.duration,
-          notes: item.notes,
-          assignee: item.assignee,
-          cue: item.cue,
-          status: item.status,
-          sortOrder: index,
-          hardStop: item.hardStop,
-          lowerThirdId: item.lowerThirdId,
-          scheduledStart: item.scheduledStart
-            ? new Date(item.scheduledStart)
-            : null,
-          expectedEnd: item.expectedEnd ? new Date(item.expectedEnd) : null,
-          actualStart: item.actualStart ? new Date(item.actualStart) : null,
-          actualEnd: item.actualEnd ? new Date(item.actualEnd) : null,
-        },
-      }),
-    ),
-  );
-}
-
 async function getRundownStateFromStorage(
   orgId: string,
   serviceDate: string,
   showId?: string,
 ): Promise<RundownState> {
   const prisma = getPrisma();
-  const store = getRelationalRundownStore(prisma);
   const rundownRecord = await prisma.rundown
     .findFirst({
       where: showId ? { id: showId, orgId } : { orgId, serviceDate },
@@ -453,35 +269,13 @@ async function getRundownStateFromStorage(
     effectiveShowId && legacyOwner?.id === effectiveShowId,
   );
 
-  let rows: RawRundownItemRow[] = [];
+  const scope = { orgId, serviceDate, showId: effectiveShowId };
+  const rows = await readStoredRundownItems(requestDatabase, scope);
+  const itemStorage = await prisma.appSetting.findUnique({
+    where: { orgId_key: { orgId, key: rundownItemStorageKey(effectiveShowId ?? serviceDate) } },
+  });
 
-  if (store) {
-    try {
-      rows = await store.findMany({
-        where: {
-          orgId,
-          ...(effectiveShowId ? { showId: effectiveShowId } : { serviceDate }),
-        },
-        orderBy: { sortOrder: "asc" },
-      });
-    } catch {
-      rows = [];
-    }
-  }
-
-  const [itemsSetting, legacyItemsSetting, timerSetting, legacyTimerSetting] =
-    await Promise.all([
-      prisma.appSetting.findUnique({
-        where: {
-          orgId_key: {
-            orgId,
-            key: rundownItemsKey(effectiveShowId ?? serviceDate),
-          },
-        },
-      }),
-      prisma.appSetting.findUnique({
-        where: { orgId_key: { orgId, key: rundownItemsKey(serviceDate) } },
-      }),
+  const [timerSetting, legacyTimerSetting] = await Promise.all([
       prisma.appSetting.findUnique({
         where: {
           orgId_key: {
@@ -505,9 +299,9 @@ async function getRundownStateFromStorage(
     status: rundownPhaseStatus(rundownRecord?.status ?? "stopped"),
   };
 
-  if (rows.length > 0) {
+  if (rows.length > 0 || itemStorage?.value === "rows-v1") {
     return {
-      items: mapRundownRowsToItems(rows),
+      items: rows,
       timer: normalizeTimerState(
         timerSetting?.value ??
           (allowDateFallback ? legacyTimerSetting?.value : null),
@@ -516,24 +310,24 @@ async function getRundownStateFromStorage(
     };
   }
 
-  const sourceItemsSetting =
-    itemsSetting ?? (allowDateFallback ? legacyItemsSetting : null);
+  const itemsSetting = await prisma.appSetting.findUnique({
+    where: { orgId_key: { orgId, key: rundownItemsKey(effectiveShowId ?? serviceDate) } },
+  });
+  const sourceItemsSetting = itemsSetting ?? (allowDateFallback ? await prisma.appSetting.findUnique({
+    where: { orgId_key: { orgId, key: rundownItemsKey(serviceDate) } },
+  }) : null);
   const legacyItems = normalizeLegacyRundownItems(
     parseRundownJson(sourceItemsSetting?.value, []),
   );
 
   if (sourceItemsSetting?.value && effectiveShowId) {
-    try {
-      await migrateLegacyRundownItems(
-        prisma,
-        orgId,
-        serviceDate,
-        legacyItems,
-        effectiveShowId,
-      );
-    } catch {
-      // Best effort migration. Keep source-of-truth fallback on legacy JSON if this fails.
-    }
+    markDatabaseWrite();
+    await migrateRundownItemSnapshot(requestDatabase, scope, legacyItems);
+    return {
+      items: await readStoredRundownItems(requestDatabase, scope),
+      timer: normalizeTimerState(timerSetting?.value ?? (allowDateFallback ? legacyTimerSetting?.value : null)),
+      meta,
+    };
   }
 
   return {
@@ -667,13 +461,13 @@ export const getShowRundownState = createServerFn({ method: "GET" })
     return getRundownStateFromStorage(data.orgId, data.serviceDate, data.showId);
   });
 
-export async function getRundownStateForOrg(data: {
+export const getRundownStateForOrg = createServerOnlyFn(async (data: {
   orgId: string;
   serviceDate: string;
   showId?: string;
-}): Promise<RundownState> {
+}): Promise<RundownState> => {
   return getRundownStateFromStorage(data.orgId, data.serviceDate, data.showId);
-}
+});
 
 async function resolveWritableShowId(
   prisma: ReturnType<typeof getPrisma>,
@@ -707,98 +501,22 @@ async function resolveWritableShowId(
   return created.id;
 }
 
-/**
- * Persist rundown items for an org/service date — appSetting JSON plus the
- * relational rundownItem rows. Shared by the rundown editor and the
- * onboarding template seed. Caller is responsible for access control.
- */
-export async function persistRundownItemsForOrg(
+/** Persist setup/import items as row changes; the live editor uses the relay's serialized commands. */
+export const persistRundownItemsForOrg = createServerOnlyFn(async (
   orgId: string,
   serviceDate: string,
   rawItems: unknown[],
   showId?: string,
-): Promise<string> {
-  const prisma = getPrisma();
-  const store = getRelationalRundownStore(prisma);
-  const targetShowId = await resolveWritableShowId(
-    prisma,
-    orgId,
-    serviceDate,
-    showId,
-  );
-  const key = rundownItemsKey(targetShowId);
-  const normalizedItems = normalizeLegacyRundownItems(rawItems);
-
-  await prisma.appSetting.upsert({
-    where: { orgId_key: { orgId, key } },
-    update: { value: JSON.stringify(normalizedItems) },
-    create: {
-      orgId,
-      key,
-      value: JSON.stringify(normalizedItems),
-    },
-  });
-
-  if (!store) {
-    return targetShowId;
-  }
-
-  const itemIds = normalizedItems.map((item) => item.id);
-  const relationalWrites: Promise<unknown>[] = [
-    ...normalizedItems.map((item, index) =>
-      store.upsert({
-        where: {
-          orgId_showId_itemId: { orgId, showId: targetShowId, itemId: item.id },
-        },
-        update: {
-          title: item.title,
-          type: item.type,
-          duration: item.duration,
-          notes: item.notes,
-          assignee: item.assignee,
-          cue: item.cue,
-          status: item.status,
-          sortOrder: index,
-          hardStop: item.hardStop,
-          lowerThirdId: item.lowerThirdId ?? null,
-        },
-        create: {
-          orgId,
-          showId: targetShowId,
-          serviceDate,
-          itemId: item.id,
-          title: item.title,
-          type: item.type,
-          duration: item.duration,
-          notes: item.notes,
-          assignee: item.assignee,
-          cue: item.cue,
-          status: item.status,
-          sortOrder: index,
-          hardStop: item.hardStop,
-          lowerThirdId: item.lowerThirdId,
-        },
-      }),
-    ),
-    store.deleteMany({
-      where: {
-        orgId,
-        showId: targetShowId,
-        ...(itemIds.length > 0 ? { itemId: { notIn: itemIds } } : {}),
-      },
-    }),
-  ];
-
-  try {
-    await Promise.all(relationalWrites);
-  } catch (error) {
-    console.warn(
-      "[SP] Relational rundown item write failed. Falling back to app_setting storage.",
-      error,
-    );
-  }
+): Promise<string> => {
+  const targetShowId = await resolveWritableShowId(getPrisma(), orgId, serviceDate, showId);
+  const items = normalizeLegacyRundownItems(rawItems);
+  const scope = { orgId, serviceDate, showId: targetShowId };
+  markDatabaseWrite();
+  const db = requestDatabase;
+  const before = await readStoredRundownItems(db, scope);
+  await db.batch([...rundownItemDiffStatements(db, scope, before, items), ...rundownItemStorageStatements(db, scope)]);
   return targetShowId;
-}
+});
 
 /**
  * Persist rundown items for an org on a specific service date.
@@ -868,7 +586,7 @@ type RundownPrismaExt = {
     }): Promise<unknown>;
     create(args: { data: Record<string, unknown> }): Promise<unknown>;
   };
-  rundownItem?: RelationalRundownStore & {
+  rundownItem?: {
     update(args: {
       where: {
         orgId_showId_itemId: { orgId: string; showId: string; itemId: string };
@@ -1555,7 +1273,7 @@ export const listRundownDates = createServerFn({ method: "GET" })
           ],
         }),
         prisma.appSetting.findMany({
-          where: { orgId: data.orgId, key: { startsWith: "rundown-items:" } },
+          where: { orgId: data.orgId, OR: [{ key: { startsWith: "rundown-items:" } }, { key: { startsWith: "rundown-items-storage:" } }] },
           select: { key: true, value: true },
         }),
       ]);
@@ -1578,7 +1296,7 @@ export const listRundownDates = createServerFn({ method: "GET" })
           date: show.serviceDate,
           name: show.name,
           scheduledStartTime: show.scheduledStartTime?.toISOString() ?? null,
-          itemCount: Math.max(
+          itemCount: settings.some(setting => setting.key === rundownItemStorageKey(show.id) && setting.value === "rows-v1") ? show._count.items : Math.max(
             show._count.items,
             settingCounts.get(rundownItemsKey(show.id)) ?? 0,
             settingCounts.get(rundownItemsKey(show.serviceDate)) ?? 0,

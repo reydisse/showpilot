@@ -105,22 +105,24 @@ export async function deleteServiceForOrg(
     db.prepare("DELETE FROM rundown_item WHERE orgId = ? AND showId = ?").bind(...showArgs),
     db.prepare("DELETE FROM incident WHERE orgId = ? AND showId = ?").bind(...showArgs),
     db.prepare("DELETE FROM mic_assignment WHERE orgId = ? AND showId = ?").bind(...showArgs),
-    db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key IN (?, ?, ?, ?)").bind(
+    db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key IN (?, ?, ?, ?, ?)").bind(
       input.orgId,
       `rundown-items:${rundown.id}`,
       `rundown-timer:${rundown.id}`,
       `rundown-message:${rundown.id}`,
       `rundown-ppslide:${rundown.id}`,
+      `rundown-items-storage:${rundown.id}`,
     ),
     db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key = 'active-show-id' AND value = ?").bind(input.orgId, rundown.id),
     db.prepare("DELETE FROM rundown WHERE orgId = ? AND id = ?").bind(...showArgs),
     db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key = ?").bind(input.orgId, deletingKey),
-    db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key IN (?, ?, ?, ?) AND NOT EXISTS (SELECT 1 FROM rundown WHERE orgId = ? AND serviceDate = ?)").bind(
+    db.prepare("DELETE FROM app_setting WHERE orgId = ? AND key IN (?, ?, ?, ?, ?) AND NOT EXISTS (SELECT 1 FROM rundown WHERE orgId = ? AND serviceDate = ?)").bind(
       input.orgId,
       `rundown-items:${rundown.serviceDate}`,
       `rundown-timer:${rundown.serviceDate}`,
       `rundown-message:${rundown.serviceDate}`,
       `rundown-ppslide:${rundown.serviceDate}`,
+      `rundown-items-storage:${rundown.serviceDate}`,
       input.orgId,
       rundown.serviceDate,
     ),

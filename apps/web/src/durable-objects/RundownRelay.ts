@@ -1,3 +1,4 @@
+import { readStoredRundownItems, rundownItemDiffStatements, rundownItemStorageStatements, samePersistedRundownItem, type RundownDatabase, type RundownStatement } from "@/lib/rundown-item-storage.server";
 import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh } from "@/lib/socket-read-authority.server";
 import type { RelayPPSlide } from "@/lib/rundown-relay-payload";
 import { DurableObject } from "cloudflare:workers";
@@ -30,21 +31,8 @@ import {
 import { getPresentedRundownPin } from "@/lib/rundown-pin.server";
 import { restoreRundownItem } from "@/lib/rundown-undo";
 
-interface D1BoundStatement {
-  first<T>(): Promise<T | null>;
-  all<T>(): Promise<{ results: T[] }>;
-  run(): Promise<unknown>;
-}
-
-interface D1Database {
-  prepare(sql: string): {
-    bind(...params: unknown[]): D1BoundStatement;
-  };
-  batch(statements: D1BoundStatement[]): Promise<unknown[]>;
-}
-
 interface Env {
-  DB: D1Database;
+  DB: RundownDatabase;
   BETTER_AUTH_SECRET?: string;
 }
 
@@ -109,6 +97,8 @@ interface RundownState {
   removedItems: Array<{ item: RundownItem; index: number; nextId: string | null; expiresAt: number }>;
 }
 
+type StoredRundownState = Omit<RundownState, "items"> & { items?: RundownItem[]; itemIds?: string[] };
+
 const DEFAULT_TIMER: TimerState = {
   playback: "stop",
   currentItemId: null,
@@ -135,20 +125,37 @@ export class RundownRelay extends DurableObject {
   private hydrationPromise: Promise<void> | null = null;
   private orgId = "";
   private readonly commands = new SerialCommandExecutor();
+  private persistedItems = new Map<string, RundownItem>();
+  private itemRowsInitialized = false;
 
   /** Load state from durable storage on first access */
   private async hydrateFromStorage(): Promise<void> {
     if (this.hydrated) return;
     if (!this.hydrationPromise) {
       this.hydrationPromise = (async () => {
-        const stored = await this.ctx.storage.get<RundownState>("state");
+        const stored = await this.ctx.storage.get<StoredRundownState>("state");
         const ppOutputEnabled = typeof stored?.ppOutputEnabled === "boolean"
           ? stored.ppOutputEnabled
           : await this.readProPresenterStageDisplaySetting();
         if (stored) {
+          let items = stored.items ?? [];
+          if (stored.itemIds) {
+            const rows = new Map<string, RundownItem>();
+            // The asynchronous storage API accepts at most 128 keys per get.
+            for (let offset = 0; offset < stored.itemIds.length; offset += 128) {
+              const chunk = await this.ctx.storage.get<RundownItem>(stored.itemIds.slice(offset, offset + 128).map(id => `rundown-item:${id}`));
+              for (const [key, value] of chunk) rows.set(key, value);
+            }
+            items = stored.itemIds.map(id => {
+              const item = rows.get(`rundown-item:${id}`);
+              if (!item) throw new Error("Rundown item storage is incomplete.");
+              return item;
+            });
+            this.itemRowsInitialized = true;
+          }
           this.state = {
-            initialized: inferRundownRelayInitialized(stored),
-            items: stored.items ?? [],
+            initialized: inferRundownRelayInitialized({ ...stored, items }),
+            items: items.map((item, sortOrder) => ({ ...item, sortOrder })),
             timer: stored.timer ?? { ...DEFAULT_TIMER },
             ppSlide: stored.ppSlide ?? null,
             ppPreviewSlide: stored.ppPreviewSlide ?? null,
@@ -166,6 +173,7 @@ export class RundownRelay extends DurableObject {
               : [],
             removedItems: (stored.removedItems ?? []).filter((removed) => removed.expiresAt > Date.now()),
           };
+          this.persistedItems = new Map(items.map(item => [item.id, { ...item }]));
         } else {
           this.state.ppOutputEnabled = ppOutputEnabled;
         }
@@ -179,7 +187,22 @@ export class RundownRelay extends DurableObject {
 
   /** Persist the authoritative state before any client sees the revision. */
   private async persistState(): Promise<void> {
-    await this.ctx.storage.put("state", this.state);
+    const { items, ...metadata } = this.state;
+    const current = new Map(items.map(item => [item.id, { ...item }]));
+    await this.ctx.storage.transaction(async storage => {
+      for (const id of this.persistedItems.keys()) {
+        if (!current.has(id)) await storage.delete(`rundown-item:${id}`);
+      }
+      for (const [id, item] of current) {
+        const previous = this.persistedItems.get(id);
+        if (!this.itemRowsInitialized || !previous || !samePersistedRundownItem(previous, item)) {
+          await storage.put(`rundown-item:${id}`, item);
+        }
+      }
+      await storage.put("state", { ...metadata, itemIds: items.map(item => item.id) });
+    });
+    this.persistedItems = current;
+    this.itemRowsInitialized = true;
   }
 
   private cloneState(): RundownState {
@@ -216,7 +239,7 @@ export class RundownRelay extends DurableObject {
 
     const env = this.env as unknown as Env;
     const identity = this.state.showId ?? this.state.serviceDate;
-    const statements: D1BoundStatement[] = [];
+    const statements: RundownStatement[] = [];
 
     if (persistsTimer) {
       statements.push(env.DB.prepare(
@@ -240,104 +263,11 @@ export class RundownRelay extends DurableObject {
       }
     }
 
-    if (persistsFullItems) {
-      const serializedItems = JSON.stringify(this.state.items);
-      if (new TextEncoder().encode(serializedItems).byteLength > 1_500_000) {
-        throw new Error("Rundown snapshot exceeds the durable storage boundary.");
-      }
-      statements.push(
-        env.DB.prepare(
-          `INSERT INTO app_setting (id, orgId, key, value)
-           VALUES (?, ?, ?, ?)
-           ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
-        ).bind(
-          crypto.randomUUID(),
-          this.orgId,
-          `rundown-items:${identity}`,
-          serializedItems,
-        ),
-        this.state.showId
-          ? env.DB.prepare("DELETE FROM rundown_item WHERE orgId = ? AND showId = ?")
-              .bind(this.orgId, this.state.showId)
-          : env.DB.prepare(
-              "DELETE FROM rundown_item WHERE orgId = ? AND showId IS NULL AND serviceDate = ?",
-            ).bind(this.orgId, this.state.serviceDate),
-      );
-
-      if (this.state.items.length > 0) {
-        const rowSql = `(${Array.from({ length: 19 }, () => "?").join(", ")}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`;
-        // D1 permits 100 bound parameters per statement. Five 19-field rows
-        // stay below that boundary while the surrounding batch remains atomic.
-        for (let offset = 0; offset < this.state.items.length; offset += 5) {
-          const chunk = this.state.items.slice(offset, offset + 5);
-          const values = chunk.flatMap((item, chunkIndex) => [
-            crypto.randomUUID(),
-            this.orgId,
-            this.state.showId ?? null,
-            this.state.serviceDate,
-            item.id,
-            item.title,
-            item.type,
-            item.duration,
-            item.notes,
-            item.assignee,
-            item.cue,
-            item.status,
-            offset + chunkIndex,
-            item.hardStop,
-            item.lowerThirdId ?? null,
-            item.scheduledStart ?? null,
-            item.expectedEnd ?? null,
-            item.actualStart ?? null,
-            item.actualEnd ?? null,
-          ]);
-          statements.push(env.DB.prepare(
-            `INSERT INTO rundown_item (
-               id, orgId, showId, serviceDate, itemId, title, type, duration,
-               notes, assignee, cue, status, sortOrder, hardStop, lowerThirdId,
-               scheduledStart, expectedEnd, actualStart, actualEnd, createdAt, updatedAt
-             ) VALUES ${chunk.map(() => rowSql).join(", ")}`,
-          ).bind(...values));
-        }
-      }
-    } else if (action.startsWith("timer-")) {
-      const previousItems = new Map(previousState.items.map((item) => [item.id, item]));
-      for (const item of this.state.items) {
-        const previous = previousItems.get(item.id);
-        if (
-          previous
-          && previous.status === item.status
-          && previous.actualStart === item.actualStart
-          && previous.actualEnd === item.actualEnd
-        ) continue;
-        statements.push(
-          (this.state.showId
-            ? env.DB.prepare(
-                `UPDATE rundown_item
-                    SET status = ?, actualStart = ?, actualEnd = ?, updatedAt = CURRENT_TIMESTAMP
-                  WHERE orgId = ? AND showId = ? AND itemId = ?`,
-              ).bind(
-                item.status,
-                item.actualStart ?? null,
-                item.actualEnd ?? null,
-                this.orgId,
-                this.state.showId,
-                item.id,
-              )
-            : env.DB.prepare(
-                `UPDATE rundown_item
-                    SET status = ?, actualStart = ?, actualEnd = ?, updatedAt = CURRENT_TIMESTAMP
-                  WHERE orgId = ? AND showId IS NULL AND serviceDate = ? AND itemId = ?`,
-              ).bind(
-                item.status,
-                item.actualStart ?? null,
-                item.actualEnd ?? null,
-                this.orgId,
-                this.state.serviceDate,
-                item.id,
-              )),
-        );
-      }
+    if (persistsTimer) {
+      const scope = { orgId: this.orgId, showId: this.state.showId, serviceDate: this.state.serviceDate ?? "" };
+      const baseline = action === "seed" ? await readStoredRundownItems(env.DB, scope) : previousState.items;
+      statements.push(...rundownItemDiffStatements(env.DB, scope, baseline, this.state.items));
+      if (persistsFullItems) statements.push(...rundownItemStorageStatements(env.DB, scope));
     }
 
     if (persistsMeta && this.state.showId) {
@@ -478,6 +408,8 @@ export class RundownRelay extends DurableObject {
       }
       for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Organization deleted");
       await this.ctx.storage.deleteAll();
+      this.persistedItems.clear();
+      this.itemRowsInitialized = false;
       this.state = {
         initialized: false,
         items: [],
@@ -509,6 +441,8 @@ export class RundownRelay extends DurableObject {
 
       for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Show deleted");
       await this.ctx.storage.deleteAll();
+      this.persistedItems.clear();
+      this.itemRowsInitialized = false;
       this.state = {
         initialized: false,
         items: [],
@@ -1230,6 +1164,7 @@ export class RundownRelay extends DurableObject {
         return false;
     }
 
+    this.state.items = this.state.items.map((item, sortOrder) => item.sortOrder === sortOrder ? item : { ...item, sortOrder });
     try {
       await this.persistAuthoritativeSnapshot(action, previousState);
     } catch (error) {
