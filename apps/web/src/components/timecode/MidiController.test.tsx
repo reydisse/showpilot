@@ -21,7 +21,7 @@ async function fixture() {
       { id: "offset", input: { kind: "cc", channel: 0, number: 50 }, action: { kind: "offset", frames: 30 } },
     ] } },
     saveController: vi.fn(() => ({ status: "sent" as const })), claimControl: vi.fn(), releaseControl: vi.fn(), startFreerun: vi.fn(() => ({ status: "sent" as const })), pauseGenerator: vi.fn(), stopGenerator: vi.fn(), startMtc: vi.fn(async () => {}), stopMtc: vi.fn(),
-    setTimecode: vi.fn(), adjustTimecode: vi.fn(), setFormat: vi.fn(), addEvent: vi.fn(async () => {}), replaceEventGroup: vi.fn(async () => {}), updateEvent: vi.fn(), removeEvent: vi.fn(), resetEvents: vi.fn(), retryEvent: vi.fn(), fireEvent: vi.fn(), fireNext: vi.fn(), skipEvent: vi.fn(), rearmEvent: vi.fn(), setEventEnabled: vi.fn(), setTriggersEnabled: vi.fn(), resumeAutomaticCues: vi.fn(), setLyrics: vi.fn(), clearLyrics: vi.fn(),
+    setTimecode: vi.fn(), adjustTimecode: vi.fn(), setFormat: vi.fn(), addEvent: vi.fn(async () => {}), replaceEventGroup: vi.fn(async () => {}), updateEvent: vi.fn(async () => {}), removeEvent: vi.fn(), resetEvents: vi.fn(), retryEvent: vi.fn(), fireEvent: vi.fn(), fireNext: vi.fn(), skipEvent: vi.fn(), rearmEvent: vi.fn(), setEventEnabled: vi.fn(), setTriggersEnabled: vi.fn(), resumeAutomaticCues: vi.fn(), setLyrics: vi.fn(), clearLyrics: vi.fn(),
   };
   const tree = (clock = tc, showId = "show") => <MidiControllerProvider timecode={clock} showId={showId}><MidiControllerPanel timecode={clock} /></MidiControllerProvider>;
   const view = render(tree());

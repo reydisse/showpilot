@@ -20,6 +20,7 @@ import { emptyMidiController, type MidiControllerConfig, type MidiControllerSnap
 import { RelaySequenceTracker } from "@/lib/relay-sequence";
 import { useLyricsCommands } from "@/hooks/useLyricsCommands";
 import type { LyricsOperation } from "@/lib/lyrics-control";
+import { automationEditReview, automationChangesMatch, type AutomationEventChanges } from "@/lib/automation-edit";
 
 interface UseTimecodeOptions {
   orgId: string;
@@ -29,7 +30,7 @@ interface UseTimecodeOptions {
   relayBaseUrl?: string;
 }
 
-export type NewAutomationEvent = Omit<AutomationEvent, "id" | "fired" | "triggerFrame" | "deviceLatencyMs" | "timingDeviceId" | "dispatchFrame"> & { id?: string };
+export type NewAutomationEvent = Omit<AutomationEvent, "id" | "editRevision" | "fired" | "triggerFrame" | "deviceLatencyMs" | "timingDeviceId" | "dispatchFrame"> & { id?: string };
 export type TimecodeSendResult = { status: "sent" } | { status: "failed"; error: string };
 
 export interface UseTimecodeReturn {
@@ -59,7 +60,7 @@ export interface UseTimecodeReturn {
   // Event management
   addEvent: (event: NewAutomationEvent) => Promise<void>;
   replaceEventGroup: (sourceKey: string, events: AutomationEvent[], options?: { onlyIfEmpty: boolean }) => Promise<void>;
-  updateEvent: (id: string, updates: Partial<AutomationEvent>) => void;
+  updateEvent: (event: AutomationEvent, updates: AutomationEventChanges, expectedFormat: TimecodeFormat) => Promise<void>;
   removeEvent: (id: string) => void;
   resetEvents: () => void;
   retryEvent: (id: string, expected?: ReturnType<typeof cueReviewState>) => void;
@@ -334,7 +335,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
             case "command-rejected":
               setLastError(msg.error);
               if (msg.action === "set-source" || msg.action === "start" || msg.action === "feed-tc" || msg.action === "mtc-transport") stopLocalSources();
-              if (msg.action === "add-event" || msg.action === "replace-event-group") failEdits(msg.error);
+              if (msg.action === "add-event" || msg.action === "replace-event-group" || msg.action === "update-event") failEdits(msg.error);
               break;
             case "master-status":
               if (msg.granted && pendingSourceRef.current) masterGrantedRef.current = true;
@@ -432,7 +433,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   }, [awaitGenerator, sendCommand, stopLocalSources]);
   const pauseGenerator = useCallback(() => { sendCommand("pause"); }, [sendCommand]);
 
-  const saveEvents = useCallback((action: "add-event" | "replace-event-group", payload: Record<string, unknown>, matches: PendingEdit["matches"]): Promise<void> => {
+  const saveEvents = useCallback((action: "add-event" | "replace-event-group" | "update-event", payload: Record<string, unknown>, matches: PendingEdit["matches"]): Promise<void> => {
     setLastError(null);
     return new Promise((resolve, reject) => {
       const pending: PendingEdit = { matches, resolve, reject, timeout: setTimeout(() => {
@@ -482,7 +483,10 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const setFormat = useCallback((format: TimecodeFormat, expectedFormat: TimecodeFormat, expectedIncomingFormatId?: string) => {
     sendCommand("set-format", { format, expectedFormat, expectedIncomingFormatId, confirmed: true });
   }, [sendCommand]);
-  const updateEvent = useCallback((id: string, updates: Partial<AutomationEvent>) => { sendCommand("update-event", { id, updates }); }, [sendCommand]);
+  const updateEvent = useCallback((event: AutomationEvent, updates: AutomationEventChanges, expectedFormat: TimecodeFormat) => {
+    return saveEvents("update-event", { id: event.id, updates, expected: automationEditReview(event), expectedFormat }, incoming =>
+      incoming.some(candidate => candidate.id === event.id && candidate.editRevision !== event.editRevision && automationChangesMatch(candidate, updates)));
+  }, [saveEvents]);
   const removeEvent = useCallback((id: string) => { sendCommand("remove-event", { id }); }, [sendCommand]);
   const resetEvents = useCallback(() => { sendCommand("reset-events"); }, [sendCommand]);
   const retryEvent = useCallback((id: string, expected?: ReturnType<typeof cueReviewState>) => {
