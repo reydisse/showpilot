@@ -1,3 +1,9 @@
+export const RUNDOWN_TRANSPORT_MAX_AGE_MS = 5_000;
+
+export function isLiveRundownTransport(action: string): boolean {
+  return action.startsWith("timer-") && action !== "timer-mode";
+}
+
 export type RelayCommandDecision = "apply" | "duplicate" | "revision-conflict" | "expired";
 
 export type RundownRelayWriteAccess = "edit" | "control";

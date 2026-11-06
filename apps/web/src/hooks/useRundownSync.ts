@@ -1,3 +1,5 @@
+import { handOffRundownCommands, type RundownHandoffCommand } from "@/lib/rundown-handoff";
+import { isLiveRundownTransport, RUNDOWN_TRANSPORT_MAX_AGE_MS } from "@/lib/rundown-command-protocol";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createBrowserId } from "@/lib/browser-id";
 import { rebaseTimerToLocalClock } from "@/lib/rundown-clock";
@@ -150,22 +152,11 @@ interface PPSlideState {
   updatedAt: number;
 }
 
-const TRANSPORT_MAX_AGE_MS = 5_000;
-
-function isLiveTransport(action: string): boolean {
-  return action.startsWith("timer-") && action !== "timer-mode";
-}
-
 function isExpired(command: QueuedCommand): boolean {
-  return isLiveTransport(command.action) && Date.now() - command.queuedAt >= TRANSPORT_MAX_AGE_MS;
+  return isLiveRundownTransport(command.action) && Date.now() - command.queuedAt >= RUNDOWN_TRANSPORT_MAX_AGE_MS;
 }
 
-interface QueuedCommand {
-  queuedAt: number;
-  id: string;
-  action: string;
-  payload?: Record<string, unknown>;
-  expectedRevision?: number;
+interface QueuedCommand extends RundownHandoffCommand {
   attempts: number;
 }
 
@@ -309,8 +300,8 @@ export function useRundownSync(
       expectedRevision: pending.expectedRevision,
       action: pending.action,
       payload: pending.payload,
-      ...(isLiveTransport(pending.action) ? {
-        expiresAt: pending.queuedAt + TRANSPORT_MAX_AGE_MS + (serverClockOffsetRef.current ?? 0),
+      ...(isLiveRundownTransport(pending.action) ? {
+        expiresAt: pending.queuedAt + RUNDOWN_TRANSPORT_MAX_AGE_MS + (serverClockOffsetRef.current ?? 0),
       } : {}),
     }));
   }, [clearPendingTimer, confirmCommand]);
@@ -516,52 +507,32 @@ export function useRundownSync(
       connect();
     }, 0);
 
-    return () => {
-      disposed = true;
-      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+    const handOffPending = () => {
       clearPendingTimer();
       const commandsToHandOff = [
         ...(pendingCommandRef.current ? [pendingCommandRef.current] : []),
         ...commandQueue.current,
       ];
       if (commandsToHandOff.length > 0) {
-        // Route changes tear down this socket. Keepalive requests carry any
-        // unconfirmed work to the relay with the same idempotency keys.
-        let expectedRevision = revisionRef.current;
-        const serverClockOffset = serverClockOffsetRef.current;
-        void commandsToHandOff.reduce<Promise<void>>(async (previous, command) => {
-          await previous;
-          if (isExpired(command) || (isLiveTransport(command.action) && serverClockOffset === null)) return;
-          try {
-            const response = await fetch(
-              `${window.location.origin}/api/rundown/${encodeURIComponent(orgId)}/command${suffix}`,
-              {
-                method: "POST",
-                credentials: "same-origin",
-                keepalive: true,
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  action: command.action,
-                  id: command.id,
-                  expectedRevision: command.expectedRevision ?? expectedRevision,
-                  payload: command.payload,
-                  ...(isLiveTransport(command.action) ? {
-                    expiresAt: command.queuedAt + TRANSPORT_MAX_AGE_MS + (serverClockOffset ?? 0),
-                  } : {}),
-                }),
-              },
-            );
-            const result = await response.json() as { revision?: number };
-            if (typeof result.revision === "number") expectedRevision = result.revision;
-          } catch {
-            // The command remains unconfirmed; never invent local success.
-          }
-        }, Promise.resolve());
+        // The workspace notice outlives this route and confirms each HTTP
+        // result before handing off the next command at its returned revision.
+        void handOffRundownCommands({
+          orgId, serviceDate, showId, view, commands: commandsToHandOff,
+          revision: revisionRef.current, serverClockOffset: serverClockOffsetRef.current,
+        });
       }
       commandQueue.current = [];
       pendingCommandRef.current = null;
       unconfirmedCommandIdsRef.current.clear();
       setUnconfirmedCount(0);
+    };
+    window.addEventListener("pagehide", handOffPending);
+
+    return () => {
+      disposed = true;
+      window.removeEventListener("pagehide", handOffPending);
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      handOffPending();
       socketHydratedRef.current = false;
       if (wsRef.current === activeSocket) wsRef.current = null;
       activeSocket?.close();
@@ -571,7 +542,7 @@ export function useRundownSync(
 
   const sendCommand = useCallback(
     (action: string, payload?: Record<string, unknown>) => {
-      if (isLiveTransport(action)) setTransportError(null);
+      if (isLiveRundownTransport(action)) setTransportError(null);
       const id = createBrowserId();
       unconfirmedCommandIdsRef.current.add(id);
       setUnconfirmedCount(unconfirmedCommandIdsRef.current.size);
