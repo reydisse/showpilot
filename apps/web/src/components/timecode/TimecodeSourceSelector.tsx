@@ -18,6 +18,7 @@ interface TimecodeSourceSelectorProps {
   mtcSupported: boolean;
   onStartFreerun: (offsetMs?: number) => void;
   onStopGenerator: () => void;
+  onPauseGenerator?: () => void;
   onStartMtc: (inputId: string, options?: { sysex: boolean }) => Promise<void>;
   onSetFormat: (format: TimecodeFormat, expectedFormat: TimecodeFormat, expectedIncomingFormatId?: string) => void;
 }
@@ -35,6 +36,7 @@ export function TimecodeSourceSelector({
   mtcSupported,
   onStartFreerun,
   onStopGenerator,
+  onPauseGenerator,
   onStartMtc,
   onSetFormat,
 }: TimecodeSourceSelectorProps) {
@@ -71,6 +73,7 @@ export function TimecodeSourceSelector({
         Timecode Source
       </h3>
       {source === "mtc" && <MtcFrameAge lastFeedAt={signal?.lastFeedAt ?? null} />}
+      {signal?.status === "paused" && <p role="status" className="text-sm text-board-muted">Clock paused. Position and source ownership are held.</p>}
       {signal?.status === "midi-stopped" && <p role="status" className="text-sm text-board-muted">MIDI transport stopped. Clock held; listening for Start or Continue.</p>}
       {signal?.status === "midi-waiting" && <p role="status" className="text-sm text-amber-200">Waiting for MIDI position and timecode. Send a full-frame sync or Song Position Pointer with MTC before continuing.</p>}
       {(signal?.status === "timecode-stalled" || signal?.status === "timecode-lost") && (
@@ -134,6 +137,9 @@ export function TimecodeSourceSelector({
             {pending === "stopping" ? "Stopping…" : "Stop Generator"}
           </button>
         )}
+
+        {isMaster && onPauseGenerator && <button type="button" onClick={signal?.status === "paused" ? () => onStartFreerun() : onPauseGenerator}
+          className="min-h-11 rounded-lg border border-board-border px-4 text-sm text-board-text">{signal?.status === "paused" ? "Resume clock" : "Pause clock"}</button>}
 
         {/* MTC source */}
         {mtcSupported ? (

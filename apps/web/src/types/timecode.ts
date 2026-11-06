@@ -1,5 +1,7 @@
 // ─── SMPTE Frame Rates ──────────────────────────────────────
 
+import type { MidiControllerSnapshot } from "@/lib/midi-controller";
+
 export type FrameRate = 24 | 25 | 29.97 | 30;
 
 export type DropFrameMode = "df" | "ndf";
@@ -51,7 +53,7 @@ export interface TimecodeState {
   automationHold?: { id: string; reason: "timecode-jump"; from: string; to: string; detectedAt: number } | null;
   /** Absent only on snapshots/clients predating the feed watchdog. */
   signal?: {
-    status: "idle" | "waiting" | "live" | "timecode-stalled" | "timecode-lost" | "format-mismatch" | "midi-stopped" | "midi-waiting";
+    status: "idle" | "waiting" | "live" | "timecode-stalled" | "timecode-lost" | "format-mismatch" | "midi-stopped" | "midi-waiting" | "paused";
     lastFeedAt: number | null;
   };
   /** Present on a show-bound room; absent only in pre-migration snapshots. */
@@ -179,7 +181,7 @@ export type TimecodeControlStatus = "available" | "yours" | "other";
 
 export type TimecodeWsMessage = (
   | { type: "sync"; lastSeenSequence: number | null }
-  | { type: "hydrate"; state: TimecodeState; events: AutomationEvent[]; control?: TimecodeControlStatus }
+  | { type: "hydrate"; state: TimecodeState; events: AutomationEvent[]; control?: TimecodeControlStatus; controller?: MidiControllerSnapshot }
   | { type: "hydrate"; state: TimecodeDisplayState }
   | { type: "tc-update"; state: TimecodeState | TimecodeDisplayState }
   | { type: "event-fired"; event: AutomationEvent; firedAt: number }
@@ -190,13 +192,16 @@ export type TimecodeWsMessage = (
   | { type: "command-rejected"; action: TimecodeCommand; error: string }
   | { type: "master-status"; granted: boolean }
   | { type: "control-status"; control: TimecodeControlStatus }
+  | { type: "controller-update"; controller: MidiControllerSnapshot }
 ) & { showId?: string | null; serviceDate?: string | null };
 
 export const TIMECODE_COMMANDS = [
   "claim-control",
+  "save-controller",
   "release-control",
   "start",
   "stop",
+  "pause",
   "feed-tc",
   "mtc-transport",
   "set-source",

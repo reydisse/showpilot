@@ -9,11 +9,12 @@ import type {
   TimecodeCommand,
   TimecodeControlStatus,
 } from "@/types/timecode";
-import { timecodeToFrames } from "@/lib/timecode";
+import { framesToTimecode, timecodeToFrames } from "@/lib/timecode";
 import { InternalTimecodeSource } from "@/lib/timecode-sources/internal-source";
 import { createBrowserId } from "@/lib/browser-id";
 import { MtcSource } from "@/lib/timecode-sources/mtc-source";
 import type { cueReviewState } from "@/lib/automation-cues";
+import { emptyMidiController, type MidiControllerConfig, type MidiControllerSnapshot } from "@/lib/midi-controller";
 import { RelaySequenceTracker } from "@/lib/relay-sequence";
 
 interface UseTimecodeOptions {
@@ -28,6 +29,8 @@ export type NewAutomationEvent = Omit<AutomationEvent, "id" | "fired" | "trigger
 export type TimecodeSendResult = { status: "sent" } | { status: "failed"; error: string };
 
 export interface UseTimecodeReturn {
+  controller: MidiControllerSnapshot;
+  saveController: (config: MidiControllerConfig, revision: number) => TimecodeSendResult;
   state: TimecodeState | null;
   display: string;
   connected: boolean;
@@ -42,9 +45,11 @@ export interface UseTimecodeReturn {
   // Master controls
   startFreerun: (offsetMs?: number) => TimecodeSendResult;
   stopGenerator: () => void;
+  pauseGenerator: () => void;
   startMtc: (inputId: string, options?: { sysex: boolean }) => Promise<void>;
   stopMtc: () => void;
   setTimecode: (tc: TimecodeValue) => void;
+  adjustTimecode: (deltaFrames: number) => void;
   setFormat: (format: TimecodeFormat, expectedFormat: TimecodeFormat, expectedIncomingFormatId?: string) => void;
 
   // Event management
@@ -85,6 +90,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const confirmedScope = useRef<{ orgId: string; showId: string } | null>(null);
   const [state, setState] = useState<TimecodeState | null>(null);
   const [events, setEvents] = useState<AutomationEvent[]>([]);
+  const [controller, setController] = useState(emptyMidiController);
   const [connected, setConnected] = useState(false);
   const [isMaster, setIsMaster] = useState(false);
   const [control, setControl] = useState<TimecodeControlStatus | null>(null);
@@ -97,6 +103,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const wsRef = useRef<WebSocket | null>(null);
   const readyRef = useRef(false);
   const stateRef = useRef<TimecodeState | null>(null);
+  const pendingSeekRef = useRef<number | null>(null);
   const internalSourceRef = useRef<InternalTimecodeSource | null>(null);
   const mtcSourceRef = useRef<MtcSource | null>(null);
   const pendingSourceRef = useRef<PendingSource | null>(null);
@@ -156,7 +163,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     if (feedTimerRef.current !== null) return;
     feedTimerRef.current = setInterval(() => {
       const latest = latestTcRef.current;
-      if (latest && masterGrantedRef.current) sendCommand("feed-tc", {
+      if (latest && masterGrantedRef.current && stateRef.current?.signal?.status !== "paused") sendCommand("feed-tc", {
         timecode: latest.tc, totalFrames: latest.totalFrames, format: latest.format,
       });
       // A feed is proof of a new source callback, not proof that this timer is
@@ -191,7 +198,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   }, [clearGeneratorTimeout, sendCommand, startFeedTimer, stopLocalSources]);
 
   useEffect(() => {
-    setState(null); stateRef.current = null; setEvents([]); setLastError(null);
+    setState(null); stateRef.current = null; pendingSeekRef.current = null; setEvents([]); setLastError(null); setController(emptyMidiController());
     controlRef.current = null; setControl(null);
     setConnected(false); readyRef.current = false; confirmedScope.current = null;
     if (!enabled || !orgId || !showId) return;
@@ -222,6 +229,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
         clearTimeout(hydrateTimeout);
         if (!current()) return;
         wsRef.current = null; readyRef.current = false; confirmedScope.current = null; setConnected(false);
+        pendingSeekRef.current = null;
         sequence.disconnect();
         controlRef.current = null; setControl(null);
         if (internalSourceRef.current || mtcSourceRef.current || pendingSourceRef.current) {
@@ -254,6 +262,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
                 stateRef.current = msg.state; formatRef.current = msg.state.format;
                 confirmedScope.current = { orgId, showId };
                 setState(msg.state); setEvents(msg.events); readyRef.current = true; setConnected(true);
+                setController(msg.controller ?? emptyMidiController());
                 for (const edit of pendingEditsRef.current) {
                   if (!edit.matches(msg.events)) continue;
                   clearTimeout(edit.timeout); pendingEditsRef.current.delete(edit); edit.resolve();
@@ -264,8 +273,18 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
             case "tc-update":
               if ("source" in msg.state) {
                 if (msg.state.showId !== showId) { setLastError("Timecode show mismatch. Reconnecting."); ws.close(); break; }
+                const wasPaused = stateRef.current?.signal?.status === "paused";
                 stateRef.current = msg.state; formatRef.current = msg.state.format;
+                if (msg.state.totalFrames === pendingSeekRef.current) pendingSeekRef.current = null;
                 internalSourceRef.current?.setFormat(msg.state.format);
+                if (msg.state.signal?.status === "paused") { internalSourceRef.current?.stop(); latestTcRef.current = null; }
+                else if (wasPaused && msg.state.running) {
+                  clearGeneratorTimeout(); setGeneratorPending(null);
+                  latestTcRef.current = null;
+                  internalSourceRef.current?.startAtFrame(msg.state.totalFrames);
+                  const transport = mtcSourceRef.current?.transportState;
+                  if (transport) sendCommand("mtc-transport", { state: transport });
+                }
                 setState(msg.state);
                 if (!msg.state.running && !pendingSourceRef.current
                   && msg.state.signal?.status !== "timecode-stalled"
@@ -273,10 +292,12 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
                   && msg.state.signal?.status !== "format-mismatch"
                   && msg.state.signal?.status !== "midi-stopped"
                   && msg.state.signal?.status !== "midi-waiting"
+                  && msg.state.signal?.status !== "paused"
                   && msg.state.signal?.status !== "waiting") stopLocalSources();
                 startConfirmedSource(msg.state);
               }
               break;
+            case "controller-update": setController(msg.controller); break;
             case "events-update":
               setEvents(msg.events);
               for (const edit of pendingEditsRef.current) {
@@ -290,6 +311,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
             case "control-status":
               controlRef.current = msg.control; setControl(msg.control);
               if (msg.control === "other") {
+                pendingSeekRef.current = null;
                 stopLocalSources();
                 failEdits("Another operator controls timecode. Your changes have been kept in the form.");
               }
@@ -320,7 +342,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
       stopLocalSources();
       failEdits("The timecode workspace changed before the save was confirmed.");
     };
-  }, [orgId, showId, enabled, relayBaseUrl, startConfirmedSource, stopLocalSources]);
+  }, [orgId, showId, enabled, relayBaseUrl, startConfirmedSource, stopLocalSources, sendCommand, clearGeneratorTimeout]);
 
   const awaitGenerator = useCallback(() => {
     clearGeneratorTimeout();
@@ -332,6 +354,12 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   }, [clearGeneratorTimeout, stopLocalSources]);
 
   const startFreerun = useCallback((offsetMs?: number): TimecodeSendResult => {
+    if (stateRef.current?.signal?.status === "paused" && masterGrantedRef.current) {
+      latestTcRef.current = null;
+      const result = sendCommand("start");
+      if (result.status === "sent") { setGeneratorPending("starting"); awaitGenerator(); }
+      return result;
+    }
     if (pendingSourceRef.current) return { status: "failed", error: "A generator start is already pending." };
     if (!readyRef.current || wsRef.current?.readyState !== 1) return sendCommand("start");
     stopLocalSources(); setLastError(null);
@@ -380,6 +408,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     stopLocalSources();
     if (result.status === "sent") { setGeneratorPending("stopping"); awaitGenerator(); }
   }, [awaitGenerator, sendCommand, stopLocalSources]);
+  const pauseGenerator = useCallback(() => { sendCommand("pause"); }, [sendCommand]);
 
   const saveEvents = useCallback((action: "add-event" | "replace-event-group", payload: Record<string, unknown>, matches: PendingEdit["matches"]): Promise<void> => {
     setLastError(null);
@@ -410,8 +439,24 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     });
   }, [saveEvents]);
   const claimControl = useCallback(() => { sendCommand("claim-control"); }, [sendCommand]);
+  const saveController = useCallback((config: MidiControllerConfig, revision: number) => sendCommand("save-controller", { config, revision }), [sendCommand]);
   const releaseControl = useCallback(() => { sendCommand("release-control"); }, [sendCommand]);
-  const setTimecode = useCallback((timecode: TimecodeValue) => { sendCommand("set-timecode", { timecode }); }, [sendCommand]);
+  const setTimecode = useCallback((timecode: TimecodeValue) => {
+    const result = sendCommand("set-timecode", { timecode });
+    if (result.status === "sent") {
+      latestTcRef.current = null;
+      pendingSeekRef.current = timecodeToFrames(timecode, formatRef.current);
+      if (internalSourceRef.current?.isRunning()) internalSourceRef.current.startAtFrame(timecodeToFrames(timecode, formatRef.current));
+    }
+  }, [sendCommand]);
+  const adjustTimecode = useCallback((deltaFrames: number) => {
+    const clock = stateRef.current;
+    if (!clock || !Number.isFinite(deltaFrames)) return;
+    const source = internalSourceRef.current;
+    const frame = source?.isRunning() ? source.currentFrame() : pendingSeekRef.current ?? clock.totalFrames;
+    const maximum = timecodeToFrames({ hours: 23, minutes: 59, seconds: 59, frames: Math.round(clock.format.frameRate) - 1 }, clock.format);
+    setTimecode(framesToTimecode(Math.max(0, Math.min(maximum, frame + Math.round(deltaFrames))), clock.format));
+  }, [setTimecode]);
   const setFormat = useCallback((format: TimecodeFormat, expectedFormat: TimecodeFormat, expectedIncomingFormatId?: string) => {
     sendCommand("set-format", { format, expectedFormat, expectedIncomingFormatId, confirmed: true });
   }, [sendCommand]);
@@ -434,10 +479,11 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
 
   const visibleState = confirmedScope.current?.orgId === orgId && state?.showId === showId ? state : null;
   return {
+    controller: visibleState ? controller : emptyMidiController(), saveController,
     state: visibleState, display: visibleState?.display ?? "00:00:00:00", connected: connected && visibleState !== null,
     control: visibleState ? control : null, claimControl, releaseControl,
     events: visibleState ? events : [], isMaster: visibleState !== null && isMaster, generatorPending, lastError,
-    startFreerun, stopGenerator, startMtc, stopMtc: stopGenerator, setTimecode, setFormat,
+    startFreerun, stopGenerator, pauseGenerator, startMtc, stopMtc: stopGenerator, setTimecode, adjustTimecode, setFormat,
     addEvent, replaceEventGroup, updateEvent, removeEvent, resetEvents, retryEvent, fireEvent, fireNext, skipEvent, rearmEvent, setEventEnabled,
     setTriggersEnabled, setLyrics, clearLyrics, mtcSupported,
   };

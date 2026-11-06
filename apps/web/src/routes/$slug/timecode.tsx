@@ -4,6 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { FileDown, Music2 } from "lucide-react";
 import { useShowTimecode, TimecodeShowPicker, TimecodeControlNotice } from "@/components/timecode/TimecodeContext";
 import { TimecodeAutomationControl } from "@/components/timecode/TimecodeAutomationControl";
+import { MidiControllerPanel } from "@/components/timecode/MidiController";
 import { TimecodeDisplay } from "@/components/timecode/TimecodeDisplay";
 import { TimecodeSourceSelector } from "@/components/timecode/TimecodeSourceSelector";
 import { AutomationTimeline } from "@/components/timecode/AutomationTimeline";
@@ -32,6 +33,7 @@ function TimecodePage() {
   const { orgId } = Route.useRouteContext() as { orgId: string };
   const { settings } = Route.useLoaderData();
 
+  const timecode = useShowTimecode();
   const {
     state,
     connected,
@@ -42,6 +44,7 @@ function TimecodePage() {
     lastError,
     startFreerun,
     stopGenerator,
+    pauseGenerator,
     startMtc,
     setFormat,
     addEvent,
@@ -56,7 +59,7 @@ function TimecodePage() {
     setEventEnabled,
     setTriggersEnabled,
     mtcSupported,
-  } = useShowTimecode();
+  } = timecode;
 
   const [demoLoaded, setDemoLoaded] = useState(false);
   const [demoPending, setDemoPending] = useState(false);
@@ -123,11 +126,13 @@ function TimecodePage() {
           mtcSupported={mtcSupported}
           onStartFreerun={startFreerun}
           onStopGenerator={stopGenerator}
+          onPauseGenerator={pauseGenerator}
           onStartMtc={startMtc}
           onSetFormat={setFormat}
         />
 
         {/* Large TC display */}
+        <MidiControllerPanel key={timecode.showId} timecode={timecode} />
         <AutomationTimeline
           events={events}
           state={state}

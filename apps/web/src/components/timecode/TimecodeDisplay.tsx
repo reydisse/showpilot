@@ -16,7 +16,8 @@ export function TimecodeDisplay({
   const running = state?.running ?? false;
   const lost = state?.signal?.status === "timecode-stalled" || state?.signal?.status === "timecode-lost";
   const mismatch = state?.signal?.status === "format-mismatch";
-  const statusLabel = !connected ? "Disconnected" : mismatch ? "Format mismatch" : lost ? "Signal lost" : running ? "Running" : "Stopped";
+  const paused = state?.signal?.status === "paused";
+  const statusLabel = !connected ? "Disconnected" : mismatch ? "Format mismatch" : lost ? "Signal lost" : paused ? "Paused" : running ? "Running" : "Stopped";
 
   if (size === "large") {
     return (
@@ -44,7 +45,7 @@ export function TimecodeDisplay({
               ? "Disconnected"
               : mismatch ? "Format mismatch · clock held" : lost ? "Signal lost · clock held" : running
                 ? `Running · ${state?.format.frameRate}fps ${state?.format.dropFrame === "df" ? "DF" : "NDF"}`
-                : "Stopped · position held"}
+                : paused ? "Paused · position held" : "Stopped · position held"}
           </span>
           {state?.source && (
             <span className="text-board-muted/50">
