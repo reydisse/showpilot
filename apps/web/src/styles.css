@@ -704,3 +704,8 @@ textarea {
 }
 
 .rundown-page .sp-button, .rundown-modal .sp-button { min-width: 44px; min-height: 44px; }
+
+/* On phones, a pinned identity block would cover every department column. */
+@media (max-width: 639px) {
+  .cue-sheet-grid .cue-pinned { left: auto !important; }
+}

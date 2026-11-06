@@ -32,3 +32,13 @@ test("service and incident times have a deterministic timezone fallback", async 
   assert.match(picker, /timeZone: timeZone \|\| "UTC"/);
   assert.match(incidents, /orgTimezone: settings\["org-timezone"\] \|\| "UTC"/);
 });
+
+test("cue-sheet clocks share a loader instant and deterministic hydration timezone", async () => {
+  const sheet = await route("production/cue-sheets.tsx");
+  const clock = await readFile(new URL("../src/components/cue-sheet/caller-clock.tsx", import.meta.url), "utf8");
+  assert.match(sheet, /initialNow: Date\.now\(\)/);
+  assert.match(sheet, /initialNow=\{initialNow\}/);
+  assert.doesNotMatch(sheet, /useNow|setInterval/);
+  assert.match(clock, /useState\(initialNow\)/);
+  assert.match(clock, /useDeviceTimeZone\(\)/);
+});

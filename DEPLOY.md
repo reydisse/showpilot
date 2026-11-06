@@ -621,6 +621,29 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Large rundown and cue-sheet lists
+
+Lists above 100 rows now use measured virtualization. Visible rows plus focused,
+pressed, dragged and live rows stay mounted. Keyboard neighbours include the next
+editable cue row across section headings. Cue-note drafts remain in their focused
+cell during scrolling, then use the existing save path on blur or Enter. No relay
+or database ownership changed. Short lists still render every row.
+
+The rundown uses its existing desktop scroller and switches to the mobile page
+scroller with the responsive layout. Cue sheets retain one grid scroller for both
+axes. Controls have a bounded scroll area so they cannot leave the grid with zero
+height on short phones. Below 640px the identity columns scroll horizontally with
+the grid; pinning that whole block would cover every editable department column.
+The caller clock owns its ticks and hydrates from a loader-provided instant; clock
+and row times use the same initial timezone on server and client.
+
+Run `node apps/web/scripts/smoke-virtual-operator-rows.mjs` after building. It creates
+a disposable 180-row show and checks bounded mounted counts, keyboard/drag reorder,
+focused draft retention and persistence, Tab across a section heading, phone grid
+height, and reachable department inputs at 320, 768 and 1440px. It also requires no
+unexpected browser-error notice. The frozen lockfile pins TanStack Virtual; no
+migration or native update is required. Nothing in this change deploys the app.
+
 ### Rundown clock rendering
 
 The 10 Hz clock runs inside the memoized clock card and current-item offset.
@@ -635,8 +658,8 @@ seconds advance. It fails if that handler is rebuilt by clock ticks, then checks
 warning/overtime colors, pause and next-item reset through the real local relay.
 The probe requires React's DOM props metadata and fails explicitly if unavailable.
 Run `smoke-rundown-layout.mjs` for the keyboard, drag, focus and five-width regression.
-No migration or native change is needed. Large-list virtualization remains separate
-work; this change does not establish the full Phase 2 render-cost gate.
+No migration or native change is needed. Large-list virtualization is documented
+above. The broader Phase 2 acceptance gate remains separate.
 
 ### Template Studio scene and Program confirmation
 
