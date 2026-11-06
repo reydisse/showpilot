@@ -122,3 +122,27 @@ it("keeps an output feed polling while hidden only when explicitly requested", a
   await tick(500); expect(read).toHaveBeenCalledTimes(3);
   unmount(); await tick(60_000); expect(read).toHaveBeenCalledTimes(3);
 });
+
+it('invalidates an in-flight pre-write snapshot without replaying a write or accepting the old reply', async () => {
+  let stale: (value: number) => void = () => {};
+  const read = vi.fn<(signal: AbortSignal, previous: number) => Promise<number>>()
+    .mockImplementationOnce(() => new Promise(resolve => { stale = resolve; })).mockResolvedValue(2);
+  const { result } = renderHook(() => useOperatorRead({ key:'org', initialValue:1, read, errorMessage }));
+  await tick();
+  act(() => result.current.invalidate()); await tick();
+  expect(read.mock.calls[0][0].aborted).toBe(true);
+  expect(result.current.value).toBe(2);
+  await act(async () => stale(0));
+  expect(result.current.value).toBe(2);
+});
+
+it('defers an invalidated read while hidden and cleans up its pending state', async () => {
+  const read = vi.fn(async () => 2);
+  const { result } = renderHook(() => useOperatorRead({ key:'org', initialValue:1, read, errorMessage }));
+  await tick(); await changeVisibility('hidden');
+  act(() => result.current.invalidate());
+  expect(result.current.refreshing).toBe(false);
+  expect(read).toHaveBeenCalledTimes(1);
+  await changeVisibility('visible');
+  expect(read).toHaveBeenCalledTimes(2);
+});

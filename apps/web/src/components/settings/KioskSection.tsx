@@ -1,3 +1,5 @@
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CreatedTokenNotice } from "./CreatedTokenNotice";
 import { useState, useEffect, useCallback } from "react";
@@ -65,23 +67,20 @@ export function KioskSection({
   }));
 
   const [tab, setTab] = useState<"org" | "roster" | "tokens">("org");
-  const [teams, setTeams] = useState<AdminTeam[]>([]);
-  const [roles, setRoles] = useState<RosterRole[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const reload = useCallback(async () => {
-    const [t, r] = await Promise.all([
-      getKioskTeams({ data: { orgId } }),
-      getRosterRoles({ data: { orgId } }),
+  const readOrganization = useCallback(async (signal: AbortSignal) => {
+    const [teams, roles] = await Promise.all([
+      getKioskTeams({ data: { orgId }, signal }),
+      getRosterRoles({ data: { orgId }, signal }),
     ]);
-    setTeams(t);
-    setRoles(r);
-    setLoading(false);
+    return { teams, roles };
   }, [orgId]);
-
-  useEffect(() => {
-    reload();
-  }, [reload]);
+  const organizationRead = useOperatorRead<{ teams: AdminTeam[]; roles: RosterRole[] } | null>({
+    key: orgId, initialValue: null, read: readOrganization,
+    errorMessage: "Could not read the kiosk organization. Any displayed teams and roles are the last confirmed result.",
+  });
+  const { teams, roles } = organizationRead.value ?? { teams: [], roles: [] };
+  const loading = organizationRead.value === null && !organizationRead.error;
+  const reload = organizationRead.invalidate;
 
   return (
     <div>
@@ -96,7 +95,7 @@ export function KioskSection({
 
       <BlankDisplaysToggle orgId={orgId} />
 
-      <div className="flex items-center gap-1.5 mb-5">
+      <div className="flex flex-wrap items-center gap-1.5 mb-5">
         {[
           { id: "org" as const, label: "Org Chart", icon: Users },
           { id: "roster" as const, label: "On-Duty Roster", icon: CalendarDays },
@@ -107,7 +106,7 @@ export function KioskSection({
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              className={`flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                 tab === t.id
                   ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
                   : "text-board-muted hover:text-board-text border border-transparent"
@@ -120,15 +119,16 @@ export function KioskSection({
         })}
       </div>
 
-      {loading ? (
-        <div className="py-10 text-center text-sm text-board-muted">Loading…</div>
-      ) : tab === "org" ? (
-        <OrgChartTab orgId={orgId} teams={teams} members={members} onChange={reload} />
-      ) : tab === "roster" ? (
-        <RosterTab orgId={orgId} roles={roles} members={members} onChange={reload} />
-      ) : (
-        <AccessTokensTab key={orgId} orgId={orgId} slug={slug} />
-      )}
+      {tab === "tokens" ? <AccessTokensTab key={orgId} orgId={orgId} slug={slug} /> : <>
+        <ReadFailureNotice error={organizationRead.error} refreshing={organizationRead.refreshing} retry={organizationRead.retry} label="Retry kiosk organization" />
+        {loading ? (
+          <div className="py-10 text-center text-sm text-board-muted">Loading kiosk organization…</div>
+        ) : organizationRead.value === null ? null : tab === "org" ? (
+          <OrgChartTab key={orgId} orgId={orgId} teams={teams} members={members} onChange={reload} />
+        ) : (
+          <RosterTab key={orgId} orgId={orgId} roles={roles} members={members} onChange={reload} />
+        )}
+      </>}
 
       <p className="mt-8 text-[10px] text-board-muted/50">
         Live at <code className="text-board-muted">/api/v1/kiosk/org</code> and{" "}
@@ -209,23 +209,19 @@ type KioskTokenRow = {
 };
 
 function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
-  const [tokens, setTokens] = useState<KioskTokenRow[]>([]);
   const [label, setLabel] = useState("");
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [issuedToken, setIssuedToken] = useState<{ id: string; label: string; token: string } | null>(null);
   const [removal, setRemoval] = useState<KioskTokenRow | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const reload = useCallback(async () => {
-    const rows = await listKioskTokens({ data: { orgId } });
-    setTokens(rows);
-    setLoading(false);
-  }, [orgId]);
-
-  useEffect(() => {
-    void reload().catch(cause => { setLoading(false); setError(cause instanceof Error ? cause.message : "Could not load tokens."); });
-  }, [reload]);
+  const readTokens = useCallback((signal: AbortSignal) => listKioskTokens({ data: { orgId }, signal }), [orgId]);
+  const tokenRead = useOperatorRead<KioskTokenRow[] | null>({
+    key: orgId, initialValue: null, read: readTokens,
+    errorMessage: "Could not read kiosk tokens. Any displayed list is the last confirmed result.",
+  });
+  const tokens = tokenRead.value ?? [];
+  const loading = tokenRead.value === null && !tokenRead.error;
 
   const generate = async () => {
     if (!label.trim() || busy || issuedToken) return;
@@ -238,7 +234,7 @@ function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
       });
       setLabel("");
       setIssuedToken(created);
-      await reload();
+      tokenRead.invalidate();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create token."); }
     finally { setBusy(false); }
   };
@@ -249,7 +245,7 @@ function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
     try {
       await revokeKioskToken({ data: { tokenId: removal.id } });
       if (issuedToken?.id === removal.id) setIssuedToken(null);
-      await reload();
+      tokenRead.invalidate();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not revoke token."); }
     finally { setBusy(false); setRemoval(null); }
   };
@@ -284,9 +280,10 @@ function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
         </p>
       </div>
 
+      <ReadFailureNotice error={tokenRead.error} refreshing={tokenRead.refreshing} retry={tokenRead.retry} label="Retry kiosk tokens" />
       {loading ? (
         <div className="py-10 text-center text-sm text-board-muted">Loading…</div>
-      ) : tokens.length === 0 ? (
+      ) : tokenRead.value === null ? null : tokens.length === 0 ? (
         <div className="text-center py-10 text-sm text-board-muted">
           No tokens yet — generate one above for your kiosk displays.
         </div>
@@ -509,38 +506,27 @@ function TeamCard({
 
 // ─── Roster ──────────────────────────────────────────────────
 
-function RosterTab({
-  orgId,
-  roles,
-  members,
-  onChange,
-}: {
-  orgId: string;
-  roles: RosterRole[];
-  members: Member[];
-  onChange: () => void;
+function RosterTab(props: { orgId: string; roles: RosterRole[]; members: Member[]; onChange: () => void }) {
+  const [week, setWeek] = useState(() => snapSunday(new Date().toISOString().slice(0, 10)));
+  return <RosterWeekEditor key={`${props.orgId}:${week}`} {...props} week={week} onWeekChange={setWeek} />;
+}
+
+function RosterWeekEditor({ orgId, roles, members, onChange, week, onWeekChange }: {
+  orgId: string; roles: RosterRole[]; members: Member[]; onChange: () => void;
+  week: string; onWeekChange: (week: string) => void;
 }) {
-  const [week, setWeek] = useState<string>(() => snapSunday(new Date().toISOString().slice(0, 10)));
-  const [tech, setTech] = useState<Record<string, string>>({});
-  const [pm, setPm] = useState<string>("");
-  const [loading, setLoading] = useState(false);
+  const readWeek = useCallback((signal: AbortSignal) => getRosterWeek({ data: { orgId, weekStart: week }, signal }), [orgId, week]);
+  const weekRead = useOperatorRead<Awaited<ReturnType<typeof getRosterWeek>> | null>({
+    key: `${orgId}:${week}`, initialValue: null, read: readWeek, enabled: roles.length > 0,
+    errorMessage: "Could not read this roster week. Any displayed assignments are the last confirmed result; your edits are retained.",
+  });
+  // Refocusing the tab can refresh saved assignments, but must never replace edits.
+  const [draft, setDraft] = useState<{ tech: Record<string, string>; pm: string } | null>(null);
+  const tech = draft?.tech ?? weekRead.value?.tech ?? {};
+  const pm = draft?.pm ?? weekRead.value?.pmUserId ?? "";
+  const loading = weekRead.value === null && !weekRead.error;
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
-
-  const loadWeek = useCallback(
-    async (w: string) => {
-      setLoading(true);
-      const data = await getRosterWeek({ data: { orgId, weekStart: w } });
-      setTech(data.tech);
-      setPm(data.pmUserId ?? "");
-      setLoading(false);
-    },
-    [orgId],
-  );
-
-  useEffect(() => {
-    loadWeek(week);
-  }, [week, loadWeek]);
 
   const save = async () => {
     setSaving(true);
@@ -580,20 +566,21 @@ function RosterTab({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3 rounded-xl border border-board-border bg-board-card p-3">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-board-border bg-board-card p-3">
         <CalendarDays className="w-4 h-4 text-board-muted" />
         <label className="text-xs text-board-muted">Week starting (Sun)</label>
         <input
           type="date"
           value={week}
-          onChange={(e) => setWeek(snapSunday(e.target.value))}
+          aria-label="Roster week starting Sunday"
+          onChange={(e) => { if (e.target.value) onWeekChange(snapSunday(e.target.value)); }}
           className="px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-sm text-board-text focus:outline-none focus:border-fire-500"
         />
         <div className="ml-auto flex items-center gap-2">
           {savedMsg && <span className="text-xs text-green-400">{savedMsg}</span>}
           <button
             onClick={save}
-            disabled={saving || loading}
+            disabled={saving || !weekRead.value || weekRead.error !== null}
             className="px-4 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50"
           >
             {saving ? "Saving…" : "Save Week"}
@@ -601,15 +588,18 @@ function RosterTab({
         </div>
       </div>
 
-      <div className="rounded-xl border border-board-border bg-board-card divide-y divide-board-border/60">
+      <ReadFailureNotice error={weekRead.error} refreshing={weekRead.refreshing} retry={weekRead.retry} label="Retry roster week" />
+      {loading && <p className="py-6 text-center text-sm text-board-muted">Loading roster week…</p>}
+      {weekRead.value !== null && <div className="rounded-xl border border-board-border bg-board-card divide-y divide-board-border/60">
         {roles.map((role) => (
           <div key={role.id} className="flex items-center gap-3 px-4 py-2.5">
             <span className="w-24 shrink-0 text-xs font-medium text-board-text">{role.short}</span>
             <span className="hidden sm:block flex-1 text-xs text-board-muted truncate">{role.name}</span>
             <select
               value={tech[role.id] ?? ""}
-              onChange={(e) => setTech((t) => ({ ...t, [role.id]: e.target.value }))}
-              className="w-48 px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-xs text-board-text focus:outline-none focus:border-fire-500"
+              aria-label={`${role.name} assignment`}
+              onChange={(e) => setDraft({ pm, tech: { ...tech, [role.id]: e.target.value } })}
+              className="min-h-11 min-w-0 flex-1 px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-xs text-board-text focus:outline-none focus:border-fire-500"
             >
               <option value="">— Unassigned —</option>
               {members.map((m) => (
@@ -623,8 +613,9 @@ function RosterTab({
           <span className="hidden sm:block flex-1 text-xs text-board-muted truncate">Production Manager (week)</span>
           <select
             value={pm}
-            onChange={(e) => setPm(e.target.value)}
-            className="w-48 px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-xs text-board-text focus:outline-none focus:border-fire-500"
+            aria-label="Production Manager assignment"
+            onChange={(e) => setDraft({ tech, pm: e.target.value })}
+            className="min-h-11 min-w-0 flex-1 px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-xs text-board-text focus:outline-none focus:border-fire-500"
           >
             <option value="">— Unassigned —</option>
             {members.map((m) => (
@@ -632,7 +623,7 @@ function RosterTab({
             ))}
           </select>
         </div>
-      </div>
+      </div>}
 
       <div className="rounded-xl border border-board-border bg-board-card/50 p-3">
         <button
