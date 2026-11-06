@@ -69,6 +69,7 @@ import { Route as ApiStripeWebhookRouteImport } from './routes/api/stripe/webhoo
 import { Route as ApiWaitlistIndexRouteImport } from './routes/api/waitlist/index'
 import { Route as CrewScheduleTokenRouteImport } from './routes/crew/schedule/$token'
 import { Route as JoinChatTokenRouteImport } from './routes/join/chat.$token'
+import { Route as SlugDashboardDevicesIndexRouteImport } from './routes/$slug/dashboard/devices.index'
 import { Route as SlugDashboardDevicesDeviceIdRouteImport } from './routes/$slug/dashboard/devices.$deviceId'
 import { Route as SlugStreamingGraphicsOverlayRouteImport } from './routes/$slug/streaming/graphics/overlay'
 import { Route as ApiV1CompanionStateRouteImport } from './routes/api/v1/companion/state'
@@ -395,6 +396,12 @@ const JoinChatTokenRoute = JoinChatTokenRouteImport.update({
   path: '/join/chat/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SlugDashboardDevicesIndexRoute =
+  SlugDashboardDevicesIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => SlugDashboardDevicesRoute,
+  } as any)
 const SlugDashboardDevicesDeviceIdRoute =
   SlugDashboardDevicesDeviceIdRouteImport.update({
     id: '/$deviceId',
@@ -588,6 +595,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
   '/join/chat/planning/$token': typeof JoinChatPlanningTokenRoute
+  '/$slug/dashboard/devices/': typeof SlugDashboardDevicesIndexRoute
   '/api/crew/schedule/$token/calendar': typeof ApiCrewScheduleTokenCalendarRoute
   '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
   '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
@@ -639,7 +647,6 @@ export interface FileRoutesByTo {
   '/timer/$orgSlug': typeof TimerOrgSlugRoute
   '/$slug': typeof SlugIndexRoute
   '/$slug/dashboard/audio': typeof SlugDashboardAudioRoute
-  '/$slug/dashboard/devices': typeof SlugDashboardDevicesRouteWithChildren
   '/$slug/dashboard/prod-manager': typeof SlugDashboardProdManagerRoute
   '/$slug/dashboard/tech-manager': typeof SlugDashboardTechManagerRoute
   '/$slug/production/assets': typeof SlugProductionAssetsRoute
@@ -670,6 +677,7 @@ export interface FileRoutesByTo {
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
   '/join/chat/planning/$token': typeof JoinChatPlanningTokenRoute
+  '/$slug/dashboard/devices': typeof SlugDashboardDevicesIndexRoute
   '/api/crew/schedule/$token/calendar': typeof ApiCrewScheduleTokenCalendarRoute
   '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
   '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
@@ -755,6 +763,7 @@ export interface FileRoutesById {
   '/api/v1/kiosk/org': typeof ApiV1KioskOrgRoute
   '/api/v1/kiosk/roster': typeof ApiV1KioskRosterRoute
   '/join/chat/planning/$token': typeof JoinChatPlanningTokenRoute
+  '/$slug/dashboard/devices/': typeof SlugDashboardDevicesIndexRoute
   '/api/crew/schedule/$token/calendar': typeof ApiCrewScheduleTokenCalendarRoute
   '/api/v1/companion/kiosk/blank': typeof ApiV1CompanionKioskBlankRoute
   '/api/v1/companion/lower-third/clear': typeof ApiV1CompanionLowerThirdClearRoute
@@ -840,6 +849,7 @@ export interface FileRouteTypes {
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
     | '/join/chat/planning/$token'
+    | '/$slug/dashboard/devices/'
     | '/api/crew/schedule/$token/calendar'
     | '/api/v1/companion/kiosk/blank'
     | '/api/v1/companion/lower-third/clear'
@@ -891,7 +901,6 @@ export interface FileRouteTypes {
     | '/timer/$orgSlug'
     | '/$slug'
     | '/$slug/dashboard/audio'
-    | '/$slug/dashboard/devices'
     | '/$slug/dashboard/prod-manager'
     | '/$slug/dashboard/tech-manager'
     | '/$slug/production/assets'
@@ -922,6 +931,7 @@ export interface FileRouteTypes {
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
     | '/join/chat/planning/$token'
+    | '/$slug/dashboard/devices'
     | '/api/crew/schedule/$token/calendar'
     | '/api/v1/companion/kiosk/blank'
     | '/api/v1/companion/lower-third/clear'
@@ -1006,6 +1016,7 @@ export interface FileRouteTypes {
     | '/api/v1/kiosk/org'
     | '/api/v1/kiosk/roster'
     | '/join/chat/planning/$token'
+    | '/$slug/dashboard/devices/'
     | '/api/crew/schedule/$token/calendar'
     | '/api/v1/companion/kiosk/blank'
     | '/api/v1/companion/lower-third/clear'
@@ -1489,6 +1500,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JoinChatTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$slug/dashboard/devices/': {
+      id: '/$slug/dashboard/devices/'
+      path: '/'
+      fullPath: '/$slug/dashboard/devices/'
+      preLoaderRoute: typeof SlugDashboardDevicesIndexRouteImport
+      parentRoute: typeof SlugDashboardDevicesRoute
+    }
     '/$slug/dashboard/devices/$deviceId': {
       id: '/$slug/dashboard/devices/$deviceId'
       path: '/$deviceId'
@@ -1660,10 +1678,12 @@ const SlugSongsRouteWithChildren = SlugSongsRoute._addFileChildren(
 
 interface SlugDashboardDevicesRouteChildren {
   SlugDashboardDevicesDeviceIdRoute: typeof SlugDashboardDevicesDeviceIdRoute
+  SlugDashboardDevicesIndexRoute: typeof SlugDashboardDevicesIndexRoute
 }
 
 const SlugDashboardDevicesRouteChildren: SlugDashboardDevicesRouteChildren = {
   SlugDashboardDevicesDeviceIdRoute: SlugDashboardDevicesDeviceIdRoute,
+  SlugDashboardDevicesIndexRoute: SlugDashboardDevicesIndexRoute,
 }
 
 const SlugDashboardDevicesRouteWithChildren =
