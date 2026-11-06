@@ -110,3 +110,15 @@ describe("useOperatorRead", () => {
     expect(read).toHaveBeenCalledTimes(2);
   });
 });
+
+
+it("keeps an output feed polling while hidden only when explicitly requested", async () => {
+  visibility = "hidden";
+  const read = vi.fn(async () => 1);
+  const { result, unmount } = renderHook(() => useOperatorRead({ key: "output", initialValue: 0, read, intervalMs: 500, errorMessage, pauseWhenHidden: false }));
+  await tick(); expect(result.current.confirmedAt).toBe(Date.now());
+  await tick(500); expect(read).toHaveBeenCalledTimes(2);
+  await changeVisibility("visible"); await changeVisibility("hidden");
+  await tick(500); expect(read).toHaveBeenCalledTimes(3);
+  unmount(); await tick(60_000); expect(read).toHaveBeenCalledTimes(3);
+});

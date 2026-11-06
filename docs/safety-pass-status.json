@@ -235,7 +235,8 @@
         "Timer and overlay pages exchange an eight-hour org/surface-scoped signed pass for an HttpOnly cookie before mounting any display data requests. Existing active kiosk tokens are accepted for their exact view. Member display windows establish and renew their own session; explicit invalid links never fall back to another scope.",
         "display-access.worker, display-session, display-gateway-security, DisplayAccessGate, and display-relay-expiry.worker tests verify signature, scope, expiry, revocation checks at entry, limited read projections, and no post-expiry broadcasts after Durable Object hibernation.",
         "2026-11-04: smoke-display-access.mjs ran the production build in local Wrangler with disposable D1 and real Chromium. Signed timer and overlay links rendered, URL passes were removed, HttpOnly cookie access survived reload, and unsigned/wrong-org/wrong-surface/expired links were denied. Full web checks passed: 1248 unit and 115 Worker tests, typecheck, production build.",
-        "2026-11-06 follow-up: the earlier display-gate proof missed an unused getActiveGraphicBySlug RPC. A real built Worker returned the disposable active graphic to a request with no session or display pass. The same function existed on main. Removed it and added a build boundary against reintroduction. smoke-legacy-display-read.mjs verifies its absence from built RPC assets, rejection at the old RPC URL both anonymously and with a session, denial of unsigned/expired/wrong-org/wrong-surface overlay reads, and successful valid-pass output. Main-based full suite passed 1393 unit + 379 Worker tests, typecheck and production build. The first cold concurrent build/test run hit 5-second timeouts in the shortcut-help and PIN-hashing tests; the unchanged full rerun without the competing build passed. No production data was queried and no deployment occurred; this correction requires merging and deploying the standalone fix."
+        "2026-11-06 follow-up: the earlier display-gate proof missed an unused getActiveGraphicBySlug RPC. A real built Worker returned the disposable active graphic to a request with no session or display pass. The same function existed on main. Removed it and added a build boundary against reintroduction. smoke-legacy-display-read.mjs verifies its absence from built RPC assets, rejection at the old RPC URL both anonymously and with a session, denial of unsigned/expired/wrong-org/wrong-surface overlay reads, and successful valid-pass output. Main-based full suite passed 1393 unit + 379 Worker tests, typecheck and production build. The first cold concurrent build/test run hit 5-second timeouts in the shortcut-help and PIN-hashing tests; the unchanged full rerun without the competing build passed. No production data was queried and no deployment occurred; this correction requires merging and deploying the standalone fix.",
+        "2026-11-06 display-session follow-up: reproduced indefinite initial checks, content remaining visible past pass expiry during a stalled renewal, and acceptance of an already-expired authorization response. Access checks now have an eight-second abortable deadline and timestamped Retry; an independent expiry timer removes content at the last confirmed deadline. Late/expired responses and old scopes cannot authorize a display. Valid renewals and temporary failures before expiry keep the display mounted. Five added regression tests pass; the standalone main-based full suite passed 1398 unit + 379 Worker tests, typecheck and production build. smoke-display-deadlines.mjs passed with real Worker replies held past timeout, no protected reads before confirmation, same-document Retry, 320px hit testing and a real 35-second shared pass expiring while renewal is held; releasing that expired response cannot restore output. Initial browser run caught a fixture read before document.body existed; the polling predicate now waits for the document and the full rehearsal passed. The existing smoke-display-access.mjs regression also passed, including timer private-stage data, cookie/reload behavior, scope/expiry rejection and protected graphics writes/socket projection. No migration or deployment. Both corrections are integrated here: 1840 unit + 658 Worker tests and typecheck passed on the combined sources; the combined production build and smoke-legacy-display-read.mjs, smoke-display-deadlines.mjs and smoke-display-access.mjs all passed. This is branch verification, not a deployment; main still needs both #153 and #155."
       ]
     },
     {
@@ -1587,7 +1588,8 @@
         "2026-11-06 large-list rehearsal also fixed cue-sheet clock hydration and isolated its ticking render; controls retain a usable grid at 320x480, department columns are reachable after horizontal scrolling, and visibility/Columns buttons have 44px targets. Full product-wide error, accessibility and viewport audits remain in progress; this is cue-sheet evidence only.",
         "2026-11-06 cue-sheet recovery: socket opening/hydration bounded at 5 seconds, timestamped errors retained through retry, immediate manual reconnect, scoped read cancellation and backoff, and Synced withheld until missing snapshots and column refreshes complete. Cue-sheet reads have an 8-second deadline and reject late responses, retaining confirmed data and pending notes. Ten new hook tests reproduce opening, dead-socket Retry, missing-snapshot and column-refresh races and cover cancellation, scoped cleanup, backoff and failed notification sends. Full suite 1814 unit + 648 Worker tests, typecheck and production build passed. smoke-cue-sheet-recovery.mjs passed against the built Worker with actual server stop/restart, retained unsaved notes, explicit save retry, no reconnect write replay, delayed-response cancellation, show-switch isolation, 320px reachable Retry and no page errors. Two-tab smoke-relay-sequences.mjs regression passed. Note-write confirmation deadlines, column mutation recovery, initial route loaders and the remaining product-wide error audit are still outstanding.",
         "2026-11-06 cue-sheet write recovery: all note and column mutations now use captured request IDs and atomic D1 outcome receipts. Replays do not overwrite newer notes or resurrect deleted columns; current permissions are rechecked. Notes compare against text captured on focus, conflicts retain drafts for confirmed replacement or Use saved note, field updates compare their original values, and reorder compares the full order. Ten-second deadlines retain the exact retry body; newer local note edits wait for the original acknowledgement while other cells remain editable. Column add/rename/color/width/order/delete failures have timestamped recovery and retained intent. Note notifications invalidate authorized D1 reads rather than applying stale payloads. Full suite 1820 unit + 658 Worker, typecheck and production build passed, including 10 new real D1 tests, 4 write-hook tests and 2 note-editor tests. smoke-cue-sheet-writes.mjs passed real committed-response loss, two-tab newer-note preservation, conflict review/cancel/confirmed replacement, queued local edits, independent cells, every column retry, confirmed/cancelled delete, old create replay after deletion and a reachable 320px retry. smoke-relay-sequences.mjs and smoke-cue-sheet-recovery.mjs passed; final write and outage rehearsals also passed concurrently with unique fixture Worker names and no browser errors. Delayed-read simulation now buffers a real cue-sheet response while ignoring cancellation, avoiding local Wrangler proxy crashes. No migration or deployment. Initial loaders, navigation/draft protection and the remaining product-wide mutation/error audit remain incomplete.",
-        "2026-11-06 route loading: shared twelve-second deadlines bound each beforeLoad, loader, lazy route definition and page-component preload on client and server. Child cancellation and settled wrappers prevent late results/redirects from replacing the selected page. Auth/org/Board/Timecode reads pass cancellation; entry preloads no longer activate organizations. The real browser exposed Retry losing its pending state when invalidation remounted the boundary; Retry now follows router loading through the actual load deadline, with no competing UI timer. Full suite 1835 unit + 658 Worker tests, typecheck and production build passed. New real-router tests reproduced stalled reads/downloads and retry-remount behavior, and cover SSR, redirects, cancelled navigation, lazy options, independent shared-tree requests, object loaders and preload-then-click activation. smoke-route-loading.mjs passed real Board/Timecode held responses, repeated retry, late results, cancelled Chat navigation, paused page download, 320px hit testing and no page errors. smoke-rundown-handoff.mjs passed the write/navigation regression. No migration/deployment. Component-owned reads/mutations and the wider operator-error audit remain open."
+        "2026-11-06 route loading: shared twelve-second deadlines bound each beforeLoad, loader, lazy route definition and page-component preload on client and server. Child cancellation and settled wrappers prevent late results/redirects from replacing the selected page. Auth/org/Board/Timecode reads pass cancellation; entry preloads no longer activate organizations. The real browser exposed Retry losing its pending state when invalidation remounted the boundary; Retry now follows router loading through the actual load deadline, with no competing UI timer. Full suite 1835 unit + 658 Worker tests, typecheck and production build passed. New real-router tests reproduced stalled reads/downloads and retry-remount behavior, and cover SSR, redirects, cancelled navigation, lazy options, independent shared-tree requests, object loaders and preload-then-click activation. smoke-route-loading.mjs passed real Board/Timecode held responses, repeated retry, late results, cancelled Chat navigation, paused page download, 320px hit testing and no page errors. smoke-rundown-handoff.mjs passed the write/navigation regression. No migration/deployment. Component-owned reads/mutations and the wider operator-error audit remain open.",
+        "2026-11-06 overlay recovery: reproduced five simultaneous reads within two seconds. The canonical display now uses one abortable eight-second read with capped backoff; late responses cannot replace newer output, malformed compositions are rejected atomically, and failures retain confirmed graphics only while display access remains valid. Access rejection removes output and stops polling until an explicit access check. Layer-owned animation cleanup preserves DOM identity on text edits, honors incoming order, keeps new graphics above exiting layers and completes exits despite repeated empty reads. Background output polling is an explicit option on the existing bounded-read hook; ordinary operator reads still pause while hidden. Full suite 1852 unit + 658 Worker tests, typecheck and production build passed. New built-Worker/Chrome smoke-overlay-recovery.mjs passed Settings link creation timeout/retry, held old replies, actual live graphic edits without remount, real Worker stop/restart, confirmed Hide, clean output without diagnostic text and monitor Retry/preview bounds at 320/768/1440px. Visual review found the global overlay reset removing monitor padding; scoping it to video and placing controls above the preview fixed that, and the complete browser rehearsal passed again. Existing graphics-output recovery and display-pass deadline/expiry rehearsals also passed before the final monitor-layout and replacement-order corrections; the final full suite and main overlay browser rehearsal cover the resulting code. No production deployment or OBS/vMix capture rehearsal. Remaining operator paths and product-wide gates stay open."
       ]
     },
     {
@@ -1691,7 +1693,8 @@
       "status": "in_progress",
       "evidence": [
         "Cue-sheet refreshes now time out, preserve confirmed data and unsaved notes, expose timestamped failures and support read-only Retry. Socket opening and snapshot recovery are also bounded; actual Worker outage, delayed responses and show-switch isolation passed in smoke-cue-sheet-recovery.mjs, with two-tab regression and full suite 1814 unit + 648 Worker plus typecheck/build. This verifies cue-sheet reload recovery only. Initial route loaders, note-write deadlines, column mutations and the other listed product paths remain incomplete.",
-        "Initial route guards, loaders, lazy route definitions and component preloads now have twelve-second deadlines, with shared timestamped error/Retry/Reload recovery. Actual built-app Board and Timecode first-load stalls, repeated retries and a paused Board module download recover without reload in smoke-route-loading.mjs. Server-rendered stalled loaders also reach error in real-router tests. Component-owned Checklist, Incidents, API events, Companion tokens, Kiosk and equivalent list loading still require separate audit; this broad requirement remains in progress."
+        "Initial route guards, loaders, lazy route definitions and component preloads now have twelve-second deadlines, with shared timestamped error/Retry/Reload recovery. Actual built-app Board and Timecode first-load stalls, repeated retries and a paused Board module download recover without reload in smoke-route-loading.mjs. Server-rendered stalled loaders also reach error in real-router tests. Component-owned Checklist, Incidents, API events, Companion tokens, Kiosk and equivalent list loading still require separate audit; this broad requirement remains in progress.",
+        "Display-link creation now has an eight-second confirmation deadline, cancellation, timestamped error and explicit Retry. It stops rendering Creating on failure, retains an existing valid link when refresh fails, and prevents expired links from being copied or opened. New hook tests cover late replies, expiry and organization changes; the actual Settings browser rehearsal holds a real signed-link response past deadline, releases it without accepting it, then recovers on Retry. Checklist, Incidents, API Recent events, Companion, Kiosk and equivalent component-owned loading audits remain pending."
       ]
     },
     {
@@ -1704,7 +1707,8 @@
         "Graphics polling, library mutations and Template Studio scene/Program operations now surface timestamped failures with bounded confirmation and safe recovery. See row 246 and PRs #144-145 plus the Template Studio follow-up. Other catalogued mutation paths remain unverified.",
         "Cue-sheet refreshes now time out, preserve confirmed data and unsaved notes, expose timestamped failures and support read-only Retry. Socket opening and snapshot recovery are also bounded; actual Worker outage, delayed responses and show-switch isolation passed in smoke-cue-sheet-recovery.mjs, with two-tab regression and full suite 1814 unit + 648 Worker plus typecheck/build. This verifies cue-sheet reload recovery only. Initial route loaders, note-write deadlines, column mutations and the other listed product paths remain incomplete.",
         "Cue-sheet note and all column write failures now have bounded confirmation, retained captured operations, timestamped error and explicit retry. Atomic receipts and compare-before-write checks prevent duplicated adds, stale overwrites and deletion resurrection. Conflict replacement is confirmed and other note cells remain editable. Full suite 1820 unit + 658 Worker, typecheck/build and the real write/outage/two-tab browser rehearsals passed. Other catalogued mutation paths and navigation draft protection remain outstanding; this broad requirement stays in progress.",
-        "Follow-up inspection: canonical overlay polling still starts a request every 500ms without a deadline or overlap control, and display-session checks can remain pending indefinitely. These need bounded recovery and stale-response protection in a follow-up; the navigation change does not claim to fix them."
+        "Follow-up inspection: canonical overlay polling still starts a request every 500ms without a deadline or overlap control, and display-session checks can remain pending indefinitely. These need bounded recovery and stale-response protection in a follow-up; the navigation change does not claim to fix them.",
+        "Canonical overlay reads now recover with bounded non-overlapping requests, preserved last-confirmed output and stale-response protection. A separate monitor view exposes timestamped errors and read-only Retry; the clean broadcast view keeps diagnostic text out of video and reports connection state in its title. Real held-response and Worker outage/recovery checks passed. This closes the overlay polling finding recorded here; the other listed mutation paths remain open."
       ]
     },
     {
@@ -1797,8 +1801,10 @@
       "phase": "2",
       "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
       "line": 279,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "Lower Thirds settings now explains what the overlay URL and QR open, distinguishes clean video from the monitor, and provides a named 44px Open overlay monitor link. Display-link creation has deadline/error/retry and the link field stops saying Creating after failure. The Settings-published link rendered actual fixture output in Chrome. Other Settings-specific repairs remain outstanding."
+      ]
     },
     {
       "id": "42c93f2251778337",
@@ -1821,34 +1827,38 @@
       "phase": "2",
       "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
       "line": 282,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "The actual Lower Thirds Settings monitor URL reaches the protected overlay with fixture output; its clean broadcast URL reaches the same output without diagnostic UI. smoke-overlay-recovery.mjs exercises both URLs, live edits, link creation timeout/retry and real outages. The monitor is a visible way to check current output reachability and retry reads. Kiosk link routing/reachability is still unverified, so this requirement remains in progress."
+      ]
     },
     {
       "id": "5d30364193f8508f",
       "phase": "2",
       "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
       "line": 283,
-      "status": "pending",
-      "evidence": []
-    },
-    {
-      "id": "409d9865b4141229",
-      "phase": "2",
-      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
-      "line": 284,
       "status": "in_progress",
       "evidence": [
         "The obsolete operator overlay route now redirects to the same protected /overlay/:orgSlug renderer used by display links, with no graphics library rendered over output and no Program mutation. The duplicate polling renderer and its sole read RPC are removed; smoke-nested-navigation.mjs and smoke-legacy-display-read.mjs pass. Broader terminology/surface deduplication remains open."
       ]
     },
     {
+      "id": "409d9865b4141229",
+      "phase": "2",
+      "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
+      "line": 284,
+      "status": "pending",
+      "evidence": []
+    },
+    {
       "id": "4e2cdcca026fe871",
       "phase": "2",
       "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
       "line": 285,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "Overlay monitor controls and preview were verified at 320x480, 768x900 and 1440x900. The monitor header occupies separate layout space, preserves a usable preview and has reachable 44px Retry; screenshot inspection caught and corrected an unlayered CSS reset overriding padding. Clean output retains the 1920x1080 broadcast composition scaled by LtStage. Other screens, including Devices mobile search and schedule calendar navigation, still require the broad responsive audit."
+      ]
     },
     {
       "id": "36fbbe0b66ff1b12",

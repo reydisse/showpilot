@@ -1938,7 +1938,7 @@ function LowerThirdsSection({ orgId, slug, role, org, getSetting, saveSetting }:
           </p>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-4">
             <code className="flex-1 text-xs text-board-muted bg-board-bg px-3 py-2 rounded-lg break-all sm:truncate overflow-x-auto">
-              {overlayLink.url || "Creating display link…"}
+              {overlayLink.url || (overlayLink.pending ? "Creating display link…" : "Display link unavailable")}
             </code>
             <button
               type="button"
@@ -1950,7 +1950,7 @@ function LowerThirdsSection({ orgId, slug, role, org, getSetting, saveSetting }:
               }}
               aria-label={copiedUrl ? "Overlay URL copied" : "Copy overlay URL"}
               title={copiedUrl ? "Overlay URL copied" : "Copy overlay URL"}
-              className="p-2 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+              className="min-h-11 min-w-11 p-2 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
             >
               {copiedUrl ? (
                 <Check className="w-4 h-4 text-green-400" />
@@ -1966,9 +1966,11 @@ function LowerThirdsSection({ orgId, slug, role, org, getSetting, saveSetting }:
               {overlayLink.url && <QRCodeSVG value={overlayLink.url} size={96} />}
             </div>
             <div className="text-xs text-board-muted space-y-2">
-              <p>This link expires in 8 hours.</p>
+              <p>Paste this link into OBS/vMix for clean output, or scan the QR code to open that display on another device. The monitor view adds connection status and Retry. This link expires in 8 hours.</p>
               {overlayLink.error && <p role="alert" className="text-red-300">{overlayLink.error}</p>}
-              <button type="button" onClick={overlayLink.refresh} className="min-h-11 underline">Create a fresh link</button>
+              <button type="button" disabled={overlayLink.pending} onClick={overlayLink.refresh} className="min-h-11 underline">Create a fresh link</button>
+              {overlayLink.errorAt !== null && <p className="text-xs text-board-muted">Last error <time dateTime={new Date(overlayLink.errorAt).toISOString()}>{new Date(overlayLink.errorAt).toLocaleTimeString()}</time></p>}
+              {overlayLink.monitorUrl && <a href={overlayLink.monitorUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center px-3 text-sm text-fire-500 underline outline-none focus-visible:ring-2 focus-visible:ring-fire-500">Open overlay monitor</a>}
               <p className="font-medium text-board-text">Setup Instructions</p>
               <details className="group">
                 <summary className="cursor-pointer hover:text-board-text flex items-center gap-1">
