@@ -1104,8 +1104,14 @@
       "phase": "2",
       "section": "2.1 MIDI controller layer, separate from MTC (audit Phase 2 item 13; TC/M2, TC/M5)",
       "line": 190,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Browser MtcSource and native MtcTransportDecoder handle FA Start, FB Continue, FC Stop, F2 Song Position Pointer and F8 Clock. Stop suppresses output and survives USB reconnect; Continue waits for a fresh full-frame/SPP position and valid MTC, Start implies SPP zero. Musical clock/SPP never fabricate SMPTE using a guessed tempo. Full-frame SysEx is decoded natively and an explicit browser opt-in requests SysEx permission.",
+        "Relay mtc-transport retains producer/control ownership, persists stopped/waiting states, cancels queued automation, ignores trailing feeds while stopped, and resumes without catching up missed cues or rearming fired cues. Active Bridge transport remains audited and bound to its selected show; stopped standby feeds cannot be promoted. Static timestamps are deduplicated rather than re-fed as live.",
+        "pnpm --filter @showpilot/web test: 1410 unit +384 Worker passed; final web tsc --noEmit passed. Focused real Worker checks include hibernation, no Stop watchdog alarm, ignored trailing feeds, queued-output cancellation, no catch-up or rearming, controller isolation and active/standby show scoping. Final timecode-show-scope worker run also verifies the exact credential IDs in transport audit rows.",
+        "Bridge tests 99 passed; Bridge tsc --noEmit passed. Native Bridge cargo test --lib: 21 passed, including 12 decoder/transport tests. Web production build passed; compiled ARM64 Bun 1.4.0 sidecar built and codesign verification passed. check-midi-transport.mjs passed through compiled stdin and real WebSocket output; wired into unsigned four-platform workflow.",
+        "Built-app smoke-midi-reconnect.mjs passed with real login/Worker/D1 and simulated MIDI: buffered frame flushed on Stop, Continue held without position, SPP/full-frame reacquisition, stationary-frame watchdog, Start resync, USB recovery and 320/768/2560px MIDI panel. Physical MIDI and real browser SysEx permission remain for the Phase 2 hardware gate."
+      ]
     },
     {
       "id": "66a2bbfc8c69ec2c",

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { parseDesktopTimecode } from "./desktop-timecode.js";
+
 import { spawn } from "child_process";
 import { createInterface } from "readline";
 import { Bridge } from "./bridge.js";
@@ -91,37 +93,9 @@ function startDesktopControlInput(): void {
   const lines = createInterface({ input: process.stdin, terminal: false });
   lines.on("line", (line) => {
     try {
-      const value: unknown = JSON.parse(line);
-      if (
-        typeof value !== "object" || value === null
-        || !("type" in value) || value.type !== "timecode-feed"
-        || !("timecode" in value) || typeof value.timecode !== "object" || value.timecode === null
-        || !("format" in value) || typeof value.format !== "object" || value.format === null
-        || !("totalFrames" in value) || typeof value.totalFrames !== "number"
-      ) return;
-      const timecode = value.timecode as Record<string, unknown>;
-      const format = value.format as Record<string, unknown>;
-      if (
-        typeof timecode.hours !== "number"
-        || typeof timecode.minutes !== "number"
-        || typeof timecode.seconds !== "number"
-        || typeof timecode.frames !== "number"
-        || ![24, 25, 29.97, 30].includes(format.frameRate as number)
-        || (format.dropFrame !== "df" && format.dropFrame !== "ndf")
-      ) return;
-      bridge?.feedTimecode({
-        timecode: {
-          hours: timecode.hours,
-          minutes: timecode.minutes,
-          seconds: timecode.seconds,
-          frames: timecode.frames,
-        },
-        format: {
-          frameRate: format.frameRate as 24 | 25 | 29.97 | 30,
-          dropFrame: format.dropFrame,
-        },
-        totalFrames: value.totalFrames,
-      });
+      const value = parseDesktopTimecode(JSON.parse(line));
+      if (value?.type === "timecode-transport") bridge?.transportTimecode(value.state);
+      else if (value?.type === "timecode-feed") bridge?.feedTimecode(value);
     } catch {
       // Ignore malformed supervisor messages without interrupting devices.
     }

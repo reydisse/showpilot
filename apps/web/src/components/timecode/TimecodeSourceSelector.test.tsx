@@ -63,7 +63,7 @@ it("updates port discovery on hotplug and rescan while preserving the selected d
   act(() => { access.connect(replacement, false); vi.advanceTimersByTime(2_000); });
   expect(screen.getByLabelText("MIDI timecode input")).toHaveProperty("value", replacement.id);
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start MTC" })));
-  expect(test.onStartMtc).toHaveBeenCalledExactlyOnceWith(replacement.id);
+  expect(test.onStartMtc).toHaveBeenCalledExactlyOnceWith(replacement.id, undefined);
   expect(request).toHaveBeenCalledTimes(1);
   view.unmount();
   expect(vi.getTimerCount()).toBe(0);

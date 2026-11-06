@@ -163,6 +163,30 @@ describe("show-scoped timecode rooms", () => {
     await expect.poll(async () => (await evening.state()).running).toBe(false);
   });
 
+  it("routes active native MIDI transport only to its bound show and ignores standby transport", async () => {
+    const [a, b] = await shows();
+    const morning = await room(a); const evening = await room(b);
+    const active = await openTestBridge(a.orgId); const standby = await openTestBridge(a.orgId);
+    const feed = (frames: number) => JSON.stringify({ type: "timecode-feed", timecode: { hours: 0, minutes: 0, seconds: 0, frames }, format: { frameRate: 30, dropFrame: "ndf" } });
+    active.socket.send(feed(1));
+    await expect.poll(async () => (await morning.state()).totalFrames).toBe(1);
+    standby.socket.send(JSON.stringify({ type: "timecode-transport", state: "stopped" }));
+    active.socket.send(feed(2));
+    await expect.poll(async () => (await morning.state()).totalFrames).toBe(2);
+    expect(await morning.state()).toMatchObject({ running: true });
+    await env.DB.prepare("UPDATE app_setting SET value=? WHERE orgId=? AND key='active-show-id'").bind(b.showId, a.orgId).run();
+    active.socket.send(JSON.stringify({ type: "timecode-transport", state: "stopped" }));
+    await expect.poll(async () => (await morning.state()).signal?.status).toBe("midi-stopped");
+    expect(await evening.state()).toMatchObject({ totalFrames: 0, signal: { status: "idle" } });
+    active.socket.send(JSON.stringify({ type: "timecode-transport", state: "waiting" }));
+    active.socket.send(feed(3));
+    await expect.poll(async () => (await morning.state()).totalFrames).toBe(3);
+    expect(await morning.state()).toMatchObject({ running: true });
+    const audit = await env.DB.prepare("SELECT credentialId FROM bridge_credential_audit WHERE orgId = ? AND action = 'timecode-transport' ORDER BY rowid").bind(a.orgId).all<{ credentialId: string }>();
+    expect(audit.results.map(row => row.credentialId)).toEqual([active.credential.credentialId, active.credential.credentialId]);
+    active.socket.close(); standby.socket.close();
+  });
+
   it("accepts only valid internal Bridge feeds and leaves an operator's clock in control", async () => {
     const [a] = await shows();
     const morning = await room(a);

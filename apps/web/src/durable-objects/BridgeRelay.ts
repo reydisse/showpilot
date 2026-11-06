@@ -209,7 +209,7 @@ function bridgeAuditAction(type: string): BridgeAuditAction | null {
   switch (type) {
     case "configured-propresenter-requested": case "automatic-connection-requested": case "command-connection-requested": return "connect-device";
     case "bridge-status": case "command-response": case "device-event":
-    case "device-status": case "pong": case "timecode-feed": return type;
+    case "device-status": case "pong": case "timecode-feed": case "timecode-transport": return type;
     default: return null;
   }
 }
@@ -903,6 +903,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         break;
 
       case "timecode-feed":
+      case "timecode-transport":
         await this.pushTimecode(msg);
         break;
     }
@@ -1163,17 +1164,18 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   private async pushTimecode(message: BridgeMessage): Promise<void> {
     const target = this.timecodeTarget;
     const socket = this.bridgeWs;
-    if (!target || !this.env.BETTER_AUTH_SECRET || !isRecord(message.timecode) || !isRecord(message.format)) return;
+    const transport = message.type === "timecode-transport";
+    if (!target || !this.env.BETTER_AUTH_SECRET) return;
+    if (transport ? message.state !== "stopped" && message.state !== "waiting" : !isRecord(message.timecode) || !isRecord(message.format)) return;
     const relay = this.env.TIMECODE_RELAY.getByName(timecodeRelayKey(target));
     const binding = await relay.bindShow(target);
     if (!binding.ok) return;
     if (socket !== this.bridgeWs || target !== this.timecodeTarget) return;
-    const response = await relay.fetch(new Request(timecodeTargetUrl(target, "/internal/bridge-feed"), {
+    const response = await relay.fetch(new Request(timecodeTargetUrl(target, transport ? "/internal/bridge-transport" : "/internal/bridge-feed"), {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": this.env.BETTER_AUTH_SECRET },
       body: JSON.stringify({
-        action: "feed-tc",
-        payload: {
+        payload: transport ? { state: message.state } : {
           timecode: message.timecode,
           format: message.format,
           totalFrames: message.totalFrames,

@@ -18,7 +18,7 @@ interface TimecodeSourceSelectorProps {
   mtcSupported: boolean;
   onStartFreerun: (offsetMs?: number) => void;
   onStopGenerator: () => void;
-  onStartMtc: (inputId: string) => Promise<void>;
+  onStartMtc: (inputId: string, options?: { sysex: boolean }) => Promise<void>;
   onSetFormat: (format: TimecodeFormat, expectedFormat: TimecodeFormat, expectedIncomingFormatId?: string) => void;
 }
 
@@ -44,6 +44,7 @@ export function TimecodeSourceSelector({
   const [selectedMidi, setSelectedMidi] = useState<MIDIInput | null>(null);
   const availableMidi = selectedMidi ? findMidiInput(midiInputs, selectedMidi) : null;
   const [scanAttempt, setScanAttempt] = useState(0);
+  const [fullFrameSync, setFullFrameSync] = useState(false);
   const [loadingMidi, setLoadingMidi] = useState(false);
   const [midiError, setMidiError] = useState<string | null>(null);
 
@@ -70,6 +71,8 @@ export function TimecodeSourceSelector({
         Timecode Source
       </h3>
       {source === "mtc" && <MtcFrameAge lastFeedAt={signal?.lastFeedAt ?? null} />}
+      {signal?.status === "midi-stopped" && <p role="status" className="text-sm text-board-muted">MIDI transport stopped. Clock held; listening for Start or Continue.</p>}
+      {signal?.status === "midi-waiting" && <p role="status" className="text-sm text-amber-200">Waiting for MIDI position and timecode. Send a full-frame sync or Song Position Pointer with MTC before continuing.</p>}
       {(signal?.status === "timecode-stalled" || signal?.status === "timecode-lost") && (
         <p role="alert" className="flex items-center gap-2 text-sm text-amber-400">
           <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -169,7 +172,7 @@ export function TimecodeSourceSelector({
                     if (!availableMidi) return;
                     setMidiError(null);
                     try {
-                      await onStartMtc(availableMidi.id);
+                      await onStartMtc(availableMidi.id, fullFrameSync ? { sysex: true } : undefined);
                     } catch (cause) {
                       setMidiError(cause instanceof Error ? cause.message : "Could not start this MIDI input");
                     }
@@ -185,6 +188,10 @@ export function TimecodeSourceSelector({
                 {loadingMidi ? "Checking MIDI inputs…" : "No MIDI inputs found. Connect a MIDI device; inputs refresh automatically."}
               </p>
             )}
+            <label className="flex min-h-11 items-center gap-2 text-xs text-board-muted">
+              <input type="checkbox" checked={fullFrameSync} disabled={isMaster} onChange={event => setFullFrameSync(event.target.checked)} />
+              Receive full-frame MIDI sync (requests SysEx permission)
+            </label>
             {midiError && (
               <p role="alert" className="text-xs leading-relaxed text-red-400">
                 {midiError.replace(/[.!?]+$/, "")}. Check the browser&apos;s MIDI permission, then click Refresh.
