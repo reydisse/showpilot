@@ -16,10 +16,10 @@ export const Route = createFileRoute("/_auth/login")({
       search.signup === "1" || search.signup === 1 ? (1 as const) : undefined;
     const returnTo =
       typeof search.returnTo === "string" &&
-      /^\/delete-account(?:\?token=[A-Za-z0-9]+)?$/.test(search.returnTo)
+      /^\/(?:delete-account(?:\?token=[A-Za-z0-9]+)?|setup\?mode=new)$/.test(search.returnTo)
         ? search.returnTo
         : undefined;
-    return { ...(signup ? { signup } : {}), ...(returnTo ? { returnTo } : {}) };
+    return { signup, returnTo };
   },
   loader: () => ({ design: getSignInDesign(new Date()) }),
   component: LoginPage,
@@ -35,16 +35,24 @@ function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [existingAccount, setExistingAccount] = useState(false);
+  const [createOrgAfterSignIn, setCreateOrgAfterSignIn] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
     setError(null);
+    setExistingAccount(false);
     setLoading(true);
 
     try {
       if (isSignUp) {
         const result = await authClient.signUp.email({ email, password, name });
+        if (result.error?.code === "USER_ALREADY_EXISTS" || result.error?.code === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL") {
+          setExistingAccount(true);
+          setError("An account with this email already exists. Sign in to create another organization.");
+          return;
+        }
         if (result.error)
           throw new Error(
             `[${result.error.code ?? "ERR"}] ${result.error.message}`,
@@ -54,7 +62,7 @@ function LoginPage() {
         const result = await authClient.signIn.email({ email, password });
         if (result.error)
           throw new Error(result.error.message ?? "Sign in failed");
-        window.location.href = returnTo ?? "/";
+        window.location.href = returnTo ?? (createOrgAfterSignIn ? "/setup?mode=new" : "/");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -152,6 +160,15 @@ function LoginPage() {
             {error}
           </p>
         )}
+        {existingAccount && (
+          <button type="button" className="mb-4 min-h-11 underline underline-offset-4" onClick={() => {
+            setIsSignUp(false);
+            setCreateOrgAfterSignIn(true);
+            setExistingAccount(false);
+            setError(null);
+            setPassword("");
+          }}>Sign in to create an organization</button>
+        )}
         <button
           type="submit"
           className="submit"
@@ -190,6 +207,8 @@ function LoginPage() {
           disabled={loading}
           onClick={() => {
             setIsSignUp(!isSignUp);
+            if (existingAccount) setCreateOrgAfterSignIn(true);
+            setExistingAccount(false);
             setError(null);
           }}
         >

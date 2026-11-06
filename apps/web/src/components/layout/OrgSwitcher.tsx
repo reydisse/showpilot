@@ -132,7 +132,7 @@ export function OrgSwitcher({ currentOrg, collapsed }: OrgSwitcherProps) {
               <button
                 onClick={() => {
                   setOpen(false);
-                  navigate({ to: "/setup" });
+                  navigate({ to: "/setup", search: { mode: "new" } });
                 }}
                 className="flex items-center gap-2.5 w-full px-2.5 py-2 rounded-lg mx-0.5 hover:bg-board-border/50 transition-colors text-board-muted hover:text-board-text"
                 style={{ width: "calc(100% - 4px)" }}

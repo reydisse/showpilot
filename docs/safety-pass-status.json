@@ -805,16 +805,22 @@
       "phase": "1",
       "section": "1.10 Onboarding: signup dead end and second org creation (live findings 1 and 2)",
       "line": 153,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Login recognizes USER_ALREADY_EXISTS and USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL, offers an explicit sign-in action, preserves the email and sends the signed-in user to /setup?mode=new. The existing-email response no longer tells the user to choose another email. Redirect targets remain allowlisted local paths.",
+        "Four login component tests verify both auth error codes, retained drafts on unrelated failures, sign-in form transition, and strict return-path validation. Built smoke-organization-creation.mjs verifies real duplicate signup, sign-in and organization creation using a disposable existing Member account."
+      ]
     },
     {
       "id": "6b207e85ae915db0",
       "phase": "1",
       "section": "1.10 Onboarding: signup dead end and second org creation (live findings 1 and 2)",
       "line": 154,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "The organization switcher opens explicit /setup?mode=new. Authenticated creation mode starts with no existing org selected, regardless of role in earlier orgs. After creation the setup URL carries orgId, and server-side progress queries require membership in that exact org. Refresh resumes the new org instead of the oldest membership. New owners retain their original Member role in prior orgs.",
+        "Creation retains the acknowledged new organization through activation/checkpoint failures; Continue setup retries that work without creating another org. The form labels the organization name, shows inline failure, and preserves the existing verified-email restriction. Three real Worker tests cover Member creation/ownership, scoped progress, denied unrelated-org reads, owner-only checkpoints, input bounds and unauthenticated setup."
+      ]
     },
     {
       "id": "695c938d7f4089bd",
@@ -950,8 +956,11 @@
       "phase": "1",
       "section": "Phase 1 gate (all must pass before Phase 2)",
       "line": 176,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Full web suite passed: 1327 unit tests and 260 Worker tests; TypeScript and production build passed. Client entry gzip remained under the existing 175000-byte budget. Required smoke-login-responsive.mjs passed both modes at all 12 viewports from 320px through 3440px, including short and tablet layouts.",
+        "Built smoke-organization-creation.mjs passed real existing-email signup to sign-in; Member creates a separate owned org; refresh resumes its own progress; unrelated org setup is denied; switcher creates another org; injected activation failure retries without duplication; original production-style fixture settings are preserved except normal per-user timezone recording; unverified account is blocked in both UI and direct HTTP API (403). All accounts, orgs and D1 data were disposable local fixtures."
+      ]
     },
     {
       "id": "69e8ceb371dd77b0",
