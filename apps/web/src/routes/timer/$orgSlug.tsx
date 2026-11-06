@@ -1,3 +1,6 @@
+import { NamedTimers } from "@/components/timers/NamedTimers";
+import type { NamedTimerSample } from "@/lib/named-timers";
+import type { ReactNode } from "react";
 import { RelaySequenceTracker } from "@/lib/relay-sequence";
 import { getRundownStateBySlug } from "@/lib/display-data";
 import { closeConfidenceOutputWindow, confidenceOutputReady } from "@/lib/confidence-output";
@@ -239,6 +242,14 @@ function TimerKioskPage() {
   const [cleanOutput, setCleanOutput] = useState(false);
   useEffect(() => { setCleanOutput(new URLSearchParams(window.location.search).get("output") === "clean"); }, []);
   const [ppSlide, setPpSlide] = useState<PPSlidePayload | null>(null);
+  const [namedTimers, setNamedTimers] = useState<NamedTimerSample | null>(null);
+  const [requestedTimer, setRequestedTimer] = useState<string | null>(null);
+  const [pinnedTimerShow, setPinnedTimerShow] = useState<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setRequestedTimer(params.get("namedTimer"));
+    setPinnedTimerShow(params.get("namedTimer") ? params.get("showId") : null);
+  }, []);
   const [lyrics, setLyrics] = useState<LyricsDisplayState | null>(null);
   const [lyricsTimecode, setLyricsTimecode] = useState<TimecodePresentationSample | null>(null);
   const [timecodeConnected, setTimecodeConnected] = useState(false);
@@ -258,7 +269,7 @@ function TimerKioskPage() {
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [cleanOutput]);
-  const hasOutputData = state !== null;
+  const hasOutputData = requestedTimer ? namedTimers !== null : state !== null;
   useEffect(() => {
     if (!cleanOutput || !hasOutputData || !isDesktopRuntime()) return;
     // Wait for the clean layout to paint before the native engine captures it.
@@ -451,9 +462,10 @@ function TimerKioskPage() {
     };
   }, [applyStageMessage, orgSlug, relayServiceDate, relayShowId]);
 
+  const timecodeShowId = pinnedTimerShow ?? relayShowId;
   useEffect(() => {
-    setLyrics(null); setLyricsTimecode(null); setTimecodeConnected(false);
-    if (!relayShowId) return;
+    setLyrics(null); setLyricsTimecode(null); setNamedTimers(null); setTimecodeConnected(false);
+    if (!timecodeShowId) return;
     let disposed = false;
     const sequence = new RelaySequenceTracker();
     let socket: WebSocket | null = null;
@@ -461,7 +473,7 @@ function TimerKioskPage() {
     const connect = () => {
       if (disposed) return;
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      socket = new WebSocket(`${protocol}://${window.location.host}/api/timecode/${encodeURIComponent(orgSlug)}/ws?display=1&showId=${encodeURIComponent(relayShowId)}`);
+      socket = new WebSocket(`${protocol}://${window.location.host}/api/timecode/${encodeURIComponent(orgSlug)}/ws?display=1&showId=${encodeURIComponent(timecodeShowId)}`);
       const current = socket;
       let hydrateTimeout: ReturnType<typeof setTimeout> | undefined;
       const awaitHydrate = () => { clearTimeout(hydrateTimeout); hydrateTimeout = setTimeout(() => current.close(), 5000); };
@@ -477,10 +489,11 @@ function TimerKioskPage() {
             if (decision !== "apply") return;
           }
           if (message.type === "hydrate" || message.type === "tc-update") {
-            if (message.state.showId !== relayShowId) { current.close(); return; }
+            if (message.state.showId !== timecodeShowId) { current.close(); return; }
             if (message.type === "hydrate") setTimecodeConnected(true);
             setLyrics(message.state.lyrics ?? null);
             setLyricsTimecode(message.state);
+            setNamedTimers(message.state.namedTimers ?? null);
           }
           else if (message.type === "lyrics-update") setLyrics(message.lyrics);
           else if (message.type === "lyrics-clear") setLyrics(null);
@@ -494,7 +507,7 @@ function TimerKioskPage() {
     };
     connect();
     return () => { disposed = true; if (reconnect) clearTimeout(reconnect); socket?.close(); };
-  }, [orgSlug, relayShowId]);
+  }, [orgSlug, timecodeShowId]);
 
   // Fallback poll for messages + PP slide (not in DO yet) — slower rate
   const poll = useCallback(async () => {
@@ -627,19 +640,31 @@ function TimerKioskPage() {
     return total;
   }, [items, currentItem, elapsed]);
 
+  // Named timers occupy their own row, so lyrics and stage messages stay visible.
+  const frame = (content: ReactNode) => <ConfidenceScreen layout={confidenceLayout} clean={cleanOutput}>
+    <div className="flex h-[100dvh] min-h-0 flex-col bg-black">
+      <NamedTimers sample={namedTimers} connected={timecodeConnected} mode="strip" />
+      <div className="min-h-0 flex-1">{content}</div>
+    </div>
+  </ConfidenceScreen>;
+  if (requestedTimer) return <ConfidenceScreen layout={confidenceLayout} clean={cleanOutput}>
+    <style>{TIMER_CSS}</style><div className="h-[100dvh]"><NamedTimers sample={namedTimers} connected={timecodeConnected} mode="single" selectedName={requestedTimer} /></div>
+    <button type="button" onClick={toggleFullscreen} className="fixed bottom-4 right-4 min-h-11 rounded-xl border border-white/20 bg-black px-4 text-sm text-white">{isFullscreen ? "Exit fullscreen" : "Fullscreen"}</button>
+  </ConfidenceScreen>;
+
   // ── Render by view mode ──
 
   if (lyrics) {
-    return <ConfidenceScreen layout={confidenceLayout} clean={cleanOutput}><LyricsKiosk lyrics={lyrics} timecode={lyricsTimecode} connected={timecodeConnected} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} /></ConfidenceScreen>;
+    return frame(<LyricsKiosk lyrics={lyrics} timecode={lyricsTimecode} connected={timecodeConnected} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} />);
   }
 
   if (viewMode === "minimal") {
-    return <ConfidenceScreen layout={confidenceLayout} clean={cleanOutput}><MinimalView displayTime={displayTime} phase={phase} phaseColors={phaseColors} currentItem={currentItem} stageMessage={stageMessage} messagePriority={messagePriority || messageProminent} ppSlide={ppSlide} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} progress={progress} /></ConfidenceScreen>;
+    return frame(<MinimalView displayTime={displayTime} phase={phase} phaseColors={phaseColors} currentItem={currentItem} stageMessage={stageMessage} messagePriority={messagePriority || messageProminent} ppSlide={ppSlide} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} progress={progress} />);
   }
 
   if (viewMode === "stage") {
     return (
-      <ConfidenceScreen layout={confidenceLayout} clean={cleanOutput}><StageView
+      frame(<StageView
         currentItem={currentItem}
         nextItem={nextItem}
         displayTime={displayTime}
@@ -652,12 +677,12 @@ function TimerKioskPage() {
         isFullscreen={isFullscreen}
         toggleFullscreen={toggleFullscreen}
         progress={progress}
-      /></ConfidenceScreen>
+      />)
     );
   }
 
   return (
-    <ConfidenceScreen layout={confidenceLayout} clean={cleanOutput}><FullTimerView
+    frame(<FullTimerView
       currentItem={currentItem}
       nextItem={nextItem}
       displayTime={displayTime}
@@ -675,7 +700,7 @@ function TimerKioskPage() {
       isFullscreen={isFullscreen}
       toggleFullscreen={toggleFullscreen}
       progress={progress}
-    /></ConfidenceScreen>
+    />)
   );
 }
 
@@ -707,7 +732,7 @@ function LyricsKiosk({ lyrics, timecode, connected, isFullscreen, toggleFullscre
     void document.fonts.ready.then(() => { if (!disposed) fit(); });
     return () => { disposed = true; observer.disconnect(); };
   }, [lyrics.lyrics]);
-  return <main className="relative flex h-[100dvh] w-full flex-col overflow-hidden bg-black px-[5vw] py-[4vh] text-white">
+  return <main className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-black px-[5vw] py-[4vh] text-white">
     <style>{TIMER_CSS}</style>
     <header className="flex items-start justify-between gap-4"><div><p className="text-[clamp(.7rem,1.4vw,1.25rem)] font-bold uppercase tracking-[.18em] text-amber-400">{lyrics.sectionLabel}</p><h1 className="mt-1 text-[clamp(1rem,2vw,2rem)] font-semibold text-white/70">{lyrics.songTitle}</h1></div><button type="button" aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} onClick={toggleFullscreen} className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/50">{isFullscreen ? "Exit" : "Fullscreen"}</button></header>
     <div ref={lyricAreaRef} className="flex min-h-0 flex-1 items-center justify-center text-center"><p ref={lyricTextRef} className="w-full whitespace-pre-line text-balance font-bold leading-[1.08] tracking-[-.025em]" style={{ overflowWrap: "anywhere" }}>{lyrics.lyrics}</p></div>
@@ -765,7 +790,7 @@ function MinimalView({
         className={phase === "overtime" ? "bg-overtime" : ""}
         style={{
           width: "100vw",
-          height: "100vh",
+          height: "100%",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
@@ -957,7 +982,7 @@ function StageView({
         className={phase === "overtime" ? "bg-overtime" : ""}
         style={{
           width: "100vw",
-          height: "100vh",
+          height: "100%",
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
@@ -1191,7 +1216,7 @@ function FullTimerView({
         className={isFlashOvertime ? "bg-overtime" : ""}
         style={{
           width: "100vw",
-          height: "100vh",
+          height: "100%",
           display: "flex",
           flexDirection: "column",
           background: phaseColors.bg,

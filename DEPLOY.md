@@ -517,6 +517,53 @@ organization isolation, deleted sections, boundaries, disabling, the kill switch
 retry, reviewed re-fire and scoped clearing. Direct preview controls, keyboard
 and MIDI shortcuts, and the remaining Phase 2.6 work are still pending.
 
+### Named countdown timers
+
+`timer-start` accepts `{name, durationMs}` and starts or restarts one named
+countdown. `timer-stop` accepts `{name}` and removes that countdown from output.
+Names are scoped to the selected show, trimmed, Unicode-normalized and matched
+without regard to capitalization. The editor offers saved/visible names and a
+minutes or m:ss duration field. Durations range from one second to 24 hours.
+Up to 16 timers can remain visible together; Stop frees an output slot. A timer
+at zero remains visible as Complete until stopped or restarted.
+
+These timers have their own wall-clock deadlines. Stopping timecode, pausing
+automatic cues, using the kill switch or resetting cue attempts does not reset
+them or alter the rundown timer. Disabled/skipped cues and the kill switch still
+prevent Start/Stop cues from firing. Stop requires a timer that has started in
+this show and reports an error for an unknown name.
+
+TimecodeRelay owns the outputs in its SQLite tables, `named_timers` and
+`named_timer_receipts`. Output and execution receipt commit atomically. An
+interrupted attempt retains its execution ID on Retry, so an old Start cannot
+resurrect a stopped timer and an old Stop cannot cancel a later restart.
+Reviewed Re-fire uses a new execution ID. Editing an interrupted attempt's
+name or duration requires reviewed re-arming before applying the changed cue.
+Deleting the show also clears its timer outputs and receipts.
+
+This follows the existing show-scoped lyric-output boundary. Putting these
+outputs in RundownRelay would couple independent countdowns to rundown revision
+changes; storing them only in a browser would lose durable execution receipts.
+No D1 migration or native protocol change is required. Deploy the matching web
+client and Worker; existing clients cannot render the new countdown field.
+
+The timecode page lists active timers. The confidence display reserves a timer
+row above its existing content, preserving mounted lyrics. Open timer display
+opens one large countdown pinned to the selected show. Default confidence
+outputs continue following the venue's active show. Display projection includes
+only names, durations, deadlines and sample time, without receipt identities.
+Local presentation rebases from relay time and advances using a monotonic clock.
+Delayed samples cannot add time back. A disconnected display holds its last
+value with an unconfirmed label, then adopts current output after reconnecting.
+
+Run `node apps/web/scripts/smoke-named-timers.mjs` after building web. It saves
+both actions through Chromium, checks real relay output, observes a countdown
+with timecode stopped, preserves lyrics while starting/stopping timers, leaves
+other timers running, exercises reviewed restart, switches the venue show and
+restarts the local Worker. The pinned output retains its show and original
+deadline. The script captures the editor at 320px, the shared stage output and
+a dedicated timer at 320x240. All fixtures are local and disposable.
+
 ### Cue-controlled automation pauses
 
 `triggers-disable` pauses automatic cue firing while timecode continues.

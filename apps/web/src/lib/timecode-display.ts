@@ -18,6 +18,9 @@ export function projectTimecodeDisplayState(
     ...(state.signal ? { signal: state.signal } : {}),
     serverTime,
     lyrics: state.lyrics,
+    ...(state.namedTimers ? { namedTimers: { serverTime: state.namedTimers.serverTime,
+      timers: state.namedTimers.timers.map(({ name, durationMs, endsAt }) => ({ name, durationMs, endsAt })),
+    } } : {}),
     automation: { status: failedCueCount > 0 ? "failed" : "ok", failedCueCount },
   };
 }
