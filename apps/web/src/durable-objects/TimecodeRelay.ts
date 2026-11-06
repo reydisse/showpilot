@@ -134,7 +134,7 @@ const FEED_STALL_MS = 500;
 const FEED_LOST_MS = 2000;
 const FORMAT_STABILITY_FEEDS = 5;
 interface FormatCandidate { format: TimecodeFormat; count: number; receivedAt: number; producer: string | null }
-interface BridgeFeed { timecode: TimecodeValue; format: TimecodeFormat; receivedAt: number }
+interface BridgeFeed { source?: "mtc" | "ltc-bridge"; timecode: TimecodeValue; format: TimecodeFormat; receivedAt: number }
 /** Small durable journal; never rewrite the full event timeline at feed rate. */
 interface ClockSnapshot {
   state: Pick<TimecodeState, "timecode" | "display" | "totalFrames" | "format" | "source" | "running" | "serverTime" | "signal" | "triggersEnabled" | "automationHold" | "incomingFormat">;
@@ -520,17 +520,21 @@ export class TimecodeRelay extends DurableObject {
           await this.handleCommand("mtc-transport", body.payload);
         }
       } else {
-        if (this.bridgeTransport === "stopped") return this.targetJson({ ok: true, held: true });
         const body = await request.json<{ payload?: Record<string, unknown> }>();
+        const source = body.payload?.source ?? "mtc";
+        if (source !== "mtc" && source !== "ltc-bridge") return this.targetJson({ error: "Invalid Bridge timecode source" }, { status: 400 });
+        if (source === "mtc" && this.bridgeTransport === "stopped") return this.targetJson({ ok: true, held: true });
         const format = body.payload?.format;
         const tc = eventUpdateSchema.shape.triggerTimecode.safeParse(body.payload?.timecode);
         if (!isValidTimecodeFormat(format) || !tc.success || !tc.data || !isValidTimecode(tc.data, format)) {
           return this.targetJson({ error: "Invalid Bridge timecode" }, { status: 400 });
         }
-        this.bridgeFeed = { timecode: tc.data, format, receivedAt: Date.now() };
+        if (source === "ltc-bridge") this.bridgeTransport = null;
+        this.bridgeFeed = { source, timecode: tc.data, format, receivedAt: Date.now() };
         if (this.masterSessionId) await this.persistClock();
         else {
-          this.state.source = "mtc";
+          if (this.state.source !== source && this.state.signal?.status === "midi-stopped") this.state.signal = { status: "waiting", lastFeedAt: null };
+          this.state.source = source;
           await this.handleCommand("feed-tc", body.payload);
         }
       }
@@ -663,7 +667,7 @@ export class TimecodeRelay extends DurableObject {
         this.state.running = false;
         this.state.signal = { status: "waiting", lastFeedAt: null };
         this.expectedFeedSince = Date.now();
-        this.state.source = "mtc";
+        this.state.source = standby.source ?? "mtc";
         await this.handleCommand("feed-tc", { timecode: standby.timecode, format: standby.format }, undefined, standby.receivedAt);
         return;
       }
@@ -779,7 +783,6 @@ export class TimecodeRelay extends DurableObject {
             this.state.signal = { status: "format-mismatch", lastFeedAt: feedReceivedAt };
             this.state.serverTime = Date.now();
             this.expectedFeedSince = null;
-            if (!sessionId) this.state.source = "mtc";
           }
           // Keep the clock/timeline in their confirmed format. Never execute a
           // feed at the wrong rate or count a different producer's observations.
@@ -801,7 +804,6 @@ export class TimecodeRelay extends DurableObject {
         this.state.totalFrames = totalFrames;
         this.state.display = timecodeToString(tc, format.dropFrame === "df");
         this.state.format = format;
-        if (!sessionId) this.state.source = "mtc";
         this.state.running = true;
         this.state.serverTime = Date.now();
         this.state.signal = { status: "live", lastFeedAt: feedReceivedAt };
@@ -830,7 +832,7 @@ export class TimecodeRelay extends DurableObject {
       }
 
       case "bridge-disconnected":
-        if (this.state.source !== "mtc") break;
+        if (this.state.source !== "mtc" && this.state.source !== "ltc-bridge") break;
         this.automationGeneration++;
         this.masterSessionId = null;
         this.state.running = false;
@@ -861,8 +863,9 @@ export class TimecodeRelay extends DurableObject {
       }
 
       case "set-source":
-        // These are the only sources with an actual producer today. Extend
-        // this boundary when LTC/network/rundown producers are implemented.
+        // Native LTC selects its source at the authenticated Bridge feed boundary.
+        // A browser cannot claim an audio producer by changing this label.
+        if (payload?.source === "ltc-bridge") throw new TimecodeCommandRejection("Select the LTC audio input in ShowPilot Bridge. Valid audio activates the source.");
         if (payload?.source !== "internal-freerun" && payload?.source !== "mtc") {
           throw new TimecodeCommandRejection("This timecode source is not implemented.");
         }

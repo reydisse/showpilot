@@ -123,7 +123,7 @@ describe("show-scoped timecode rooms", () => {
     });
   });
 
-  it("keeps a Bridge feed pinned through active-show changes and hibernation, and stops only its own clock", async () => {
+  it.each(["mtc", "ltc-bridge"])("keeps a Bridge %s feed pinned through active-show changes and hibernation, and stops only its own clock", async source => {
     const [a, b] = await shows();
     const morning = await room(a);
     const evening = await room(b);
@@ -131,9 +131,10 @@ describe("show-scoped timecode rooms", () => {
     expect(await bridge.stub.getBridgeStatus()).toMatchObject({ timecodeTarget: a });
     await env.DB.prepare("UPDATE app_setting SET value=? WHERE orgId=? AND key='active-show-id'").bind(b.showId, a.orgId).run();
     await evictDurableObject(bridge.stub);
-    const feed = { type: "timecode-feed", timecode: cue.triggerTimecode, format: { frameRate: 30, dropFrame: "ndf" } };
+    const feed = { type: "timecode-feed", source, timecode: cue.triggerTimecode, format: { frameRate: 30, dropFrame: "ndf" } };
     bridge.socket.send(JSON.stringify(feed));
     await expect.poll(async () => (await morning.state()).totalFrames).toBe(30);
+    expect(await morning.state()).toMatchObject({ source, running: true });
     expect(await evening.state()).toMatchObject({ totalFrames: 0, running: false });
     await evening.command("start");
     bridge.socket.close();
