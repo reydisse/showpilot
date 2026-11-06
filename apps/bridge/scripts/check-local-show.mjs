@@ -32,6 +32,7 @@ const directory = mkdtempSync(join(tmpdir(), "showpilot-compiled-local-"));
 const token = randomBytes(32).toString("hex");
 const password = `fixture-${randomBytes(24).toString("hex")}`;
 let commands = 0;
+let holdDeviceReply = false;
 let active;
 const waitFor = async (predicate, label) => {
   const deadline = Date.now() + 10000;
@@ -64,7 +65,7 @@ const equipment = http.createServer((request, response) => {
     request.headers.authorization === `Bearer ${password}`
   ) {
     commands++;
-    response.end("OK");
+    if (!holdDeviceReply) response.end("OK");
   } else {
     response.writeHead(403);
     response.end();
@@ -104,8 +105,8 @@ cloud.on("connection", (socket, request) => {
     }),
   );
 });
-const start = async () => {
-  const child = spawn(binary, ["--desktop", "--no-open"], {
+const spawnEngine = () =>
+  spawn(binary, ["--desktop", "--no-open"], {
     env: {
       ...process.env,
       SHOWPILOT_SITE_URL: "https://fixture.invalid",
@@ -118,6 +119,37 @@ const start = async () => {
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
+const assertExclusiveOwner = async () => {
+  const contender = spawnEngine();
+  let output = "";
+  const collect = (chunk) => {
+    output += String(chunk);
+  };
+  contender.stdout.on("data", collect);
+  contender.stderr.on("data", collect);
+  try {
+    await waitFor(() => {
+      assert.ok(
+        !output.includes("[bridge-local-control]"),
+        "A second engine opened the same local journal while the first owner was alive",
+      );
+      return contender.exitCode !== null || contender.signalCode !== null;
+    }, "exclusive local engine ownership");
+    assert.notEqual(contender.exitCode, 0);
+    assert.match(output, /Another local device engine still owns/);
+    assert.ok(!output.includes(token) && !output.includes(password));
+    assert.equal(active.exitCode, null);
+    assert.equal(active.signalCode, null);
+  } finally {
+    if (contender.exitCode === null && contender.signalCode === null) {
+      const exited = once(contender, "exit");
+      contender.kill("SIGKILL");
+      await exited;
+    }
+  }
+};
+const start = async () => {
+  const child = spawnEngine();
   let port;
   let leaked = false;
   const inspect = (line) => {
@@ -154,19 +186,20 @@ const start = async () => {
   };
   return request;
 };
-const stop = async () => {
+const stop = async (signal = "SIGTERM") => {
   if (!active) return;
   const child = active;
   active = null;
   if (child.exitCode === null && child.signalCode === null) {
     const exited = once(child, "exit");
-    child.kill("SIGTERM");
+    child.kill(signal);
     await exited;
   }
 };
 try {
   let request = await start();
   await waitFor(() => connections[0]?.ready, "active Bridge selection");
+  await assertExclusiveOwner();
   const now = Date.now();
   const prepared = {
     version: 1,
@@ -255,6 +288,8 @@ try {
   await request(action);
   await request(action);
   assert.equal(commands, 1);
+  await assertExclusiveOwner();
+  assert.equal((await request({ operation: "status" })).sequence, 2);
   for (const file of readdirSync(directory).filter((file) =>
     file.endsWith(".json"),
   ))
@@ -262,24 +297,48 @@ try {
       readFileSync(join(directory, file), "utf8").includes(password),
       false,
     );
-  await stop();
+  // Persist a second device receipt, then kill the owner after equipment saw
+  // the request but before its acknowledgement. Recovery must never replay it.
+  holdDeviceReply = true;
+  const uncertainAction = {
+    ...action,
+    requestId: "uncertain-fire",
+    expectedSequence: 2,
+  };
+  const uncertainReply = request(uncertainAction).then(
+    () => "unexpected-success",
+    () => "connection-lost",
+  );
+  await waitFor(() => commands === 2, "pending device delivery");
+  const pending = await request({ operation: "status" });
+  assert.equal(pending.sequence, 3);
+  assert.equal(pending.results.at(-1).result, "pending");
+  await assertExclusiveOwner();
+  // Force termination: no JS exit handler can release the ownership lock.
+  await stop("SIGKILL");
+  assert.equal(await uncertainReply, "connection-lost");
+  equipment.closeAllConnections();
+  holdDeviceReply = false;
   request = await start();
   assert.equal(connections.length, 1);
   const held = await request({ operation: "status" });
   assert.equal(held.commandSource, "local-held");
   assert.equal(held.ready, false);
-  assert.equal(held.sequence, 2);
+  assert.equal(held.sequence, 3);
+  assert.equal(held.results.at(-1).result, "unknown");
   await request({
     operation: "begin",
     sessionId: "fixture-session",
     confirmed: true,
   });
   await request(action);
-  assert.equal(commands, 1);
+  const unknown = await request(uncertainAction);
+  assert.equal(unknown.results.at(-1).result, "unknown");
+  assert.equal(commands, 2);
   const finished = await request({
     operation: "finish",
     sessionId: "fixture-session",
-    expectedSequence: 2,
+    expectedSequence: 3,
   });
   assert.equal(finished.mode, "finished");
   assert.equal(finished.timer.playback, "pause");
@@ -300,9 +359,9 @@ try {
     true,
   );
   await waitFor(() => connections[1]?.ready, "cloud handoff");
-  assert.equal(commands, 1);
+  assert.equal(commands, 2);
   console.log(
-    "Compiled local show: encrypted preparation, native loopback, real OS vault, equipment dispatch, duplicate suppression, process restart and cloud handoff passed.",
+    "Compiled local show: encrypted preparation, native loopback, real OS vault, equipment dispatch, duplicate suppression, exclusive engine ownership, forced-crash recovery with unknown device receipts, and cloud handoff passed.",
   );
 } finally {
   await stop();
