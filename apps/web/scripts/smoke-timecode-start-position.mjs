@@ -27,7 +27,7 @@ await withLocalSmokeFixture(
     const clearFeeds = () =>
       browser("eval", "window.startProbe.feeds = []; true");
     const choose = async (text) => {
-      await browser("click", 'label:has-text("Start at a specific timecode")');
+      await button("Choose start position");
       await browser("find", "label", "Internal start position", "fill", text);
     };
     await browser("open", `${origin}/login`);
@@ -100,7 +100,7 @@ await withLocalSmokeFixture(
       (
         await browser(
           "eval",
-          "document.querySelector('label:has(input[type=\"checkbox\"]) input').checked",
+          "document.querySelector('[role=\"dialog\"]') !== null",
         )
       ).result,
       false,
@@ -112,7 +112,8 @@ await withLocalSmokeFixture(
     await button("Stop Generator");
     await browser("wait", "text=Resume Internal Generator");
 
-    await browser("select", "#timecode-frame-rate", "29.97-df");
+    assert.equal((await browser("eval", 'document.querySelectorAll("#timecode-frame-rate").length')).result, 1);
+    await browser("select", "select#timecode-frame-rate", "29.97-df");
     await button("Reformat timeline");
     await browser(
       "wait",

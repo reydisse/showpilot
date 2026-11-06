@@ -18,7 +18,7 @@ vi.mock("@tanstack/react-start", () => {
 import { addDevice, getDevice, getDevices, updateDevice } from "../data";
 import { handleMobileApi } from "../mobile-api.server";
 import { resolveTimecodeDeviceAction } from "../timecode-device-actions";
-import { getBlackoutTargets, getAutomationDeviceTargets } from "../automation-targets";
+import { getBlackoutTargets, getAutomationDeviceTargets, getAutomationDeviceNames } from "../automation-targets";
 const binding = env.CREDENTIAL_ENCRYPTION_KEYS;
 afterEach(() => { env.CREDENTIAL_ENCRYPTION_KEYS = binding; });
 async function fixture() {
@@ -200,4 +200,19 @@ it("returns only scoped enabled action catalogs without device configuration or 
   const serialized = JSON.stringify(catalog);
   for (const hidden of ["settings", "password", "10.0.0.99", "fixture-private-password"]) expect(serialized).not.toContain(hidden);
   await expect(getAutomationDeviceTargets({ data: { orgId: other.orgId } })).rejects.toThrow("Forbidden");
+});
+
+
+it("includes disabled timeline device names but no foreign devices or configuration", async () => {
+  const mine = await fixture(); const other = await fixture();
+  for (const [name, orgId, enabled] of [["Active", mine.orgId, 1], ["Disabled", mine.orgId, 0], ["Foreign", other.orgId, 1]] as const) {
+    await env.DB.prepare("INSERT INTO device (id,orgId,name,adapterType,category,settings,enabled,createdAt,updatedAt) VALUES (?,?,?,'atem','video',?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
+      .bind(`${mine.orgId}-${name}`, orgId, name, JSON.stringify({ host: "10.0.0.99", password: "fixture-private-password" }), enabled).run();
+  }
+  auth.userId = mine.userId;
+  expect(await getAutomationDeviceNames({ data: { orgId: mine.orgId } })).toEqual([
+    { id: `${mine.orgId}-Active`, label: "Active", enabled: true },
+    { id: `${mine.orgId}-Disabled`, label: "Disabled", enabled: false },
+  ]);
+  await expect(getAutomationDeviceNames({ data: { orgId: other.orgId } })).rejects.toThrow("Forbidden");
 });

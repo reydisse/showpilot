@@ -7,8 +7,8 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 const fmt30 = { frameRate: 30, dropFrame: "ndf" } as const;
 const fmt25 = { frameRate: 25, dropFrame: "ndf" } as const;
 function props() {
-  return { showId: "show", isMaster: false, connected: true, pending: null, running: false, format: fmt30, mtcSupported: false,
-    onStartFreerun: vi.fn(), onStopGenerator: vi.fn(), onStartMtc: vi.fn(async () => {}), onSetFormat: vi.fn() };
+  return { isMaster: false, connected: true, pending: null, running: false, format: fmt30, mtcSupported: false,
+    onStartMtc: vi.fn(async () => {}), onSetFormat: vi.fn() };
 }
 
 it("requires an explicit reformat confirmation and leaves the format unchanged on Cancel", () => {

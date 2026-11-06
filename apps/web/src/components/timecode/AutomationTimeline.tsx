@@ -1,3 +1,5 @@
+import { cueCountdown, deviceCueSummary, webhookCueSummary, isDeviceCue } from "@/lib/automation-summary";
+import type { AutomationDeviceNames } from "@/lib/automation-catalog";
 import { scheduledDispatchFrame } from "@/lib/automation-timing";
 import { mediaPlaySchema, mediaStopSchema } from "@/lib/media-output";
 import {
@@ -34,6 +36,8 @@ interface AutomationTimelineProps {
   onSetEventEnabled: (id: string, enabled: boolean) => void;
   connected: boolean;
   onEditEvent?: (event: AutomationEvent) => void;
+  deviceNames?: AutomationDeviceNames;
+  onRefreshDevices?: () => void;
 }
 
 const ACTION_ICONS: Record<string, React.ElementType> = {
@@ -121,14 +125,19 @@ export function AutomationTimeline({
   onSetEventEnabled,
   connected,
   onEditEvent,
+  deviceNames,
+  onRefreshDevices,
 }: AutomationTimelineProps) {
   const currentFrame = state?.totalFrames ?? 0;
   const dropFrame = state?.format.dropFrame === "df";
   const [confirmation, setConfirmation] = useState<{ kind: "delete" | "refire" | "rearm"; event: AutomationEvent } | { kind: "reset" } | null>(null);
-  const ordered = [...events].sort(compareAutomationCues);
+  const ordered = [...events].sort((a, b) => a.triggerFrame - b.triggerFrame || compareAutomationCues(a, b));
   const missed = (event: AutomationEvent) => event.enabled && !event.fired && !event.skipped
     && event.executionStatus !== "dispatching" && event.executionStatus !== "failed"
     && scheduledDispatchFrame(event) + event.toleranceFrames < currentFrame;
+  const overdue = (event: AutomationEvent) => event.enabled && !event.fired && !event.skipped
+    && event.executionStatus !== "dispatching" && event.executionStatus !== "failed"
+    && scheduledDispatchFrame(event) < currentFrame && !missed(event);
   const needsAttention = ordered.filter((event) => event.executionStatus === "failed" || missed(event));
   const next = nextAutomationEvent(events, currentFrame);
   const nextId = next?.id;
@@ -145,7 +154,7 @@ export function AutomationTimeline({
           <h3 className="text-xs font-medium text-board-muted uppercase tracking-wider">
             Automation Timeline
           </h3>
-          <span className="text-[10px] text-board-muted/60">
+          <span className="text-xs text-board-muted/60">
             {events.length} event{events.length !== 1 ? "s" : ""}
           </span>
         </div>
@@ -164,11 +173,19 @@ export function AutomationTimeline({
         )}
       </div>
 
+      {next && state && <p data-next-cue className="border-b border-board-border px-4 py-3 text-sm text-board-text break-words">
+        {connected ? "Next" : "Last known next"}: <strong>{next.label}</strong> · {scheduledDispatchFrame(next) <= currentFrame ? "Due now" : `in ${cueCountdown(scheduledDispatchFrame(next) - currentFrame, state.format)}`}
+        {!state.running && " · Clock held"}
+      </p>}
+      {events.some(isDeviceCue) && onRefreshDevices && <div className="flex flex-wrap items-center gap-2 border-b border-board-border px-4 py-2 text-xs text-board-muted">
+        {deviceNames?.status === "error" && <span role="status">Device names unavailable. Refresh to try again.</span>}
+        <button type="button" disabled={deviceNames?.status === "loading"} onClick={onRefreshDevices} className="min-h-11 rounded-lg px-3 focus-visible:ring-2 disabled:opacity-50">Refresh device names</button>
+      </div>}
       {needsAttention.length > 0 && (
         <section aria-label="Missed or failed cues" className="border-b border-red-400/30 bg-red-500/5 p-4">
           <h4 className="text-sm font-semibold text-red-300">Missed / failed cues ({needsAttention.length})</h4>
           <ul className="mt-2 space-y-1">
-            {needsAttention.map((event) => <li key={event.id} className="flex items-center justify-between gap-3 text-sm text-board-text"><span>{event.label} · {event.executionStatus === "failed" ? "Failed" : "Missed"}{event.skipped ? " · Skipped" : ""}</span><button type="button" disabled={!connected || !event.enabled || event.skipped || state?.triggersEnabled === false} onClick={() => onRetryEvent(event.id)} className="min-h-11 rounded-lg px-3 text-amber-200 disabled:opacity-40" aria-label={`Retry ${event.label}`}>Retry</button></li>)}
+            {needsAttention.map((event) => <li key={event.id} className="flex items-center justify-between gap-3 text-sm text-board-text"><span className="min-w-0 break-words">{event.label} · {event.executionStatus === "failed" ? "Failed" : "Missed"}{event.skipped ? " · Skipped" : ""}</span><button type="button" disabled={!connected || !event.enabled || event.skipped || state?.triggersEnabled === false} onClick={() => onRetryEvent(event.id)} className="min-h-11 shrink-0 rounded-lg px-3 text-amber-200 focus-visible:ring-2 disabled:opacity-40" aria-label={`Retry ${event.label} from attention list`}>Retry</button></li>)}
           </ul>
         </section>
       )}
@@ -185,6 +202,8 @@ export function AutomationTimeline({
       ) : (
         <div className="divide-y divide-board-border">
           {ordered.map((event) => {
+            const deviceSummary = deviceCueSummary(event, deviceNames);
+            const webhookSummary = webhookCueSummary(event);
             const Icon = ACTION_ICONS[event.action] ?? Monitor;
             const colorClass = ACTION_COLORS[event.action] ?? ACTION_COLORS["custom-webhook"];
             const isNext = nextId === event.id;
@@ -196,6 +215,7 @@ export function AutomationTimeline({
             return (
               <div
                 key={event.id}
+                data-automation-event={event.id}
                 className={`flex flex-wrap items-center gap-3 px-4 py-3 transition-colors ${
                   event.fired && event.executionStatus !== "failed"
                     ? "opacity-40"
@@ -207,16 +227,16 @@ export function AutomationTimeline({
                 {/* Timecode */}
                 <span className="font-mono text-xs tabular-nums text-board-muted w-24 shrink-0">
                   {timecodeToString(event.triggerTimecode, dropFrame)}
-                  {((event.leadMs ?? 0) + (event.deviceLatencyMs ?? 0)) > 0 && <span className="mt-1 block font-sans text-[11px] text-amber-200">
+                  {((event.leadMs ?? 0) + (event.deviceLatencyMs ?? 0)) > 0 && <span className="mt-1 block font-sans text-xs text-amber-200">
                     Lead {event.leadMs ?? 0} ms + device {event.deviceLatencyMs ?? 0} ms
                     {state && <span className="block font-mono">Send {timecodeToString(framesToTimecode(scheduledDispatchFrame(event), state.format), dropFrame)}</span>}
                   </span>}
                 </span>
 
                 {/* Status indicator */}
-                <div className="w-5 shrink-0">
+                <div className="flex shrink-0 items-center gap-1">
                   {event.executionStatus === "failed" ? (
-                    <AlertCircle className="h-4 w-4 text-red-400" />
+                    <><AlertCircle className="h-4 w-4 text-red-400" /><span className="text-xs font-semibold text-red-300">FAILED</span></>
                   ) : event.executionStatus === "dispatching" ? (
                     <Loader2 className="h-4 w-4 animate-spin text-fire-500" />
                   ) : event.fired ? (
@@ -230,19 +250,22 @@ export function AutomationTimeline({
 
                 {/* Action badge */}
                 <div
-                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded border text-[10px] font-medium shrink-0 ${colorClass}`}
+                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded border text-xs font-medium shrink-0 ${colorClass}`}
                 >
                   <Icon className="w-3 h-3" />
                   {event.action.replace(/-/g, " ")}
                 </div>
 
                 {/* Label */}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm text-board-text">{event.label}</span>
+                <span className="min-w-0 basis-full sm:basis-40 sm:flex-1">
+                  <span className="block break-words text-sm text-board-text">{event.label}</span>
+                  {deviceSummary && <><span className="block break-words text-xs text-board-text">Device: {deviceSummary.target}</span><span className="block break-words text-xs text-board-muted">{deviceSummary.details}</span></>}
+                  {webhookSummary && <span className="block break-words text-xs text-board-muted">{webhookSummary}</span>}
+                  <span className="block text-xs text-board-muted">Tolerance ±{event.toleranceFrames} frames</span>
                   {mediaSummary && <span className="block text-xs text-board-muted">{mediaSummary}</span>}
-                  <span className="block text-xs text-board-muted">{event.skipped ? "Skipped" : !event.enabled ? "Disabled" : event.executionStatus === "failed" ? "Failed" : event.executionStatus === "dispatching" ? "Awaiting acknowledgement" : event.fired ? "Acknowledged" : missed(event) ? "Missed" : isNext ? "Next" : "Scheduled"}</span>
+                  <span className="block text-xs text-board-muted">{event.skipped ? "Skipped" : !event.enabled ? "Disabled" : event.executionStatus === "failed" ? "Failed" : event.executionStatus === "dispatching" ? "Awaiting acknowledgement" : event.fired ? "Acknowledged" : missed(event) ? "Missed" : overdue(event) ? "Overdue · within tolerance" : isNext ? "Next" : "Scheduled"}</span>
                   {event.executionStatus === "failed" && event.executionError ? (
-                    <span className="mt-0.5 block text-xs text-red-400">
+                    <span className="mt-0.5 block break-words text-xs text-red-400">
                       {event.executionError}
                     </span>
                   ) : null}
@@ -254,13 +277,15 @@ export function AutomationTimeline({
                 </label>
                 {onEditEvent && <button type="button" aria-label={`Edit ${event.label}`} disabled={!connected || event.executionStatus === "dispatching"}
                   onClick={() => onEditEvent(event)} className="flex min-h-11 min-w-11 items-center gap-1 rounded-lg px-3 text-xs text-board-text focus-visible:ring-2 disabled:opacity-40"><Pencil className="h-4 w-4" />Edit</button>}
+                {(event.executionStatus === "failed" || missed(event)) && <button type="button" aria-label={`Retry ${event.label}`} disabled={!connected || !event.enabled || event.skipped || state?.triggersEnabled === false}
+                  onClick={() => onRetryEvent(event.id)} className="min-h-11 min-w-11 rounded-lg px-3 text-xs text-amber-200 focus-visible:ring-2 disabled:opacity-40">Retry</button>}
                 {!event.fired && !event.skipped && event.executionStatus !== "failed" && <button type="button" aria-label={`Fire ${event.label}`} disabled={!connected || !event.enabled || event.executionStatus === "dispatching" || state?.triggersEnabled === false}
                   onClick={() => onFireEvent(event.id)} className="min-h-11 min-w-11 rounded-lg px-3 text-xs text-fire-500 focus-visible:ring-2 disabled:opacity-40">Fire</button>}
                 {!event.fired && !event.skipped && <button type="button" aria-label={`Skip ${event.label}`} disabled={!connected || event.executionStatus === "dispatching"}
                   onClick={() => onSkipEvent(event.id)} className="min-h-11 min-w-11 rounded-lg px-3 text-xs text-board-muted focus-visible:ring-2 disabled:opacity-40">Skip</button>}
                 {(event.fired || event.skipped || event.executionStatus === "failed") && <button type="button" aria-label={`Re-arm ${event.label}`} disabled={!connected || event.executionStatus === "dispatching"}
                   onClick={() => setConfirmation({ kind: "rearm", event: { ...event } })} className="min-h-11 min-w-11 rounded-lg px-3 text-xs text-board-muted focus-visible:ring-2 disabled:opacity-40">Re-arm</button>}
-                {event.fired && <button type="button" disabled={!connected || !event.enabled || state?.triggersEnabled === false} onClick={() => setConfirmation({ kind: "refire", event })} className="min-h-11 rounded-lg px-3 text-xs text-board-muted disabled:opacity-50">Re-fire</button>}
+                {event.fired && <button type="button" disabled={!connected || !event.enabled || state?.triggersEnabled === false} onClick={() => setConfirmation({ kind: "refire", event })} className="min-h-11 min-w-11 rounded-lg px-3 text-xs text-board-muted focus-visible:ring-2 disabled:opacity-50">Re-fire</button>}
 
                 {/* Delete */}
                 <button
@@ -269,7 +294,7 @@ export function AutomationTimeline({
                   disabled={!connected || event.executionStatus === "dispatching"}
                   aria-label={`Delete ${event.label} automation`}
                   title={`Delete ${event.label} automation`}
-                  className="min-h-11 min-w-11 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50 flex items-center justify-center"
+                  className="min-h-11 min-w-11 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 focus-visible:ring-2 disabled:opacity-50 flex items-center justify-center"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>

@@ -1,3 +1,4 @@
+import { TimecodeTransport } from "@/components/timecode/TimecodeTransport";
 import { NamedTimers } from "@/components/timers/NamedTimers";
 import { MediaLibrary } from "@/components/timecode/MediaLibrary";
 import { MediaOutputPanel } from "@/components/timecode/MediaOutputPanel";
@@ -16,7 +17,7 @@ import { TimecodeAutomationControl } from "@/components/timecode/TimecodeAutomat
 import { MidiControllerPanel } from "@/components/timecode/MidiController";
 import { TimecodeDisplay } from "@/components/timecode/TimecodeDisplay";
 import { TimecodeSourceSelector } from "@/components/timecode/TimecodeSourceSelector";
-import { AutomationTimeline } from "@/components/timecode/AutomationTimeline";
+import { AutomationTimelinePanel } from "@/components/timecode/AutomationTimelinePanel";
 import { AutomationEventEditor } from "@/components/timecode/AutomationEventEditor";
 import { createBrowserId } from "@/lib/browser-id";
 import { sameTimecodeFormat, timecodeToFrames } from "@/lib/timecode";
@@ -115,24 +116,23 @@ function TimecodePage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-4">
+      <div data-timecode-header className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-4 py-3 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
               SMPTE Timecode
             </h1>
-            <p className="text-xs text-board-muted mt-0.5">
+            <p className="hidden text-xs text-board-muted mt-0.5 sm:block">
               Show automation sequencer
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <button disabled={!connected || state?.running || generatorPending !== null} onClick={() => setSongLoaderOpen(true)} className="flex min-h-11 items-center gap-1.5 rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-text hover:border-fire-500/30"><Music2 className="h-3.5 w-3.5 shrink-0" />Load song cues</button>
-            <TimecodeDisplay state={state} connected={connected} size="compact" />
-          </div>
+          <TimecodeTransport key={timecode.showId} state={state} connected={connected} canControl={control !== "other"} isMaster={isMaster} pending={generatorPending}
+            onStart={startFreerun} onStop={stopGenerator} onPause={pauseGenerator} />
         </div>
       </div>
 
-      <div className="p-6 max-w-4xl mx-auto space-y-6">
+      <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
+        <Button type="button" variant="outline" disabled={!connected || state?.running || generatorPending !== null} onClick={() => setSongLoaderOpen(true)} className="min-h-11 text-xs"><Music2 />Load song cues</Button>
         <TimecodeShowPicker />
         <TimecodeControlNotice />
         {!connected && <p role="status" className="rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">Timecode disconnected. Controls will be available after reconnecting.</p>}
@@ -147,27 +147,23 @@ function TimecodePage() {
 
         {/* Large TC display */}
         <TimecodeSourceSelector
-          showId={timecode.showId}
+          key={`source:${timecode.showId}`}
           isMaster={isMaster}
           connected={connected && control !== "other"}
           pending={generatorPending}
           running={state?.running ?? false}
-          totalFrames={state?.totalFrames ?? 0}
           signal={state?.signal}
           source={state?.source}
           format={state?.format ?? { frameRate: 30, dropFrame: "ndf" }}
           incomingFormat={state?.incomingFormat}
           mtcSupported={mtcSupported}
-          onStartFreerun={startFreerun}
-          onStopGenerator={stopGenerator}
-          onPauseGenerator={pauseGenerator}
           onStartMtc={startMtc}
           onSetFormat={setFormat}
         />
 
         {/* Large TC display */}
         <MidiControllerPanel key={timecode.showId} timecode={timecode} />
-        <AutomationTimeline
+        <AutomationTimelinePanel key={`timeline:${orgId}`} orgId={orgId}
           events={events}
           state={state}
           onRemoveEvent={removeEvent}
