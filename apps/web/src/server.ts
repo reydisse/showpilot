@@ -1,4 +1,5 @@
 import { backfillDeviceCredentials } from "./lib/device-settings.server";
+import { handleMediaRequest } from "./lib/media-library.server";
 import { backfillCredentialSettings, readSettingValuesForUse } from "./lib/credential-settings.server";
 import { backfillScopedTokenDigests } from "./lib/scoped-token-store.server";
 import handler from "@tanstack/react-start/server-entry";
@@ -427,6 +428,21 @@ const appServer = {
         if (access.identity.sessionId) doUrl.searchParams.set("authSessionId", access.identity.sessionId);
       }
       return stub.fetch(new Request(doUrl.toString(), request));
+    }
+
+    const mediaMatch = url.pathname.match(/^\/api\/media\/([^/]+)(?:\/([^/]+))?$/);
+    if (mediaMatch) {
+      const [, slugOrId, id] = mediaMatch;
+      if (!["GET", "HEAD"].includes(request.method) && !isAllowedApiOrigin(request.headers.get("origin"), request.url)) {
+        return new Response("Media changes require an allowed origin.", { status: 403 });
+      }
+      const orgId = await resolveOrgId(slugOrId, e.DB, request);
+      if (!orgId) return new Response("Organization not found", { status: 404 });
+      return handleMediaRequest(request, {
+        bucket: e.STORAGE, orgId, id,
+        authorize: async () => await resolveOrgId(slugOrId, e.DB, request) === orgId
+          && canUse(await getRelayAccess(request, orgId, e.DB), "timecode:access"),
+      });
     }
 
     const chatFileMatch = url.pathname.match(/^\/api\/chat-file\/([^/]+)\/([^/]+)\/(.+)$/);
