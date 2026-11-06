@@ -12,7 +12,7 @@ import { hashPassword } from "better-auth/crypto";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, unverifiedOperator = false, paidPlan = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, unverifiedOperator = false, paidPlan = false, damagedGraphicScenes = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "showpilot-display-smoke-"));
   const session = `display-smoke-${process.pid}`;
   const secret = randomUUID();
@@ -95,8 +95,21 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     const schema = (await Promise.all(migrations.map((name) => readFile(join(web, "prisma/migrations", name), "utf8")))).join("\n\n");
     const password = randomUUID();
     const passwordHash = await hashPassword(password);
+    const sceneFixture = (id, name, templateId = "classic") => ({ id, name,
+      items: [{ key: "__draft__", name: "Saved first", title: "Saved first", subtitle: "Speaker", style: JSON.stringify({templateId,controls:{accentColor:"#f59e0b",bgOpacity:85,primarySize:46,secondarySize:26,posX:5,posY:82,animSpeed:"normal"}}) }],
+      createdAt:"2026-11-06T00:00:00.000Z", updatedAt:"2026-11-06T00:00:00.000Z" });
+    const fixtureSceneValues = [
+      ["healthy",JSON.stringify(sceneFixture("healthy","Healthy scene"))],
+      ["bad-json","{"],
+      ["bad-style",JSON.stringify({...sceneFixture("bad-style","Damaged layers"),items:[{...sceneFixture("bad-style","Damaged layers").items[0],style:"{}"}]})],
+      ["unsupported",JSON.stringify(sceneFixture("unsupported","Future template","unavailable-renderer"))],
+      ["mismatch",JSON.stringify(sceneFixture("healthy","Mismatched ID"))],
+    ];
+    const damagedScenesSeed = damagedGraphicScenes ? fixtureSceneValues.map(([id,value]) =>
+      `INSERT INTO app_setting(id,orgId,key,value) VALUES ('fixture-scene-${id}','display-smoke','graphic-scene:${id}','${value.replaceAll("'","''")}');`).join("\n") : "";
     const seed = `
   INSERT INTO organization (id,name,slug,createdAt) VALUES ('display-smoke','Display fixture','display-smoke',CURRENT_TIMESTAMP), ('display-other','Other fixture','display-other',CURRENT_TIMESTAMP);
+  ${damagedScenesSeed}
   ${paidPlan ? "UPDATE organization SET plan = 'pro' WHERE id = 'display-smoke';" : ""}
   INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-operator','Fixture operator','operator@display-smoke.invalid',1,CURRENT_TIMESTAMP);
   INSERT INTO account (id,accountId,providerId,userId,password,issuer,updatedAt) VALUES ('smoke-account','smoke-operator','credential','smoke-operator','${passwordHash}','local:credential',CURRENT_TIMESTAMP);
@@ -149,7 +162,15 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     };
     const revokeFixtureOperator = () => wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state,
       "--command", "DELETE FROM member WHERE organizationId='display-smoke' AND userId='smoke-operator'");
-    await check({ origin, orgId, date, browser, pass, crewChatPass, stopServer, startServer, queryFixture, revokeFixtureOperator, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
+    const repairGraphicSceneFixtures = async () => {
+      assert.ok(damagedGraphicScenes, "Scene repair is available only for the damaged-scene fixture");
+      const repair = ["bad-json","bad-style","unsupported"].map(id => {
+        const name = id === "unsupported" ? "Future template" : id === "bad-style" ? "Damaged layers" : "Repaired scene";
+        return `UPDATE app_setting SET value='${JSON.stringify(sceneFixture(id,name)).replaceAll("'","''")}' WHERE orgId='display-smoke' AND key='graphic-scene:${id}';`;
+      }).join("\n");
+      await wrangler("d1","execute","showpilot-db","--local","--config",configPath,"--persist-to",state,"--command",repair);
+    };
+    await check({ origin, orgId, date, browser, pass, crewChatPass, stopServer, startServer, queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
   } catch (error) {
     // Configuration contains only disposable fixture secrets; redact them anyway.
     console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]").replaceAll(companionSecret, "[fixture secret]").replaceAll(encryptionSecret, "[fixture secret]"));
