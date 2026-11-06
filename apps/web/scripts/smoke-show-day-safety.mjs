@@ -106,7 +106,9 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, stopServer, s
   await browser("wait", "text=No automation events");
   assert.equal((await events()).length, 0);
   await browser("fill", 'input[placeholder="00:05:00:00"]', "00:01:00:00");
+  await browser("select", 'form:has(input[placeholder="00:05:00:00"]) select >> nth=0', "lyrics-clear");
   await browser("fill", 'input[placeholder^="e.g."]', "Preserved offline draft");
+  await browser("wait", 'button:has-text("Add Event"):not(:disabled)');
   await browser("tab", "new", `${origin}/${orgId}/rundown?showId=smoke-show`);
   await browser("wait", "text=Safety fixture item");
   await stopServer();
@@ -128,5 +130,10 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, stopServer, s
   await browser("wait", "text=Preserved offline draft");
   assert.equal((await events()).some(event => event.label === "Preserved offline draft"), true);
   assert.equal((await browser("eval", "document.querySelector('input[placeholder^=\"e.g.\"]').value")).result, "");
-  console.log(JSON.stringify({ login: "passed", bareSpace: "safe", modifiedTransportShortcut: "passed", resetConfirmation: "passed", resetWhilePlaying: "blocked", itemDeleteConfirmationAndUndo: "passed", templateDeleteConfirmation: "passed", automationResetAndDeleteConfirmation: "passed", demoHiddenOnRealTimeline: "passed", disconnectedTransport: "disabled", offlineDraftAndReconnect: "preserved", staleShortcut: "not replayed" }, null, 2));
+  await clickButton("Start Internal Generator");
+  await browser("wait", "text=Pause clock");
+  assert.equal((await browser("eval", "document.querySelector('#timecode-frame-rate').disabled")).result, true);
+  await clickButton("Stop Generator");
+  await browser("wait", "--fn", "document.querySelector('#timecode-frame-rate').disabled === false");
+  console.log(JSON.stringify({ login: "passed", liveFrameRateLock: "passed", bareSpace: "safe", modifiedTransportShortcut: "passed", resetConfirmation: "passed", resetWhilePlaying: "blocked", itemDeleteConfirmationAndUndo: "passed", templateDeleteConfirmation: "passed", automationResetAndDeleteConfirmation: "passed", demoHiddenOnRealTimeline: "passed", disconnectedTransport: "disabled", offlineDraftAndReconnect: "preserved", staleShortcut: "not replayed" }, null, 2));
 });

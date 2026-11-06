@@ -1427,8 +1427,12 @@
       "phase": "2",
       "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
       "line": 230,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Rundown section/segment actions and draggable handles use 44px minimum hit areas and stay visible. AutomationTimeline row buttons already enforce min-h-11/min-w-11; the enable label provides a 44px-high hit target.",
+        "2026-11-06: smoke-rundown-layout.mjs passed against the built Worker and authenticated relay at 320, 768, 1024, 1440 and 2560px. Every rundown row button measured at least 44x44px with visible actions; keyboard and actual browser drag reorder persisted, and keyboard Start reached the relay. Prior smoke-timecode-timeline.mjs verifies timeline hit areas.",
+        "2026-11-06 final validation: 1668 unit tests plus 614 Worker tests passed, web tsc --noEmit passed, production build and both real-browser rehearsals passed. These changes are not deployed."
+      ]
     },
     {
       "id": "d5b79b9d09777dcd",
@@ -1513,24 +1517,35 @@
       "phase": "2",
       "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
       "line": 239,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "The rundown route and live supporting components use shared Button focus styling. Move up/down preserves focus on the moved row, falling back to the opposite direction at an endpoint. AppShell exposes Skip to rundown with cross-route loaded-section focus. Type and load-source choices use plain buttons with pressed state.",
+        "2026-11-06: smoke-rundown-layout.mjs passed cross-route first-Tab skip navigation, keyboard move in both directions, visible focus-ring inspection, keyboard Start, and load-source Enter activation. Six forms use shared portalled dialogs with bounded scrolling, focus containment and Escape support; associated Add/Edit labels are exercised during real writes.",
+        "2026-11-06 final validation: 1668 unit tests plus 614 Worker tests passed, web tsc --noEmit passed, production build and both real-browser rehearsals passed. These changes are not deployed."
+      ]
     },
     {
       "id": "d3787384b959a853",
       "phase": "2",
       "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
       "line": 240,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Removed the 760px runsheet minimum. A named container query uses the runsheet panel's own width to wrap title, duration, offset and actions, including long unbroken titles; notes keep a compact preview. The page header wraps its action group.",
+        "2026-11-06: smoke-rundown-layout.mjs passed page, sheet and row overflow checks at five widths from 320 to 2560px, and bounds/focus checks for Add, Edit, Save Template, Load, Show options and New show at 320x480. Actual edit and section creation persisted without interrupting the live timer. Final 320px and 1440px screenshots inspected.",
+        "2026-11-06 final validation: 1668 unit tests plus 614 Worker tests passed, web tsc --noEmit passed, production build and both real-browser rehearsals passed. These changes are not deployed."
+      ]
     },
     {
       "id": "27d4285beb3e5489",
       "phase": "2",
       "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
       "line": 241,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "SourceSelector disables frame-rate changes while timecode runs. 2026-11-06: smoke-show-day-safety.mjs starts the real internal generator, verifies the frame-rate select is disabled, stops the generator and verifies it unlocks. The same rehearsal passes destructive confirmations, offline draft retention and stale-shortcut rejection.",
+        "2026-11-06 final validation: 1668 unit tests plus 614 Worker tests passed, web tsc --noEmit passed, production build and both real-browser rehearsals passed. These changes are not deployed."
+      ]
     },
     {
       "id": "5d13cce444e15bda",
