@@ -597,6 +597,35 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Rundown keyboard and narrow layouts
+
+The runsheet sizes rows to its own panel instead of imposing a 760px minimum.
+Below 768px of panel width, the title, duration and actions use separate rows.
+Long titles wrap while notes retain their compact preview. Section and segment
+rows keep their actions visible; every action and drag handle is at least 44px.
+The route uses shared buttons with focus indicators. Move up/down retains focus
+on the same row, choosing the opposite movement button at an endpoint.
+
+The shell's Skip to rundown link is the first keyboard stop. On the rundown
+page it focuses the runsheet without changing the selected show; from another
+page it navigates to the rundown and focuses the loaded runsheet. Type and
+load-source choices remain plain keyboard-operable buttons with pressed state.
+
+Add, Edit, Save Template, Load, Show options and New show forms use the shared
+dialog portal so container
+queries cannot clip their fixed overlays. Their height is bounded by the viewport
+and their content scrolls; Escape closes them and focus stays within the dialog.
+Add/Edit inputs have associated labels. Confirmation and live-write behavior are
+unchanged.
+
+After building, run `node apps/web/scripts/smoke-rundown-layout.mjs` and
+`node apps/web/scripts/smoke-show-day-safety.mjs`. They use disposable accounts and
+real relay writes to exercise five widths from 320px to 2560px, hit areas, skip
+navigation, keyboard and browser drag reorder, live row start/edit, all six
+narrow dialogs, and existing destructive-action/offline-draft guards. The safety
+rehearsal also checks that the frame-rate selector locks while timecode runs and
+unlocks after Stop.
+
 ### Live rundown bar
 
 The shared bar stays visible while the active show is loading, idle or ended.

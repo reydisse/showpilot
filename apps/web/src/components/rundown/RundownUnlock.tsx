@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { Lock, LockOpen } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -37,7 +38,7 @@ export function RundownUnlock({ orgId, pinAccess }: {
   }
 
   return <>
-    <button type="button" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-board-border bg-board-card px-3 text-xs font-semibold text-board-text hover:border-fire-500/40"
+    <Button variant="ghost" type="button" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-board-border bg-board-card px-3 text-xs font-semibold text-board-text hover:border-fire-500/40"
       onClick={() => {
         if (pinAccess === "unlocked") {
           document.cookie = `${getRundownPinCookieName(orgId)}=; Path=/; Max-Age=0; SameSite=Lax`;
@@ -50,7 +51,7 @@ export function RundownUnlock({ orgId, pinAccess }: {
       }}>
       {pinAccess === "unlocked" ? <LockOpen className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
       {pinAccess === "unlocked" ? "Lock changes" : "Unlock changes"}
-    </button>
+    </Button>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="max-w-sm border-board-border bg-board-card text-board-text">
         <DialogTitle>Unlock changes</DialogTitle>
@@ -60,7 +61,7 @@ export function RundownUnlock({ orgId, pinAccess }: {
           <input id="rundown-unlock-pin" type="password" inputMode="numeric" autoFocus value={pin} onChange={(event) => setPin(event.target.value)}
             className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-3 text-board-text" />
           {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
-          <button type="submit" disabled={busy || !pin.trim()} className="w-full rounded-xl bg-fire-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Checking…" : "Unlock changes"}</button>
+          <Button variant="ghost" type="submit" disabled={busy || !pin.trim()} className="w-full rounded-xl bg-fire-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Checking…" : "Unlock changes"}</Button>
         </form>
       </DialogContent>
     </Dialog>
