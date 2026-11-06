@@ -21,7 +21,8 @@ test("scene and graphic saves are distinct and busy states always settle", async
   assert.match(source, /Save scene/);
   assert.match(source, /getGraphicScenes/);
   assert.match(source, /saveGraphicScene/);
-  assert.match(source, /finally \{\s*setSaving\(false\)/);
+  assert.match(source, /useGraphicLibraryMutation\(orgId\)/);
+  assert.match(source, /<LibraryMutationNotice mutation=\{libraryMutation\}/);
   assert.match(source, /finally \{\s*setPushing\(false\)/);
 });
 
