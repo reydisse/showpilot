@@ -929,8 +929,10 @@ export class TimecodeRelay extends DurableObject {
       case "lower-third-clear": {
         const ltStub = env.LOWER_THIRDS_RELAY.get(env.LOWER_THIRDS_RELAY.idFromName(this.orgId));
         const show = event.action === "lower-third-show";
-        const response = await ltStub.fetch(new Request(`https://internal/${show ? "trigger" : "clear"}`, {
+        if (!env.BETTER_AUTH_SECRET) throw new Error("Internal graphics authority is not configured.");
+        const response = await ltStub.fetch(new Request(`https://internal/internal/${show ? "trigger" : "clear"}`, {
           method: "POST",
+          headers: { "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET },
           signal,
           ...(show ? { body: JSON.stringify(event.payload) } : {}),
         }));

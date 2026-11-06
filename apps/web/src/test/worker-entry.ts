@@ -4,6 +4,7 @@ import { LowerThirdsRelay } from "../durable-objects/LowerThirdsRelay";
 
 export { BridgeRelay } from "../durable-objects/BridgeRelay";
 export { ChatRelay } from "../durable-objects/ChatRelay";
+export { CueSheetRelay } from "../durable-objects/CueSheetRelay";
 
 export class TestRundownRelay extends RundownRelay {}
 export class TestTimecodeRelay extends TimecodeRelay {}
@@ -28,7 +29,7 @@ export class TestLowerThirdsRelay extends LowerThirdsRelay {
     }
     const status = await this.ctx.storage.get<number>("test-status");
     if (status && status >= 400) return new Response("Injected downstream failure", { status });
-    if (new URL(request.url).pathname === "/trigger") {
+    if (new URL(request.url).pathname === "/internal/trigger") {
       const delay = await this.ctx.storage.get<number>("test-delay");
       if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
     }

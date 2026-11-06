@@ -576,7 +576,11 @@
       "section": "1.2 No claim means read only (audit C2)",
       "line": 110,
       "status": "pending",
-      "evidence": []
+      "evidence": [
+        "Partial: TimecodeRelay, LowerThirdsRelay and CueSheetRelay require live member/session permissions for writes. Real Worker tests cover missing, expired, revoked and wrong-user claims, hibernation, display projections and event-specific permissions.",
+        "Lower-third automation and Companion use explicit internal trigger/clear paths protected by the Worker secret; public gateways never forward those paths. Actual timecode execution tests exercise the internal calls.",
+        "Remaining: close claimless rundown and chat paths, preserve authenticated guest and external-chat operations, then verify every relay before marking this requirement complete."
+      ]
     },
     {
       "id": "6e8935ea414ff97f",
@@ -596,7 +600,11 @@
       "section": "1.2 No claim means read only (audit C2)",
       "line": 112,
       "status": "pending",
-      "evidence": []
+      "evidence": [
+        "Partial: TimecodeRelay, LowerThirdsRelay and CueSheetRelay require live member/session permissions for writes. Real Worker tests cover missing, expired, revoked and wrong-user claims, hibernation, display projections and event-specific permissions.",
+        "Lower-third automation and Companion use explicit internal trigger/clear paths protected by the Worker secret; public gateways never forward those paths. Actual timecode execution tests exercise the internal calls.",
+        "Remaining: close claimless rundown and chat paths, preserve authenticated guest and external-chat operations, then verify every relay before marking this requirement complete."
+      ]
     },
     {
       "id": "734d44357d50a014",

@@ -111,6 +111,7 @@ interface CompanionEnv {
   RUNDOWN_RELAY: DurableObjectNamespace;
   LOWER_THIRDS_RELAY: DurableObjectNamespace;
   DB: D1Database;
+  BETTER_AUTH_SECRET?: string;
 }
 
 type RundownTarget = Awaited<ReturnType<typeof getActiveRundownRelayTarget>>;
@@ -159,22 +160,30 @@ async function rundownRelayState(orgId: string, target: RundownTarget): Promise<
 
 async function lowerThirdsRelayTrigger(orgId: string, payload: Record<string, unknown>): Promise<void> {
   const bindings = env as unknown as CompanionEnv;
+  if (!bindings.BETTER_AUTH_SECRET) throw new Error("Internal graphics authority is not configured.");
   const id = bindings.LOWER_THIRDS_RELAY.idFromName(orgId);
   const stub = bindings.LOWER_THIRDS_RELAY.get(id);
-  await stub.fetch(
-    new Request("https://lt.local/trigger", {
+  const response = await stub.fetch(
+    new Request("https://lt.local/internal/trigger", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": bindings.BETTER_AUTH_SECRET },
       body: JSON.stringify(payload),
     }),
   );
+  await response.arrayBuffer();
+  if (!response.ok) throw new Error(`Graphics command failed (${response.status}).`);
 }
 
 async function lowerThirdsRelayClear(orgId: string): Promise<void> {
   const bindings = env as unknown as CompanionEnv;
+  if (!bindings.BETTER_AUTH_SECRET) throw new Error("Internal graphics authority is not configured.");
   const id = bindings.LOWER_THIRDS_RELAY.idFromName(orgId);
   const stub = bindings.LOWER_THIRDS_RELAY.get(id);
-  await stub.fetch(new Request("https://lt.local/clear", { method: "POST" }));
+  const response = await stub.fetch(new Request("https://lt.local/internal/clear", {
+    method: "POST", headers: { "x-showpilot-internal-secret": bindings.BETTER_AUTH_SECRET },
+  }));
+  await response.arrayBuffer();
+  if (!response.ok) throw new Error(`Graphics command failed (${response.status}).`);
 }
 
 async function isCloudEnabled(orgId: string): Promise<boolean> {
