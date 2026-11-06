@@ -1,4 +1,5 @@
 import { scheduledDispatchFrame } from "@/lib/automation-timing";
+import { mediaPlaySchema, mediaStopSchema } from "@/lib/media-output";
 import {
   Clock,
   Trash2,
@@ -49,6 +50,8 @@ const ACTION_ICONS: Record<string, React.ElementType> = {
   "crew-message": Monitor,
   "timer-start": Clock,
   "timer-stop": Clock,
+  "media-play": Play,
+  "media-stop": Pause,
   "triggers-disable": Pause,
   "triggers-enable": Play,
   "stage-clear": Monitor,
@@ -84,6 +87,8 @@ const ACTION_COLORS: Record<string, string> = {
   "triggers-enable": "text-amber-300 bg-amber-500/10 border-amber-500/20",
   "timer-start": "text-emerald-300 bg-emerald-500/10 border-emerald-500/20",
   "timer-stop": "text-emerald-300 bg-emerald-500/10 border-emerald-500/20",
+  "media-play": "text-violet-300 bg-violet-500/10 border-violet-500/20",
+  "media-stop": "text-violet-300 bg-violet-500/10 border-violet-500/20",
   "crew-message": "text-sky-400 bg-sky-500/10 border-sky-500/20",
   "stage-clear": "text-sky-400 bg-sky-500/10 border-sky-500/20",
   "lighting-scene": "text-yellow-400 bg-yellow-500/10 border-yellow-500/20",
@@ -180,6 +185,10 @@ export function AutomationTimeline({
             const Icon = ACTION_ICONS[event.action] ?? Monitor;
             const colorClass = ACTION_COLORS[event.action] ?? ACTION_COLORS["custom-webhook"];
             const isNext = nextId === event.id;
+            const mediaPlay = event.action === "media-play" ? mediaPlaySchema.safeParse(event.payload) : null;
+            const mediaStop = event.action === "media-stop" ? mediaStopSchema.safeParse(event.payload) : null;
+            const mediaSummary = mediaPlay?.success ? `Output: ${mediaPlay.data.output} · Volume ${Math.round(mediaPlay.data.volume * 100)}%`
+              : mediaStop?.success ? `Output: ${mediaStop.data.output} · Stop and clear` : null;
 
             return (
               <div
@@ -227,6 +236,7 @@ export function AutomationTimeline({
                 {/* Label */}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-board-text">{event.label}</span>
+                  {mediaSummary && <span className="block text-xs text-board-muted">{mediaSummary}</span>}
                   <span className="block text-xs text-board-muted">{event.skipped ? "Skipped" : !event.enabled ? "Disabled" : event.executionStatus === "failed" ? "Failed" : event.executionStatus === "dispatching" ? "Awaiting acknowledgement" : event.fired ? "Acknowledged" : missed(event) ? "Missed" : isNext ? "Next" : "Scheduled"}</span>
                   {event.executionStatus === "failed" && event.executionError ? (
                     <span className="mt-0.5 block text-xs text-red-400">
