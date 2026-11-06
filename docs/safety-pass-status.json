@@ -1351,8 +1351,13 @@
       "phase": "2",
       "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
       "line": 218,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Triggers-disable and triggers-enable are implemented in the action catalog, relay, editor and timeline. A persisted automaticCuesEnabled gate pauses scheduled outputs without stopping the clock or disabling manual Fire. Timed Enable or the operator Resume automatic cues command ends a cue pause; safety kill, jump review and incoming-format holds remain authoritative. Stop/Start and relay eviction preserve the pause. Legacy snapshots default to enabled.",
+        "Control transitions apply before yielding to persistence so concurrent feeds cannot slip scheduled output through a pause. Dispatch order is shared by the timeline and Next selection: Enable precedes Disable at equal dispatch frames, so Disable wins before ordinary outputs. Disable cancels queued automatic work before output dispatch; already-sent commands cannot be undone. Resume advances the crossing baseline and does not replay missed cues.",
+        "Full local web suite passed 1551 unit tests and 512 Worker tests, plus TypeScript and production build. Fifteen new real Worker cases cover timed pause/resume, same-frame insertion order, sparse crossings, queued-output cancellation, manual Fire and operator resume, Stop/Start/eviction, disabled/skipped controls, reviewed re-fire, jump/format/kill precedence, interrupted execution Retry and concurrent feeds. Existing control-ownership regression now includes resume-automatic-cues. UI tests cover disabled resume, relay-confirmed display, structured editor payloads and consistent timeline/Next ordering.",
+        "Built smoke-trigger-controls.mjs passed with disposable authentication, real local relays and stage output. Browser saved both cue types, observed the running clock during a pause, fired a manual stage message, resumed through a timed cue and the operator button, and verified safety kill precedence without replaying a held cue. Both 320px screenshots were inspected. Re-run after the web build with node apps/web/scripts/smoke-trigger-controls.mjs. Final logs: /tmp/showpilot-trigger-tests-final.log, /tmp/showpilot-trigger-tsc-final.log, /tmp/showpilot-trigger-build-final.log, /tmp/showpilot-trigger-browser-final.log. No production rollout or native protocol change. Remaining catalog and Phase 2 gates are pending."
+      ]
     },
     {
       "id": "13097934ed9ae315",

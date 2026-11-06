@@ -6,10 +6,11 @@ interface Props {
   state: TimecodeState | null;
   connected: boolean;
   canControl: boolean;
+  onResumeAutomaticCues: () => void;
   onSetEnabled: (enabled: boolean, expectedHoldId?: string) => void;
 }
 
-export function TimecodeAutomationControl({ state, connected, canControl, onSetEnabled }: Props) {
+export function TimecodeAutomationControl({ state, connected, canControl, onSetEnabled, onResumeAutomaticCues }: Props) {
   const [review, setReview] = useState<NonNullable<TimecodeState["automationHold"]> | null>(null);
   const hold = state?.automationHold;
   const reviewChanged = review?.id !== hold?.id;
@@ -30,6 +31,17 @@ export function TimecodeAutomationControl({ state, connected, canControl, onSetE
       Automation disabled. Missed cues will not replay automatically.
       {state.incomingFormat && " Confirm the input format before enabling automation."}
     </p>}
+    {state?.automaticCuesEnabled === false && <div className="space-y-2 rounded-xl border border-amber-500/40 p-4">
+      <p role="status" className="text-sm text-amber-200">
+        Automatic cues paused by cue. This pause does not stop the clock. Manual Fire remains available when automation is enabled.
+      </p>
+      <button type="button" onClick={onResumeAutomaticCues}
+        disabled={!connected || !canControl || !state.triggersEnabled || Boolean(hold) || Boolean(state.incomingFormat)}
+        className="min-h-11 rounded-xl border border-amber-500/40 px-4 py-2 text-sm font-semibold text-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-50">
+        Resume automatic cues
+      </button>
+      <p className="text-xs text-board-muted">Resume from the current timecode. Missed cues will not replay.</p>
+    </div>}
     <ConfirmDialog open={review !== null} onOpenChange={open => { if (!open) setReview(null); }}
       title="Resume automation at the current timecode?"
       description={reviewChanged ? "Timecode changed again. Close this dialog and review the latest jump before resuming."

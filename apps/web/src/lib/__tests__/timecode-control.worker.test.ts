@@ -67,7 +67,7 @@ it("rejects every mutation from a second socket or another authenticated HTTP se
     ["replace-event-group", { sourceKey: "intruder", events: [{ ...cue, id: "intruder" }] }],
     ["update-event", { id: cue.id, updates: { label: "Changed" } }], ["remove-event", { id: cue.id }],
     ["reset-events"], ["retry-event", { id: cue.id }], ["set-event-enabled", { id: cue.id, enabled: false }],
-    ["set-triggers-enabled", { enabled: false }], ["set-lyrics", { songId: "intruder", lyrics: "Changed" }],
+    ["resume-automatic-cues", {}], ["set-triggers-enabled", { enabled: false }], ["set-lyrics", { songId: "intruder", lyrics: "Changed" }],
     ["clear-lyrics"], ["claim-control"], ["release-control"],
   ] as const;
   for (const [action, payload] of mutations) {

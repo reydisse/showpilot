@@ -60,6 +60,8 @@ export interface TimecodeState {
   showId?: string;
   serviceDate?: string;
   triggersEnabled: TimecodeSettings["triggersEnabled"];
+  /** Cue-controlled automatic firing; manual Fire remains available. Legacy snapshots default to true. */
+  automaticCuesEnabled?: boolean;
   timecode: TimecodeValue;
   display: string;
   source: TimecodeSourceType;
@@ -111,6 +113,8 @@ export type AutomationActionType =
   | "rundown-adjust"
   | "stage-message"
   | "crew-message"
+  | "triggers-disable"
+  | "triggers-enable"
   | "stage-clear"
   | "lighting-scene"
   | "lighting-blackout"
@@ -236,6 +240,7 @@ export const TIMECODE_COMMANDS = [
   "rearm-event",
   "set-event-enabled",
   "set-triggers-enabled",
+  "resume-automatic-cues",
   "set-lyrics",
   "clear-lyrics",
   "bridge-disconnected",
