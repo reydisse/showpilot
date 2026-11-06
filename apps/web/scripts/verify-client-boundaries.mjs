@@ -59,6 +59,11 @@ for (const contract of sensitiveLoggingContracts) {
 
 const launchIntegrityContracts = [
   {
+    path: "src/lib/graphics.ts",
+    pattern: /\bgetActiveGraphicBySlug\b/,
+    message: "The removed slug-only graphics read bypassed display authorization. Public output reads must use the protected overlay API.",
+  },
+  {
     path: "src/lib/data.ts",
     pattern: /\b(?:getCueSheets|addCueSheet|updateCueSheet|deleteCueSheet)\s*=/,
     message: "Legacy standalone cue-sheet CRUD must not return. Cue rows and write access belong to the rundown-backed cue-sheet module.",
