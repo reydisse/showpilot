@@ -82,7 +82,22 @@ Sync always uses the original cloud revision. A conflict preserves both versions
 a retry can confirm an earlier successful sync and never replays device cues.
 Discarding or replacing a saved record requires confirmation.
 
+The device engine holds a process-owned SQLite transaction lock before opening
+its journal or device connections. A second engine cannot take the same local
+store while the first is alive, even if the Desktop window process crashes.
+The OS releases ownership when the engine exits. Pending device receipts recover
+as unknown and are never automatically replayed. The `owner.sqlite` file contains
+no show data; do not delete it while an engine is running.
+
+From the repository root, `node apps/bridge/scripts/check-local-show.mjs` exercises
+the compiled engine with
+the real OS keychain and disposable equipment. It checks competing engines,
+forced termination with a pending device reply, held recovery, duplicate
+suppression and cloud handoff. Ownership unit tests also kill the engine's parent
+and verify that a surviving orphan retains its lock. Development local control
+requires Node 24; packaged applications use their bundled Bun runtime.
+
 Local-mode rollout is still in progress. Hosted preparation/review and offline
 controls have been exercised together with disposable equipment fixtures. Full
-native/cloud product rehearsal, current all-platform bundles, and the native
-ownership audit remain required before release. See the Phase 2.3 entries in `docs/safety-pass-status.json`.
+native/cloud product rehearsal and current all-platform bundles remain required
+before release. See the Phase 2.3 entries in `docs/safety-pass-status.json`.

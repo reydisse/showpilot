@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { LocalShowStore } from "./local-show-store.js";
 import { startLocalShowControl } from "./local-show-control.js";
+import { acquireLocalShowOwnership } from "./local-show-ownership.js";
 
 const args = process.argv.slice(2);
 
@@ -45,6 +46,16 @@ const propresenterApiPort = Number.parseInt(
 );
 const propresenterPassword =
   getArg("propresenter-password") ?? process.env.SHOWPILOT_PROPRESENTER_PASSWORD ?? config?.propresenterPassword;
+
+const localToken = process.env.SHOWPILOT_LOCAL_CONTROL_TOKEN;
+const localDirectory = process.env.SHOWPILOT_LOCAL_SHOW_DIRECTORY;
+if (desktopMode && (localToken || localDirectory)) {
+  if (!localToken || !localDirectory || !path.isAbsolute(localDirectory) || !key)
+    throw new Error("Native local show configuration is incomplete.");
+  // The GUI lock alone disappears on a parent crash, before the old engine can
+  // notice. Acquire in the actual journal/device owner, before opening the journal or connecting devices.
+  await acquireLocalShowOwnership(localDirectory);
+}
 
 let bridge: Bridge | null = null;
 let localControl:Awaited<ReturnType<typeof startLocalShowControl>>|null=null;
@@ -91,11 +102,7 @@ async function startBridge(nextConfig: BridgeConfig) {
         }
       : undefined,
   });
-  const localToken=process.env.SHOWPILOT_LOCAL_CONTROL_TOKEN;
-  const localDirectory=process.env.SHOWPILOT_LOCAL_SHOW_DIRECTORY;
-  if(desktopMode && (localToken || localDirectory)) {
-    if(!localToken || !localDirectory || !path.isAbsolute(localDirectory) || !nextConfig.key)
-      throw new Error("Native local show configuration is incomplete.");
+  if (desktopMode && localToken && localDirectory) {
     // Changing the org endpoint or credential never opens another installation's cache.
     const cacheId=createHash('sha256').update(JSON.stringify([nextConfig.site,nextConfig.org,nextConfig.key])).digest('hex');
     bridge.configureLocalShow(new LocalShowStore(path.join(localDirectory,`${cacheId}.json`)));
