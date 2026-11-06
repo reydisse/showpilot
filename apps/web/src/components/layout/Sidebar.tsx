@@ -345,8 +345,6 @@ export function Sidebar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  const isSettings = pathname === `/${slug}/settings`;
-
   const isActive = (path: string) => {
     const fullPath = `/${slug}/${path}`;
     if (path === "show")
@@ -354,7 +352,7 @@ export function Sidebar() {
     return pathname.startsWith(fullPath);
   };
 
-  const hidden = fullscreen || isSettings;
+  const hidden = fullscreen;
   const w = collapsed ? 68 : 240;
 
   if (hidden && !isMobile) {
