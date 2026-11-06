@@ -13,7 +13,10 @@
  */
 
 import { Radio } from "lucide-react";
-import type { CallerClock } from "@/lib/cue-sheet-derive";
+import { memo, useEffect, useState } from "react";
+import { deriveCallerClock, liveElapsedMs, type CueRow } from "@/lib/cue-sheet-derive";
+import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
+import type { NativeTimerState } from "@/types/rundown";
 
 /** mm:ss, or h:mm:ss past an hour. Signed, because the sign is the point. */
 function duration(ms: number | null): string {
@@ -28,9 +31,9 @@ function duration(ms: number | null): string {
   return negative ? `-${body}` : body;
 }
 
-function clock(ms: number | null): string {
+function clock(ms: number | null, timeZone: string): string {
   if (ms === null) return "--:--";
-  return new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone });
 }
 
 /** Signed minutes, for the offset. Under a minute is not worth reporting. */
@@ -42,10 +45,20 @@ function offsetLabel(ms: number | null): { text: string; tone: string } {
   return { text: `${minutes}m`, tone: "text-green-400" };
 }
 
-export function CallerClockBar({ clockState, nowMs }: {
-  clockState: CallerClock;
-  nowMs: number;
+export const CallerClockBar = memo(function CallerClockBar({ rows, currentItemId, timer, initialNow }: {
+  rows: CueRow[];
+  currentItemId: string | null;
+  timer: Pick<NativeTimerState, "playback" | "elapsed" | "startedAt"> | null;
+  initialNow: number;
 }) {
+  const [nowMs, setNowMs] = useState(initialNow);
+  const timeZone = useDeviceTimeZone();
+  useEffect(() => {
+    setNowMs(Date.now());
+    const interval = window.setInterval(() => setNowMs(Date.now()), 100);
+    return () => window.clearInterval(interval);
+  }, []);
+  const clockState = deriveCallerClock({ rows, currentItemId, elapsedMs: timer ? liveElapsedMs({ ...timer, nowMs }) : 0, nowMs });
   const offset = offsetLabel(clockState.offsetMs);
   const overrunning = clockState.itemRemainingMs !== null && clockState.itemRemainingMs < 0;
   const onAir = clockState.liveTitle !== null;
@@ -82,18 +95,18 @@ export function CallerClockBar({ clockState, nowMs }: {
       />
 
       <div className="ml-auto flex items-center gap-5">
-        <Stat label="Now" value={clock(nowMs)} />
-        <Stat label="Planned end" value={clock(clockState.plannedEndMs)} />
+        <Stat label="Now" value={clock(nowMs, timeZone)} />
+        <Stat label="Planned end" value={clock(clockState.plannedEndMs, timeZone)} />
         <Stat
           label="Expected end"
-          value={clock(clockState.expectedEndMs)}
+          value={clock(clockState.expectedEndMs, timeZone)}
           tone={offset.tone}
         />
         <Stat label="Offset" value={offset.text} tone={offset.tone} />
       </div>
     </div>
   );
-}
+});
 
 function Stat({
   label,

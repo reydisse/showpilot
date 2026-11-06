@@ -1,3 +1,5 @@
+import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
+import { VirtualRows } from "@/components/ui/virtual-rows";
 /**
  * The cue sheet grid.
  *
@@ -77,10 +79,9 @@ export type BaseColumnKey = (typeof BASE_COLUMNS)[number]["key"];
 const INDEX_WIDTH = 34;
 const TITLE_WIDTH = 230;
 
-function clock(iso: string | null): string {
+function clock(iso: string | null, timeZone: string): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone });
 }
 
 function minutes(ms: number): string {
@@ -102,6 +103,11 @@ interface Props {
   onReorder: (fromId: string, toId: string) => void;
 }
 
+const canFocusCueRow = (row: CueRow) => !row.isSection;
+const cueRowKey = (row: CueRow) => row.itemId;
+const cueScrollParent = (body: HTMLElement) => body.closest("table")?.parentElement ?? null;
+const estimateCueRow = () => 80;
+
 export function CueTable({
   rows,
   columns,
@@ -112,6 +118,7 @@ export function CueTable({
   onWidthChange,
   onReorder,
 }: Props) {
+  const timeZone = useDeviceTimeZone();
   const visible = columns.filter((column) => !hidden.has(column.id));
   const bases = BASE_COLUMNS.filter((column) => !hidden.has(column.key));
   const details = RUNDOWN_DETAIL_COLUMNS.filter((column) => !hidden.has(column.key));
@@ -150,8 +157,9 @@ export function CueTable({
   const titleLeft = offset;
   const pinnedWidth = titleLeft + TITLE_WIDTH;
 
+  const itemNumbers = rundownItemNumbers(rows.map((row) => ({ id: row.itemId, type: row.type })));
   return (
-    <table className="border-collapse text-xs w-max min-w-full">
+    <table aria-rowcount={rows.length + 1} className="cue-sheet-grid border-collapse text-xs w-max min-w-full">
       <thead>
         <tr>
           <Pinned as="th" left={0} width={INDEX_WIDTH} header className="text-right">
@@ -233,18 +241,14 @@ export function CueTable({
           })}
         </tr>
       </thead>
-      <tbody>
-        {/* Section bands are not items, so they must not consume a row
-            number — a sheet that reads 2, 4, 5 has an operator hunting
-            for the missing ones mid-service. */}
-        {(() => {
-          const itemNumbers = rundownItemNumbers(rows.map((row) => ({ id: row.itemId, type: row.type })));
-          return rows.map((row) => {
+      <VirtualRows as="tbody" items={rows} getKey={cueRowKey} getScrollParent={cueScrollParent}
+        estimateSize={estimateCueRow} canFocusRow={canFocusCueRow} pinnedIds={[currentItemId]} colSpan={2 + bases.length + details.length + visible.length}
+        renderRow={(row, _index, rowProps) => {
           // A section band spans the table. Giving it cells would invite
           // notes against a heading, which belong on an item.
           if (row.isSection) {
             return (
-              <tr key={row.itemId}>
+              <tr key={row.itemId} {...rowProps} data-cue-row-id={row.itemId}>
                 <td
                   colSpan={2 + bases.length + details.length + visible.length}
                   className="sticky left-0 px-3 py-1.5 bg-board-border/40 text-[11px] font-semibold uppercase tracking-[0.12em] text-board-muted border-y border-board-border"
@@ -265,6 +269,7 @@ export function CueTable({
           return (
             <tr
               key={row.itemId}
+              {...rowProps}
               data-cue-row-id={row.itemId}
               style={{ height: rowHeights.get(row.itemId) }}
               className={`border-b border-board-border/40 ${
@@ -288,12 +293,12 @@ export function CueTable({
                   {column.key === "cue" && <span className="text-board-text">{row.cue}</span>}
                   {column.key === "start" && (
                     <span className="text-board-muted/70 font-mono tabular-nums">
-                      {clock(row.scheduledStart)}
+                      {clock(row.scheduledStart, timeZone)}
                     </span>
                   )}
                   {column.key === "end" && (
                     <span className="text-board-muted/70 font-mono tabular-nums">
-                      {clock(row.expectedEnd)}
+                      {clock(row.expectedEnd, timeZone)}
                     </span>
                   )}
                   {column.key === "duration" && (
@@ -328,9 +333,7 @@ export function CueTable({
               ))}
             </tr>
           );
-          });
-        })()}
-      </tbody>
+        }} />
     </table>
   );
 }
@@ -440,7 +443,7 @@ function Pinned({
   return (
     <Tag
       style={{ left, width, minWidth: width }}
-      className={`sticky px-2 py-1.5 text-left ${
+      className={`cue-pinned sticky px-2 py-1.5 text-left ${
         header
           ? "top-0 z-30 font-medium text-board-muted bg-board-card border-b border-board-border"
           : `z-10 ${bg}`

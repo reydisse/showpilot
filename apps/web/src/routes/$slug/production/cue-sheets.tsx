@@ -19,9 +19,8 @@ import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 import { getCueSheet, type CueSheetModel } from "@/lib/cue-sheet";
 import { CueTable, TOGGLEABLE_COLUMNS } from "@/components/cue-sheet/cue-table";
 import { useRundownSync } from "@/hooks/useRundownSync";
-import { deriveCallerClock, liveElapsedMs, toCueRows } from "@/lib/cue-sheet-derive";
+import { toCueRows } from "@/lib/cue-sheet-derive";
 import { CallerClockBar } from "@/components/cue-sheet/caller-clock";
-import { useNow } from "@/components/dashboard/widget";
 import type { RundownItem } from "@/types/rundown";
 import { ScrollEdges, useEdgeScroll } from "@/components/ui/scroll-edges";
 import { ColumnManager } from "@/components/cue-sheet/column-manager";
@@ -63,6 +62,7 @@ export const Route = createFileRoute("/$slug/production/cue-sheets")({
     const model = await getCueSheet({ data: { orgId: context.orgId, today } });
     return {
       model,
+      initialNow: Date.now(),
       orgId: context.orgId,
       role: context.role,
       grantedPermissions: context.grantedPermissions,
@@ -73,7 +73,7 @@ export const Route = createFileRoute("/$slug/production/cue-sheets")({
 });
 
 function CueSheetsPage() {
-  const { model: initialModel, orgId, role, grantedPermissions, orgTimezone } = Route.useLoaderData();
+  const { model: initialModel, orgId, role, grantedPermissions, orgTimezone, initialNow } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const today = getTodayDateString(orgTimezone);
   const [showId, setShowId] = useState(initialModel.showId);
@@ -268,22 +268,6 @@ function CueSheetsPage() {
 
   const currentItemId = liveMatches ? liveTimer.currentItemId : model.currentItemId;
 
-  // Sample faster than the displayed second boundary so a relay command
-  // never appears to lag by almost a full second. 100ms stays visually
-  // immediate without driving the full cue table at animation-frame rate.
-  const nowMs = useNow(100);
-
-  // Elapsed is reconstructed from the relay's start timestamp rather
-  // than its `elapsed` field, which is only refreshed when the timer
-  // state changes — reading it directly would freeze the countdown
-  // between commands.
-  const elapsedMs = liveMatches ? liveElapsedMs({ ...liveTimer, nowMs }) : 0;
-
-  const clockState = useMemo(
-    () => deriveCallerClock({ rows, currentItemId, elapsedMs, nowMs }),
-    [rows, currentItemId, elapsedMs, nowMs],
-  );
-
   // ── Edits ─────────────────────────────────────────────────
 
   const handleNoteChange = useCallback(
@@ -360,6 +344,7 @@ function CueSheetsPage() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      <div className="shrink-0 max-h-[50%] overflow-y-auto" aria-label="Cue sheet controls">
       <header className="shrink-0 bg-board-bg/85 backdrop-blur-xl border-b border-board-border">
         <div className="flex items-center gap-3 flex-wrap px-6 py-3">
           <h1 className="text-[15px] font-semibold text-board-text">Cue sheet</h1>
@@ -421,7 +406,7 @@ function CueSheetsPage() {
               <button
                 onClick={() => setManaging((v) => !v)}
                 aria-expanded={managing}
-                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-board-border/70 text-board-muted hover:text-board-text hover:border-board-border transition-colors"
+                className="min-h-11 flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-board-border/70 text-board-muted hover:text-board-text hover:border-board-border transition-colors"
               >
                 <Settings2 className="w-3.5 h-3.5" />
                 Columns
@@ -447,7 +432,7 @@ function CueSheetsPage() {
                   key={column.key}
                   onClick={() => toggleHidden(column.key)}
                   aria-pressed={!isHidden}
-                  className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                  className={`min-h-11 text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
                     isHidden
                       ? "border-board-border text-board-muted/60 hover:text-board-text"
                       : "border-board-border bg-board-card text-board-text"
@@ -465,7 +450,7 @@ function CueSheetsPage() {
                   key={column.id}
                   onClick={() => toggleHidden(column.id)}
                   aria-pressed={!isHidden}
-                  className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                  className={`min-h-11 text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
                     isHidden
                       ? "border-board-border text-board-muted/60 hover:text-board-text"
                       : "border-fire-500/40 bg-fire-500/10 text-fire-400"
@@ -484,7 +469,7 @@ function CueSheetsPage() {
         )}
       </header>
 
-      {hasRows && <CallerClockBar clockState={clockState} nowMs={nowMs} />}
+      {hasRows && <CallerClockBar rows={rows} currentItemId={currentItemId} timer={liveMatches ? liveTimer : null} initialNow={initialNow} />}
 
       {managing && canManageColumns && (
         <ColumnManager
@@ -497,6 +482,8 @@ function CueSheetsPage() {
           onClose={() => setManaging(false)}
         />
       )}
+
+      </div>
 
       {/* A real service sheet is wider than any screen. One scroller for
           the whole grid — both axes — with the left block pinned inside

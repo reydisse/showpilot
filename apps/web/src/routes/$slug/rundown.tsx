@@ -1,3 +1,4 @@
+import { VirtualRows } from "@/components/ui/virtual-rows";
 import { RundownClockCard, RundownOffset, RundownProgress, formatOperatorDuration as formatDuration } from "@/components/rundown/RundownClock";
 import { useProPresenterCommands } from "@/hooks/useProPresenterCommands";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
@@ -216,6 +217,13 @@ function formatDisplayDate(dateStr: string): string {
     month: "short",
     day: "numeric",
   });
+}
+
+const rundownRowKey = (item: RundownItem) => item.id;
+const estimateRundownRow = () => 100;
+function rundownScrollParent(body: HTMLElement) {
+  const section = body.closest<HTMLElement>("#rundown-runsheet");
+  return section && getComputedStyle(section).overflowY !== "visible" ? section : body.closest<HTMLElement>(".rundown-columns");
 }
 
 export const Route = createFileRoute("/$slug/rundown")({
@@ -2355,8 +2363,9 @@ function RundownPage() {
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-0.5 overflow-auto flex-1 hide-scrollbar pr-1">
-                    {timedItems.map((item, idx) => {
+                  <VirtualRows items={timedItems} getKey={rundownRowKey} getScrollParent={rundownScrollParent}
+                    estimateSize={estimateRundownRow} pinnedIds={[timer.currentItemId, draggedItemId]} gap={2} className="pr-1"
+                    renderRow={(item, idx, rowProps) => {
                       const isCurrent = item.id === timer.currentItemId;
                       const config = TYPE_CONFIG[item.type];
                       const Icon = config.icon;
@@ -2373,13 +2382,14 @@ function RundownPage() {
                         return (
                           <div
                             key={item.id}
+                            {...rowProps}
                             data-rundown-item-id={item.id}
                             data-editable={canEditRundown}
                             onDragOver={(event) =>
                               handleItemDragOver(event, item.id)
                             }
                             onDrop={(event) => handleItemDrop(event, item.id)}
-                            className={`rundown-section-row group flex items-center gap-2 px-3 py-1.5 mt-2 first:mt-0 border-l-2 border-board-muted/40 bg-board-border/25 ${
+                            className={`rundown-section-row group flex items-center gap-2 px-3 py-1.5 border-l-2 border-board-muted/40 bg-board-border/25 ${
                               isDraggingItem ? "opacity-60" : ""
                             } ${isDropTarget ? "shadow-[0_0_0_1px_rgba(255,193,7,0.28)]" : ""}`}
                           >
@@ -2455,6 +2465,7 @@ function RundownPage() {
                       return (
                         <div
                           key={item.id}
+                          {...rowProps}
                           data-rundown-item-id={item.id}
                             data-editable={canEditRundown}
                           onDragOver={(event) =>
@@ -2672,8 +2683,7 @@ function RundownPage() {
                           </div>
                         </div>
                       );
-                    })}
-                  </div>
+                    }} />
                 )}
               </div>
             </section>
