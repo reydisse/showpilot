@@ -41,7 +41,7 @@ export interface UseTimecodeReturn {
   // Master controls
   startFreerun: (offsetMs?: number) => TimecodeSendResult;
   stopGenerator: () => void;
-  startMtc: (inputId: string) => Promise<void>;
+  startMtc: (inputId: string, options?: { sysex: boolean }) => Promise<void>;
   stopMtc: () => void;
   setTimecode: (tc: TimecodeValue) => void;
   setFormat: (format: TimecodeFormat, expectedFormat: TimecodeFormat, expectedIncomingFormatId?: string) => void;
@@ -175,6 +175,8 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
       else source.start(pending.offsetMs);
     } else {
       mtcSourceRef.current = pending.source;
+      const transport = pending.source.transportState;
+      if (transport && sendCommand("mtc-transport", { state: transport }).status === "failed") { stopLocalSources(); return; }
     }
     pendingSourceRef.current = null;
     clearGeneratorTimeout();
@@ -264,6 +266,8 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
                   && msg.state.signal?.status !== "timecode-stalled"
                   && msg.state.signal?.status !== "timecode-lost"
                   && msg.state.signal?.status !== "format-mismatch"
+                  && msg.state.signal?.status !== "midi-stopped"
+                  && msg.state.signal?.status !== "midi-waiting"
                   && msg.state.signal?.status !== "waiting") stopLocalSources();
                 startConfirmedSource(msg.state);
               }
@@ -287,7 +291,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
               break;
             case "command-rejected":
               setLastError(msg.error);
-              if (msg.action === "set-source" || msg.action === "start" || msg.action === "feed-tc") stopLocalSources();
+              if (msg.action === "set-source" || msg.action === "start" || msg.action === "feed-tc" || msg.action === "mtc-transport") stopLocalSources();
               if (msg.action === "add-event" || msg.action === "replace-event-group") failEdits(msg.error);
               break;
             case "master-status":
@@ -333,7 +337,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     return result;
   }, [awaitGenerator, sendCommand, stopLocalSources]);
 
-  const startMtc = useCallback(async (inputId: string) => {
+  const startMtc = useCallback(async (inputId: string, options?: { sysex: boolean }) => {
     if (!readyRef.current || wsRef.current?.readyState !== 1) {
       const message = "Timecode disconnected. Reconnect before starting MTC.";
       setLastError(message); throw new Error(message);
@@ -343,11 +347,15 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     const source = new MtcSource((tc, format) => {
       if (mtcSourceRef.current !== source) return;
       latestTcRef.current = { tc, format, totalFrames: timecodeToFrames(tc, format) };
+    }, state => {
+      if (mtcSourceRef.current !== source) return;
+      latestTcRef.current = null;
+      if (sendCommand("mtc-transport", { state }).status === "failed") stopLocalSources();
     });
     const pending: PendingSource = { kind: "mtc", source };
     pendingSourceRef.current = pending;
     try {
-      await source.start(inputId);
+      await source.start(inputId, options);
       if (pendingSourceRef.current !== pending || !readyRef.current) {
         source.stop(); throw new Error("Timecode disconnected while opening MIDI. Try again after reconnecting.");
       }

@@ -1,5 +1,5 @@
 mod mtc;
-use mtc::MtcQuarterFrameDecoder;
+use mtc::{MtcEvent, MtcTransportDecoder};
 
 use midir::{Ignore, MidiInput, MidiInputConnection};
 use serde::Deserialize;
@@ -12,7 +12,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, WindowEvent};
@@ -96,6 +96,7 @@ struct BridgeRuntime {
 }
 
 struct MtcRuntime {
+    decoder: Arc<Mutex<MtcTransportDecoder>>,
     connection: Mutex<Option<MidiInputConnection<()>>>,
     selected_input: Mutex<Option<String>>,
     last_timecode: Arc<Mutex<Option<String>>>,
@@ -602,22 +603,66 @@ fn connect_mtc_input(input_name: &str, runtime: &MtcRuntime) -> Result<(), Strin
         .ok_or_else(|| format!("MIDI input not found: {input_name}"))?;
     let sink = Arc::clone(&runtime.sidecar_stdin);
     let last_timecode = Arc::clone(&runtime.last_timecode);
-    let mut decoder = MtcQuarterFrameDecoder::default();
-    let mut last_emit: Option<Instant> = None;
+    drop(
+        runtime
+            .connection
+            .lock()
+            .map_err(|_| "MTC state unavailable".to_string())?
+            .take(),
+    );
+    let decoder = Arc::clone(&runtime.decoder);
+    let same_input = runtime
+        .selected_input
+        .lock()
+        .map_err(|_| "MTC state unavailable".to_string())?
+        .as_deref()
+        == Some(input_name);
+    {
+        let mut value = decoder
+            .lock()
+            .map_err(|_| "MTC state unavailable".to_string())?;
+        if same_input {
+            value.reconnect();
+        } else {
+            *value = MtcTransportDecoder::default();
+        }
+    }
     let connection = input
         .connect(
             &port,
             "ShowPilot MTC input",
             move |_stamp, message, _| {
-                let Some(frame) = decoder.feed(message) else {
+                let event = decoder
+                    .lock()
+                    .ok()
+                    .and_then(|mut value| value.feed(message));
+                let Some(event) = event else {
                     return;
                 };
-                // Throttle completed timestamps only; acquisition must always
-                // consume and reset every coherent eight-piece cycle.
-                if last_emit.is_some_and(|last| last.elapsed() < Duration::from_millis(100)) {
-                    return;
-                }
-                last_emit = Some(Instant::now());
+                let frame = match event {
+                    MtcEvent::Frame(frame) => frame,
+                    MtcEvent::Stopped | MtcEvent::Waiting => {
+                        let state = if matches!(event, MtcEvent::Stopped) {
+                            "stopped"
+                        } else {
+                            "waiting"
+                        };
+                        let payload =
+                            serde_json::json!({ "type": "timecode-transport", "state": state });
+                        if let Ok(mut writer) = sink.lock() {
+                            if let Some(stdin) = writer.as_mut() {
+                                if let Err(error) =
+                                    writeln!(stdin, "{payload}").and_then(|_| stdin.flush())
+                                {
+                                    eprintln!("[desktop] MTC transport send failed: {error}");
+                                }
+                            }
+                        }
+                        return;
+                    }
+                };
+                // The decoder emits only changed, coherent frames. Do not drop
+                // the final locate timestamp behind a throttle and hold the wrong frame.
                 let payload = serde_json::json!({
                     "type": "timecode-feed",
                     "timecode": {
@@ -744,6 +789,7 @@ pub fn run() {
             sidecar_stdin: Arc::clone(&sidecar_stdin),
         })
         .manage(MtcRuntime {
+            decoder: Arc::new(Mutex::new(MtcTransportDecoder::default())),
             connection: Mutex::new(None),
             selected_input: Mutex::new(None),
             last_timecode: Arc::new(Mutex::new(None)),

@@ -61,7 +61,8 @@ describe("MtcSource", () => {
     sequence(source, after, [3, 2]);
     expect(callback).toHaveBeenCalledTimes(1);
     sequence(source, after, [4, 5, 6, 7, 0, 1, 2, 3]);
-    expect(callback).toHaveBeenCalledTimes(2);
+    // Repeated complete timestamps do not manufacture feed freshness.
+    expect(callback).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a repeated piece until another complete sequence arrives", () => {
