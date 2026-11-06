@@ -25,6 +25,18 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
   let workerLog = "";
 
   async function browser(...args) {
+    // Playwright's repeated string evaluation can hit the production CSP after
+    // the first poll. Evaluate each condition through the automation channel;
+    // do not weaken the application's script policy to make a rehearsal pass.
+    if (args[0] === "wait" && args[1] === "--fn" && args.length === 3) {
+      const deadline = Date.now() + 25_000;
+      while (Date.now() < deadline) {
+        const value = await browser("eval", args[2]);
+        if (value.result) return value;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      throw new Error("Browser condition did not become true within 25 seconds.");
+    }
     const { stdout } = await run("agent-browser", ["--session", session, "--json", ...args], { timeout: 45_000 });
     const result = JSON.parse(stdout);
     assert.equal(result.success, true, result.error);

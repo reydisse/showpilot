@@ -20,6 +20,7 @@ interface IntegrationCardProps {
   onConnect: () => void | Promise<void>;
   onDisconnect: () => void | Promise<void>;
   onTest?: () => Promise<{ ok: boolean; error?: string } | void>;
+  testLabel?: string;
   disabled?: boolean;
   children?: React.ReactNode;
 }
@@ -54,6 +55,7 @@ export function IntegrationCard({
   onConnect,
   onDisconnect,
   onTest,
+  testLabel = "Test",
   disabled = false,
   children,
 }: IntegrationCardProps) {
@@ -174,6 +176,7 @@ export function IntegrationCard({
                 {onTest && (
                   <button
                     onClick={handleTest}
+                    title={testLabel}
                     disabled={testing}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50 ${
                       testResult === "success"
@@ -192,7 +195,7 @@ export function IntegrationCard({
                     ) : (
                       <FlaskConical className="w-3 h-3" />
                     )}
-                    {testResult === "success" ? "Connected" : testResult === "error" ? "Failed" : "Test"}
+                    {testResult === "success" ? "Connected" : testResult === "error" ? "Failed" : testLabel}
                   </button>
                 )}
               </>

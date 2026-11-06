@@ -412,6 +412,45 @@ it("does not connect automatic ProPresenter when its audit is denied", async () 
   expect(bridge.getStatus().propresenter).toEqual({});
 });
 
+it("replaces changed ProPresenter credentials and API ports without stale disconnect acknowledgements", async () => {
+  const stage = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await once(stage, "listening");
+  cleanups.push(() => new Promise<void>(resolve => { for (const socket of stage.clients) socket.terminate(); stage.close(() => resolve()); }));
+  const address = stage.address();
+  if (typeof address === "string") throw new Error("Missing Stage socket address");
+  let expectedPassword = "first-secret";
+  const passwords: string[] = [];
+  stage.on("connection", socket => socket.on("message", data => {
+    const message = JSON.parse(String(data));
+    if (message.acn !== "ath") return;
+    passwords.push(message.pwd);
+    socket.send(JSON.stringify({ acn: "ath", ath: message.pwd === expectedPassword }));
+  }));
+  const api = await httpServer((_request, response) => { response.statusCode = 404; response.end("{}"); });
+  const replacementApi = await httpServer((_request, response) => { response.statusCode = 404; response.end("{}"); });
+  const target = `propresenter:127.0.0.1:${address.port}`;
+  const { socket } = await fixture();
+  const connection = { type: "connect-device", protocol: "propresenter", target, settings: { apiPort: api.port, password: expectedPassword } };
+  await role(socket, "active", [...resolveBridgeEndpoints(connection), { protocol: "propresenter", host: "127.0.0.1", port: replacementApi.port }]);
+  async function configure(password: string, apiPort = api.port, success = true) {
+    const reply = next(socket, "device-status");
+    await send(socket, { ...connection, settings: { password, apiPort } });
+    expect(await reply).toMatchObject({ target, connected: success });
+    await barrier(socket);
+  }
+  await configure(expectedPassword);
+  await configure(expectedPassword);
+  expect(passwords).toEqual(["first-secret"]);
+  expectedPassword = "replacement-secret";
+  await configure(expectedPassword);
+  await configure(expectedPassword, replacementApi.port);
+  expectedPassword = "";
+  await configure(expectedPassword, replacementApi.port);
+  await configure("wrong-password", replacementApi.port, false);
+  await configure(expectedPassword, replacementApi.port);
+  expect(passwords).toEqual(["first-secret", "replacement-secret", "replacement-secret", "", "wrong-password", ""]);
+});
+
 it("requires a fresh receipt for each Wake-on-LAN socket and never broadcasts on denial", async () => {
   // Do not broadcast wake packets onto the developer's real venue network.
   const connect = vi.spyOn(UdpConnection.prototype, "connect").mockResolvedValue();

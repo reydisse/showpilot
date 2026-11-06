@@ -1582,6 +1582,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }:
             name="ProPresenter"
             icon={<SlidersHorizontal className="w-4 h-4" />}
             description="Use the venue Bridge to connect ProPresenter and share its live slide feed."
+            testLabel="Apply & test"
             connected={rundownAdapter === "propresenter"}
             onConnect={() => saveSetting("rundown-adapter", "propresenter")}
             onDisconnect={() => saveSetting("rundown-adapter", "native")}
@@ -1632,6 +1633,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }:
                   save={change => saveCredential("propresenter-password", change)}
                   placeholder="(leave blank if none)"
                 />
+                <p className="text-xs text-board-muted mt-2">Save your changes, then choose Apply &amp; test to update the venue connection. Changing the password or ports reconnects ProPresenter.</p>
               </FieldGroup>
               <SettingToggle
                 settingKey="propresenter-pull-order"
@@ -1647,12 +1649,11 @@ function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }:
                 warning="This gives ShowPilot control over your ProPresenter. Only enable if your TD is aware."
               />
               <div className="mt-3 pt-3 border-t border-board-border">
-                <p className="text-[10px] font-medium text-board-muted/60 uppercase tracking-widest mb-2">Gateway Bridge</p>
+                <p className="text-[10px] font-medium text-board-muted/60 uppercase tracking-widest mb-2">Venue Bridge</p>
                 <div className="px-3 py-2.5 rounded-lg bg-amber-500/5 border border-amber-500/10 mb-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-400 mb-1">Only required across networks</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-400 mb-1">Connect from the venue computer</p>
                   <p className="text-xs text-board-muted">
-                    When this browser and ProPresenter are on the same network, ShowPilot connects directly using the host and ports above.
-                    Use the <strong className="text-board-text">ShowPilot Gateway Bridge</strong> only when the browser cannot reach that local address or when operators are remote. Set it up at <code className="text-amber-400/80">http://localhost:9450</code> on the bridge machine.
+                    Run <strong className="text-board-text">ShowPilot Desktop or Bridge</strong> on the same network as ProPresenter and approve its Stage Display and API ports in Settings → API. The venue computer authenticates privately and shares the slide feed with your operators.
                   </p>
                 </div>
                 <p className="text-[10px] font-medium text-board-muted/60 uppercase tracking-widest mb-2">Stage Display</p>

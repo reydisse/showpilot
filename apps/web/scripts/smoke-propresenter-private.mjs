@@ -17,6 +17,10 @@ async function until(check, label) {
 }
 await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, operatorPassword, operatorCookie, queryFixture }) => {
   const password = randomUUID();
+  let expectedPassword = password;
+  let authenticatedCount = 0;
+  let rejectedCount = 0;
+  let currentText = "Opening lyric";
   const api = http.createServer((_request, response) => { response.statusCode = 404; response.end("{}"); });
   const stage = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   const proxy = new WebSocketServer({ host: "127.0.0.1", port: 0 });
@@ -28,6 +32,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   let child;
   let observer;
   const publish = (text, nextText = "Upcoming lyric") => {
+    currentText = text;
     for (const socket of stage.clients) socket.send(JSON.stringify({ acn: "sd", text, nextText, slideId: text, pn: "Fixture presentation" }));
   };
   try {
@@ -39,9 +44,10 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
     stage.on("connection", socket => socket.on("message", data => {
       const message = JSON.parse(String(data));
       if (message.acn !== "ath") return;
-      stageAuthenticated = message.pwd === password;
+      stageAuthenticated = message.pwd === expectedPassword;
+      if (stageAuthenticated) authenticatedCount++; else rejectedCount++;
       socket.send(JSON.stringify({ acn: "ath", ath: stageAuthenticated }));
-      if (stageAuthenticated) publish("Opening lyric");
+      if (stageAuthenticated) publish(currentText);
       else socket.close();
     }));
     const click = name => browser("find", "role", "button", "click", "--name", name, "--exact");
@@ -141,6 +147,47 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
     assert.ok(replies.length > 0 && replies.every(reply => !reply.includes(password) && !reply.includes("spenc:v1:")));
     assert.equal(JSON.stringify(slideMessages).includes(password), false);
     assert.equal((await browser("eval", `document.documentElement.outerHTML.includes(${JSON.stringify(password)})`)).result, false);
+    // Apply a saved replacement to an already connected native target, then
+    // prove that clearing and failed authentication cannot falsely report success.
+    await browser("open", `${origin}/${orgId}/settings?section=integrations`);
+    await browser("wait", 'input[aria-label="ProPresenter password"]');
+    const replacement = randomUUID();
+    const incorrect = randomUUID();
+    async function replaceCredential(value) {
+      await browser("fill", 'input[aria-label="ProPresenter password"]', value);
+      await browser("click", '[role="group"][aria-label="ProPresenter password credential"] button:text-is("Save replacement")');
+      await browser("wait", "--fn", "document.querySelector('input[aria-label=\"ProPresenter password\"]').value === ''");
+    }
+    const apply = () => browser("click", 'button[title="Apply & test"]');
+    expectedPassword = replacement;
+    await replaceCredential(replacement);
+    await apply();
+    await browser("wait", 'button[title="Apply & test"]:text-is("Connected")');
+    assert.equal(authenticatedCount, 2);
+    await replaceCredential(incorrect);
+    await apply();
+    await browser("wait", 'button[title="Apply & test"]:text-is("Failed")');
+    assert.ok(rejectedCount > 0);
+    await replaceCredential(replacement);
+    await apply();
+    await browser("wait", 'button[title="Apply & test"]:text-is("Connected")');
+    assert.equal(authenticatedCount, 3);
+    await browser("click", '[role="group"][aria-label="ProPresenter password credential"] button:text-is("Clear credential")');
+    await browser("wait", '[role="dialog"]');
+    expectedPassword = "";
+    await browser("click", '[role="dialog"] button:text-is("Clear credential")');
+    await browser("wait", "--fn", "document.querySelector('[role=dialog]') === null");
+    await apply();
+    await browser("wait", 'button[title="Apply & test"]:text-is("Connected")');
+    assert.equal(authenticatedCount, 4);
+    for (const secret of [password, replacement, incorrect]) {
+      assert.equal(JSON.stringify([...nativeMessages, ...serverMessages, ...slideMessages]).includes(secret), false);
+      assert.equal((await browser("eval", `document.body.textContent.includes(${JSON.stringify(secret)})`)).result, false);
+    }
+    await browser("open", `${origin}/${orgId}/streaming/graphics`);
+    await browser("wait", 'button:text-is("Connect ProPresenter")');
+    await click("Connect ProPresenter");
+    await browser("wait", "text=Second lyric");
     // An explicit Clear removes the preview; a transport failure after a later slide preserves it.
     publish("");
     await browser("wait", "--fn", "!document.body.textContent.includes('Second lyric')");
@@ -149,7 +196,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
     const exited = once(child, "exit"); child.kill("SIGTERM"); await exited;
     await browser("wait", "text=Venue Bridge is offline");
     assert.equal((await browser("eval", "document.body.textContent.includes('Held lyric')")).result, true);
-    console.log(JSON.stringify({ encryptedSetting: "passed", nativeAutoconfiguration: "passed", stagePasswordAuthentication: "passed", encryptedRelayDelivery: "passed", operatorWithoutDevicePermission: "passed", maskedReadResponses: "passed", nextSlide: "passed", explicitClear: "passed", disconnectHoldsLastSlide: "passed" }, null, 2));
+    console.log(JSON.stringify({ encryptedSetting: "passed", nativeAutoconfiguration: "passed", stagePasswordAuthentication: "passed", encryptedRelayDelivery: "passed", operatorWithoutDevicePermission: "passed", maskedReadResponses: "passed", savedPasswordReplacement: "passed", authenticationFailureAndRecovery: "passed", savedPasswordClearing: "passed", nextSlide: "passed", explicitClear: "passed", disconnectHoldsLastSlide: "passed" }, null, 2));
   } finally {
     observer?.terminate();
     if (child?.pid && child.exitCode === null && child.signalCode === null) { const stopped = once(child, "exit"); child.kill("SIGTERM"); await stopped; }

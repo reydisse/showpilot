@@ -376,8 +376,17 @@ node apps/web/scripts/smoke-propresenter-private.mjs apps/bridge-desktop/src-tau
 ```
 
 The fixture uses a local password-protected Stage Display server, not physical
-ProPresenter hardware. H8 remains pending: live credential replacement and
-reconnection still need verification before release.
+ProPresenter hardware. It also replaces and clears a saved password while the
+native target is connected, rejects an incorrect password and verifies recovery.
+
+After saving connection settings, choose **Apply & test** in the ProPresenter
+integration card. This sends the saved configuration through the protected
+native path even when the target is already connected. Matching configurations
+reuse the connection; changed passwords or API ports replace it. Old callbacks
+cannot resolve the replacement operation or clear the retained lyric preview.
+Stage Display is ready only after authentication succeeds. REST-only operation
+and fallback from an unavailable Stage Display socket remain supported; an
+explicit Stage Display authentication rejection is reported as a failure.
 
 ### Native configuration credential migration
 

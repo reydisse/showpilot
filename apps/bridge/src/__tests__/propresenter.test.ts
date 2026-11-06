@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProPresenterBridge } from "../protocols/propresenter.js";
+import { once } from "node:events";
+import { WebSocketServer } from "ws";
 
 function createBridge(onStatusChange: (connected: boolean) => void) {
   return new ProPresenterBridge({
@@ -82,6 +84,38 @@ describe("ProPresenter slide continuity", () => {
 });
 
 describe("ProPresenter connection readiness", () => {
+  it.each([true, false])("waits for Stage Display authentication, accepted=%s, even with a healthy REST API", async accepted => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({})));
+    const stage = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+    await once(stage, "listening");
+    const address = stage.address();
+    if (typeof address === "string") throw new Error("Missing Stage socket address");
+    const connected = once(stage, "connection");
+    const statuses: boolean[] = [];
+    const slides: unknown[] = [];
+    const bridge = new ProPresenterBridge({ host: "127.0.0.1", port: address.port, apiPort: 1025, password: "fixture-secret", onStatusChange: value => statuses.push(value), onSlideChange: value => slides.push(value) });
+    try {
+      bridge.connect();
+      const readiness = bridge.waitUntilReady(1000).then(() => "ready", error => error.message);
+      const [socket] = await connected;
+      const [message] = await once(socket, "message");
+      expect(JSON.parse(String(message))).toMatchObject({ acn: "ath", pwd: "fixture-secret" });
+      socket.send(JSON.stringify({ acn: "sd", text: "Unauthenticated slide" }));
+      const pong = once(socket, "pong"); socket.ping(); await pong;
+      expect(statuses).not.toContain(true);
+      expect(slides).toEqual([]);
+      expect(bridge.getDebugState().connected).toBe(false);
+      socket.send(JSON.stringify({ acn: "ath", ath: accepted }));
+      expect(await readiness).toBe(accepted ? "ready" : "ProPresenter Stage Display authentication failed");
+      expect(bridge.getDebugState().connected).toBe(accepted);
+      expect(statuses.includes(true)).toBe(accepted);
+    } finally {
+      bridge.disconnect();
+      for (const socket of stage.clients) socket.terminate();
+      await new Promise<void>(resolve => stage.close(() => resolve()));
+    }
+  });
+
   it("reports connected only after the local API responds", async () => {
     let answerRequest: ((response: Response) => void) | undefined;
     let requestCount = 0;
