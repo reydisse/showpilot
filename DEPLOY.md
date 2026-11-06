@@ -1576,6 +1576,27 @@ database. Older local databases created with direct `wrangler d1 execute`
 commands have no runner history; continue applying explicit files there or use
 a fresh local state directory.
 
+### Display access deadlines and expiry
+
+Timer and overlay access checks time out after eight seconds and expose a timestamp
+and Try again. Cancellation reaches the request, and late results cannot authorize
+an expired attempt or another display scope. Confirmed content stays mounted during
+renewal failures only while the last confirmed pass remains valid. A separate expiry
+timer removes it at the pass deadline, even when renewal is stuck. Responses whose
+pass has already expired cannot restore content.
+
+After building, run `node apps/web/scripts/smoke-display-deadlines.mjs` and
+`node apps/web/scripts/smoke-display-access.mjs`. The deadline rehearsal delays real
+Worker replies, verifies that no private display reads start before authorization,
+checks recovery without reload and a 44px Retry at 320px, and expires a real signed
+shared pass while renewal is delayed. It creates disposable accounts and Chrome
+profiles only. It requires local Chrome or `SHOWPILOT_CHROME_EXECUTABLE`.
+
+No migration or native build is required. Deploy the browser build and reload open
+displays to apply this client-side expiry behavior. Existing server-side token
+checks remain unchanged; the old unauthenticated graphics RPC is closed separately
+by #153. Neither fix is deployed by pushing its feature branch.
+
 ### Legacy graphics read removal
 
 The unused `getActiveGraphicBySlug` server function bypassed display authorization.

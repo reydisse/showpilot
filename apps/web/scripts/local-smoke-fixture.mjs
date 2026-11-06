@@ -51,9 +51,9 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     const message = `${header}.${body}`;
     return `${message}.${createHmac("sha256", secret).update(message).digest("base64url")}`;
   }
-  function pass(surface, org = orgId, expired = false) {
+  function pass(surface, org = orgId, expired = false, lifetimeSeconds = 300) {
     const iat = Math.floor(Date.now() / 1000) - (expired ? 60 : 0);
-    return signFixtureToken({ purpose: "showpilot-display-v1", orgId: org, surface, iat, exp: iat + (expired ? 1 : 300), nonce: randomUUID() });
+    return signFixtureToken({ purpose: "showpilot-display-v1", orgId: org, surface, iat, exp: iat + (expired ? 1 : lifetimeSeconds), nonce: randomUUID() });
   }
   function crewChatPass(seconds = 300) {
     const iat = Math.floor(Date.now() / 1000);
