@@ -33,8 +33,17 @@ describe("buildSongAutomationEvents", () => {
       cues: [{ id: "cue-1", triggerFrame: 0, section: { id: "chorus", label: "Chorus", lyrics: "Sing" }, ppSlideIndex: null }],
       format: { frameRate: 25, dropFrame: "ndf" },
       target: "propresenter",
+      clearAfterFrames: 90,
     });
     expect(events).toEqual([]);
+  });
+
+  it("times a ProPresenter clear from its last mapped slide", () => {
+    const section = { id: "verse", label: "Verse", lyrics: "Text" };
+    const events = buildSongAutomationEvents({ song: { id: "song", title: "Song" },
+      cues: [{ id: "mapped", triggerFrame: 30, section, ppSlideIndex: 1 }, { id: "unmapped", triggerFrame: 300, section, ppSlideIndex: null }],
+      format: { frameRate: 30, dropFrame: "ndf" }, target: "propresenter", clearAfterFrames: 90 });
+    expect(events.map(event => [event.action, event.triggerFrame])).toEqual([["pp-trigger-slide", 30], ["pp-trigger-clear", 120]]);
   });
 
   it("replaces a previously loaded cue map instead of duplicating it", () => {
@@ -86,4 +95,15 @@ it.each([-1, 1.5, NaN, Infinity])("rejects unsafe cue offset %s instead of pilin
 it.each([-1, 1.5, 9001, NaN, Infinity])("rejects invalid song tolerance %s instead of silently changing it", toleranceFrames => {
   expect(() => buildSongAutomationEvents({ song: { id: "song", title: "Song" }, cues: [],
     format: { frameRate: 30, dropFrame: "ndf" }, target: "native", toleranceFrames })).toThrow("Tolerance must be a whole number");
+});
+
+it.each([-1, 1.5, NaN, Infinity])("rejects an invalid clear hold: %s", clearAfterFrames => {
+  expect(() => buildSongAutomationEvents({ song: { id: "song", title: "Song" }, cues: [],
+    format: { frameRate: 30, dropFrame: "ndf" }, target: "native", clearAfterFrames })).toThrow("Clear hold");
+});
+
+it("does not schedule a clear beyond the valid timecode day", () => {
+  expect(() => buildSongAutomationEvents({ song: { id: "song", title: "Song" },
+    cues: [{ id: "last", triggerFrame: 2_591_999, section: { id: "verse", label: "Verse", lyrics: "Last" }, ppSlideIndex: null }],
+    format: { frameRate: 30, dropFrame: "ndf" }, target: "native", clearAfterFrames: 1 })).toThrow("end of the timecode day");
 });

@@ -1,4 +1,5 @@
 import { NamedTimers } from "@/components/timers/NamedTimers";
+import { ConfidenceLyricsControls } from "@/components/confidence/ConfidenceLyricsControls";
 import type { NamedTimerSample } from "@/lib/named-timers";
 import type { ReactNode } from "react";
 import { RelaySequenceTracker } from "@/lib/relay-sequence";
@@ -655,7 +656,9 @@ function TimerKioskPage() {
   // ── Render by view mode ──
 
   if (lyrics) {
-    return frame(<LyricsKiosk lyrics={lyrics} timecode={lyricsTimecode} connected={timecodeConnected} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} />);
+    return frame(<div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1"><LyricsKiosk lyrics={lyrics} timecode={lyricsTimecode} connected={timecodeConnected} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} /></div>
+      {!cleanOutput && relayShowId && <ConfidenceLyricsControls key={`${orgSlug}:${relayShowId}`} orgSlug={orgSlug} showId={relayShowId} lyrics={lyrics} connected={timecodeConnected} />}
+    </div>);
   }
 
   if (viewMode === "minimal") {

@@ -64,6 +64,16 @@ function useController(timecode: UseTimecodeReturn, showId: string | null) {
       case "reset": setReview({ kind: "reset" }); break;
       case "seek": setFrame(action.frame); break;
       case "fire-next": tc.fireNext(); break;
+      case "lyrics-next": case "lyrics-previous": {
+        const operation = action.kind === "lyrics-next" ? "next" : "previous";
+        const currentEpoch = epoch.current;
+        void tc.controlLyrics(operation).catch(cause => {
+          if (epoch.current === currentEpoch && latest.current.timecode.state?.showId === tc.state?.showId) {
+            setError(cause instanceof Error ? cause.message : "Lyrics change was not confirmed.");
+          }
+        });
+        break;
+      }
       case "fire": case "cue-slot": if (cue) tc.fireEvent(cue.id); break;
       case "skip": if (cue) tc.skipEvent(cue.id); break;
       case "rearm": if (cue) setReview({ kind: "rearm", cue: { ...cue } }); break;
@@ -237,6 +247,7 @@ export function MidiControllerPanel({ timecode }: { timecode: UseTimecodeReturn 
     const port = ports.find(port => port.id === selected); return port ? identity(port) : null;
   };
   const options: { kind: MidiAction["kind"]; label: string }[] = [
+    { kind: "lyrics-next", label: "Next lyrics section" }, { kind: "lyrics-previous", label: "Previous lyrics section" },
     { kind: "fire-next", label: "Fire next cue" }, { kind: "fire", label: "Fire one cue" }, { kind: "skip", label: "Skip cue" }, { kind: "rearm", label: "Re-arm cue with confirmation" },
     { kind: "start", label: "Start / resume clock" }, { kind: "stop", label: "Stop clock" }, { kind: "pause", label: "Pause clock" }, { kind: "reset", label: "Reset clock with confirmation" }, { kind: "seek", label: "Set timecode position" },
     { kind: "bank-next", label: "Next cue bank" }, { kind: "bank-prev", label: "Previous cue bank" }, { kind: "scrub", label: "Fader: scrub" }, { kind: "offset", label: "Fader: offset trim" }, { kind: "jog", label: "Fader: jog" },

@@ -18,6 +18,8 @@ import { MtcSource } from "@/lib/timecode-sources/mtc-source";
 import type { cueReviewState } from "@/lib/automation-cues";
 import { emptyMidiController, type MidiControllerConfig, type MidiControllerSnapshot } from "@/lib/midi-controller";
 import { RelaySequenceTracker } from "@/lib/relay-sequence";
+import { useLyricsCommands } from "@/hooks/useLyricsCommands";
+import type { LyricsOperation } from "@/lib/lyrics-control";
 
 interface UseTimecodeOptions {
   orgId: string;
@@ -70,6 +72,9 @@ export interface UseTimecodeReturn {
   setTriggersEnabled: (enabled: boolean, expectedHoldId?: string) => void;
   setLyrics: (lyrics: Omit<LyricsDisplayState, "updatedAt" | "manual">) => void;
   clearLyrics: () => void;
+  controlLyrics: (operation: LyricsOperation) => Promise<void>;
+  lyricsPending: LyricsOperation | null;
+  lyricsError: string | null;
 
   // MTC support
   mtcSupported: boolean;
@@ -498,6 +503,8 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const clearLyrics = useCallback(() => { sendCommand("clear-lyrics"); }, [sendCommand]);
 
   const visibleState = confirmedScope.current?.orgId === orgId && state?.showId === showId ? state : null;
+  const lyricsCommands = useLyricsCommands({ orgId, showId, lyrics: visibleState?.lyrics ?? null,
+    connected: connected && visibleState !== null, canControl: control === "yours" });
   return {
     controller: visibleState ? controller : emptyMidiController(), saveController,
     state: visibleState, display: visibleState?.display ?? "00:00:00:00", connected: connected && visibleState !== null,
@@ -506,5 +513,6 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     startFreerun, stopGenerator, pauseGenerator, startMtc, stopMtc: stopGenerator, setTimecode, adjustTimecode, setFormat,
     addEvent, replaceEventGroup, updateEvent, removeEvent, resetEvents, retryEvent, fireEvent, fireNext, skipEvent, rearmEvent, setEventEnabled,
     setTriggersEnabled, resumeAutomaticCues, setLyrics, clearLyrics, mtcSupported,
+    controlLyrics: lyricsCommands.run, lyricsPending: lyricsCommands.pending, lyricsError: lyricsCommands.error,
   };
 }

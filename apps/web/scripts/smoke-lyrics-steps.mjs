@@ -72,9 +72,49 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, pass, operatorEmail
     await browser("screenshot", `/tmp/showpilot-${action}-confidence.png`);
     await browser("tab", "0");
   }
+  await click("Next section");
+  await poll(async () => (await state()).lyrics?.lyrics === "Chorus line one\nChorus line two", "operator Next section");
+  await browser("eval", "document.activeElement?.blur()");
+  await browser("press", "ArrowLeft");
+  await poll(async () => (await state()).lyrics?.lyrics === "Verse line one\nVerse line two", "operator keyboard Previous section");
+  await browser("fill", `${form} input[placeholder="00:05:00:00"]`, "00:02:00:00");
+  await browser("press", "ArrowRight");
+  assert.equal((await state()).lyrics.sectionLabel, "Verse 1", "Typing must not step lyrics");
+  await browser("set", "viewport", "320", "780");
+  await browser("scrollintoview", '[aria-label="Live lyrics"]');
+  const preview = (await browser("eval", `(() => {
+    const section = document.querySelector('[aria-label="Live lyrics"]');
+    const text = section.querySelector('[data-confidence-current]');
+    return { fits: section.scrollWidth <= section.clientWidth + 1 && text.scrollHeight <= text.parentElement.clientHeight + 1,
+      text: text.textContent, whitespace: getComputedStyle(text).whiteSpace };
+  })()`)).result;
+  assert.equal(preview.fits, true);
+  assert.equal(preview.text, "Verse line one\nVerse line two");
+  assert.equal(preview.whitespace, "pre-wrap");
+  await browser("screenshot", "/tmp/showpilot-lyrics-controls-operator-320.png");
+  await browser("set", "viewport", "1440", "900");
+  await click("Load song cues");
+  await browser("wait", "--fn", `Array.from(document.querySelectorAll('option')).some(option => option.textContent === 'Step rehearsal')`);
+  await browser("eval", `(() => {
+    const option = [...document.querySelectorAll('option')].find(option => option.textContent === 'Step rehearsal');
+    option.parentElement.value = option.value; option.parentElement.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await browser("wait", "text=This song has no cue maps yet.");
+  await click("Close song cue loader");
+  await browser("tab", "1");
+  await browser("wait", "--fn", `document.querySelector('[data-lyrics-controls] button:not(:disabled)') !== null`);
+  await click("Next section");
+  await poll(async () => (await state()).lyrics?.lyrics === "Chorus line one\nChorus line two", "confidence Next section");
+  await click("Previous section");
+  await poll(async () => (await state()).lyrics?.lyrics === "Verse line one\nVerse line two", "confidence Previous section");
+  await browser("set", "viewport", "320", "780");
+  assert.equal((await browser("eval", "document.documentElement.scrollWidth <= window.innerWidth + 1")).result, true);
+  await browser("screenshot", "/tmp/showpilot-lyrics-controls-confidence-320.png");
   await browser("tab", "1");
   const result = (await browser("eval", "window.lyricObserver.disconnect(); window.lyricCheck")).result;
   assert.equal(result.removed, false, "Confidence lyric node must stay mounted");
-  assert.deepEqual(result.values, ["Verse line one\nVerse line two", "Chorus line one\nChorus line two", "Verse line one\nVerse line two"]);
+  assert.deepEqual(result.values, ["Verse line one\nVerse line two", "Chorus line one\nChorus line two", "Verse line one\nVerse line two", "Chorus line one\nChorus line two", "Verse line one\nVerse line two", "Chorus line one\nChorus line two", "Verse line one\nVerse line two"]);
+  await click("Clear lyrics");
+  await poll(async () => (await state()).lyrics === null, "confidence Clear lyrics");
   console.log(JSON.stringify({ passed: true, confidenceNodeStayedMounted: !result.removed, lyricStates: result.values }));
 });
