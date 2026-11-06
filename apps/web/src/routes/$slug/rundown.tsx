@@ -1,7 +1,7 @@
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ResetRundownDialog } from "@/components/rundown/ResetRundownDialog";
-import { DeleteSavedTemplateButton } from "@/components/rundown/DeleteSavedTemplateButton";
+import { LoadRundownModal } from "@/components/rundown/LoadRundownModal";
 import { restoreRundownItem } from "@/lib/rundown-undo";
 import { rundownShortcut } from "@/lib/rundown-shortcuts";
 import { RundownShortcutBanner, RundownShortcutList } from "@/components/rundown/RundownShortcutHelp";
@@ -43,9 +43,7 @@ import {
   Monitor,
   FolderOpen,
   Save,
-  Calendar,
   CalendarDays,
-  FileText,
   Tv,
   Wifi,
   WifiOff,
@@ -61,15 +59,9 @@ import {
   getRundownOpeningDate,
   setProPresenterStageDisplay,
   sendProPresenterCommand,
-  listSavedRundowns,
   saveRundownTemplate,
-  loadSavedRundown,
-  deleteSavedRundown,
-  listRundownDates,
 } from "@/lib/rundown";
 import type {
-  SavedRundownMeta,
-  SavedRundown,
   PPSlidePayload,
 } from "@/lib/rundown";
 import { exportShowReport } from "@/lib/report";
@@ -2988,6 +2980,10 @@ function RundownPage() {
         )}
         {canEditRundown && showLoadModal && (
           <LoadRundownModal
+            key={rundownScope}
+            currentItemCount={items.length}
+            playing={timer.playback === "play"}
+            revision={cloudRevision}
             orgId={orgId}
             timeZone={deviceTimeZone}
             onLoad={handleLoadItems}
@@ -3392,217 +3388,6 @@ function EditItemModal({
             </Button>
           </div>
         </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ─── Load Rundown Modal ─────────────────────────────────────
-
-function LoadRundownModal({
-  orgId,
-  timeZone,
-  onLoad,
-  onClose,
-}: {
-  orgId: string;
-  timeZone?: string;
-  onLoad: (loaded: {
-    items: RundownItem[];
-    serviceName?: string;
-    scheduledStartTime?: string;
-  }) => void | Promise<void>;
-  onClose: () => void;
-}) {
-  const [tab, setTab] = useState<"dates" | "saved">("dates");
-  const [dates, setDates] = useState<
-    {
-      showId: string;
-      date: string;
-      name: string;
-      scheduledStartTime: string | null;
-      itemCount: number;
-    }[]
-  >([]);
-  const [saved, setSaved] = useState<SavedRundownMeta[]>([]);
-  const [loadingList, setLoadingList] = useState(true);
-  const [loadingItems, setLoadingItems] = useState(false);
-
-  useEffect(() => {
-    setLoadingList(true);
-    Promise.all([
-      listRundownDates({ data: { orgId } }),
-      listSavedRundowns({ data: { orgId } }),
-    ])
-      .then(([d, s]) => {
-        setDates(d);
-        setSaved(s);
-      })
-      .catch(() => {})
-      .finally(() => setLoadingList(false));
-  }, [orgId]);
-
-  const handleLoadFromDate = async (date: string, showId: string) => {
-    setLoadingItems(true);
-    try {
-      const state = await getRundownState({
-        data: { orgId, serviceDate: date, showId },
-      });
-      await onLoad({
-        items: state.items as RundownItem[],
-        serviceName: state.meta?.name ?? "",
-        scheduledStartTime: formatTimeInput(
-          state.meta?.scheduledStartTime,
-          timeZone,
-        ),
-      });
-    } catch {
-      // keep modal open
-    }
-    setLoadingItems(false);
-  };
-
-  const handleLoadFromSaved = async (rundownId: string) => {
-    setLoadingItems(true);
-    try {
-      const saved = await loadSavedRundown({ data: { orgId, rundownId } });
-      if (saved) await onLoad(saved as SavedRundown);
-    } catch {
-      // keep modal open
-    }
-    setLoadingItems(false);
-  };
-
-  const handleDeleteSaved = async (rundownId: string) => {
-    await deleteSavedRundown({ data: { orgId, rundownId } });
-    setSaved((prev) => prev.filter((r) => r.id !== rundownId));
-  };
-
-  const formatDate = (dateStr: string) => {
-    const [y, m, d] = dateStr.split("-");
-    const date = new Date(Number(y), Number(m) - 1, Number(d));
-    return date.toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  };
-
-  return (
-    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-      <DialogContent aria-describedby={undefined} showCloseButton={false} className="rundown-modal block max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto bg-board-card border-board-border rounded-2xl p-0 max-w-lg sm:max-w-lg shadow-2xl">
-        <div className="flex items-center justify-between px-6 pt-5 pb-3">
-          <DialogTitle className="text-lg font-semibold text-board-text">
-            Load Rundown
-          </DialogTitle>
-          <Button variant="ghost"
-            type="button"
-            onClick={onClose}
-            aria-label="Close load rundown"
-            title="Close load rundown"
-            className="p-1 rounded text-board-muted hover:text-board-text transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </Button>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex flex-wrap gap-1 px-4 sm:px-6 mb-3">
-          <Button variant="ghost"
-            onClick={() => setTab("dates")} aria-pressed={tab === "dates"}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              tab === "dates"
-                ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
-                : "text-board-muted border border-board-border hover:border-board-muted/50"
-            }`}
-          >
-            <Calendar className="w-3 h-3" />
-            Previous Dates
-          </Button>
-          <Button variant="ghost"
-            onClick={() => setTab("saved")} aria-pressed={tab === "saved"}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              tab === "saved"
-                ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
-                : "text-board-muted border border-board-border hover:border-board-muted/50"
-            }`}
-          >
-            <FileText className="w-3 h-3" />
-            Saved Templates
-          </Button>
-        </div>
-
-        <div className="px-6 pb-5 max-h-[400px] overflow-auto">
-          {loadingList ? (
-            <p className="text-sm text-board-muted py-8 text-center">
-              Loading...
-            </p>
-          ) : tab === "dates" ? (
-            dates.length === 0 ? (
-              <p className="text-sm text-board-muted py-8 text-center">
-                No previous rundowns found
-              </p>
-            ) : (
-              <div className="space-y-1.5">
-                {dates.map((d) => (
-                  <Button variant="ghost"
-                    key={d.showId}
-                    onClick={() => handleLoadFromDate(d.date, d.showId)}
-                    disabled={loadingItems}
-                    className="w-full flex items-center justify-between px-4 py-3 rounded-lg border border-board-border/50 bg-board-bg/50 hover:border-board-border hover:bg-board-card/50 transition-colors text-left disabled:opacity-50"
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-board-text">
-                        {d.name || formatDate(d.date)}
-                      </p>
-                      <p className="text-xs text-board-muted mt-0.5">
-                        {formatDate(d.date)}
-                        {d.scheduledStartTime
-                          ? ` · ${formatTimeInput(d.scheduledStartTime, timeZone)}`
-                          : ""}{" "}
-                        · {d.itemCount} items
-                      </p>
-                    </div>
-                    <FolderOpen className="w-4 h-4 text-board-muted" />
-                  </Button>
-                ))}
-              </div>
-            )
-          ) : saved.length === 0 ? (
-            <p className="text-sm text-board-muted py-8 text-center">
-              No saved templates yet. Use "Save" to create one.
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {saved.map((s) => (
-                <div
-                  key={s.id}
-                  className="flex items-center gap-2 px-4 py-3 rounded-lg border border-board-border/50 bg-board-bg/50 hover:border-board-border hover:bg-board-card/50 transition-colors"
-                >
-                  <Button variant="ghost"
-                    onClick={() => handleLoadFromSaved(s.id)}
-                    disabled={loadingItems}
-                    className="flex-1 text-left disabled:opacity-50"
-                  >
-                    <p className="text-sm font-medium text-board-text">
-                      {s.name}
-                    </p>
-                    <p className="text-xs text-board-muted mt-0.5">
-                      {s.itemCount} items
-                      {s.serviceName ? ` · ${s.serviceName}` : ""}
-                      {s.scheduledStartTime
-                        ? ` · ${s.scheduledStartTime}`
-                        : ""}{" "}
-                      · saved {new Date(s.createdAt).toLocaleDateString()}
-                    </p>
-                  </Button>
-                  <DeleteSavedTemplateButton name={s.name} onDelete={() => handleDeleteSaved(s.id)} />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </DialogContent>
     </Dialog>
   );
