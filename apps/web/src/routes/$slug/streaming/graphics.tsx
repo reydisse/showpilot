@@ -511,7 +511,7 @@ function GraphicsPage() {
           </p>
           <div className="flex items-center gap-2">
             <code className="flex-1 text-xs text-board-muted bg-board-bg px-3 py-2 rounded-lg truncate">
-              {overlayLink.url || "Creating display link…"}
+              {overlayLink.url || (overlayLink.pending ? "Creating display link…" : "Display link unavailable")}
             </code>
             <button
               disabled={!overlayLink.url}
@@ -520,7 +520,7 @@ function GraphicsPage() {
                   if (copied) { setCopiedOverlay(true); setTimeout(() => setCopiedOverlay(false), 2000); }
                 });
               }}
-              className="p-2 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+              className="min-h-11 min-w-11 p-2 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
               aria-label="Copy OBS browser source URL"
             >
               {copiedOverlay ? (
@@ -535,7 +535,9 @@ function GraphicsPage() {
             graphics on your stream. This link expires in 8 hours.
           </p>
           {overlayLink.error && <p role="alert" className="mt-2 text-sm text-red-300">{overlayLink.error}</p>}
-          <button type="button" onClick={overlayLink.refresh} className="mt-2 min-h-11 text-xs text-board-muted">Create a fresh link</button>
+          <button type="button" disabled={overlayLink.pending} onClick={overlayLink.refresh} className="mt-2 min-h-11 text-xs text-board-muted">Create a fresh link</button>
+          {overlayLink.errorAt !== null && <p className="text-xs text-board-muted">Last error <time dateTime={new Date(overlayLink.errorAt).toISOString()}>{new Date(overlayLink.errorAt).toLocaleTimeString()}</time></p>}
+          {overlayLink.monitorUrl && <a href={overlayLink.monitorUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center px-3 text-sm text-fire-500 underline outline-none focus-visible:ring-2 focus-visible:ring-fire-500">Open overlay monitor</a>}
         </div>
 
         {/* ProPresenter slide import */}
