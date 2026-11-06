@@ -39,3 +39,14 @@ export const getAutomationDeviceTargets = createServerFn({ method: "GET" })
       return actions.length ? [{ id: device.id, label: device.name, category: device.category, actions }] : [];
     });
   });
+
+/** Timeline labels include disabled devices, without their configuration or credentials. */
+export const getAutomationDeviceNames = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
+  .handler(async ({ data }): Promise<import("./automation-catalog").AutomationDeviceName[]> => {
+    await assertOrgPermission(data.orgId, "timecode:access");
+    await assertOrgPermission(data.orgId, "devices:access");
+    const rows = await env.DB.prepare("SELECT id, name, enabled FROM device WHERE orgId=? ORDER BY name, id")
+      .bind(data.orgId).all<{ id: string; name: string; enabled: number }>();
+    return rows.results.map(device => ({ id: device.id, label: device.name, enabled: device.enabled === 1 }));
+  });
