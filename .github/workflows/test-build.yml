@@ -117,6 +117,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unsigned-bundles-${{ matrix.label }}
+          retention-days: 14
           path: |
             apps/desktop/src-tauri/target/release/bundle
             apps/bridge-desktop/src-tauri/target/release/bundle

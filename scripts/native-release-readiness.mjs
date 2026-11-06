@@ -247,6 +247,10 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
       "WINDOWS_TIMESTAMP_URL",
       "Import-PfxCertificate",
       "Get-AuthenticodeSignature",
+      "node scripts/native-release-secrets.mjs --windows-mode",
+      "UNSIGNED Windows build: Windows signing credentials are entirely absent.",
+      "partial or invalid Windows signing configuration",
+      "NotSigned",
       `pnpm native:verify --product ${product} --tag`,
     ];
     const missingWorkflowFragments = includesEvery(
@@ -256,6 +260,11 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
     add(
       missingWorkflowFragments.length === 0,
       `${contract.productName} release workflow is missing: ${missingWorkflowFragments.join(", ")}.`,
+    );
+    add(
+      /^  release:\n    needs: signing-preflight\n/m.test(current.workflow)
+        && /^  signing-preflight:\n    uses: \.\/\.github\/workflows\/native-release-preflight\.yml\n    secrets: inherit\n/m.test(current.workflow),
+      `${contract.productName} platform builds must wait for the shared signing preflight.`,
     );
 
     for (const id of contract.landingIds) {
