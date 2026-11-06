@@ -60,7 +60,7 @@ function TimecodePage() {
     skipEvent,
     rearmEvent,
     setEventEnabled,
-    setTriggersEnabled,
+    setTriggersEnabled, resumeAutomaticCues,
     mtcSupported,
   } = timecode;
 
@@ -117,7 +117,7 @@ function TimecodePage() {
         <TimecodeControlNotice />
         {!connected && <p role="status" className="rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">Timecode disconnected. Controls will be available after reconnecting.</p>}
         {lastError && <p role="alert" className="rounded-xl border border-red-500/40 p-4 text-sm text-red-300">{lastError}</p>}
-        <TimecodeAutomationControl state={state} connected={connected} canControl={control !== "other"} onSetEnabled={setTriggersEnabled} />
+        <TimecodeAutomationControl state={state} connected={connected} canControl={control !== "other"} onSetEnabled={setTriggersEnabled} onResumeAutomaticCues={resumeAutomaticCues} />
         {/* Large TC display */}
         <div className="rounded-xl border border-board-border bg-board-card p-4 sm:p-8">
           <TimecodeDisplay state={state} connected={connected} size="large" />

@@ -151,3 +151,17 @@ describe("automation safety controls", () => {
     expect(props.onRetryEvent).not.toHaveBeenCalled();
   });
 });
+
+
+it("orders simultaneous controls like the scheduler, with the same Next cue", () => {
+  const events = [
+    cue("Output", { triggerFrame: 60 }),
+    cue("Pause", { triggerFrame: 60, action: "triggers-disable" }),
+    cue("Resume", { triggerFrame: 60, action: "triggers-enable" }),
+  ];
+  setup(events);
+  expect(screen.getByRole("button", { name: "Fire next" }).getAttribute("title")).toBe("Fire Resume now");
+  expect(screen.getAllByRole("button", { name: /^Fire (Resume|Pause|Output)$/ }).map(button => button.getAttribute("aria-label")))
+    .toEqual(["Fire Resume", "Fire Pause", "Fire Output"]);
+  expect(events.map(event => event.id)).toEqual(["Output", "Pause", "Resume"]);
+});
