@@ -1,3 +1,5 @@
+import { handleOperationalErrorRequest } from "./lib/operational-error-api.server";
+import { pruneOperationalErrors } from "./lib/operational-errors.server";
 import { backfillDeviceCredentials } from "./lib/device-settings.server";
 import { handleMediaRequest } from "./lib/media-library.server";
 import { backfillCredentialSettings, readSettingValuesForUse } from "./lib/credential-settings.server";
@@ -193,6 +195,9 @@ const appServer = {
         headers: corsHeaders,
       });
     }
+
+    const errorLogMatch = url.pathname.match(/^\/api\/operational-errors\/([^/]+)$/);
+    if (errorLogMatch) return handleOperationalErrorRequest(request, e.DB, errorLogMatch[1], _ctx as ExecutionContext);
 
     const authMatch = url.pathname.match(/^\/api\/auth(?:\/.*)?$/);
     if (authMatch) {
@@ -714,6 +719,7 @@ const appServer = {
     const { createDueDutyReminders } = await import("./lib/duty-roster.server");
     const { createDuePostShowReminders } = await import("./lib/show-report-notes");
     await Promise.all([
+      pruneOperationalErrors(e.DB),
       checkExpoPushReceipts(e.DB, { accessToken: e.EXPO_ACCESS_TOKEN }),
       createDuePostShowReminders(e.DB),
       createDueDutyReminders(e.DB),

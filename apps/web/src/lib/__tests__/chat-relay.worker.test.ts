@@ -1,6 +1,6 @@
 import { seedRelayMember } from "@/test/relay-fixtures";
 import { env } from "cloudflare:workers";
-import { abortAllDurableObjects, evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
+import { abortAllDurableObjects, evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 
 afterEach(async () => {
@@ -170,14 +170,26 @@ describe("ChatRelay threads", () => {
 
   it("closes an idle expired guest without closing the member connection", async () => {
     const member = await openChat("guest-expiry-org");
-    const expiresAt = Date.now() + 150;
+    const expiresAt = Date.now() + 60_000;
     const response = await member.stub.fetch(new Request(`https://chat.test/internal/guest-ws?orgId=guest-expiry-org&role=Guest&guestExpiresAt=${expiresAt}`, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } }));
     if (!response.webSocket) throw new Error("Missing guest socket");
     const guest = response.webSocket;
     const closed = new Promise<number>(resolve => guest.addEventListener("close", event => resolve(event.code), { once: true }));
     const hydration = nextFrame(guest, "hydrate"); guest.accept(); await hydration;
+    // Admit a valid guest first. A 150ms admission window races CI load and
+    // tests rejection instead of idle expiry. Expire its persisted lease,
+    // then evict so the real alarm must restore and reject that lease.
+    await runInDurableObject(member.stub, async (_instance, ctx) => {
+      let expired = 0;
+      for (const socket of ctx.getWebSockets()) {
+        const session = socket.deserializeAttachment();
+        if (session?.kind !== "guest") continue;
+        socket.serializeAttachment({ ...session, expiresAt: Date.now() - 1 });
+        expired++;
+      }
+      expect(expired).toBe(1);
+    });
     await evictDurableObject(member.stub);
-    await new Promise(resolve => setTimeout(resolve, Math.max(0, expiresAt - Date.now() + 20)));
     await runDurableObjectAlarm(member.stub);
     await expect(closed).resolves.toBe(1008);
     const memberMessage = nextFrame(member.socket, "message");

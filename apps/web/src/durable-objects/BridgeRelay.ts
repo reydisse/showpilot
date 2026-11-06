@@ -1,3 +1,4 @@
+import { reportRelayError } from "@/lib/operational-errors.server";
 import { proPresenterViewerMessage } from "@/lib/propresenter-viewer-message";
 import { TIMECODE_FEED_STALL_MS } from "@/types/timecode";
 import { readProPresenterSettings, proPresenterConnection } from "@/lib/propresenter-settings.server";
@@ -412,7 +413,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         return new Response(null, { status: 101, webSocket: client });
       } catch (err) {
         if (upgradingSocket) { upgradingSocket.close(1011, "Bridge authorization unavailable"); this.disconnectSocket(upgradingSocket); }
-        console.error("[BridgeRelay] websocket setup failed", err);
+        reportRelayError(this.ctx, this.env.DB, this.orgId, "bridge_socket_setup", err);
         return new Response("Bridge websocket failed", { status: 500 });
       }
     }
@@ -840,7 +841,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       // lyric until the bridge supplies its replacement or an explicit clear.
       const target = this.timecodeTarget;
       this.timecodeTarget = null;
-      void this.stopBridgeTimecode(target).catch(() => console.error("[BridgeRelay] disconnected clock cleanup failed"));
+      void this.stopBridgeTimecode(target).catch(error => reportRelayError(this.ctx, this.env.DB, this.orgId, "bridge_clock_cleanup", error));
       this.broadcastStatus();
     } else {
       if (wasBridge) this.broadcastStatus();
@@ -1280,7 +1281,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         })
       );
     } catch (err) {
-      console.error("[BridgeRelay] failed to push preview slide", err);
+      reportRelayError(this.ctx, this.env.DB, this.orgId, "bridge_preview_update", err);
     }
   }
 
@@ -1302,7 +1303,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         })
       );
     } catch (err) {
-      console.error("[BridgeRelay] failed to clear preview slide", err);
+      reportRelayError(this.ctx, this.env.DB, this.orgId, "bridge_preview_clear", err);
     }
   }
 

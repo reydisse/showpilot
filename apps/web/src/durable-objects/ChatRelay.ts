@@ -1,3 +1,4 @@
+import { reportRelayError } from "@/lib/operational-errors.server";
 import { DurableObject } from "cloudflare:workers";
 import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh, socketAuthorityClaim } from "@/lib/socket-read-authority.server";
 import { isEmojiReaction } from "@showpilot/shared";
@@ -239,12 +240,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
   private enqueueGatewayOperation(operation: () => Promise<void>): Promise<void> {
     const next = this.gatewayOperations.catch(() => undefined).then(operation);
     this.gatewayOperations = next.catch((error) => {
-      console.error(JSON.stringify({
-        message: "external chat gateway operation failed",
-        orgId: this.orgId,
-        roomId: this.roomId,
-        error: error instanceof Error ? error.message : String(error),
-      }));
+      reportRelayError(this.ctx, this.env.DB, this.orgId, "chat_gateway_operation", error);
     });
     return next;
   }
@@ -453,12 +449,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     } catch (error) {
       const detail = error instanceof Error ? error.message : "External chat synchronization failed";
       this.publishGatewayStatus({ type: "gateway-status", platform, status: "error", error: detail.slice(0, 240) });
-      console.error(JSON.stringify({
-        message: "external chat synchronization failed",
-        orgId: this.orgId,
-        platform,
-        error: detail,
-      }));
+      reportRelayError(this.ctx, this.env.DB, this.orgId, "chat_gateway_sync", error);
       return 60_000;
     }
   }
