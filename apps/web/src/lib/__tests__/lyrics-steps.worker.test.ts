@@ -2,7 +2,10 @@ import { env } from "cloudflare:workers";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, expect, it } from "vitest";
 import { timecodeFixture } from "@/test/timecode-fixtures";
+import { seedRelayMember } from "@/test/relay-fixtures";
 import type { AutomationEvent, TimecodeState } from "@/types/timecode";
+import { lyricsReviewState } from "@/lib/lyrics-control";
+import { buildSongAutomationEvents } from "@/lib/song-cues";
 
 afterEach(abortAllDurableObjects);
 const zero = { hours: 0, minutes: 0, seconds: 0, frames: 0 };
@@ -112,4 +115,103 @@ it("preserves the song load's scoped clear and follows a saved section reorder",
   await test.command("add-event", { id: "clear", action: "lyrics-clear", label: "Clear", triggerTimecode: zero, payload: { generationKey: "song-load" } });
   await test.command("fire-event", { id: "clear" });
   expect((await test.state()).lyrics).toBeNull();
+});
+
+it("lets the owning session step and clear reviewed lyrics without an intermediate blank", async () => {
+  const test = await fixture();
+  await test.show();
+  const output: string[] = [];
+  test.controlSocket?.addEventListener("message", message => {
+    const data = JSON.parse(String(message.data));
+    if (data.type === "lyrics-update" || data.type === "lyrics-clear") output.push(data.type);
+  });
+  for (const [operation, expectedSection] of [["next", test.ids[1]], ["previous", test.ids[0]]] as const) {
+    const before = (await test.state()).lyrics;
+    if (!before) throw new Error("Missing fixture lyrics");
+    await test.command("control-lyrics", { operation, expected: lyricsReviewState(before) });
+    const after = (await test.state()).lyrics;
+    expect(after).toMatchObject({ sectionId: expectedSection, manual: true });
+    expect(after?.revision).not.toBe(before.revision);
+    expect(after?.lyrics).toContain("\n");
+  }
+  await expect.poll(() => output).toEqual(["lyrics-update", "lyrics-update"]);
+  const current = (await test.state()).lyrics;
+  if (!current) throw new Error("Missing fixture lyrics");
+  await test.command("control-lyrics", { operation: "clear", expected: lyricsReviewState(current) });
+  expect((await test.state()).lyrics).toBeNull();
+  await expect.poll(() => output).toEqual(["lyrics-update", "lyrics-update", "lyrics-clear"]);
+});
+
+it("accepts only one of two concurrent clicks reviewing the same section", async () => {
+  const test = await fixture();
+  await test.show();
+  const current = (await test.state()).lyrics;
+  if (!current) throw new Error("Missing fixture lyrics");
+  const body = JSON.stringify({ action: "control-lyrics", payload: { operation: "next", expected: lyricsReviewState(current) } });
+  const responses = await Promise.all([0, 1].map(() => test.stub.fetch(test.url("/command"), { method: "POST", body })));
+  expect(responses.map(response => response.status).sort()).toEqual([200, 400]);
+  await Promise.all(responses.map(response => response.text()));
+  expect((await test.state()).lyrics?.sectionId).toBe(test.ids[1]);
+  await test.command("control-lyrics", { operation: "clear", expected: lyricsReviewState(current) }, 400);
+  expect((await test.state()).lyrics?.sectionId).toBe(test.ids[1]);
+});
+
+it("rejects stale revisions even if the song, section and timestamp match", async () => {
+  const test = await fixture();
+  await test.show();
+  const current = (await test.state()).lyrics;
+  if (!current) throw new Error("Missing fixture lyrics");
+  await test.command("control-lyrics", {
+    operation: "clear", expected: { ...lyricsReviewState(current), revision: crypto.randomUUID() },
+  }, 400);
+  expect((await test.state()).lyrics).toEqual(current);
+});
+
+it("exposes only control availability and refuses display readers or another session", async () => {
+  const test = await fixture();
+  await test.show();
+  await test.add("private-cue", "lyrics-next-section");
+  const status = await test.stub.fetch(test.url("/lyrics-controls"));
+  const body = await status.json();
+  expect(body).toMatchObject({ canControl: true });
+  expect(JSON.stringify(body)).not.toContain("private-cue");
+  const reader = await test.stub.fetch(test.url("/lyrics-controls", "read"));
+  expect(reader.status).toBe(401);
+  await reader.text();
+  const other = await seedRelayMember(test.orgId, crypto.randomUUID());
+  const otherUrl = (path: string) => {
+    const url = test.url(path);
+    url.searchParams.set("authUserId", other.userId);
+    url.searchParams.set("authSessionId", other.sessionId);
+    return url;
+  };
+  expect(await (await test.stub.fetch(otherUrl("/lyrics-controls"))).json()).toMatchObject({ canControl: false });
+  const current = (await test.state()).lyrics;
+  if (!current) throw new Error("Missing fixture lyrics");
+  const rejected = await test.stub.fetch(otherUrl("/command"), {
+    method: "POST", body: JSON.stringify({ action: "control-lyrics", payload: { operation: "clear", expected: lyricsReviewState(current) } }),
+  });
+  expect(rejected.status).toBe(409);
+  await rejected.text();
+  expect((await test.state()).lyrics).toEqual(current);
+});
+
+it.each([false, true])("runs a loaded song's timed clear without erasing a later manual override: %s", async manualOverride => {
+  const test = await fixture();
+  const events = buildSongAutomationEvents({ song: { id: test.songId, title: "Fixture song" },
+    cues: [{ id: "verse", triggerFrame: 0, section: { id: test.ids[0], label: "Section 1", lyrics: "First\nSecond" }, ppSlideIndex: null }],
+    format, target: "native", cueMapId: "map", clearAfterFrames: 2, toleranceFrames: 0 });
+  await test.command("replace-event-group", { sourceKey: events[0].sourceKey, events });
+  await test.command("start");
+  await test.command("feed-tc", { timecode: zero, format });
+  expect((await test.state()).lyrics).toMatchObject({ generationKey: events[0].sourceKey, lyrics: "First\nSecond" });
+  if (manualOverride) await test.show(1);
+  await test.command("feed-tc", { timecode: { ...zero, frames: 2 }, format });
+  if (manualOverride) {
+    expect((await test.state()).lyrics).toMatchObject({ sectionId: test.ids[1], manual: true });
+    await test.command("add-event", { id: "manual-clear", action: "lyrics-clear", label: "Clear current lyrics", triggerTimecode: zero, payload: {} });
+    await test.command("fire-event", { id: "manual-clear" });
+  }
+  expect((await test.state()).lyrics).toBeNull();
+  expect((await test.events()).every(event => event.fired)).toBe(true);
 });

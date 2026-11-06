@@ -26,5 +26,6 @@ export async function resolveLyricsStep(
     lyrics: selected.lyrics,
     nextLabel: sections.results[nextIndex + 1]?.label ?? "",
     updatedAt: Date.now(),
+    revision: crypto.randomUUID(),
   };
 }

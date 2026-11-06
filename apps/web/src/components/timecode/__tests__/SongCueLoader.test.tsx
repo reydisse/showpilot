@@ -65,3 +65,29 @@ it.each(["not-json", JSON.stringify({ frameRate: 25, dropFrame: "ndf" })])("bloc
   fireEvent.click(screen.getByRole("button", { name: "Load 1 mapped cues" }));
   expect(load).not.toHaveBeenCalled();
 });
+
+it("adds an explicitly requested scoped clear after the final cue and rejects an invalid hold", async () => {
+  const load = vi.fn(async (_events: unknown) => {});
+  render(<SongCueLoader orgId="test-org" format={format} defaultTarget="native" connected running={false} onLoad={load} onClose={() => {}} />);
+  await select();
+  fireEvent.click(screen.getByLabelText("Clear after last cue"));
+  fireEvent.change(screen.getByLabelText("Hold after last cue (frames)"), { target: { value: "-1" } });
+  fireEvent.click(screen.getByRole("button", { name: "Load 1 mapped cues" }));
+  expect(load).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("Hold after last cue (frames)"), { target: { value: "90" } });
+  fireEvent.click(screen.getByRole("button", { name: "Load 1 mapped cues" }));
+  await waitFor(() => expect(load).toHaveBeenCalledOnce());
+  expect(load.mock.calls[0][0]).toEqual([
+    expect.objectContaining({ action: "lyrics-goto", triggerFrame: 30 }),
+    expect.objectContaining({ action: "lyrics-clear", triggerFrame: 120, payload: { generationKey: "song:song-1:map:map-1:target:native:offset:0" } }),
+  ]);
+});
+
+it("explains why a song without a cue map cannot load", async () => {
+  songs.get.mockResolvedValue({ ...song, cueMaps: [] });
+  render(<SongCueLoader orgId="test-org" format={format} defaultTarget="native" connected running={false} onLoad={async () => {}} onClose={() => {}} />);
+  await screen.findByRole("option", { name: "Welcome" });
+  fireEvent.change(screen.getByLabelText("Song"), { target: { value: "song-1" } });
+  await screen.findByText(/This song has no cue maps yet/);
+  expect(screen.getByRole("button", { name: "Load 0 mapped cues" })).toHaveProperty("disabled", true);
+});

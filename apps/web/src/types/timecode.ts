@@ -95,6 +95,8 @@ export interface LyricsDisplayState {
   nextLabel: string;
   updatedAt: number;
   manual: boolean;
+  /** Opaque identity for guarded operator edits; older saved states may omit it. */
+  revision?: string;
   /** Identifies the automation load that owns a later scoped clear. */
   generationKey?: string;
 }
@@ -252,6 +254,7 @@ export const TIMECODE_COMMANDS = [
   "set-triggers-enabled",
   "resume-automatic-cues",
   "set-lyrics",
+  "control-lyrics",
   "clear-lyrics",
   "bridge-disconnected",
 ] as const;
