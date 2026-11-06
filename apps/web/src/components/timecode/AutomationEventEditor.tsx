@@ -1,3 +1,5 @@
+import { BasicCueFields } from "./BasicCueFields";
+import type { CueDetails } from "@/lib/automation-catalog";
 import { parseNamedTimerDuration, formatNamedTimerRemaining } from "@/lib/named-timers";
 import { MediaCueFields } from "./MediaCueFields";
 import type { MediaAsset } from "@/lib/media-library";
@@ -8,7 +10,7 @@ import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES } from
 import { isValidTimingMs, MAX_AUTOMATION_LEAD_MS } from "@/lib/automation-timing";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
-import { useId, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { createBrowserId } from "@/lib/browser-id";
 import type { NewAutomationEvent } from "@/hooks/useTimecode";
 import { Plus } from "lucide-react";
@@ -75,11 +77,16 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
   const [tcString, setTcString] = useState(editing ? timecodeToString(editing.triggerTimecode, format.dropFrame === "df") : "");
   const [action, setAction] = useState<AutomationActionType>(editing?.action ?? "lower-third-show");
   const [label, setLabel] = useState(editing?.label ?? "");
-  const [payloadJson, setPayloadJson] = useState(JSON.stringify(editing?.payload ?? {}));
+  const initialDetails = useMemo(() => ({ ...(editing?.payload ?? {}),
+    ...(editing?.targetDeviceId ? { deviceId: editing.targetDeviceId } : {}),
+    ...(editing?.targetActionId ? { actionId: editing.targetActionId } : {}),
+  }), [editing]);
+  const [details, setDetails] = useState<CueDetails>({ status: "invalid", message: "Complete the action fields." });
+  const [detailsGeneration, setDetailsGeneration] = useState(0);
   const [crewMessage, setCrewMessage] = useState(text("message"));
   const crewMessageId = useId();
   const [targetSelection, setTargetSelection] = useState<AutomationTargetOption | null>(null);
-  const usesTargetPicker = action === "rundown-goto-item" || action === "lighting-blackout";
+  const usesTargetPicker = action === "rundown-goto-item" || action === "rundown-start-item" || action === "lighting-blackout";
   const namedTimer = action === "timer-start" || action === "timer-stop";
   const mediaAction = action === "media-play" || action === "media-stop";
   const [mediaOutput, setMediaOutput] = useState(text("output", "Program"));
@@ -97,7 +104,8 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
   const targetId = useId();
   const [propName, setPropName] = useState(text("propName"));
   const [propTarget, setPropTarget] = useState(text("target"));
-  const structuredProPresenter = action === "pp-trigger-prop" || action === "pp-clear-props" || action === "pp-trigger-previous";
+  const structuredProPresenter = action === "pp-trigger-prop" || action === "pp-clear-props" || action === "pp-trigger-previous" || action === "pp-trigger-next" || action === "pp-trigger-clear";
+  const basicFields = !mediaAction && !namedTimer && !controlsTriggers && action !== "crew-message" && action !== "lyrics-clear" && !stepsLyrics && !usesTargetPicker && !structuredProPresenter && action !== "custom-webhook";
   const toleranceId = useId();
   const leadId = useId();
   const [leadText, setLeadText] = useState(String(editing?.leadMs ?? 0));
@@ -112,6 +120,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
   const webhookId = useId();
   const timecodeId = useId();
   const labelId = useId();
+  const actionId = useId();
   const parsedTimecode = parseTimecodeString(tcString);
   const timecodeValid = parsedTimecode !== null && isValidTimecode(parsedTimecode, format);
   const formatLabel = `${format.frameRate} fps ${format.dropFrame.toUpperCase()}`;
@@ -132,19 +141,24 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
       return;
     }
 
+    if (changeDetails && basicFields && details.status === "invalid") { setError(details.message); return; }
     let payload: Record<string, unknown>;
-    try {
-      const parsed: unknown = editing && !changeDetails ? editing.payload : action === "custom-webhook" ? { ...(editing?.payload ?? {}), url: webhookUrl.trim() } : mediaAction ? { output: mediaOutput.trim(), ...(action === "media-play" ? { mediaId: mediaAsset?.id, etag: mediaAsset?.etag, volume: mediaVolumeValid ? Number(mediaVolume) / 100 : null } : {}) } : namedTimer ? { name: timerName.trim(), ...(action === "timer-start" ? { durationMs: timerDurationMs } : {}) } : action === "crew-message" ? { message: crewMessage.trim() } : stepsLyrics || controlsTriggers || action === "lyrics-clear" ? {} : usesTargetPicker
-        ? action === "rundown-goto-item" ? { itemId: targetSelection?.id } : { deviceId: targetSelection?.id }
-        : structuredProPresenter
-        ? { ...(action === "pp-trigger-prop" ? { propName: propName.trim() } : {}), ...(propTarget.trim() ? { target: propTarget.trim() } : {}) }
-        : JSON.parse(payloadJson);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Expected an object");
-      payload = Object.fromEntries(Object.entries(parsed));
-    } catch {
-      setError("Invalid payload JSON.");
-      return;
-    }
+    if (editing && !changeDetails) payload = initialDetails;
+    else if (action === "custom-webhook") payload = { ...(editing?.payload ?? {}), url: webhookUrl.trim() };
+    else if (mediaAction) payload = {
+      output: mediaOutput.trim(),
+      ...(action === "media-play" ? { mediaId: mediaAsset?.id, etag: mediaAsset?.etag, volume: mediaVolumeValid ? Number(mediaVolume) / 100 : null } : {}),
+    };
+    else if (namedTimer) payload = { name: timerName.trim(), ...(action === "timer-start" ? { durationMs: timerDurationMs } : {}) };
+    else if (action === "crew-message") payload = { message: crewMessage.trim() };
+    else if (stepsLyrics || controlsTriggers || action === "lyrics-clear") payload = {};
+    else if (usesTargetPicker) payload = action === "lighting-blackout" ? { deviceId: targetSelection?.id } : { itemId: targetSelection?.id };
+    else if (structuredProPresenter) payload = {
+      ...(action === "pp-trigger-prop" ? { propName: propName.trim() } : {}),
+      ...(propTarget.trim() ? { target: propTarget.trim() } : {}),
+    };
+    else payload = details.status === "ready" ? details.payload : {};
+
 
     if (changeDetails && usesTargetPicker && !targetSelection) { setError("Choose a target before saving this cue."); return; }
     if (changeDetails && action === "custom-webhook" && !isSafeAutomationWebhookUrl(payload.url)) { setError("Enter a public HTTPS webhook URL."); return; }
@@ -155,7 +169,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
       triggerTimecode: tc,
       action,
       payload,
-      label: label || (mediaAction ? action === "media-play" ? `Play ${mediaAsset?.name ?? "media"} on ${mediaOutput.trim()}` : `Stop media on ${mediaOutput.trim()}` : "") || (namedTimer ? `${action === "timer-start" ? "Start" : "Stop"} ${timerName.trim()}` : "") || (usesTargetPicker && targetSelection ? `${action === "rundown-goto-item" ? "Jump to" : "Blackout"} ${targetSelection.label}` : "") || ACTION_OPTIONS.find((o) => o.value === action)?.label || action,
+      label: label || (mediaAction ? action === "media-play" ? `Play ${mediaAsset?.name ?? "media"} on ${mediaOutput.trim()}` : `Stop media on ${mediaOutput.trim()}` : "") || (namedTimer ? `${action === "timer-start" ? "Start" : "Stop"} ${timerName.trim()}` : "") || (usesTargetPicker && targetSelection ? `${action === "lighting-blackout" ? "Blackout" : action === "rundown-goto-item" ? "Jump to" : "Start"} ${targetSelection.label}` : "") || ACTION_OPTIONS.find((o) => o.value === action)?.label || action,
       toleranceFrames,
       leadMs,
       category: ACTION_OPTIONS.find((o) => o.value === action)?.category,
@@ -166,7 +180,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
     try {
       await onAdd({ ...draft, id: editing?.id ?? attemptRef.current.id });
       if (editing) return;
-      setTcString(""); setLabel(""); setPayloadJson("{}"); setCrewMessage(""); setPropName(""); setPropTarget(""); setTargetSelection(null); setToleranceText(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES)); setLeadText("0"); attemptRef.current = null;
+      setTcString(""); setLabel(""); setDetailsGeneration(value => value + 1); setCrewMessage(""); setPropName(""); setPropTarget(""); setTargetSelection(null); setToleranceText(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES)); setLeadText("0"); attemptRef.current = null;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Save was not confirmed. Your changes have been kept.");
     } finally { setSaving(false); }
@@ -205,13 +219,14 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
           {tcString.length > 0 && !timecodeValid && <p role="alert" className="mt-1 text-xs text-red-400">Enter a valid timecode for {formatLabel}.</p>}
         </div>
         <div>
-          <label className="text-[10px] text-board-muted uppercase tracking-wider mb-1 block">
+          <label htmlFor={actionId} className="text-xs text-board-muted uppercase tracking-wider mb-1 block">
             Action
           </label>
           <select
+            id={actionId}
             disabled={Boolean(editing)}
             value={action}
-            onChange={(e) => { setAction(e.target.value as AutomationActionType); setTargetSelection(null); }}
+            onChange={(e) => { setAction(e.target.value as AutomationActionType); setTargetSelection(null); setDetails({ status: "invalid", message: "Complete the action fields." }); }}
             className={INPUT_CLASS}
           >
             {ACTION_OPTIONS.map((opt) => (
@@ -242,7 +257,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
       </div>
 
       <div>
-        <label htmlFor={leadId} className="text-[10px] text-board-muted uppercase tracking-wider mb-1 block">Cue lead (ms)</label>
+        <label htmlFor={leadId} className="text-xs text-board-muted uppercase tracking-wider mb-1 block">Cue lead (ms)</label>
         <input id={leadId} type="number" min={0} max={MAX_AUTOMATION_LEAD_MS} step={1} required
           value={leadText} onChange={event => setLeadText(event.target.value)} aria-invalid={!leadValid}
           aria-describedby={`${leadId}-help`} className={INPUT_CLASS} />
@@ -251,7 +266,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
       </div>
 
       <div>
-        <label htmlFor={toleranceId} className="text-[10px] text-board-muted uppercase tracking-wider mb-1 block">Tolerance (frames)</label>
+        <label htmlFor={toleranceId} className="text-xs text-board-muted uppercase tracking-wider mb-1 block">Tolerance (frames)</label>
         <input id={toleranceId} type="number" min={0} max={MAX_TIMECODE_TOLERANCE_FRAMES} step={1} required
           value={toleranceText} onChange={event => setToleranceText(event.target.value)}
           aria-invalid={!toleranceValid} aria-describedby={`${toleranceId}-help`} className={INPUT_CLASS} />
@@ -299,26 +314,13 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
           <p className="mt-1 text-xs text-board-muted">Leave blank when only one ProPresenter is connected. Otherwise, use its connected target address.</p>
         </div>
         {action === "pp-clear-props" && <p className="text-xs text-board-muted">Clears only the props layer.</p>}
-      </div> : <div>
-        <label className="text-[10px] text-board-muted uppercase tracking-wider mb-1 block">
-          Action details (JSON)
-        </label>
-        <textarea
-          value={payloadJson}
-          onChange={(e) => setPayloadJson(e.target.value)}
-          rows={2}
-          className={`${INPUT_CLASS} font-mono text-xs resize-none`}
-        />
-        <p className="mt-1 text-[10px] leading-4 text-board-muted">
-          {action === "stage-message" ? 'Use {"message":"Stand by"}.' : action === "rundown-adjust" ? 'Use {"deltaMs":30000} to add 30 seconds.' : action === "device-action" || action === "lighting-scene" ? "Include the device/action identifiers configured in Devices." : "No details are required for this action."}
-        </p>
-      </div>}
+      </div> : <BasicCueFields key={`${action}:${detailsGeneration}`} action={action} initial={initialDetails} orgId={orgId} onChange={setDetails} />}
 
       {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
 
       <button
         type="submit"
-        disabled={!timecodeValid || !toleranceValid || !leadValid || (changeDetails && ((action === "custom-webhook" && !isSafeAutomationWebhookUrl(webhookUrl)) || (mediaAction && (!mediaOutput.trim() || (action === "media-play" && (!mediaAsset || !mediaVolumeValid)))) || (namedTimer && (!timerName.trim() || (action === "timer-start" && timerDurationMs === null))) || (usesTargetPicker && !targetSelection)))}
+        disabled={!timecodeValid || !toleranceValid || !leadValid || (changeDetails && basicFields && details.status !== "ready") || (changeDetails && ((action === "custom-webhook" && !isSafeAutomationWebhookUrl(webhookUrl)) || (mediaAction && (!mediaOutput.trim() || (action === "media-play" && (!mediaAsset || !mediaVolumeValid)))) || (namedTimer && (!timerName.trim() || (action === "timer-start" && timerDurationMs === null))) || (usesTargetPicker && !targetSelection)))}
         className="flex min-h-11 items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2 text-sm font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
       >
         <Plus className="w-3.5 h-3.5" />

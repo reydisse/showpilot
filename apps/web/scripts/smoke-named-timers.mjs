@@ -27,7 +27,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await browser("tab", "0");
   const form = 'form:has(input[placeholder="00:05:00:00"])';
   for (const [action, name, duration, second] of [["timer-start", "Speaker countdown", "5:00", 10], ["timer-stop", "Speaker countdown", null, 20], ["timer-start", "Break", "1:00", 30]]) {
-    await browser("select", `${form} select`, action);
+    await browser("select", `${form} select >> nth=0`, action);
     await browser("fill", `${form} input[placeholder="00:05:00:00"]`, `00:00:${second}:00`);
     await browser("find", "label", "Timer name", "fill", name);
     if (duration) await browser("find", "label", "Duration (m:ss)", "fill", duration);

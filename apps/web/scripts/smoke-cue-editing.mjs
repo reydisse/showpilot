@@ -25,7 +25,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await browser("open", `${origin}/${orgId}/timecode`);
   await browser("wait", "text=Start Internal Generator");
   await browser("fill", `${form} input[placeholder="00:05:00:00"]`, "00:01:00:00");
-  await browser("select", `${form} select`, "lyrics-clear");
+  await browser("select", `${form} select >> nth=0`, "lyrics-clear");
   await browser("find", "label", "Label", "fill", "Edit rehearsal");
   await click("Add Event");
   const original = await poll(async () => (await events()).find(event => event.label === "Edit rehearsal"), "saved initial cue");
@@ -77,7 +77,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   const reconnected = (await events())[0];
   assert.equal(reconnected.label, "Offline draft"); assert.equal(reconnected.fired, true); assert.equal(reconnected.executionId, fired.executionId);
   await browser("fill", `${form} input[placeholder="00:05:00:00"]`, "00:03:00:00");
-  await browser("select", `${form} select`, "custom-webhook");
+  await browser("select", `${form} select >> nth=0`, "custom-webhook");
   await browser("find", "label", "Webhook URL", "fill", "https://127.0.0.1/private");
   assert.equal(await evaluate(`document.querySelector(${JSON.stringify(form)}).querySelector('button[type=submit]').disabled`), true);
   await browser("find", "label", "Webhook URL", "fill", "https://example.com/hook");
