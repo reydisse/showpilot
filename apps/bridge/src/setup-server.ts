@@ -183,6 +183,7 @@ export async function resolveBridgeUrl(site: string, org: string): Promise<strin
     const response = await fetch(normalized, {
       method: "GET",
       redirect: "follow",
+      signal: AbortSignal.timeout(3000),
     });
     if (response.url) {
       return toBridgeUrl(response.url, org);

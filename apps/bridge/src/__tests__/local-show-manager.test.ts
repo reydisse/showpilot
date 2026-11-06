@@ -634,3 +634,22 @@ it("runs native loopback → encrypted manager → equipment and suppresses dupl
     "private-device-password",
   );
 });
+
+it("does not resurrect a preparation revoked while native ownership is changing", async () => {
+  const f = fixture();
+  f.prepare();
+  let activated: () => void = () => {};
+  f.dependencies.activate.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        activated = resolve;
+      }),
+  );
+  const entering = f.begin();
+  f.manager.applyCloudPolicy([], false);
+  activated();
+  await expect(entering).rejects.toThrow(/revoked/);
+  expect(f.dependencies.deactivate).toHaveBeenCalledTimes(1);
+  expect(f.restart().status()).toMatchObject({ mode: "empty" });
+  expect(f.dependencies.execute).not.toHaveBeenCalled();
+});

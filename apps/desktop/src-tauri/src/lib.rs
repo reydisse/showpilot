@@ -15,7 +15,8 @@ use confidence_output::{
 mod bridge_runtime;
 mod midi_controller;
 use bridge_runtime::{
-    bridge_status, start_bridge, start_saved_bridge, start_supervisor, stop_bridge, BridgeRuntime,
+    bridge_status, local_show_command, start_bridge, start_saved_bridge, start_supervisor,
+    stop_bridge, BridgeRuntime,
 };
 
 #[derive(Serialize)]
@@ -363,6 +364,7 @@ pub fn run() {
             display_fullscreen_state,
             toggle_display_fullscreen,
             bridge_status,
+            local_show_command,
             start_bridge,
             stop_bridge,
             midi_controller::midi_controller_open,
