@@ -2,7 +2,7 @@
 // Uses the built application and real authentication. No remote data or existing browser sessions.
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { createHmac, randomUUID } from "node:crypto";
+import { createHmac, randomUUID, randomBytes } from "node:crypto";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -18,6 +18,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
   const secret = randomUUID();
   const authSecret = randomUUID();
   const companionSecret = randomUUID();
+  const encryptionSecret = JSON.stringify({ active: "fixture", keys: { fixture: randomBytes(32).toString("base64") } });
   const orgId = "display-smoke";
   const date = new Date().toLocaleDateString("en-CA");
   let worker;
@@ -71,7 +72,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     const config = Object.fromEntries(["name", "compatibility_date", "compatibility_flags", "durable_objects", "migrations", "d1_databases", "r2_buckets", "rules", "no_bundle"].map((key) => [key, built[key]]));
     Object.assign(config, {
       main: join(web, "dist/server/index.js"), assets: { directory: join(web, "dist/client") },
-      vars: { KIOSK_SECRET: secret, COMPANION_SECRET: companionSecret, BETTER_AUTH_SECRET: authSecret, BETTER_AUTH_URL: origin },
+      vars: { CREDENTIAL_ENCRYPTION_KEYS: encryptionSecret, KIOSK_SECRET: secret, COMPANION_SECRET: companionSecret, BETTER_AUTH_SECRET: authSecret, BETTER_AUTH_URL: origin },
     });
     const configPath = join(directory, "wrangler.json");
     const state = join(directory, "state");
@@ -139,7 +140,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     await check({ origin, orgId, date, browser, pass, crewChatPass, stopServer, startServer, queryFixture, revokeFixtureOperator, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
   } catch (error) {
     // Configuration contains only disposable fixture secrets; redact them anyway.
-    console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]").replaceAll(companionSecret, "[fixture secret]"));
+    console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]").replaceAll(companionSecret, "[fixture secret]").replaceAll(encryptionSecret, "[fixture secret]"));
     throw error;
   } finally {
     await browser("close").catch(() => {});

@@ -44,6 +44,7 @@ interface ChatMessage {
 
 type ChatRelayEnv = Pick<Env, "DB" | "STORAGE"> & {
   BETTER_AUTH_SECRET?: string;
+  CREDENTIAL_ENCRYPTION_KEYS?: string;
 };
 
 interface GatewayStatusFrame {
@@ -304,7 +305,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
   private async forwardExternalMessage(message: ChatMessage): Promise<void> {
     if (this.roomId !== "production" || !this.orgId || message.external) return;
-    const config = await loadExternalChatConfiguration(this.env.DB, this.orgId);
+    const config = await loadExternalChatConfiguration(this.env.DB, this.orgId, this.env.CREDENTIAL_ENCRYPTION_KEYS);
     if (!config) return;
     this.updateExternalDelivery(message.id, { platform: config.platform, status: "pending" });
     const rootNativeId = message.threadRootId ?? message.replyTo?.messageId;
@@ -328,7 +329,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
   private async forwardExternalMutation(message: ChatMessage, deleted: boolean): Promise<void> {
     if (this.roomId !== "production" || !this.orgId || message.external) return;
-    const config = await loadExternalChatConfiguration(this.env.DB, this.orgId);
+    const config = await loadExternalChatConfiguration(this.env.DB, this.orgId, this.env.CREDENTIAL_ENCRYPTION_KEYS);
     if (!config || config.platform === "teams") return;
     const externalId = this.externalIdForNative(config.platform, message.id);
     if (!externalId) return;
@@ -408,7 +409,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     if (this.roomId !== "production" || !this.orgId) return null;
     let platform: ExternalChatPlatform | null = null;
     try {
-      const config = await loadExternalChatConfiguration(this.env.DB, this.orgId);
+      const config = await loadExternalChatConfiguration(this.env.DB, this.orgId, this.env.CREDENTIAL_ENCRYPTION_KEYS);
       if (!config) {
         this.publishGatewayStatus({ type: "gateway-status", platform: null, status: "disabled" });
         return null;

@@ -103,5 +103,12 @@ export function useSettingAutosave({
     [settings],
   );
 
-  return { getSetting, saveSetting, saveState, settings };
+  // Credential editors receive only masked metadata from their dedicated save.
+  const acceptSavedSetting = useCallback((key: string, value: string) => {
+    committedSettings.current = { ...committedSettings.current, [key]: value };
+    localSettings.current = { ...localSettings.current, [key]: value };
+    setSettings(localSettings.current);
+  }, []);
+
+  return { getSetting, saveSetting, saveState, settings, acceptSavedSetting };
 }

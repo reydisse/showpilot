@@ -1,3 +1,4 @@
+import { readSettingValuesForUse } from "./credential-settings.server";
 import { markDatabaseWrite, requestDatabase } from "@/lib/request-database.server";
 import { migrateRundownItemSnapshot, readStoredRundownItems, rundownItemDiffStatements, rundownItemStorageKey, rundownItemStorageStatements } from "@/lib/rundown-item-storage.server";
 import { rundownRelayKey } from "@/lib/rundown-relay-key";
@@ -365,9 +366,7 @@ async function readProPresenterTarget(orgId: string) {
     },
     select: { key: true, value: true },
   });
-  const values = Object.fromEntries(
-    settings.map((setting) => [setting.key, setting.value]),
-  );
+  const values = await readSettingValuesForUse(env.CREDENTIAL_ENCRYPTION_KEYS, orgId, settings);
   const host = values["propresenter-host"]?.trim();
   if (!host) return null;
   const stagePort = Number.parseInt(values["propresenter-port"] ?? "50001", 10);

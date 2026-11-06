@@ -213,18 +213,23 @@ Do not restore a pre-digest Worker after this conversion. The hash cannot be
 converted back to the issued token. Keep a compatible rollback build, and test
 an existing kiosk display and Companion control with the saved device tokens.
 
-### Credential encryption preparation
+### Organization credential encryption
 
-The credential vault module is groundwork for the settings/device migration.
-It is not yet wired into production writes; do not treat its presence as proof
-that existing settings are encrypted. Complete the consumer migration and
-backfill before deploying the credential-storage change.
+Credential-valued organization settings now encrypt on write. The Settings
+page returns only a configured mask and provides explicit replace/clear
+controls. Blank replacement fields preserve existing credentials. Clearing
+requires confirmation. Single and bulk generic save responses are masked too.
+Internal chat, Slack-signature, ProPresenter and mobile consumers can read the
+encrypted values. Device JSON storage and protected native credential delivery
+are still pending; this change set is not yet the complete H7/H8 release.
 
-The vault accepts `CREDENTIAL_ENCRYPTION_KEYS` from the Worker environment as
-JSON with an `active` key ID and a `keys` map from key IDs to base64-encoded,
-cryptographically random 32-byte keys. No key belongs in a source file, public
-build variable, log or database. The module rejects missing/malformed keys and
-never substitutes the auth, kiosk, Companion or Bridge signing credentials.
+Before deploying, apply `0050_credential_backfill_cursor.sql` and provision the
+Worker secret `CREDENTIAL_ENCRYPTION_KEYS`. It is JSON with an `active` key ID
+and a `keys` map from key IDs to base64-encoded, cryptographically random
+32-byte keys. No key belongs in source, a public build variable, a log or D1.
+Missing or malformed keys block credential creation/replacement before writes;
+clearing a credential and ordinary settings edits remain available. No auth,
+kiosk, Companion or Bridge key is substituted for the encryption key.
 
 Each value has a new random AES-256 data key. AES-GCM encrypts the value and
 wraps its data key separately, using independent 96-bit nonces and 128-bit tags.
@@ -232,13 +237,32 @@ Authenticated data binds both operations to the organization, setting key or
 device ID and nested field path, format version and wrapping-key ID. Stored
 values have an `spenc:v1:` prefix. Copying an envelope between identities fails.
 
+Existing plaintext organization credentials remain readable during migration.
+Each scheduled run scans at most 100 setting rows, encrypts credential-valued
+rows and saves a numeric checkpoint. At the end it starts another sweep;
+compare-and-set updates preserve concurrent edits/deletion. The Bridge API-key
+migration remains separate and hashes those keys. No production migration or
+secret has been applied by this implementation work.
+
+After a complete sweep, run the counts-only audit from the repository root:
+
+```sh
+node apps/web/scripts/audit-credential-settings.mjs --remote
+```
+
+It selects only setting names and aggregate counts, never values. It exits
+nonzero if any nonempty organization credentials remain in plaintext or use
+an unknown envelope prefix. `encrypted` counts the supported prefix; it is not
+a decryption test. Also verify configured integrations with their saved
+credentials. Device settings and token tables have separate verification.
+
 For rotation, retain the prior key in the map, add a newly generated key and
 make it active. New values use the new key; existing values can still be read
-and explicitly re-encrypted. Do not remove the old key until the eventual
-backfill verifies no remaining envelopes use it, including inactive devices,
-and recovery backups no longer depend on it. Keep compatible Worker code and
-keys available together for rollback. The migration and verification command
-are still outstanding; no production key or backfill has been created here.
+and explicitly re-encrypted. The scheduled plaintext migration does not rotate
+existing envelopes. Do not remove an old key until all dependent ciphertext and
+recovery backups have been migrated. Keep compatible Worker code and keys
+available together for rollback; a pre-encryption Worker cannot consume these
+values. The rotation migration and device backfill remain outstanding.
 
 ### Applying a migration to production
 

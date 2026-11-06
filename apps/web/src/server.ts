@@ -1,3 +1,4 @@
+import { backfillCredentialSettings, readSettingValuesForUse } from "./lib/credential-settings.server";
 import { backfillScopedTokenDigests } from "./lib/scoped-token-store.server";
 import handler from "@tanstack/react-start/server-entry";
 import { withDatabaseRequest, withDatabaseTask } from "./lib/request-database.server";
@@ -36,6 +37,7 @@ export { BridgeRelay } from "./durable-objects/BridgeRelay";
 export { CueSheetRelay } from "./durable-objects/CueSheetRelay";
 
 interface Env {
+  CREDENTIAL_ENCRYPTION_KEYS?: string;
   DB: D1Database;
   STORAGE: R2Bucket;
   TIMECODE_RELAY: Cloudflare.Env["TIMECODE_RELAY"];
@@ -215,7 +217,7 @@ const appServer = {
         rawBody,
         request.headers.get("x-slack-request-timestamp"),
         request.headers.get("x-slack-signature"),
-        signingSecret.value,
+        (await readSettingValuesForUse(e.CREDENTIAL_ENCRYPTION_KEYS, orgId, [{ key: "slack-signing-secret", value: signingSecret.value }]))["slack-signing-secret"],
       );
       if (!signatureValid) return new Response("Invalid Slack signature", { status: 401 });
       let envelope: unknown;
@@ -697,6 +699,7 @@ const appServer = {
       createDuePostShowReminders(e.DB),
       createDueDutyReminders(e.DB),
       backfillScopedTokenDigests(e.DB),
+      backfillCredentialSettings(e.DB, e.CREDENTIAL_ENCRYPTION_KEYS),
       backfillLegacyBridgeInstallations(e.DB).then((result) => {
         if (result.failed > 0) throw new Error(`Bridge credential migration failed for ${result.failed} installations; ${result.remaining} remain.`);
       }),

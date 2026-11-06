@@ -10,6 +10,11 @@ BETTER_AUTH_URL=http://localhost:3000
 # Kiosk display token signing secret. Generate: openssl rand -base64 32
 KIOSK_SECRET=
 
+# Credential encryption keyring JSON. See DEPLOY.md; use a separate random
+# 32-byte base64 key, e.g. {"active":"local","keys":{"local":"<base64-key>"}}.
+# Required to create/replace integration credentials; never use a signing key.
+CREDENTIAL_ENCRYPTION_KEYS=
+
 # Resend API key for transactional email (invites, password reset)
 RESEND_API_KEY=
 

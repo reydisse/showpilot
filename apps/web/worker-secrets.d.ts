@@ -1,6 +1,7 @@
 /** Secret and dashboard bindings that Wrangler cannot infer from wrangler.jsonc. */
 declare namespace Cloudflare {
 	interface Env {
+		CREDENTIAL_ENCRYPTION_KEYS?: string;
 		NEXTJS_ENV: string;
 		BETTER_AUTH_SECRET: string;
 		BETTER_AUTH_URL: string;
