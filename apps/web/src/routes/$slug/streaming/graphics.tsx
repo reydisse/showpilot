@@ -1,9 +1,10 @@
+import { useGraphicsOutput } from "@/hooks/useGraphicsOutput";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Play,
   Square,
@@ -28,9 +29,6 @@ import {
   updateGraphicTemplate,
   deleteGraphicTemplate,
   getActiveGraphics,
-  addActiveGraphic,
-  removeActiveGraphic,
-  clearActiveGraphics,
 } from "@/lib/graphics";
 import {
   DEFAULT_CONTROLS,
@@ -121,8 +119,8 @@ function GraphicsPage() {
   const router = useRouter();
   const canTriggerGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:trigger");
   const canConfigureGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:configure");
-  const [activeIds, setActiveIds] = useState<string[]>(initialActiveIds);
-  const [graphicsError, setGraphicsError] = useState<string | null>(null);
+  const output = useGraphicsOutput(orgId, initialActiveIds, canTriggerGraphics);
+  const activeIds = output.activeIds;
   const [filterType, setFilterType] = useState<GraphicType | "all">("all");
   const [showForm, setShowForm] = useState(false);
   const [editTemplate, setEditTemplate] = useState<
@@ -151,50 +149,12 @@ function GraphicsPage() {
       ? visibleTemplates
       : visibleTemplates.filter((t) => parseStyle(t.style).type === filterType);
 
-  useEffect(() => {
-    let disposed = false;
-    const reconcile = async () => {
-      if (document.visibilityState !== "visible") return;
-      try {
-        const current = await getActiveGraphics({ data: { orgId } });
-        if (!disposed) setActiveIds(current.map((graphic) => graphic.id));
-      } catch {}
-    };
-    const timer = setInterval(() => void reconcile(), 2_000);
-    return () => { disposed = true; clearInterval(timer); };
-  }, [orgId]);
-
-  // Send an atomic per-graphic intent. The server returns authoritative state,
-  // so stale operator windows cannot replace another operator's live set.
-  const handleToggle = async (id: string) => {
-    setGraphicsError(null);
-    try {
-      const next = activeIds.includes(id)
-        ? await removeActiveGraphic({ data: { orgId, graphicId: id } })
-        : await addActiveGraphic({ data: { orgId, graphicId: id } });
-      setActiveIds(next);
-    } catch (error) {
-      setGraphicsError(error instanceof Error ? error.message : "The on-air graphic did not change.");
-      const current = await getActiveGraphics({ data: { orgId } }).catch(() => null);
-      if (current) setActiveIds(current.map((graphic) => graphic.id));
-    }
-  };
-
-  const handleClearAll = async () => {
-    setGraphicsError(null);
-    try {
-      await clearActiveGraphics({ data: { orgId } });
-      setActiveIds([]);
-    } catch (error) {
-      setGraphicsError(error instanceof Error ? error.message : "The on-air graphics were not cleared.");
-      const current = await getActiveGraphics({ data: { orgId } }).catch(() => null);
-      if (current) setActiveIds(current.map((graphic) => graphic.id));
-    }
-  };
+  const handleToggle = (id: string) => output.run({ kind: activeIds.includes(id) ? "hide" : "show", graphicId: id });
+  const handleClearAll = () => output.run({ kind: "clear" });
 
   const handleDelete = async (id: string) => {
     if (activeIds.includes(id)) {
-      setActiveIds(await removeActiveGraphic({ data: { orgId, graphicId: id } }));
+      if (!await output.run({ kind: "hide", graphicId: id })) return;
     }
     await deleteGraphicTemplate({ data: { orgId, id } });
     router.invalidate();
@@ -284,11 +244,9 @@ function GraphicsPage() {
       </div>
 
       <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
-        {graphicsError ? (
-          <div role="alert" className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-xs text-red-300">
-            {graphicsError}
-          </div>
-        ) : null}
+        <ReadFailureNotice error={output.readFailure} refreshing={output.refreshing} retry={output.retry} label="Refresh graphics output" />
+        {output.failure && <div role="alert" aria-label="Graphics change confirmation" className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{output.failure.message} <time dateTime={new Date(output.failure.occurredAt).toISOString()}>{new Date(output.failure.occurredAt).toLocaleTimeString()}</time></div>}
+        {!output.fresh && <p role="status" aria-live="polite" className="text-sm text-amber-200">{output.pending ? "Waiting for graphics output confirmation…" : "Refreshing graphics output. Showing the last confirmed state."}</p>}
         {/* ProPresenter slide import */}
         {canConfigureGraphics && (
           <section className="rounded-xl border border-board-border bg-board-card/60 p-4">
@@ -354,20 +312,19 @@ function GraphicsPage() {
         )}
 
         {/* ProPresenter slide import */}
-        {activeIds.length > 0 && (
-            <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-fire-500/10 border border-fire-500/20">
+        {(activeIds.length > 0 || canTriggerGraphics || !output.fresh) && (
+            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-xl bg-fire-500/10 border border-fire-500/20">
               <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-fire-500 animate-pulse" />
               <span className="text-sm font-medium text-fire-500">
-                {activeIds.length === 1
-                  ? "1 graphic on air"
-                  : `${activeIds.length} graphics on air`}
+                {output.fresh ? (activeIds.length === 0 ? "No graphics on air" : activeIds.length === 1 ? "1 graphic on air" : `${activeIds.length} graphics on air`) : (activeIds.length === 0 ? "Last confirmed: no graphics on air" : `${activeIds.length} last confirmed on air`)}
               </span>
             </div>
               {canTriggerGraphics && (
                 <button
                   onClick={handleClearAll}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
+                  disabled={output.pending !== null}
+                  className="min-h-11 flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
                 >
                   <Square className="w-3 h-3" />
                   Clear all
@@ -436,7 +393,8 @@ function GraphicsPage() {
                     {canTriggerGraphics && (
                       <button
                         onClick={() => handleToggle(template.id)}
-                        className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                        disabled={!output.fresh}
+                        className={`min-w-11 min-h-11 w-11 h-11 disabled:opacity-45 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
                           isActive
                             ? "bg-red-500/20 text-red-400 hover:bg-red-500/30"
                             : "bg-fire-500/15 text-fire-500 hover:bg-fire-500/25"
@@ -453,7 +411,7 @@ function GraphicsPage() {
                     )}
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex flex-wrap items-center gap-2 mb-1">
                         <span
                           className={`text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded border ${config.color}`}
                         >
@@ -461,7 +419,7 @@ function GraphicsPage() {
                         </span>
                         {isActive && (
                           <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-fire-500">
-                            <Eye className="w-2.5 h-2.5" /> On Air
+                            <Eye className="w-2.5 h-2.5" /> {output.fresh ? "On Air" : "Last confirmed on air"}
                           </span>
                         )}
                       </div>
