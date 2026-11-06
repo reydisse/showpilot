@@ -66,6 +66,7 @@ export interface UseTimecodeReturn {
   skipEvent: (id: string) => void;
   rearmEvent: (id: string, expected: ReturnType<typeof cueReviewState>) => void;
   setEventEnabled: (id: string, enabled: boolean) => void;
+  resumeAutomaticCues: () => void;
   setTriggersEnabled: (enabled: boolean, expectedHoldId?: string) => void;
   setLyrics: (lyrics: Omit<LyricsDisplayState, "updatedAt" | "manual">) => void;
   clearLyrics: () => void;
@@ -489,6 +490,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     sendCommand("rearm-event", { id, expected, confirmed: true });
   }, [sendCommand]);
   const setEventEnabled = useCallback((id: string, value: boolean) => { sendCommand("set-event-enabled", { id, enabled: value }); }, [sendCommand]);
+  const resumeAutomaticCues = useCallback(() => { sendCommand("resume-automatic-cues"); }, [sendCommand]);
   const setTriggersEnabled = useCallback((value: boolean, expectedHoldId?: string) => {
     sendCommand("set-triggers-enabled", { enabled: value, ...(expectedHoldId ? { expectedHoldId, confirmed: true } : {}) });
   }, [sendCommand]);
@@ -503,6 +505,6 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     events: visibleState ? events : [], isMaster: visibleState !== null && isMaster, generatorPending, lastError,
     startFreerun, stopGenerator, pauseGenerator, startMtc, stopMtc: stopGenerator, setTimecode, adjustTimecode, setFormat,
     addEvent, replaceEventGroup, updateEvent, removeEvent, resetEvents, retryEvent, fireEvent, fireNext, skipEvent, rearmEvent, setEventEnabled,
-    setTriggersEnabled, setLyrics, clearLyrics, mtcSupported,
+    setTriggersEnabled, resumeAutomaticCues, setLyrics, clearLyrics, mtcSupported,
   };
 }

@@ -1,3 +1,4 @@
+import { isTriggerControlAction } from "@/lib/automation-execution";
 import { automationPayloadProblem } from "@/lib/automation-payload";
 import { AutomationTargetPicker, type AutomationTargetOption, type LoadAutomationTargets } from "./AutomationTargetPicker";
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES } from "@/types/timecode";
@@ -36,6 +37,8 @@ const ACTION_OPTIONS: {
   { value: "rundown-stop", label: "Stop Rundown", category: "Rundown" },
   { value: "rundown-adjust", label: "Adjust Rundown Timer", category: "Rundown" },
   { value: "stage-message", label: "Send Stage Message", category: "Stage Display" },
+  { value: "triggers-disable", label: "Pause Automatic Cues", category: "Automation" },
+  { value: "triggers-enable", label: "Resume Automatic Cues", category: "Automation" },
   { value: "crew-message", label: "Post to Production Chat", category: "Crew" },
   { value: "stage-clear", label: "Clear Stage Message", category: "Stage Display" },
   { value: "device-action", label: "Trigger Device Action", category: "Devices" },
@@ -64,6 +67,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
   const crewMessageId = useId();
   const [targetSelection, setTargetSelection] = useState<AutomationTargetOption | null>(null);
   const usesTargetPicker = action === "rundown-goto-item" || action === "lighting-blackout";
+  const controlsTriggers = isTriggerControlAction(action);
   const stepsLyrics = action === "lyrics-next-section" || action === "lyrics-previous-section";
   const propNameId = useId();
   const targetId = useId();
@@ -99,7 +103,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
 
     let payload: Record<string, unknown>;
     try {
-      const parsed: unknown = action === "crew-message" ? { message: crewMessage.trim() } : stepsLyrics ? {} : usesTargetPicker
+      const parsed: unknown = action === "crew-message" ? { message: crewMessage.trim() } : stepsLyrics || controlsTriggers ? {} : usesTargetPicker
         ? action === "rundown-goto-item" ? { itemId: targetSelection?.id } : { deviceId: targetSelection?.id }
         : structuredProPresenter
         ? { ...(action === "pp-trigger-prop" ? { propName: propName.trim() } : {}), ...(propTarget.trim() ? { target: propTarget.trim() } : {}) }
@@ -217,7 +221,11 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
         {!toleranceValid && <p role="alert" className="mt-1 text-xs text-red-400">{toleranceError}</p>}
       </div>
 
-      {action === "crew-message" ? <div className="space-y-2">
+      {controlsTriggers ? <p className="text-xs text-board-muted">
+        {action === "triggers-disable" ? "Pause automatic firing while the clock continues. Manual Fire remains available. Add a Resume Automatic Cues event or resume from the operator controls."
+          : "Resume automatic firing from the current timecode. Missed cues will not replay. This cannot override the safety kill switch or an unresolved timecode hold."}
+        {" "}If pause and resume share a dispatch time, pause wins.
+      </p> : action === "crew-message" ? <div className="space-y-2">
         <label htmlFor={crewMessageId} className="block text-xs text-board-muted">Crew message</label>
         <textarea id={crewMessageId} required maxLength={4000} rows={3} value={crewMessage} onChange={event => setCrewMessage(event.target.value)} className={INPUT_CLASS} />
         <p className="text-xs text-board-muted">Post to Production Chat as the controlling operator. Delivery to any linked chat service is shown separately in Chat.</p>

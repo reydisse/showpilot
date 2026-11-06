@@ -153,3 +153,18 @@ it("uses the shared default, rejects invalid tolerance and saves exact zero", as
   expect(save.mock.calls[0][0].toleranceFrames).toBe(0);
   expect(tolerance).toHaveProperty("value", "5");
 });
+
+it.each(["triggers-disable", "triggers-enable"])("saves %s without stale JSON and explains the safety precedence", async action => {
+  const save = vi.fn(async (_event: NewAutomationEvent) => {});
+  render(<AutomationEventEditor connected format={format} onAdd={save} />);
+  fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
+  const details = document.querySelector("textarea");
+  if (!details) throw new Error("Missing initial JSON field");
+  fireEvent.change(details, { target: { value: "invalid JSON from the previous action" } });
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: action } });
+  expect(document.querySelector("textarea")).toBeNull();
+  expect(screen.getByText(/pause wins/)).toBeTruthy();
+  if (action === "triggers-enable") expect(screen.getByText(/cannot override the safety kill switch/)).toBeTruthy();
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
+  expect(save.mock.calls[0][0]).toMatchObject({ action, payload: {}, enabled: true });
+});

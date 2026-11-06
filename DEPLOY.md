@@ -517,6 +517,39 @@ organization isolation, deleted sections, boundaries, disabling, the kill switch
 retry, reviewed re-fire and scoped clearing. Direct preview controls, keyboard
 and MIDI shortcuts, and the remaining Phase 2.6 work are still pending.
 
+### Cue-controlled automation pauses
+
+`triggers-disable` pauses automatic cue firing while timecode continues.
+`triggers-enable` ends that pause at its scheduled dispatch frame. The editor
+calls these Pause Automatic Cues and Resume Automatic Cues. Both take an empty
+payload and support the existing enabled flag, explicit Retry and reviewed
+Re-fire. The operator page shows a persisted pause and a Resume automatic cues
+button. Manual Fire remains available during this cue pause.
+
+This state is separate from the safety kill switch. Neither an Enable cue nor
+the Resume button can override the kill switch, an unresolved jump review or
+an input-format hold. Enabling the safety switch does not silently remove a
+cue pause. Stop/Start and relay hibernation also preserve it.
+
+Controls run in dispatch-frame order. At the same frame, Enable runs before
+Disable, so Disable wins before any ordinary output is reserved. Disable also
+cancels automatic work queued before output dispatch; it cannot undo a command
+already sent to a device. A sparse feed crossing a queued output and then a
+Disable cue can therefore leave that output missed for operator review. Resume
+continues from the current clock position without replaying missed cues.
+
+Deploy the matching web client and Worker together. Legacy snapshots default
+to automatic cues enabled. There is no database migration or native protocol
+change for these controls.
+
+After the web build, run `node apps/web/scripts/smoke-trigger-controls.mjs`.
+It saves both controls through the built editor, advances a real local relay,
+checks stage output remains unchanged during the pause, fires manually, resumes
+from a timed cue and the operator button, and verifies kill-switch precedence.
+Worker cases also cover simultaneous controls, sparse and concurrent feeds,
+interrupted execution/Retry, disabled/skipped events, reviewed Re-fire, eviction,
+jump/format holds and control ownership. Fixtures are disposable and local.
+
 ### Timed crew messages
 
 `crew-message` posts a text cue to Production Chat. The editor has a labeled
