@@ -1,3 +1,5 @@
+import { CREDENTIAL_MASK, isCredentialField } from "@/lib/credential-fields";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useMemo, useState } from "react";
@@ -258,7 +260,7 @@ function DevicesPage() {
 function InlineDeviceControls({ device, orgId }: { device: Awaited<ReturnType<typeof getDevices>>[number]; orgId: string }) {
   const { module, status, feedbacks, definition, bridgeOnline, connect, disconnect, error } = useDeviceModule(device, orgId);
   const connecting = status === "connecting";
-  return <div className="min-w-0 p-3 sm:p-5"><div className="mb-4 flex flex-wrap items-center gap-2"><span className={`h-2 w-2 rounded-full ${status === "connected" ? "bg-green-500" : connecting ? "animate-pulse bg-yellow-400" : status === "error" || status === "bridge-required" ? "bg-red-500" : "bg-board-muted/40"}`} /><span role="status" aria-live="polite" className="text-xs font-medium capitalize text-board-text">{status.replace("-", " ")}</span>{definition?.connectivity === "bridge-required" ? <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold ${bridgeOnline ? "border-green-500/25 bg-green-500/[0.07] text-green-400" : "border-red-500/25 bg-red-500/[0.07] text-red-300"}`}>Venue Bridge {bridgeOnline ? "online" : "offline"}</span> : null}{status === "connected" ? <button type="button" onClick={disconnect} className="ml-auto min-h-11 rounded-lg border border-board-border px-3 py-1.5 text-xs text-board-muted hover:text-red-400">Disconnect</button> : status !== "bridge-required" ? <button type="button" onClick={() => void connect()} disabled={connecting} className="ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-fire-500/30 bg-fire-500/10 px-3 py-1.5 text-xs font-semibold text-fire-400 disabled:cursor-wait disabled:opacity-70">{connecting ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}{connecting ? "Connecting..." : "Connect"}</button> : null}</div>{error ? <div role="alert" className="mb-4 rounded-lg border border-red-500/20 bg-red-500/[0.06] px-3 py-2.5 text-xs leading-5 text-red-300">{error}</div> : null}<DeviceControlPanel module={module} status={status} feedbacks={feedbacks} definition={definition} device={device} /></div>;
+  return <div className="min-w-0 p-3 sm:p-5"><div className="mb-4 flex flex-wrap items-center gap-2"><span className={`h-2 w-2 rounded-full ${status === "connected" ? "bg-green-500" : connecting ? "animate-pulse bg-yellow-400" : status === "error" || status === "bridge-required" ? "bg-red-500" : "bg-board-muted/40"}`} /><span role="status" aria-live="polite" className="text-xs font-medium capitalize text-board-text">{status.replace("-", " ")}</span>{(definition?.connectivity === "bridge-required" || device.settings.includes(CREDENTIAL_MASK)) ? <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold ${bridgeOnline ? "border-green-500/25 bg-green-500/[0.07] text-green-400" : "border-red-500/25 bg-red-500/[0.07] text-red-300"}`}>Venue Bridge {bridgeOnline ? "online" : "offline"}</span> : null}{status === "connected" ? <button type="button" onClick={disconnect} className="ml-auto min-h-11 rounded-lg border border-board-border px-3 py-1.5 text-xs text-board-muted hover:text-red-400">Disconnect</button> : status !== "bridge-required" ? <button type="button" onClick={() => void connect()} disabled={connecting} className="ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-fire-500/30 bg-fire-500/10 px-3 py-1.5 text-xs font-semibold text-fire-400 disabled:cursor-wait disabled:opacity-70">{connecting ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : null}{connecting ? "Connecting..." : "Connect"}</button> : null}</div>{error ? <div role="alert" className="mb-4 rounded-lg border border-red-500/20 bg-red-500/[0.06] px-3 py-2.5 text-xs leading-5 text-red-300">{error}</div> : null}<DeviceControlPanel module={module} status={status} feedbacks={feedbacks} definition={definition} device={device} /></div>;
 }
 
 function FleetStat({ label, value, icon: Icon, tone = "text-board-text" }: { label: string; value: number; icon: React.ElementType; tone?: string }) {
@@ -295,19 +297,22 @@ function DeviceFormModal({
   const [name, setName] = useState(existing?.name ?? "");
   const [settingsMap, setSettingsMap] = useState<Record<string, string>>(
     Object.fromEntries(
-      Object.entries(existingSettings).map(([k, v]) => [k, String(v)])
+      Object.entries(existingSettings).map(([k, v]) => [k, v === CREDENTIAL_MASK ? "" : String(v)])
     )
   );
   const [enabled, setEnabled] = useState(existing?.enabled ?? true);
   const [saving, setSaving] = useState(false);
+  const [clearCredentials, setClearCredentials] = useState<string[]>([]);
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const [error, setError] = useState("");
 
   const adapterMeta = adapterOptions.find((a) => a.value === adapterType);
-  const fields = adapterMeta?.fields ?? [];
+  const fields = (adapterMeta?.fields ?? []).filter(field => adapterType !== "homeassistant" || field.key !== "connectionMode");
 
   const handleAdapterChange = (newType: string) => {
     setAdapterType(newType);
     setSettingsMap({});
+    setClearCredentials([]);
     if (!name) {
       const meta = adapterOptions.find((a) => a.value === newType);
       if (meta) setName(meta.label);
@@ -323,47 +328,53 @@ function DeviceFormModal({
     setSaving(true);
     setError("");
 
-    const settings: Record<string, unknown> = {};
+    const settings: Record<string, unknown> = adapterType === "homeassistant" ? { connectionMode: "bridge-required" } : {};
     for (const field of fields) {
-      const raw = settingsMap[field.key] ?? "";
+      const raw = settingsMap[field.key] ?? (field.type === "select" ? field.options?.[0]?.value ?? "" : "");
       if (field.type === "number") {
         settings[field.key] = raw ? parseInt(raw, 10) : 0;
-      } else if (raw) {
+      } else {
         settings[field.key] = raw;
       }
     }
 
     const category = adapterMeta?.category ?? "video";
 
-    if (existing) {
-      await updateDevice({
-        data: {
-          orgId,
-          id: existing.id,
-          updates: {
+    try {
+      if (existing) {
+        await updateDevice({
+          data: {
+            orgId,
+            id: existing.id,
+            clearCredentials: clearCredentials.map(key => [key]),
+            updates: {
+              name: name.trim(),
+              category,
+              adapterType,
+              settings: JSON.stringify(settings),
+              enabled,
+            },
+          },
+        });
+      } else {
+        await addDevice({
+          data: {
+            orgId,
             name: name.trim(),
             category,
             adapterType,
             settings: JSON.stringify(settings),
             enabled,
           },
-        },
-      });
-    } else {
-      await addDevice({
-        data: {
-          orgId,
-          name: name.trim(),
-          category,
-          adapterType,
-          settings: JSON.stringify(settings),
-          enabled,
-        },
-      });
-    }
+        });
+      }
 
-    setSaving(false);
-    onSaved();
+      onSaved();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not save device. Try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const INPUT_CLASS =
@@ -371,6 +382,7 @@ function DeviceFormModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      {ConfirmDialogEl}
       <div className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-lg mx-4 shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-semibold text-board-text">
@@ -380,7 +392,7 @@ function DeviceFormModal({
             type="button"
             onClick={onClose}
             aria-label="Close device editor"
-            className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
+            className="min-h-11 min-w-11 flex items-center justify-center rounded-lg hover:bg-board-border transition-colors text-board-muted"
           >
             <X className="size-4" />
           </button>
@@ -388,10 +400,10 @@ function DeviceFormModal({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-board-muted mb-1.5">
+            <label htmlFor="device-adapter" className="block text-sm text-board-muted mb-1.5">
               Device Type
             </label>
-            <select
+            <select id="device-adapter"
               value={adapterType}
               onChange={(e) => handleAdapterChange(e.target.value)}
               className={`${INPUT_CLASS} appearance-none`}
@@ -405,10 +417,10 @@ function DeviceFormModal({
           </div>
 
           <div>
-            <label className="block text-sm text-board-muted mb-1.5">
+            <label htmlFor="device-name" className="block text-sm text-board-muted mb-1.5">
               Display Name
             </label>
-            <input
+            <input id="device-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -422,16 +434,17 @@ function DeviceFormModal({
               <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest">
                 Connection Settings
               </p>
+              {fields.some(field => field.type === "password" || isCredentialField(field.key)) && <p className="text-xs text-board-muted">Saved credentials are used by the venue Bridge. Keep it running to control authenticated devices.</p>}
               {fields.map((field) => (
                 <div key={field.key}>
-                  <label className="block text-sm text-board-muted mb-1.5">
+                  <label htmlFor={`device-field-${field.key}`} className="block text-sm text-board-muted mb-1.5">
                     {field.label}
                   </label>
                   {field.type === "select" && field.options ? (
-                    <select
+                    <select id={`device-field-${field.key}`}
                       value={settingsMap[field.key] ?? field.options[0]?.value ?? ""}
                       onChange={(e) =>
-                        setSettingsMap({ ...settingsMap, [field.key]: e.target.value })
+                        { setSettingsMap({ ...settingsMap, [field.key]: e.target.value }); setClearCredentials(keys => keys.filter(key => key !== field.key)); }
                       }
                       className={`${INPUT_CLASS} appearance-none`}
                     >
@@ -442,16 +455,28 @@ function DeviceFormModal({
                       ))}
                     </select>
                   ) : (
-                    <input
-                      type={field.type === "password" ? "password" : field.type === "number" ? "number" : "text"}
+                    <input id={`device-field-${field.key}`}
+                      autoComplete={field.type === "password" || isCredentialField(field.key) ? "new-password" : undefined}
+                      type={field.type === "password" || isCredentialField(field.key) ? "password" : field.type === "number" ? "number" : "text"}
                       value={settingsMap[field.key] ?? ""}
                       onChange={(e) =>
-                        setSettingsMap({ ...settingsMap, [field.key]: e.target.value })
+                        { setSettingsMap({ ...settingsMap, [field.key]: e.target.value }); setClearCredentials(keys => keys.filter(key => key !== field.key)); }
                       }
-                      placeholder={field.placeholder}
+                      placeholder={existing?.adapterType === adapterType && existingSettings[field.key] === CREDENTIAL_MASK ? "Leave blank to keep saved credential" : field.placeholder}
                       className={INPUT_CLASS}
                     />
                   )}
+                  {existing?.adapterType === adapterType && existingSettings[field.key] === CREDENTIAL_MASK && <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-board-muted">{clearCredentials.includes(field.key) ? "Will be cleared when you save." : "Credential saved. Leave blank to keep it."}</p>
+                    <button type="button" disabled={saving} className="min-h-11 px-3 text-sm text-red-300"
+                      onClick={async () => {
+                        if (clearCredentials.includes(field.key)) { setClearCredentials(keys => keys.filter(key => key !== field.key)); return; }
+                        if (await confirm({ title: `Clear ${field.label}?`, description: "This connection may stop working until a new credential is saved.", confirmLabel: "Clear credential" })) {
+                          setSettingsMap(values => ({ ...values, [field.key]: "" }));
+                          setClearCredentials(keys => [...keys, field.key]);
+                        }
+                      }}>{clearCredentials.includes(field.key) ? "Keep saved credential" : "Clear credential"}</button>
+                  </div>}
                 </div>
               ))}
             </div>

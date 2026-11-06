@@ -1,5 +1,10 @@
+import { webcrypto } from "node:crypto";
+import { readDeviceSettingsForUse } from "../device-settings.server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleMobileApi, type MobileApiDatabase, type MobileApiStatement } from "../mobile-api.server";
+
+const encryptionKeys = JSON.stringify({ active: "test", keys: { test: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" } });
+vi.stubGlobal("crypto", webcrypto);
 
 const mocks = vi.hoisted(() => ({
   checkPlanLimit: vi.fn(),
@@ -70,7 +75,7 @@ async function post(db: MobileApiDatabase, path: string, body: Record<string, un
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  }), { DB: db });
+  }), { DB: db, CREDENTIAL_ENCRYPTION_KEYS: encryptionKeys });
   if (!response) throw new Error("Mobile API did not handle device route");
   return response;
 }
@@ -124,8 +129,9 @@ describe("mobile device management", () => {
     });
     expect(response.status).toBe(200);
     const update = calls.find((call) => call.sql.startsWith("UPDATE device SET name"));
-    expect(JSON.parse(String(update?.params[3]))).toEqual({ host: "10.0.0.41", port: 4455, password: "saved-secret" });
-    expect(update?.params.slice(-2)).toEqual(["obs-1", "org-1"]);
+    expect(String(update?.params[3])).not.toContain("saved-secret");
+    expect(await readDeviceSettingsForUse(encryptionKeys, { ...existing, settings: String(update?.params[3]) })).toEqual({ host: "10.0.0.41", port: 4455, password: "saved-secret" });
+    expect(update?.params.slice(-5)).toEqual(["obs-1", "org-1", existing.settings, existing.adapterType, existing.updatedAt]);
   });
 
   it("rejects incomplete configuration before writing", async () => {

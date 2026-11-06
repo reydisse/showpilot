@@ -1,3 +1,4 @@
+import { readDeviceSettingsForUse } from "./device-settings.server";
 import { resolveRemoteDeviceControl } from "./mobile-device-controls";
 import type { BridgeDeviceProtocol } from "./device-modules/types";
 import type { AutomationEvent } from "@/types/timecode";
@@ -31,15 +32,6 @@ function optionalString(...values: unknown[]): string {
   return "";
 }
 
-function parseSettings(value: string): Record<string, unknown> | null {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 async function resolveLightingDevice(db: D1Database, orgId: string): Promise<TimecodeDeviceRow> {
   const result = await db.prepare(
     `SELECT id, name, category, adapterType, settings, enabled
@@ -61,6 +53,7 @@ export async function resolveTimecodeDeviceAction(
   db: D1Database,
   orgId: string,
   event: AutomationEvent,
+  encryptionKeys?: string,
 ): Promise<ResolvedTimecodeDeviceAction> {
   const deviceId = optionalString(
     event.targetDeviceId,
@@ -80,8 +73,7 @@ export async function resolveTimecodeDeviceAction(
     throw new Error("Choose a target device for this automation event.");
   }
 
-  const settings = parseSettings(device.settings);
-  if (!settings) throw new Error(`Device “${device.name}” has invalid settings.`);
+  const settings = await readDeviceSettingsForUse(encryptionKeys, { ...device, orgId });
   const remote = resolveRemoteDeviceControl(device.adapterType, settings);
   if (!remote) throw new Error(`Device “${device.name}” does not support remote control.`);
 

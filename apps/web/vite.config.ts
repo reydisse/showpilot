@@ -88,6 +88,11 @@ const config = defineConfig({
               if (id.endsWith('/components/show-switcher-menu.tsx') || id.endsWith('/lib/service-picker.ts')) {
                 return 'service-picker'
               }
+              // Device editing and saved-device control share the credential policy.
+              // Keep them in one lazy control dependency rather than extra entry-manifest chunks.
+              if (id.endsWith('/hooks/useDeviceModule.ts') || id.endsWith('/lib/stored-device-module.ts') || id.endsWith('/lib/credential-fields.ts')) {
+                return 'device-control'
+              }
               // Split heavy vendor libs into their own cacheable chunks
               if (id.includes('node_modules')) {
                 if (id.includes('better-auth')) return 'vendor-auth'

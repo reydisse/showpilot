@@ -1,3 +1,6 @@
+import { z } from "zod";
+import { CREDENTIAL_MASK, isCredentialField } from "./credential-fields";
+import { maskDeviceSettings, readDeviceSettingsForUse, writeDeviceSettings } from "./device-settings.server";
 import { readSettingValuesForUse } from "./credential-settings.server";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import {
@@ -5247,11 +5250,11 @@ function serializeMobileDeviceConfiguration(
     return {
       ...field,
       value:
-        field.type === "password" || raw === null || raw === undefined
+        field.type === "password" || isCredentialField(field.key) || raw === CREDENTIAL_MASK || raw === null || raw === undefined
           ? ""
           : String(raw),
       secretConfigured:
-        field.type === "password" && typeof raw === "string" && raw.length > 0,
+        (field.type === "password" || isCredentialField(field.key) || raw === CREDENTIAL_MASK) && typeof raw === "string" && raw.length > 0,
     };
   });
 }
@@ -5287,7 +5290,7 @@ async function devices(
     },
     adapters,
     devices: (result.results ?? []).map((device) => {
-      const settings = parsedSettings(device.settings);
+      const settings = parsedSettings(maskDeviceSettings({ ...device, orgId: access.orgId }));
       const adapter = adaptersByType.get(device.adapterType);
       const remote = settings
         ? resolveRemoteDeviceControl(device.adapterType, settings)
@@ -5320,6 +5323,8 @@ async function parseMobileDeviceWrite(
     typeof body?.adapterType === "string" ? body.adapterType.trim() : "";
   const enabled = typeof body?.enabled === "boolean" ? body.enabled : true;
   const suppliedSettings = isRecord(body?.settings) ? body.settings : {};
+  const clear = z.array(z.array(z.string().min(1).max(200)).min(1).max(16)).max(100).safeParse(body?.clearCredentials ?? []);
+  if (!clear.success) return { error: "Choose valid credential fields to clear." } as const;
   if (!name || name.length > 200 || !adapterType)
     return { error: "Enter a device name and adapter." } as const;
   const adapter = (await mobileDeviceAdapters()).find(
@@ -5334,11 +5339,11 @@ async function parseMobileDeviceWrite(
   for (const field of adapter.fields) {
     const raw = suppliedSettings[field.key];
     if (
-      field.type === "password" &&
-      (raw === undefined || raw === "") &&
+      (field.type === "password" || isCredentialField(field.key)) &&
+      (raw === undefined || raw === "" || raw === CREDENTIAL_MASK) &&
       typeof existingSettings?.[field.key] === "string"
     ) {
-      settings[field.key] = existingSettings[field.key] as string;
+      if (existingSettings[field.key]) settings[field.key] = CREDENTIAL_MASK;
       continue;
     }
     if (field.type === "number") {
@@ -5370,7 +5375,7 @@ async function parseMobileDeviceWrite(
     ) {
       return { error: `${field.label} is not valid.` } as const;
     }
-    if (value) settings[field.key] = value;
+    settings[field.key] = value;
   }
   const serializedSettings = JSON.stringify(settings);
   if (serializedSettings.length > 20_000)
@@ -5382,6 +5387,7 @@ async function parseMobileDeviceWrite(
       category: adapter.category,
       enabled,
       settings: serializedSettings,
+      clearCredentials: clear.data,
     },
   } as const;
 }
@@ -5412,6 +5418,11 @@ async function createMobileDevice(
     );
   }
   const id = crypto.randomUUID();
+  let settings: string;
+  try {
+    settings = await writeDeviceSettings(env.CREDENTIAL_ENCRYPTION_KEYS,
+      { id, orgId: access.orgId, adapterType: parsed.value.adapterType }, parsed.value.settings, "{}", parsed.value.clearCredentials);
+  } catch (error) { return json({ error: error instanceof Error ? error.message : "Could not save device settings." }, 400); }
   await env.DB.prepare(
     `INSERT INTO device (id, orgId, name, category, adapterType, settings, enabled, createdAt, updatedAt)
      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
@@ -5422,7 +5433,7 @@ async function createMobileDevice(
       parsed.value.name,
       parsed.value.category,
       parsed.value.adapterType,
-      parsed.value.settings,
+      settings,
       parsed.value.enabled,
     )
     .run();
@@ -5449,18 +5460,27 @@ async function updateMobileDevice(
     existing,
   );
   if ("error" in parsed) return json({ error: parsed.error }, 400);
+  let settings: string;
+  try {
+    settings = await writeDeviceSettings(env.CREDENTIAL_ENCRYPTION_KEYS,
+      { ...existing, adapterType: parsed.value.adapterType }, parsed.value.settings,
+      existing.adapterType === parsed.value.adapterType ? existing.settings : "{}", parsed.value.clearCredentials);
+  } catch (error) { return json({ error: error instanceof Error ? error.message : "Could not save device settings." }, 400); }
   const result = await env.DB.prepare(
     `UPDATE device SET name = ?, category = ?, adapterType = ?, settings = ?, enabled = ?, updatedAt = CURRENT_TIMESTAMP
-     WHERE id = ? AND orgId = ?`,
+     WHERE id = ? AND orgId = ? AND settings = ? AND adapterType = ? AND updatedAt = ?`,
   )
     .bind(
       parsed.value.name,
       parsed.value.category,
       parsed.value.adapterType,
-      parsed.value.settings,
+      settings,
       parsed.value.enabled,
       deviceId,
       access.orgId,
+      existing.settings,
+      existing.adapterType,
+      existing.updatedAt,
     )
     .run();
   return changedExactlyOneRow(result)
@@ -5590,7 +5610,7 @@ async function deviceControlState(
     .first<MobileDeviceControlRow>();
   if (!device || !device.enabled)
     return json({ error: "Device not found or disabled." }, 404);
-  const settings = parsedSettings(device.settings);
+  const settings = await readDeviceSettingsForUse(env.CREDENTIAL_ENCRYPTION_KEYS, device);
   const remote = settings
     ? resolveRemoteDeviceControl(device.adapterType, settings)
     : null;
@@ -5654,7 +5674,7 @@ async function controlDevice(
     .first<MobileDeviceControlRow>();
   if (!device || !device.enabled)
     return json({ error: "Device not found or disabled." }, 404);
-  const settings = parsedSettings(device.settings);
+  const settings = await readDeviceSettingsForUse(env.CREDENTIAL_ENCRYPTION_KEYS, device);
   const remote = settings
     ? resolveRemoteDeviceControl(device.adapterType, settings)
     : null;

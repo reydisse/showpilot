@@ -312,7 +312,44 @@ and explicitly re-encrypted. The scheduled plaintext migration does not rotate
 existing envelopes. Do not remove an old key until all dependent ciphertext and
 recovery backups have been migrated. Keep compatible Worker code and keys
 available together for rollback; a pre-encryption Worker cannot consume these
-values. The rotation migration and device backfill remain outstanding.
+values. A bulk key-rotation migration remains outstanding.
+
+Device settings use the same keyring and cursor table. Each scheduled run scans
+at most 100 device rows and encrypts credential fields, including nested JSON,
+arrays and adapter password fields. Compare-and-set writes include organization,
+device, adapter and previous settings; concurrent changes are revisited on the
+next sweep. Invalid settings remain masked on reads and are counted in a
+migration error without logging their contents. Repair those rows before
+claiming a complete backfill. The migration does not alter device timestamps.
+
+Web device list/detail/create responses contain masks. Mobile configuration
+responses retain `secretConfigured` with empty credential values. Web and mobile
+edits preserve omitted, blank and masked credentials; `clearCredentials` names
+the field paths to remove explicitly. Changing adapter starts with fresh
+settings. New credential writes fail closed if the keyring is missing; existing
+ciphertext can be kept or cleared without it. Authenticated device operations
+and timecode automation decrypt only after resolving the authorized device.
+
+Browser controls for devices with saved credentials now address the device ID
+through the server. They require the selected venue Bridge and an approved
+destination. Password-free devices retain their direct connection behavior.
+Closing a control panel stops its polling and listeners; only the explicit
+Disconnect action disconnects the shared venue device. Install a protocol-3
+Bridge before deploying this Worker. Keep this Worker, the keyring and a
+protocol-3 Bridge together for rollback.
+
+After building web and the native sidecar, run the disposable local rehearsal:
+
+```sh
+node apps/web/scripts/smoke-device-credentials.mjs apps/bridge-desktop/src-tauri/binaries/showpilot-bridge-aarch64-apple-darwin
+```
+
+It verifies actual UI writes, encrypted D1 values, masked read/save responses,
+an authenticated browser action through the compiled Bridge, protected native
+transport, blank-edit preservation, confirmed clearing and responsive controls.
+This is not a production backfill or a physical OBS/PJLink hardware test. Raw
+ProPresenter runtime/provisioning getter migration is still pending, so H8
+must remain incomplete.
 
 ### Applying a migration to production
 
