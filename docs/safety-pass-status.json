@@ -1337,7 +1337,11 @@
       "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
       "line": 216,
       "status": "pending",
-      "evidence": []
+      "evidence": [
+        "Partial implementation, 2026-11-06: media-library.ts, media-library.server.ts, media-library-client.ts and MediaLibrary.tsx add authenticated organization-owned R2 upload/list/preview/delete. Metadata and content share one immutable object; container signatures, 95 MiB byte limits, a three-minute deadline, conditional writes and post-upload authority checks protect ingestion. Private HEAD/GET byte ranges support seeking; matching ETags prevent a changed file from being streamed with stale metadata. No D1 migration.",
+        "Local library verification: 1580 web unit tests and 563 Worker tests passed, plus web typecheck and production build. The new coverage includes 32 real-R2 Worker cases, five gateway authority/origin cases, ten container/client validation cases and six rendered UI cases. smoke-media-library.mjs uploaded real WAV/WebM files through the built UI, decoded and played them, sought within audio, rejected public reads/cross-origin deletion, confirmed deletion, recovered from offline refresh, preserved files through Worker restart and checked 320px layout. Preview sound is muted in the rehearsal.",
+        "Not complete: media-play/media-stop still need the selected output-window ownership/arming protocol, actual playback and stop acknowledgments, relay scheduling and receipts, timeline/editor integration, per-event disable/retry/refire tests, and end-to-end timed playback proof. No media PR or production deployment yet. Chosen design and alternatives are recorded in DEPLOY.md."
+      ]
     },
     {
       "id": "cacb9179894c7290",
