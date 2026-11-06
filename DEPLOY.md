@@ -621,6 +621,27 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Device connection recovery
+
+Device panels now show timestamped connection and configuration errors. Invalid
+saved JSON blocks connection until an operator edits and saves the configuration;
+it no longer starts an adapter with empty defaults. Changing organizations or
+selected devices discards callbacks from the previous controls.
+
+The browser Bridge transport waits at most five seconds for its first status
+snapshot and reconnects with backoff from one to thirty seconds. Socket loss,
+malformed updates and failed sends reject pending commands immediately with an
+unconfirmed-outcome message. Reconnection restores device connectivity but never
+replays device commands. Operators must check the actual device before retrying
+an action whose outcome is unknown. An intentionally disconnected proxy cancels
+its retries.
+
+After building, run `node apps/web/scripts/smoke-device-connection-errors.mjs`.
+It signs into a disposable local organization, exercises a fixture ATEM rejection
+and retry, stops/restarts the built Worker and fixture Bridge, checks the outage
+message and timestamp at 320px, then verifies recovery without reloading. It does
+not prove physical hardware behavior. No migration is required for this change.
+
 ### Retrying a saved-template write
 
 Deploy the browser and Worker together. Saving a template now requires the
