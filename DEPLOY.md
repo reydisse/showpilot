@@ -597,6 +597,28 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Rundown connection recovery
+
+The rundown page and live rundown bar show timestamped connection failures and
+an explicit Reconnect rundown button. Initial connection shows a connecting
+state. Socket opening and initial state have a five-second deadline; backoff
+resets only after a valid state for the selected show arrives. Socket creation,
+sends, malformed frames and mismatched show state all produce visible errors.
+
+Recovery retains the last known rundown and pending edits. Each retry keeps its
+original command ID and expected revision. Transport commands still expire after
+five seconds, including when manually reconnecting, and their expiry warning
+remains visible after unrelated edits succeed. An acknowledgement without an
+explicit boolean acceptance and valid revision cannot mark a command confirmed.
+Changing shows clears the previous show's error and ProPresenter preview.
+
+After building, run `node apps/web/scripts/smoke-rundown-connection-recovery.mjs`.
+It stops/restarts a disposable Worker, checks retained state and timestamps at
+320px, verifies queued edits use the same ID and confirmed revision in order,
+checks disabled transport stays stopped after reconnect, and exercises the live
+bar's reconnect control. Also run the existing handoff and show-day safety
+rehearsals. No migration is required.
+
 ### Rundown changes during navigation
 
 When a rundown socket closes for navigation, its pending commands retain their
