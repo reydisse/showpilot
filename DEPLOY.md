@@ -597,6 +597,29 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Route loading recovery
+
+Each route guard, loader and page-code preload has a twelve-second deadline on
+the browser and server. A timeout reaches the shared recovery screen; a late
+result cannot complete the expired load. Navigation cancellation propagates to a
+child abort controller. Organization, authentication, Board and Timecode reads
+pass that signal to their requests. Cancellation cannot undo server work that
+already started. Preloading a link no longer changes the active organization.
+
+Retry waits for the router's actual loading state, including when invalidation
+remounts the error screen. The screen timestamps failures and provides full-page
+Reload and workspace links, with 44px controls and no decorative card on phones.
+Route deadlines cover navigation; component-owned lists and mutations still need
+their own bounded recovery paths and remain in the Phase 2 audit.
+
+After building, run `node apps/web/scripts/smoke-route-loading.mjs`. It holds real
+Board and Timecode responses, retries while reads remain stalled, releases late results,
+navigates away from a pending Chat load, and pauses an actual page-module download
+in Chrome. It checks recovery without reload and Retry reachability at 320px.
+Run `node apps/web/scripts/smoke-rundown-handoff.mjs` for the navigation/write
+regression. Both use disposable local accounts and data. No migration or native
+build is required; these changes are not deployed by a feature-branch push.
+
 ### Cue-sheet connection recovery
 
 Cue-sheet relay clients now bound socket opening and hydration at five seconds,
@@ -611,7 +634,7 @@ Cue-sheet reads have an eight-second deadline, cancel superseded requests, and
 reject late results after timeout or show changes. Failed reads keep the confirmed
 sheet and pending note edits. Reconnecting never resubmits note writes; Retry saves
 remains the explicit write retry. Note and column write recovery is documented
-below; initial route-loader deadlines remain in the Phase 2 audit.
+below; initial route-loader deadlines are covered by the shared route policy above.
 
 After building, run `node apps/web/scripts/smoke-cue-sheet-recovery.mjs` and
 `node apps/web/scripts/smoke-relay-sequences.mjs`. Both use disposable local data.

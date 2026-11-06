@@ -4,8 +4,10 @@ import { AuthSkeleton } from "@/components/ui/Skeleton";
 
 export const Route = createFileRoute("/_auth")({
   pendingComponent: AuthSkeleton,
-  beforeLoad: async ({ location }) => {
-    const result = await getSessionWithOrg().catch(() => null);
+  beforeLoad: async ({ location, abortController, preload }) => {
+    const signal = abortController.signal;
+    const result = await getSessionWithOrg({ signal }).catch(() => null);
+    signal.throwIfAborted();
 
     // Session check failed — allow access to auth pages
     if (!result?.user) {
@@ -26,12 +28,15 @@ export const Route = createFileRoute("/_auth")({
     // If logged in but no active org, try to auto-activate an existing one
     if (!isSetupOrInvitations) {
       try {
-        const orgs = await listUserOrgs();
+        const orgs = await listUserOrgs({ signal });
+        signal.throwIfAborted();
         if (orgs && orgs.length > 0) {
-          await setActiveOrg({ data: orgs[0].id });
+          if (!preload) await setActiveOrg({ data: orgs[0].id, signal });
+          signal.throwIfAborted();
           throw redirect({ to: "/$slug", params: { slug: orgs[0].slug } });
         }
       } catch (e) {
+        signal.throwIfAborted();
         if (isRedirect(e)) throw e;
       }
     }
