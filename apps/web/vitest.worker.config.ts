@@ -22,12 +22,12 @@ export default defineConfig(async () => {
           d1Databases: ["DB"],
           r2Buckets: ["STORAGE"],
           durableObjects: {
-            BRIDGE_RELAY: "BridgeRelay",
+            BRIDGE_RELAY: { className: "BridgeRelay", useSQLite: true },
             CHAT_RELAY: { className: "ChatRelay", useSQLite: true },
-            RUNDOWN_RELAY: "TestRundownRelay",
-            TIMECODE_RELAY: "TestTimecodeRelay",
-            LOWER_THIRDS_RELAY: "TestLowerThirdsRelay",
-            CUE_SHEET_RELAY: "CueSheetRelay",
+            RUNDOWN_RELAY: { className: "TestRundownRelay", useSQLite: true },
+            TIMECODE_RELAY: { className: "TestTimecodeRelay", useSQLite: true },
+            LOWER_THIRDS_RELAY: { className: "TestLowerThirdsRelay", useSQLite: true },
+            CUE_SHEET_RELAY: { className: "CueSheetRelay", useSQLite: true },
           },
           bindings: {
             TEST_MIGRATIONS: migrations,

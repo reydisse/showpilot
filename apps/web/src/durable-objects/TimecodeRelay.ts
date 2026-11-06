@@ -1,3 +1,4 @@
+import { RelaySequenceStore } from "@/lib/relay-sequence.server";
 import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh } from "@/lib/socket-read-authority.server";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import { DurableObject } from "cloudflare:workers";
@@ -136,9 +137,11 @@ export class TimecodeRelay extends DurableObject {
   private bridgeFeed: BridgeFeed | null = null;
   private lastPersistedAt = 0;
   private readonly executor = new AutomationExecutor();
+  private readonly revisions: RelaySequenceStore;
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
+    this.revisions = new RelaySequenceStore(ctx.storage.sql);
     ctx.blockConcurrencyWhile(async () => {
       const stored = await ctx.storage.get<TimecodeSnapshot>("timecode");
       this.retired = await ctx.storage.get<boolean>("retired") ?? false;
@@ -406,11 +409,7 @@ export class TimecodeRelay extends DurableObject {
       if (canWrite) renewSocketReadLease(server);
       await this.scheduleAlarm();
 
-      // Hydrate
-      const hydrate: TimecodeWsMessage = canWrite
-        ? { type: "hydrate", state: this.state, events: this.events }
-        : { type: "hydrate", state: this.getDisplayState() };
-      server.send(JSON.stringify(hydrate));
+      this.hydrate(server);
 
       return new Response(null, { status: 101, webSocket: client });
     }
@@ -451,6 +450,7 @@ export class TimecodeRelay extends DurableObject {
     if (this.retired || !this.target || this.legacyExport) { ws.close(4409, "Timecode show unavailable. Reconnect."); return; }
     try {
       const msg = JSON.parse(data as string) as TimecodeWsMessage;
+      if (msg.type === "sync") { this.hydrate(ws); return; }
       if (msg.type === "command") {
         const attachment = ws.deserializeAttachment?.() as {
           canWrite?: boolean;
@@ -851,7 +851,7 @@ export class TimecodeRelay extends DurableObject {
       case "clear-lyrics":
         this.state.lyrics = null;
         await this.persist();
-        this.broadcast(JSON.stringify({ type: "lyrics-clear" } satisfies TimecodeWsMessage));
+        this.broadcast({ type: "lyrics-clear" });
         this.broadcastState();
         break;
     }
@@ -1109,7 +1109,7 @@ export class TimecodeRelay extends DurableObject {
           : null;
         if (generationKey && this.state.lyrics?.generationKey !== generationKey) break;
         this.state.lyrics = null;
-        this.broadcast(JSON.stringify({ type: "lyrics-clear" } satisfies TimecodeWsMessage));
+        this.broadcast({ type: "lyrics-clear" });
         break;
       }
 
@@ -1156,7 +1156,15 @@ export class TimecodeRelay extends DurableObject {
 
   // ─── Broadcasting ───────────────────────────────────────
 
+  private hydrate(ws: WebSocket): void {
+    const attachment = ws.deserializeAttachment() as { canWrite?: boolean } | null;
+    this.send(ws, attachment?.canWrite
+      ? { type: "hydrate", state: this.state, events: this.events }
+      : { type: "hydrate", state: this.getDisplayState() }, this.revisions.current());
+  }
+
   private broadcastState(): void {
+    const sequence = this.revisions.next();
     for (const ws of this.ctx.getWebSockets()) {
       const attachment = ws.deserializeAttachment?.() as {
         canWrite?: boolean;
@@ -1166,7 +1174,7 @@ export class TimecodeRelay extends DurableObject {
         type: "tc-update",
         state: attachment?.canWrite ? this.state : this.getDisplayState(),
       };
-      this.send(ws, JSON.stringify(msg));
+      this.send(ws, msg, sequence);
     }
   }
 
@@ -1175,7 +1183,7 @@ export class TimecodeRelay extends DurableObject {
       type: "events-update",
       events: this.events,
     };
-    this.broadcastToWriters(JSON.stringify(msg));
+    this.broadcastToWriters(msg);
   }
 
   private broadcastEventFired(event: AutomationEvent): void {
@@ -1184,24 +1192,26 @@ export class TimecodeRelay extends DurableObject {
       event,
       firedAt: Date.now(),
     };
-    this.broadcastToWriters(JSON.stringify(msg));
+    this.broadcastToWriters(msg);
   }
 
   private broadcastLyrics(lyrics: LyricsDisplayState): void {
-    this.broadcast(JSON.stringify({ type: "lyrics-update", lyrics } satisfies TimecodeWsMessage));
+    this.broadcast({ type: "lyrics-update", lyrics });
   }
 
-  private broadcast(data: string): void {
-    for (const ws of this.ctx.getWebSockets()) this.send(ws, data);
+  private broadcast(data: TimecodeWsMessage): void {
+    const sequence = this.revisions.next();
+    for (const ws of this.ctx.getWebSockets()) this.send(ws, data, sequence);
   }
 
-  private broadcastToWriters(data: string): void {
+  private broadcastToWriters(data: TimecodeWsMessage): void {
+    const sequence = this.revisions.next();
     for (const ws of this.ctx.getWebSockets()) {
       const attachment = ws.deserializeAttachment?.() as {
         canWrite?: boolean;
         authClaim?: LiveSessionAuthorityClaim | null;
       } | null;
-      if (attachment?.canWrite) this.send(ws, data);
+      if (attachment?.canWrite) this.send(ws, data, sequence);
     }
   }
 
@@ -1232,10 +1242,10 @@ export class TimecodeRelay extends DurableObject {
     await this.refreshReadAuthority(undefined, checkingFeed);
   }
 
-  private send(ws: WebSocket, data: string): void {
+  private send(ws: WebSocket, data: TimecodeWsMessage, sequence: number): void {
     if (!displaySocketMayReceive(ws) || !socketReadLeaseAllows(ws, this.socketNeedsReadLease(ws))) return;
     try {
-      ws.send(data);
+      ws.send(JSON.stringify({ ...data, ...this.revisions.envelope(ws, sequence) }));
     } catch {
       try { ws.close(1011, "Broadcast failed"); } catch {}
     }

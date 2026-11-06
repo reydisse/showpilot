@@ -12,6 +12,7 @@ import { timecodeToFrames } from "@/lib/timecode";
 import { InternalTimecodeSource } from "@/lib/timecode-sources/internal-source";
 import { createBrowserId } from "@/lib/browser-id";
 import { MtcSource } from "@/lib/timecode-sources/mtc-source";
+import { RelaySequenceTracker } from "@/lib/relay-sequence";
 
 interface UseTimecodeOptions {
   orgId: string;
@@ -178,6 +179,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     const base = relayBaseUrl ?? window.location.origin;
     const url = `${base.startsWith("https") ? "wss" : "ws"}://${base.replace(/^https?:\/\//, "")}/api/timecode/${encodeURIComponent(orgId)}/ws?showId=${encodeURIComponent(showId)}`;
     let disposed = false;
+    const sequence = new RelaySequenceTracker();
     let attempts = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     const failEdits = (message: string) => {
@@ -193,11 +195,15 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
       let ws: WebSocket;
       try { ws = new WebSocket(url); } catch { scheduleReconnect(); return; }
       wsRef.current = ws;
+      let hydrateTimeout: ReturnType<typeof setTimeout> | undefined;
       const current = () => !disposed && wsRef.current === ws && requestedScope.current.orgId === orgId && requestedScope.current.showId === showId;
-      ws.onopen = () => { if (current()) attempts = 0; };
+      const awaitHydrate = () => { clearTimeout(hydrateTimeout); hydrateTimeout = setTimeout(() => { if (current()) ws.close(); }, CONFIRM_TIMEOUT_MS); };
+      ws.onopen = () => { if (current()) { attempts = 0; awaitHydrate(); } };
       ws.onclose = () => {
+        clearTimeout(hydrateTimeout);
         if (!current()) return;
         wsRef.current = null; readyRef.current = false; confirmedScope.current = null; setConnected(false);
+        sequence.disconnect();
         if (internalSourceRef.current || mtcSourceRef.current || pendingSourceRef.current) {
           setLastError("Timecode disconnected. The local source stopped; reconnect before starting again.");
         }
@@ -210,13 +216,28 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
         if (!current()) return;
         try {
           const msg = JSON.parse(event.data) as TimecodeWsMessage;
+          if (msg.type !== "hydrate" && msg.type !== "master-status" && msg.type !== "command-rejected") {
+            const decision = sequence.delta(msg);
+            if (decision === "refresh") {
+              readyRef.current = false; setConnected(false); awaitHydrate();
+              ws.send(JSON.stringify({ type: "sync", lastSeenSequence: sequence.lastSeenSequence } satisfies TimecodeWsMessage));
+            }
+            if (decision !== "apply") return;
+          }
           switch (msg.type) {
             case "hydrate":
               if ("source" in msg.state && "events" in msg) {
                 if (msg.state.showId !== showId) { setLastError("Timecode show mismatch. Reconnecting."); ws.close(); break; }
+                clearTimeout(hydrateTimeout);
+                sequence.snapshot(msg);
                 stateRef.current = msg.state; formatRef.current = msg.state.format;
                 confirmedScope.current = { orgId, showId };
                 setState(msg.state); setEvents(msg.events); readyRef.current = true; setConnected(true);
+                for (const edit of pendingEditsRef.current) {
+                  if (!edit.matches(msg.events)) continue;
+                  clearTimeout(edit.timeout); pendingEditsRef.current.delete(edit); edit.resolve();
+                }
+                startConfirmedSource(msg.state);
               }
               break;
             case "tc-update":

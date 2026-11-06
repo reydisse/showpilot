@@ -670,8 +670,15 @@
       "phase": "1",
       "section": "1.4 Watchdog, handover, and reconnect gaps (audit H12, H13, H17)",
       "line": 123,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "TimecodeRelay and CueSheetRelay use SQLite-backed monotonic room revisions, with the previous delivered revision in each socket attachment. Per-reader predecessors distinguish missed packets from operator-only events intentionally hidden from confidence displays. Revisions and attachment cursors survive eviction.",
+        "Timecode operator and timer/confidence clients compare sequence cursors, ignore old deltas and request a full hydrate on gaps. Operator hydration also confirms pending edits whose acknowledgement was missed. Read-only hydration keeps the restricted display projection. Snapshot waits time out into reconnect.",
+        "Cue-sheet hydration compares the previous cursor and reloads the current authorized D1 view on admission/reconnect. Events arriving during the reload are buffered and applied afterwards. A gap during a reload forces another refresh; failures are visible with Retry and bounded waits. Incident and manager-dashboard subscribers also reload their scoped views. The obsolete client keepalive was removed and legacy ping is a read, not a rejected mutation.",
+        "Cue notes now publish only after D1 commits. Same-cell writes serialize, local pending/newer edits survive reload, and failed saves retain drafts with Retry. Background refresh keeps the same-show table mounted so typing is not lost.",
+        "2026-11-05: full web suite passed (1300 unit, 230 Worker); the final table-mount and duplicate-hydrate corrections passed the full suite, typecheck and production build. Duplicate unchanged hydration does not start a redundant D1 reload. Worker test classes now use SQLite to match all six production relay classes. relay-sequence.worker.test.ts verifies real persistence, reader-specific predecessors, restricted snapshots and reconnect revisions.",
+        "Built smoke-relay-sequences.mjs passed real login, deliberate timecode event loss, two-tab cue-note loss followed by D1 recovery, preservation of a focused draft through refresh, and an injected save failure followed by successful retry. The failed draft was absent from D1 and the other tab until the retry committed. Disposable local fixtures only; no production deployment."
+      ]
     },
     {
       "id": "3ae7e85bb21eb1a5",
@@ -877,8 +884,12 @@
       "phase": "1",
       "section": "Phase 1 gate (all must pass before Phase 2)",
       "line": 171,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "timecode-watchdog.worker.test.ts observes actual alarms after eviction: 500ms stalls, over-two-second loss, held frame and preserved last-feed time, live Bridge promotion on master disconnect, stale/disconnected standby rejection, and correct post-eviction cue crossing.",
+        "relay-sequence.worker.test.ts and the timecode/cue-sheet hook tests cover persisted revisions, missed predecessors, reconnect hydration, stale-delta rejection and refreshing again if a gap occurs during D1 reload. Display projection excludes operator event payloads.",
+        "Built smoke-timecode-watchdog.mjs passed loss display, held frame, Stop and Resume in the prior watchdog change. Built smoke-relay-sequences.mjs now verifies automatic recovery from deliberately dropped messages in real authenticated tabs, plus draft retention and failed-save retry. Full web suite: 1300 unit and 230 Worker tests passed; final focused tests, typecheck and production build passed. Hardware MTC and final full-show rehearsal remain separate requirements."
+      ]
     },
     {
       "id": "1959973710f77b0b",

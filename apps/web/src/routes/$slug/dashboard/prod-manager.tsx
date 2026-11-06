@@ -1,3 +1,4 @@
+import { RelaySyncNotice } from "@/components/RelaySyncNotice";
 import { useTerms } from "@/components/workspace/WorkspaceProvider";
 import {
   createFileRoute,
@@ -77,10 +78,11 @@ function ProdManagerPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const headerScroll = useEdgeScroll();
   const [planOpen, setPlanOpen] = useState(false);
-  useCueSheetSync({
+  const { syncError, retrySync } = useCueSheetSync({
     orgId,
     onNote: () => {},
     onColumns: () => {},
+    onRefresh: async () => { await router.invalidate(); },
     onIncident: () => void router.invalidate(),
   });
 
@@ -109,6 +111,7 @@ function ProdManagerPage() {
 
   return (
     <div className="h-full overflow-auto overscroll-y-none bg-board-bg">
+      <RelaySyncNotice error={syncError} onRetry={retrySync} />
       {/* One toolbar row. Identity and context on the left, live numbers
           right-aligned against the edge so the eye always lands in the
           same place regardless of how wide the window is. */}

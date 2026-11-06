@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { seedRelayMember } from "@/test/relay-fixtures";
 
 afterEach(() => abortAllDurableObjects());
-const note = { type: "note", serviceDate: "2026-11-05", itemId: "item", columnId: "column", text: "Fixture note", by: "Fixture", at: 1 };
+const note = { type: "note", showId: "show", serviceDate: "2026-11-05", itemId: "item", columnId: "column", text: "Fixture note", by: "Fixture", at: 1 };
 async function fixture() {
   const orgId = `cue-sheet-${crypto.randomUUID()}`;
   const authority = await seedRelayMember(orgId);
@@ -68,7 +68,7 @@ describe("cue-sheet authority", () => {
     const published = await test.stub.fetch(test.url("/broadcast"), { method: "POST", body: JSON.stringify(note) });
     expect(published.status).toBe(200);
     await published.text();
-    expect(await received).toEqual(note);
+    expect(await received).toMatchObject(note);
     socket.close();
   });
 });

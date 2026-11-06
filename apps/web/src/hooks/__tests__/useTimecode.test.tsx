@@ -50,6 +50,26 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("timecode connection honesty", () => {
+  it("refreshes a missing sequence from a full hydrate and confirms a save whose event echo was missed", async () => {
+    const { result } = hook();
+    const socket = Socket.instances[0];
+    act(() => { socket.open(); socket.receive({ type: "hydrate", state, events: [], sequence: 5, previousSequence: null }); });
+    let saved: Promise<void> = Promise.resolve();
+    act(() => { saved = result.current.addEvent({ ...event, id: "resync-cue" }); });
+    act(() => socket.receive({ type: "tc-update", state, sequence: 7, previousSequence: 6 }));
+    expect(result.current.connected).toBe(false);
+    expect(socket.sent.map(message => JSON.parse(message)).at(-1)).toEqual({ type: "sync", lastSeenSequence: 5 });
+    const recovered = { ...event, id: "resync-cue", fired: false, triggerFrame: 300 };
+    await act(async () => {
+      socket.receive({ type: "hydrate", state, events: [recovered], sequence: 7, previousSequence: 7 });
+      await saved;
+    });
+    expect(result.current.connected).toBe(true);
+    expect(result.current.events).toEqual([recovered]);
+    act(() => socket.receive({ type: "events-update", events: [], sequence: 6, previousSequence: 5 }));
+    expect(result.current.events).toEqual([recovered]);
+  });
+
   it("pins the provider selection while show metadata refreshes and keeps routed children mounted", async () => {
     const shows = ["test-show", "evening"].map(id => ({ id, name: id, serviceDate: "2026-11-05", scheduledStartTime: null }));
     vi.mocked(getTimecodeShows).mockResolvedValue({ shows, activeShowId: "test-show" });

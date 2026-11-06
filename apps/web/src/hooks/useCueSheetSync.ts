@@ -1,142 +1,130 @@
-/**
- * Live fan-out for the cue sheet.
- *
- * The socket is a courier, not a source of truth. Every edit is written
- * to D1 by a permission-checked server function first; this only tells
- * the other tabs so they don't have to reload. If it never connects the
- * sheet still works — you just stop seeing other people type.
- *
- * Reconnect backs off and caps, matching the rundown sync hook, because
- * a church on 5Mbps will drop this socket several times during a service
- * and a tight retry loop is worse than the disconnection.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
-
-export interface CueNoteEvent {
-  type: "note";
-  showId: string;
-  serviceDate: string;
-  itemId: string;
-  columnId: string;
-  text: string;
-  by: string;
-  at: number;
-}
-
-export interface CueColumnsEvent {
-  type: "columns";
-  at: number;
-}
-
-export interface IncidentEvent {
-  type: "incident";
-  showId: string | null;
-  incidentId: string;
-  action: "created" | "updated" | "assigned" | "acknowledged" | "resolved" | "deleted" | "commented";
-  at: number;
-}
-
-export type CueSheetEvent = CueNoteEvent | CueColumnsEvent | IncidentEvent;
-
-const RECONNECT_BASE_MS = 1000;
-const RECONNECT_MAX_MS = 15000;
-/** DOs hibernate on an idle socket; this keeps the room warm. */
-const PING_MS = 20000;
+import { cueSheetEventSchema, type CueSheetEvent, type CueNoteEvent, type IncidentEvent } from "@/lib/cue-sheet-events";
+import { RelaySequenceTracker } from "@/lib/relay-sequence";
+export type { CueSheetEvent, CueNoteEvent, IncidentEvent } from "@/lib/cue-sheet-events";
 
 interface Options {
   orgId: string;
   onNote: (event: CueNoteEvent) => void;
   onColumns: () => void;
   onIncident?: (event: IncidentEvent) => void;
+  /** Reload this view's authorized D1 data, rejecting if it could not refresh. */
+  onRefresh: () => Promise<void>;
 }
 
-export function useCueSheetSync({ orgId, onNote, onColumns, onIncident }: Options) {
+/** D1 owns the sheet. The socket detects missing notifications and makes the
+ * caller refresh its scoped data; it never replays edits or keeps a room warm.
+ */
+export function useCueSheetSync(options: Options) {
+  const { orgId } = options;
+  const handlers = useRef(options);
+  handlers.current = options;
   const [connected, setConnected] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const attempts = useRef(0);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const closing = useRef(false);
+  const retryRef = useRef<() => void>(() => {});
 
-  // Handlers are held in refs so a parent re-render doesn't tear the
-  // socket down and reconnect on every keystroke.
-  const onNoteRef = useRef(onNote);
-  const onColumnsRef = useRef(onColumns);
-  const onIncidentRef = useRef(onIncident);
   useEffect(() => {
-    onNoteRef.current = onNote;
-    onColumnsRef.current = onColumns;
-    onIncidentRef.current = onIncident;
-  }, [onNote, onColumns, onIncident]);
+    let disposed = false;
+    let attempts = 0;
+    let reconnect: ReturnType<typeof setTimeout> | null = null;
+    let refreshRetry: ReturnType<typeof setTimeout> | null = null;
+    const refreshTimers = new Set<ReturnType<typeof setTimeout>>();
+    const sequence = new RelaySequenceTracker();
+    setConnected(false); setSyncError(null);
 
-  const connect = useCallback(() => {
-    if (typeof window === "undefined") return;
-    if (
-      wsRef.current?.readyState === WebSocket.OPEN ||
-      wsRef.current?.readyState === WebSocket.CONNECTING
-    ) {
-      return;
-    }
-
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(
-      `${protocol}://${window.location.host}/api/cue-sheet/${orgId}/ws`,
-    );
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      closing.current = false;
-      attempts.current = 0;
-      setConnected(true);
-      if (pingTimer.current) clearInterval(pingTimer.current);
-      pingTimer.current = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }));
-      }, PING_MS);
+    const connect = () => {
+      if (disposed) return;
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      const socket = new WebSocket(`${protocol}://${window.location.host}/api/cue-sheet/${encodeURIComponent(orgId)}/ws`);
+      wsRef.current = socket;
+      let hydrateTimeout: ReturnType<typeof setTimeout> | undefined;
+      let refreshing = false;
+      let refreshAgain = false;
+      let buffered: CueSheetEvent[] = [];
+      const current = () => !disposed && wsRef.current === socket;
+      const deliver = (message: CueSheetEvent) => {
+        if (message.type === "note") handlers.current.onNote(message);
+        else if (message.type === "columns") handlers.current.onColumns();
+        else handlers.current.onIncident?.(message);
+      };
+      const refresh = async () => {
+        if (!current() || refreshing) return;
+        refreshing = true; buffered = []; setConnected(false); setSyncError(null);
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        if (refreshRetry) clearTimeout(refreshRetry);
+        try {
+          await Promise.race([
+            handlers.current.onRefresh(),
+            new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("Refresh timed out. Try again.")), 10_000); refreshTimers.add(timeout); }),
+          ]);
+          if (!current() || refreshAgain) return;
+          for (const message of buffered) deliver(message);
+          buffered = []; setConnected(true); setSyncError(null);
+        } catch (error) {
+          if (!current()) return;
+          setSyncError(error instanceof Error ? error.message : "Could not refresh live changes. Try again.");
+          refreshRetry = setTimeout(() => { void refresh(); }, 5000);
+        } finally {
+          refreshing = false;
+          if (timeout) { clearTimeout(timeout); refreshTimers.delete(timeout); }
+          if (current() && refreshAgain) { refreshAgain = false; void refresh(); }
+        }
+      };
+      retryRef.current = () => { void refresh(); };
+      const awaitHydrate = () => { clearTimeout(hydrateTimeout); hydrateTimeout = setTimeout(() => { if (current()) socket.close(); }, 5000); };
+      socket.onopen = () => { if (current()) { attempts = 0; awaitHydrate(); } };
+      socket.onmessage = event => {
+        if (!current()) return;
+        try {
+          const message: unknown = JSON.parse(event.data);
+          if (message && typeof message === "object" && "type" in message && message.type === "hydrate") {
+            clearTimeout(hydrateTimeout);
+            const { changed } = sequence.snapshot(message);
+            // Also closes the race between the route loader and WS admission.
+            if (refreshing) refreshAgain ||= changed;
+            else void refresh();
+            return;
+          }
+          const result = cueSheetEventSchema.safeParse(message);
+          if (!result.success) return;
+          const decision = sequence.delta(message);
+          if (decision === "refresh") {
+            setConnected(false); awaitHydrate();
+            socket.send(JSON.stringify({ type: "sync", lastSeenSequence: sequence.lastSeenSequence }));
+          }
+          if (decision !== "apply") return;
+          if (refreshing) {
+            buffered.push(result.data);
+            if (buffered.length > 1000) socket.close(); // Rehydrate instead of retaining an unbounded backlog.
+          } else deliver(result.data);
+        } catch { socket.close(); }
+      };
+      socket.onclose = () => {
+        clearTimeout(hydrateTimeout);
+        if (!current()) return;
+        sequence.disconnect(); setConnected(false); wsRef.current = null;
+        if (refreshRetry) clearTimeout(refreshRetry);
+        reconnect = setTimeout(connect, Math.min(1000 * 2 ** attempts++, 15000));
+      };
+      socket.onerror = () => socket.close();
     };
-
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data) as CueSheetEvent;
-        if (message.type === "note") onNoteRef.current(message);
-        else if (message.type === "columns") onColumnsRef.current();
-        else if (message.type === "incident") onIncidentRef.current?.(message);
-      } catch {
-        // A malformed frame is not worth surfacing to an operator.
-      }
-    };
-
-    ws.onclose = () => {
-      setConnected(false);
-      if (pingTimer.current) clearInterval(pingTimer.current);
-      if (closing.current) return;
-      const delay = Math.min(RECONNECT_BASE_MS * 2 ** attempts.current, RECONNECT_MAX_MS);
-      attempts.current += 1;
-      reconnectTimer.current = setTimeout(connect, delay);
-    };
-
-    ws.onerror = () => {
-      ws.close();
+    connect();
+    return () => {
+      disposed = true;
+      if (reconnect) clearTimeout(reconnect);
+      if (refreshRetry) clearTimeout(refreshRetry);
+      for (const timer of refreshTimers) clearTimeout(timer);
+      wsRef.current?.close(); wsRef.current = null;
+      retryRef.current = () => {};
     };
   }, [orgId]);
 
-  useEffect(() => {
-    connect();
-    return () => {
-      closing.current = true;
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
-      if (pingTimer.current) clearInterval(pingTimer.current);
-      wsRef.current?.close();
-      wsRef.current = null;
-    };
-  }, [connect]);
-
-  /** Tell the other tabs. Silently a no-op while disconnected. */
+  // This notification is published only after the mutation commits to D1.
   const publish = useCallback((event: CueSheetEvent) => {
-    const ws = wsRef.current;
-    if (ws?.readyState !== WebSocket.OPEN) return;
-    ws.send(JSON.stringify(event));
+    const socket = wsRef.current;
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(event));
   }, []);
-
-  return { connected, publish };
+  const retrySync = useCallback(() => retryRef.current(), []);
+  return { connected, publish, syncError, retrySync };
 }

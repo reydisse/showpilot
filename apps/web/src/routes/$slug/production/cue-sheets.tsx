@@ -1,3 +1,4 @@
+import { RelaySyncNotice } from "@/components/RelaySyncNotice";
 /**
  * Cue sheet.
  *
@@ -86,6 +87,14 @@ function CueSheetsPage() {
     notesFromRows(initialModel.rows),
   );
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const loadVersion = useRef(0);
+  const selectedShow = useRef(showId);
+  selectedShow.current = showId;
+  const noteVersion = useRef(0);
+  const localNotes = useRef(new Map<string, { showId: string; itemId: string; columnId: string; text: string; pending: boolean; version: number }>());
+  const noteWrites = useRef(new Map<string, Promise<void>>());
+  const [noteErrors, setNoteErrors] = useState(new Map<string, string>());
   const [managing, setManaging] = useState(false);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const sheetScroll = useEdgeScroll();
@@ -123,15 +132,27 @@ function CueSheetsPage() {
 
   const load = useCallback(
     async (nextShowId: string) => {
-      setLoading(true);
+      const version = ++loadVersion.current;
+      const startedNotes = noteVersion.current;
+      setLoading(true); setLoadError(null);
       try {
         const next = await getCueSheet({ data: { orgId, showId: nextShowId, today } });
+        if (version !== loadVersion.current || selectedShow.current !== nextShowId) return;
         setModel(next);
         setShowId(next.showId);
         setServiceDate(next.serviceDate);
-        setNotes(notesFromRows(next.rows));
+        const nextNotes = notesFromRows(next.rows);
+        for (const [key, draft] of localNotes.current) {
+          if (draft.showId !== next.showId) continue;
+          if (draft.pending || draft.version > startedNotes) nextNotes[draft.itemId] = { ...nextNotes[draft.itemId], [draft.columnId]: draft.text };
+          else localNotes.current.delete(key);
+        }
+        setNotes(nextNotes);
+      } catch (cause) {
+        if (version === loadVersion.current) setLoadError(cause instanceof Error ? cause.message : "Could not load the cue sheet.");
+        throw cause;
       } finally {
-        setLoading(false);
+        if (version === loadVersion.current) setLoading(false);
       }
     },
     [orgId, today],
@@ -143,14 +164,14 @@ function CueSheetsPage() {
   useEffect(() => {
     if (!showId || loadedRef.current === showId) return;
     loadedRef.current = showId;
-    void load(showId);
+    void load(showId).catch(() => {});
   }, [load, showId]);
 
   // ── Live ──────────────────────────────────────────────────
 
   const applyRemoteNote = useCallback(
     (event: { showId: string; serviceDate: string; itemId: string; columnId: string; text: string }) => {
-      if (event.showId !== showId) return;
+      if (event.showId !== showId || localNotes.current.get(JSON.stringify([event.showId, event.itemId, event.columnId]))?.pending) return;
       setNotes((prev) => ({
         ...prev,
         [event.itemId]: { ...(prev[event.itemId] ?? {}), [event.columnId]: event.text },
@@ -159,10 +180,11 @@ function CueSheetsPage() {
     [showId],
   );
 
-  const { connected, publish } = useCueSheetSync({
+  const { connected, publish, syncError, retrySync } = useCueSheetSync({
     orgId,
     onNote: applyRemoteNote,
-    onColumns: () => showId ? void load(showId) : undefined,
+    onColumns: () => { if (showId) void load(showId).catch(() => {}); },
+    onRefresh: async () => { if (showId) await load(showId); },
   });
 
   // ── Continuity with the rundown ───────────────────────────
@@ -274,9 +296,25 @@ function CueSheetsPage() {
         [itemId]: { ...(prev[itemId] ?? {}), [columnId]: text },
       }));
       if (!showId) return;
-      publish({ type: "note", showId, serviceDate, itemId, columnId, text, by: "", at: Date.now() });
-      const { setCueNote } = await import("@/lib/cue-sheet");
-      await setCueNote({ data: { orgId, showId, serviceDate, itemId, columnId, text } });
+      const key = JSON.stringify([showId, itemId, columnId]);
+      const draft = { showId, itemId, columnId, text, pending: true, version: ++noteVersion.current };
+      localNotes.current.set(key, draft);
+      const previous = noteWrites.current.get(key);
+      const write = (async () => {
+        await previous?.catch(() => {});
+        const { setCueNote } = await import("@/lib/cue-sheet");
+        await setCueNote({ data: { orgId, showId, serviceDate, itemId, columnId, text } });
+        if (localNotes.current.get(key) === draft) { draft.pending = false; draft.version = ++noteVersion.current; }
+        publish({ type: "note", showId, serviceDate, itemId, columnId, text, by: "", at: Date.now() });
+      })();
+      noteWrites.current.set(key, write);
+      try {
+        await write;
+        if (localNotes.current.get(key) === draft) setNoteErrors(previous => { const next = new Map(previous); next.delete(key); return next; });
+      } catch (cause) {
+        if (localNotes.current.get(key) === draft) setNoteErrors(previous => new Map(previous).set(key, cause instanceof Error ? cause.message : "Could not save cue note."));
+      }
+      finally { if (noteWrites.current.get(key) === write) noteWrites.current.delete(key); }
     },
     [orgId, showId, serviceDate, publish],
   );
@@ -350,6 +388,13 @@ function CueSheetsPage() {
             }}
           />
 
+          <RelaySyncNotice error={loadError ?? syncError} onRetry={retrySync} />
+          {noteErrors.size > 0 && <div role="alert" className="flex items-center gap-3 text-sm text-amber-300">
+            <p>{noteErrors.size} cue note(s) have not saved. Your edits are kept.</p>
+            <button type="button" className="min-h-11 px-3 font-semibold underline" onClick={() => {
+              for (const [key, draft] of localNotes.current) if (draft.showId === showId && draft.pending && !noteWrites.current.has(key)) void handleNoteChange(draft.itemId, draft.columnId, draft.text);
+            }}>Retry saves</button>
+          </div>}
           <div className="ml-auto flex items-center gap-3">
             {/* Connection state is worth showing here, unlike in the
                 operator UI: a cue sheet that has silently stopped
@@ -446,7 +491,7 @@ function CueSheetsPage() {
           orgId={orgId}
           columns={model.columns}
           onChanged={() => {
-            if (showId) void load(showId);
+            if (showId) void load(showId).catch(() => {});
             publish({ type: "columns", at: Date.now() });
           }}
           onClose={() => setManaging(false)}
@@ -457,9 +502,9 @@ function CueSheetsPage() {
           the whole grid — both axes — with the left block pinned inside
           it, rather than a table scrolling within a page that scrolls. */}
       <div className="flex-1 relative min-h-0">
-        <div ref={sheetScroll.ref} className="absolute inset-0 overflow-auto">
-        {loading ? (
-          <p className="text-center text-sm text-board-muted py-16">Loading cue sheet…</p>
+        <div ref={sheetScroll.ref} aria-busy={loading} className="absolute inset-0 overflow-auto">
+        {model.showId !== showId ? (
+          <p className="text-center text-sm text-board-muted py-16">{loadError ? "Cue sheet unavailable. Retry above." : "Loading cue sheet…"}</p>
         ) : hasRows ? (
           <CueTable
             rows={rows}
@@ -493,7 +538,7 @@ function CueSheetsPage() {
           </div>
         )}
         </div>
-        {hasRows && !loading && (
+        {hasRows && model.showId === showId && (
           <ScrollEdges edges={sheetScroll.edges} scrollBy={sheetScroll.scrollBy} step={320} />
         )}
       </div>

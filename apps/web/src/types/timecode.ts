@@ -166,6 +166,7 @@ export interface TimecodeSettings {
 // ─── WebSocket Messages ─────────────────────────────────────
 
 export type TimecodeWsMessage =
+  | { type: "sync"; lastSeenSequence: number | null }
   | { type: "hydrate"; state: TimecodeState; events: AutomationEvent[] }
   | { type: "hydrate"; state: TimecodeDisplayState }
   | { type: "tc-update"; state: TimecodeState | TimecodeDisplayState }
