@@ -2,6 +2,10 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  LINUX_ENGINE_FILENAME,
+  publishLinuxEngine,
+} from "../../../scripts/linux-bridge-sidecar.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const source = resolve(root, "../bridge/src/index.ts");
@@ -24,9 +28,19 @@ if (rustc.status !== 0 || !targetTriple) {
   process.exit(rustc.status ?? 1);
 }
 const extension = process.platform === "win32" ? ".exe" : "";
-const output = resolve(root, `src-tauri/binaries/showpilot-bridge-${targetTriple}${extension}`);
+const sidecarPath = resolve(
+  root,
+  "src-tauri/binaries",
+  `showpilot-bridge-${targetTriple}${extension}`,
+);
+// On Linux the externalBin slot is a shell wrapper. The compiled Bun engine
+// is stored beside it and copied to usr/share by the bundle file map.
+const compilePath =
+  process.platform === "linux"
+    ? resolve(root, "src-tauri/binaries", LINUX_ENGINE_FILENAME)
+    : sidecarPath;
 
-mkdirSync(dirname(output), { recursive: true });
+mkdirSync(dirname(sidecarPath), { recursive: true });
 // The default x64 Bun executable uses AVX2 instructions. Bridge machines are
 // often older production PCs, so compile x64 builds against Bun's baseline
 // target to avoid an illegal-instruction crash before the agent can connect.
@@ -44,7 +58,7 @@ const executablePath = process.env.SHOWPILOT_BUN_EXECUTABLE_PATH;
 const bunCommand = executablePath || "bun";
 const args = ["build", "--compile"];
 if (!(executablePath && process.platform === "win32")) args.push(`--target=${target}`);
-args.push(source, "--outfile", output);
+args.push(source, "--outfile", compilePath);
 const result = spawnSync(bunCommand, args, {
   cwd: root,
   stdio: "inherit",
@@ -63,8 +77,16 @@ if (result.error) {
 }
 if (result.status !== 0) process.exit(result.status ?? 1);
 
+if (process.platform === "linux") {
+  publishLinuxEngine({
+    compilePath,
+    sidecarPath,
+    shareDirectory: "showpilot-bridge",
+  });
+}
+
 if (process.platform === "darwin") {
-  const sign = spawnSync("codesign", ["--force", "--sign", "-", "--timestamp=none", output], {
+  const sign = spawnSync("codesign", ["--force", "--sign", "-", "--timestamp=none", sidecarPath], {
     stdio: "inherit",
   });
   if (sign.error) {
@@ -74,7 +96,7 @@ if (process.platform === "darwin") {
   }
   if (sign.status !== 0) process.exit(sign.status ?? 1);
 
-  const verify = spawnSync("codesign", ["--verify", "--strict", "--verbose=2", output], {
+  const verify = spawnSync("codesign", ["--verify", "--strict", "--verbose=2", sidecarPath], {
     stdio: "inherit",
   });
   if (verify.error) {
