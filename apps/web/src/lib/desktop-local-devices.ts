@@ -5,13 +5,7 @@ import {
   type DesktopBridgeStatus,
 } from "@/lib/desktop-runtime";
 import { getOrgRouteContext } from "@/lib/session";
-import { getDesktopBridgeSettings } from "@/lib/settings";
-
-function positivePort(value: string | undefined): number | undefined {
-  if (!value) return undefined;
-  const port = Number.parseInt(value, 10);
-  return Number.isInteger(port) && port > 0 && port <= 65_535 ? port : undefined;
-}
+import { getDesktopBridgeAccess } from "@/lib/settings";
 
 /**
  * Starts this Desktop's embedded Bridge only after local-device mode has been
@@ -41,7 +35,7 @@ export async function configureDesktopLocalDevices(
 
   const context = await getOrgRouteContext({ data: slug });
   if (!context) throw new Error("Sign in before enabling local devices");
-  const settings = await getDesktopBridgeSettings({ data: { orgId: context.org.id } });
+  await getDesktopBridgeAccess({ data: { orgId: context.org.id } });
   if (!shouldContinue()) return status;
   const issued = !sameInstallation || status.connection === "unauthorized"
     ? await (await import("@/lib/bridge-installations")).createBridgeInstallation({ data: { orgId: context.org.id, label: "ShowPilot Desktop" } })
@@ -56,9 +50,6 @@ export async function configureDesktopLocalDevices(
     org: slug,
     // Blank asks the native engine to reuse its saved key for this exact site/org.
     key: issued?.key ?? "",
-    propresenterHost: settings["propresenter-host"] || undefined,
-    propresenterPort: positivePort(settings["propresenter-port"]),
-    propresenterApiPort: positivePort(settings["propresenter-api-port"]),
-    propresenterPassword: settings["propresenter-password"] || undefined,
+
   });
 }

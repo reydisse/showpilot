@@ -1,4 +1,4 @@
-import { encryptSettingValue, maskSettingValue, readSettingValuesForUse } from "./credential-settings.server";
+import { encryptSettingValue, maskSettingValue } from "./credential-settings.server";
 import { CREDENTIAL_MASK, isCredentialField } from "./credential-fields";
 import { CONFIDENCE_LAYOUT_KEY, confidenceLayoutSchema, readConfidenceLayout, DEFAULT_CONFIDENCE_LAYOUT, type ConfidenceLayout } from "@/lib/confidence-layout";
 import { WORKSPACE_SETTING_KEYS } from "@showpilot/shared";
@@ -177,51 +177,29 @@ export const updateRundownPinProtection = createServerFn({ method: "POST" })
     return { enabled: true as const };
   });
 
-const PROPRESENTER_RUNTIME_SETTING_KEYS = [
-  "propresenter-host",
-  "propresenter-port",
-  "propresenter-api-port",
-  "propresenter-password",
-  "propresenter-send-cues",
-  "propresenter-stage-display",
+const PROPRESENTER_PUBLIC_SETTING_KEYS = [
+  "propresenter-host", "propresenter-port", "propresenter-api-port",
+  "propresenter-send-cues", "propresenter-stage-display",
 ] as const;
 
-const DESKTOP_BRIDGE_SETTING_KEYS = [
-  ...PROPRESENTER_RUNTIME_SETTING_KEYS,
-] as const;
-
-/** Native ProPresenter credentials for authorized live-show operators. */
-export const getProPresenterRuntimeSettings = createServerFn({ method: "GET" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema }), data),
-  )
+/** Operator configuration contains no credentials; the venue Bridge authenticates privately. */
+export const getProPresenterConfiguration = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertEffectiveOrgPermission(data.orgId, ["lowerthird:trigger", "rundown:control"]);
     const settings = await getPrisma().appSetting.findMany({
-      where: {
-        orgId: data.orgId,
-        key: { in: [...PROPRESENTER_RUNTIME_SETTING_KEYS] },
-      },
+      where: { orgId: data.orgId, key: { in: [...PROPRESENTER_PUBLIC_SETTING_KEYS] } },
       select: { key: true, value: true },
     });
-    return readSettingValuesForUse(env.CREDENTIAL_ENCRYPTION_KEYS, data.orgId, settings);
+    return Object.fromEntries(settings.map(setting => [setting.key, maskSettingValue(setting.key, setting.value)]));
   });
 
-/** Returns native device credentials only to members allowed to manage API keys. */
-export const getDesktopBridgeSettings = createServerFn({ method: "GET" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema }), data),
-  )
+/** Retains the API-key permission check before native installation reuse/provisioning. */
+export const getDesktopBridgeAccess = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "settings:api_keys");
-    const settings = await getPrisma().appSetting.findMany({
-      where: {
-        orgId: data.orgId,
-        key: { in: [...DESKTOP_BRIDGE_SETTING_KEYS] },
-      },
-      select: { key: true, value: true },
-    });
-    return readSettingValuesForUse(env.CREDENTIAL_ENCRYPTION_KEYS, data.orgId, settings);
+    return { orgId: data.orgId };
   });
 
 async function recordCredentialSettingChange(orgId: string, key: string, value: string, wasConfigured: boolean) {

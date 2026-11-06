@@ -244,9 +244,9 @@ Only the public key is kept in the relay socket attachment for hibernation.
 Neither plaintext settings nor encrypted envelopes are broadcast to operators.
 This transport uses no new Worker secret and does not replace TLS.
 
-Device JSON encryption and masked device read/add/update responses remain
-pending, as does removing browser-facing ProPresenter credential reads. Do not
-interpret transport encryption alone as completion of the credential rollout.
+Device JSON encryption, masked device read/add/update responses and private
+ProPresenter delivery are described below. Native configuration-file migration
+is still pending; transport encryption alone does not complete the rollout.
 
 After building the web application and native sidecar, rehearse the actual
 browser-to-Worker-to-native-to-device path against disposable local data:
@@ -271,7 +271,7 @@ controls. Blank replacement fields preserve existing credentials. Clearing
 requires confirmation. Single and bulk generic save responses are masked too.
 Internal chat, Slack-signature, ProPresenter and mobile consumers can read the
 encrypted values. Device JSON storage and protected native credential delivery
-are still pending; this change set is not yet the complete H7/H8 release.
+are implemented below; native configuration-file migration remains pending.
 
 Before deploying, apply `0050_credential_backfill_cursor.sql` and provision the
 Worker secret `CREDENTIAL_ENCRYPTION_KEYS`. It is JSON with an `active` key ID
@@ -347,9 +347,38 @@ node apps/web/scripts/smoke-device-credentials.mjs apps/bridge-desktop/src-tauri
 It verifies actual UI writes, encrypted D1 values, masked read/save responses,
 an authenticated browser action through the compiled Bridge, protected native
 transport, blank-edit preservation, confirmed clearing and responsive controls.
-This is not a production backfill or a physical OBS/PJLink hardware test. Raw
-ProPresenter runtime/provisioning getter migration is still pending, so H8
-must remain incomplete.
+This is not a production backfill or a physical OBS/PJLink hardware test.
+
+### Private ProPresenter configuration and slide feed
+
+Browser configuration reads return only host, ports and enable flags. Desktop
+provisioning checks the existing API-key permission and passes only the Bridge
+installation details to the native supervisor. Neither path returns the saved
+ProPresenter password. The selected native Bridge requests its configuration
+from the Worker, which reads the organization setting internally, checks the
+approved destination, records the connection audit and encrypts delivery for
+that native connection. Standby installations cannot request this delivery.
+
+Use matching Worker and native sidecar builds from this change set. The new
+automatic configuration request is part of the unreleased protocol-3 stack;
+an earlier protocol-3 build does not implement it.
+
+Browsers observe normalized slide events through a read-only ProPresenter
+socket plus a visible-tab snapshot refresh. The socket requires lower-third
+trigger or rundown-control permission, filters unrelated device traffic and
+rejects all control writes. Explicit slide clears remove the preview;
+connection loss retains the last confirmed slide and reports the error.
+
+After building web and the native sidecar, run:
+
+```sh
+node apps/web/scripts/smoke-propresenter-private.mjs apps/bridge-desktop/src-tauri/binaries/showpilot-bridge-aarch64-apple-darwin
+```
+
+The fixture uses a local password-protected Stage Display server, not physical
+ProPresenter hardware. H8 remains pending: manually entered ProPresenter
+passwords in older native configuration files still need OS-vault migration.
+Live credential replacement/reconnection also needs verification before release.
 
 ### Applying a migration to production
 

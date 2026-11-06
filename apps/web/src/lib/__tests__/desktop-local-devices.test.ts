@@ -8,7 +8,7 @@ vi.mock("../desktop-runtime", () => ({
   isDesktopLocalDeviceMode: (status: DesktopBridgeStatus) => status.localDevicesEnabled,
 }));
 vi.mock("../session", () => ({ getOrgRouteContext: mocks.context }));
-vi.mock("../settings", () => ({ getDesktopBridgeSettings: mocks.settings }));
+vi.mock("../settings", () => ({ getDesktopBridgeAccess: mocks.settings }));
 vi.mock("../bridge-installations", () => ({ createBridgeInstallation: mocks.issue, revokeBridgeInstallationKey: mocks.revoke }));
 import { configureDesktopLocalDevices } from "../desktop-local-devices";
 
@@ -21,7 +21,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.status.mockResolvedValue(status());
   mocks.context.mockResolvedValue({ org: { id: "org-1" } });
-  mocks.settings.mockResolvedValue({ "propresenter-host": "192.168.1.5", "propresenter-api-port": "1025" });
+  mocks.settings.mockResolvedValue({ orgId: "org-1" });
   mocks.issue.mockResolvedValue({ installationId: "install-1", credentialId: "credential-1", key: "sp_one_time" });
   mocks.start.mockResolvedValue(status());
 });
@@ -29,8 +29,7 @@ describe("Desktop installation credentials", () => {
   it("reuses the native saved key without issuing a replacement on reconnect", async () => {
     await configureDesktopLocalDevices("venue");
     expect(mocks.issue).not.toHaveBeenCalled();
-    expect(mocks.start).toHaveBeenCalledWith({ site: window.location.origin, org: "venue", key: "",
-      propresenterHost: "192.168.1.5", propresenterPort: undefined, propresenterApiPort: 1025, propresenterPassword: undefined });
+    expect(mocks.start).toHaveBeenCalledWith({ site: window.location.origin, org: "venue", key: "" });
   });
   it("provisions a key only when the operator enables a new local installation", async () => {
     mocks.status.mockResolvedValue(status({ configured: false, localDevicesEnabled: false, configuredOrg: null }));

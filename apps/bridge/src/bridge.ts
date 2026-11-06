@@ -924,6 +924,7 @@ export class Bridge {
 
   private async ensureProPresenterConnection(): Promise<void> {
     if (!this.propresenter?.host) {
+      this.send({ type: "configured-propresenter-requested" });
       return;
     }
 

@@ -1,10 +1,10 @@
-import { readSettingValuesForUse } from "./credential-settings.server";
+import { parseProPresenterFeedEvent, type ProPresenterFeedState } from "./propresenter-client";
+import { readProPresenterSettings, proPresenterConnection } from "./propresenter-settings.server";
 import { markDatabaseWrite, requestDatabase } from "@/lib/request-database.server";
 import { migrateRundownItemSnapshot, readStoredRundownItems, rundownItemDiffStatements, rundownItemStorageKey, rundownItemStorageStatements } from "@/lib/rundown-item-storage.server";
 import { rundownRelayKey } from "@/lib/rundown-relay-key";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import type { RelayPPSlide } from "@/lib/rundown-relay-payload";
-import { parseRelayPPSlide } from "@/lib/rundown-relay-payload";
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { env } from "cloudflare:workers";
 import { getPrisma } from "@/lib/db";
@@ -351,42 +351,8 @@ async function assertRundownControlAccess(orgId: string) {
 }
 
 async function readProPresenterTarget(orgId: string) {
-  const settings = await getPrisma().appSetting.findMany({
-    where: {
-      orgId,
-      key: {
-        in: [
-          "propresenter-host",
-          "propresenter-port",
-          "propresenter-api-port",
-          "propresenter-password",
-          "propresenter-send-cues",
-        ],
-      },
-    },
-    select: { key: true, value: true },
-  });
-  const values = await readSettingValuesForUse(env.CREDENTIAL_ENCRYPTION_KEYS, orgId, settings);
-  const host = values["propresenter-host"]?.trim();
-  if (!host) return null;
-  const stagePort = Number.parseInt(values["propresenter-port"] ?? "50001", 10);
-  const apiPort = Number.parseInt(
-    values["propresenter-api-port"] ?? "1025",
-    10,
-  );
-  return {
-    host,
-    stagePort:
-      Number.isInteger(stagePort) && stagePort > 0 && stagePort <= 65535
-        ? stagePort
-        : 50001,
-    apiPort:
-      Number.isInteger(apiPort) && apiPort > 0 && apiPort <= 65535
-        ? apiPort
-        : 1025,
-    password: values["propresenter-password"] ?? "",
-    cuesEnabled: values["propresenter-send-cues"] === "true",
-  };
+  const settings = await readProPresenterSettings(env.DB, orgId, env.CREDENTIAL_ENCRYPTION_KEYS);
+  return settings.host ? settings : null;
 }
 
 async function connectConfiguredProPresenterBridge(
@@ -408,17 +374,7 @@ async function connectConfiguredProPresenterBridge(
 
   const bridgeTarget = `propresenter:${target.host}:${target.stagePort}`;
   if (!status.connectedTargets.includes(bridgeTarget)) {
-    const connection = await relay.dispatchBridgeMessage({
-      type: "connect-device",
-      protocol: "propresenter",
-      target: bridgeTarget,
-      settings: {
-        host: target.host,
-        port: target.stagePort,
-        apiPort: target.apiPort,
-        password: target.password,
-      },
-    }, { source: "operator", actorUserId });
+    const connection = await relay.dispatchBridgeMessage(proPresenterConnection(target), { source: "operator", actorUserId });
     if (!connection.success) {
       return {
         ok: false as const,
@@ -840,51 +796,35 @@ function ppStageDisplayKey() {
   return "propresenter-stage-display";
 }
 
-/** Read the latest ProPresenter slide delivered by the venue Bridge. */
-export const pollProPresenterSlide = createServerFn({ method: "GET" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(proPresenterTargetSchema, data),
-  )
-  .handler(async ({ data }): Promise<PPSlidePayload | null> => {
+/** Read the selected venue feed. Transport failure is distinct from an explicit Clear. */
+export const getProPresenterFeed = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(proPresenterTargetSchema, data))
+  .handler(async ({ data }): Promise<ProPresenterFeedState> => {
     const { user } = await assertRundownPermission(data.orgId, [
       "lowerthird:trigger",
       "rundown:control",
     ]);
-    const target = await readProPresenterTarget(data.orgId);
-    if (!target) return null;
     try {
-      const connection = await connectConfiguredProPresenterBridge(
-        data.orgId,
-        target,
-        user.id,
-      );
-      if (!connection.ok) return null;
-      const status = await connection.relay.getBridgeStatus();
-      const event = status.deviceEvents?.[connection.bridgeTarget];
-      if (event?.eventName !== "slide") return null;
-      const slide: unknown = JSON.parse(event.data);
-      if (!slide || typeof slide !== "object" || Array.isArray(slide))
-        return null;
-      const record = slide as Record<string, unknown>;
-      const text = typeof record.text === "string" ? record.text : "";
-      if (!text) return null;
-      const content = parseRelayPPSlide({
-        text,
-        notes: typeof record.notes === "string" ? record.notes : "",
-        presentationName:
-          typeof record.presentationName === "string"
-            ? record.presentationName
-            : typeof record.pn === "string"
-              ? record.pn
-              : "",
-        isScripture: Boolean(record.isScripture ?? record.scripture),
-        slideId: record.slideId,
-        nextText: record.nextText,
-        nextSlideId: record.nextSlideId,
-      });
-      return content ? { ...content, updatedAt: event.receivedAt } : null;
+      const target = await readProPresenterTarget(data.orgId);
+      const bindings = env as unknown as RundownRelayEnv;
+      if (!bindings.BRIDGE_RELAY) return { status: "error", target: null, bridgeOnline: false, event: null, error: "Venue Bridge is unavailable." };
+      const relay = bindings.BRIDGE_RELAY.get(bindings.BRIDGE_RELAY.idFromName(data.orgId));
+      if (target) {
+        const connection = await connectConfiguredProPresenterBridge(data.orgId, target, user.id);
+        if (!connection.ok) return { status: "error", target: proPresenterConnection(target).target, bridgeOnline: false, event: null, error: connection.error };
+      }
+      const status = await relay.getBridgeStatus();
+      const localTargets = status.connectedTargets.filter(address => address.startsWith("propresenter:"));
+      const address = target ? proPresenterConnection(target).target : localTargets.length === 1 ? localTargets[0] : null;
+      const event = address ? status.deviceEvents?.[address] : undefined;
+      const connected = Boolean(status.bridgeOnline && address && status.connectedTargets.includes(address));
+      return {
+        status: connected ? "connected" : "error", target: address, bridgeOnline: status.bridgeOnline,
+        event: connected && event?.eventName === "slide" ? parseProPresenterFeedEvent(event.data, event.receivedAt) : null,
+        ...(!connected ? { error: status.bridgeOnline ? "Configure ProPresenter in Settings or connect one ProPresenter feed in the venue Bridge." : "Venue Bridge is offline." } : {}),
+      };
     } catch {
-      return null;
+      return { status: "error", target: null, bridgeOnline: false, event: null, error: "ProPresenter is unavailable. Check its settings and the venue Bridge." };
     }
   });
 
