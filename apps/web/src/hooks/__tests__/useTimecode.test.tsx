@@ -44,6 +44,7 @@ function hook() { return renderHook(() => useTimecode({ orgId: "test-org", showI
 beforeEach(() => {
   Socket.instances = [];
   vi.useFakeTimers();
+  vi.spyOn(performance, "now").mockImplementation(() => Date.now());
   vi.stubGlobal("WebSocket", Socket);
   vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
   vi.stubGlobal("cancelAnimationFrame", vi.fn());
@@ -51,6 +52,41 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("timecode connection honesty", () => {
+  it("does not claim a running generator when its first feed fails to send", () => {
+    const { result } = hook(); const socket = Socket.instances[0];
+    act(() => { hydrate(socket); result.current.startFreerun(); });
+    const send = socket.send.bind(socket);
+    vi.spyOn(socket, "send").mockImplementation(data => {
+      if (JSON.parse(data).action === "feed-tc") throw new Error("Socket closed during start");
+      send(data);
+    });
+    act(() => { socket.receive({ type: "master-status", granted: true }); socket.receive({ type: "tc-update", state: { ...state, running: true } }); });
+    expect(result.current.connected).toBe(false);
+    expect(result.current.isMaster).toBe(false);
+    expect(result.current.generatorPending).toBeNull();
+    expect(result.current.lastError).toContain("disconnected");
+    act(() => vi.advanceTimersByTime(100));
+    expect(socket.sent.map(message => JSON.parse(message)).filter(message => message.action === "feed-tc")).toHaveLength(0);
+  });
+
+  it("feeds fresh internal frames at 30 Hz without animation callbacks and stops on disconnect", () => {
+    const { result } = hook(); const socket = Socket.instances[0];
+    act(() => { hydrate(socket); result.current.startFreerun(); });
+    act(() => { socket.receive({ type: "master-status", granted: true }); socket.receive({ type: "tc-update", state: { ...state, running: true } }); });
+    act(() => vi.advanceTimersByTime(1000));
+    const feeds = () => socket.sent.map(message => JSON.parse(message)).filter(message => message.action === "feed-tc");
+    expect(feeds().length).toBeGreaterThanOrEqual(29);
+    expect(feeds().length).toBeLessThanOrEqual(31);
+    expect(new Set(feeds().map(message => message.payload.totalFrames)).size).toBe(feeds().length);
+    expect(feeds().at(-1).payload.totalFrames).toBeGreaterThanOrEqual(29);
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+    act(() => socket.close());
+    const count = feeds().length;
+    act(() => vi.advanceTimersByTime(1000));
+    expect(feeds()).toHaveLength(count);
+    expect(result.current.isMaster).toBe(false);
+  });
+
   it("accumulates jog seeks while earlier stopped-clock acknowledgements are still in flight", () => {
     const { result } = hook(); const socket = Socket.instances[0];
     act(() => hydrate(socket));
@@ -65,6 +101,7 @@ describe("timecode connection honesty", () => {
     const start = vi.spyOn(InternalTimecodeSource.prototype, "startAtFrame");
     act(() => { hydrate(socket); result.current.startFreerun(); });
     act(() => { socket.receive({ type: "master-status", granted: true }); socket.receive({ type: "tc-update", state: { ...state, running: true } }); });
+    socket.sent.length = 0;
     act(() => result.current.pauseGenerator());
     expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ action: "pause" });
     const paused = { ...state, totalFrames: 90, timecode: framesToTimecode(90, state.format), signal: { status: "paused", lastFeedAt: 1 } } as const;
@@ -74,8 +111,9 @@ describe("timecode connection honesty", () => {
     act(() => result.current.startFreerun());
     act(() => socket.receive({ type: "tc-update", state: { ...paused, running: true, signal: { status: "waiting", lastFeedAt: null } } }));
     expect(start).toHaveBeenLastCalledWith(90);
-    act(() => vi.advanceTimersByTime(100));
     expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ action: "feed-tc", payload: { totalFrames: 90 } });
+    act(() => vi.advanceTimersByTime(100));
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ action: "feed-tc", payload: { totalFrames: 92 } });
   });
 
   it("shows control separately from generator ownership and rejects edits while another tab controls the show", async () => {
@@ -360,7 +398,6 @@ describe("timecode connection honesty", () => {
       result.current.startFreerun();
       socket.receive({ type: "master-status", granted: true });
       socket.receive({ type: "tc-update", state: { ...held, running: true } });
-      vi.advanceTimersByTime(100);
     };
     act(resume);
     act(() => {

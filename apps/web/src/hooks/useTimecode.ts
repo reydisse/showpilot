@@ -11,6 +11,7 @@ import type {
 } from "@/types/timecode";
 import { framesToTimecode, timecodeToFrames } from "@/lib/timecode";
 import { InternalTimecodeSource } from "@/lib/timecode-sources/internal-source";
+import { startTimecodeTicker } from "@/lib/timecode-sources/timecode-ticker";
 import { createBrowserId } from "@/lib/browser-id";
 import { MtcSource } from "@/lib/timecode-sources/mtc-source";
 import type { cueReviewState } from "@/lib/automation-cues";
@@ -72,7 +73,6 @@ export interface UseTimecodeReturn {
   mtcSupported: boolean;
 }
 
-const FEED_INTERVAL_MS = 100;
 const CONFIRM_TIMEOUT_MS = 5_000;
 type PendingSource =
   | { kind: "internal"; offsetMs: number | undefined }
@@ -109,7 +109,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const pendingSourceRef = useRef<PendingSource | null>(null);
   const masterGrantedRef = useRef(false);
   const generatorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const feedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const feedTimerRef = useRef<(() => void) | null>(null);
   const pendingEditsRef = useRef(new Set<PendingEdit>());
   const latestTcRef = useRef<{ tc: TimecodeValue; totalFrames: number; format: TimecodeFormat } | null>(null);
   const formatRef = useRef<TimecodeFormat>({ frameRate: 30, dropFrame: "ndf" });
@@ -127,7 +127,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     pendingSourceRef.current = null;
     masterGrantedRef.current = false;
     latestTcRef.current = null;
-    if (feedTimerRef.current !== null) clearInterval(feedTimerRef.current);
+    feedTimerRef.current?.();
     feedTimerRef.current = null;
     clearGeneratorTimeout();
     setIsMaster(false);
@@ -161,7 +161,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
 
   const startFeedTimer = useCallback(() => {
     if (feedTimerRef.current !== null) return;
-    feedTimerRef.current = setInterval(() => {
+    feedTimerRef.current = startTimecodeTicker(() => {
       const latest = latestTcRef.current;
       if (latest && masterGrantedRef.current && stateRef.current?.signal?.status !== "paused") sendCommand("feed-tc", {
         timecode: latest.tc, totalFrames: latest.totalFrames, format: latest.format,
@@ -169,7 +169,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
       // A feed is proof of a new source callback, not proof that this timer is
       // still running. Repeating a stale MTC frame hides cable/DAW signal loss.
       latestTcRef.current = null;
-    }, FEED_INTERVAL_MS);
+    });
   }, [sendCommand]);
 
   const startConfirmedSource = useCallback((relayState: TimecodeState) => {
@@ -180,21 +180,24 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     formatRef.current = relayState.format;
     if (pending.kind === "internal") {
       const source = new InternalTimecodeSource(relayState.format, (tc, totalFrames) => {
-        latestTcRef.current = { tc, totalFrames, format: formatRef.current };
+        if (masterGrantedRef.current && stateRef.current?.signal?.status !== "paused") {
+          if (sendCommand("feed-tc", { timecode: tc, totalFrames, format: formatRef.current }).status === "failed") stopLocalSources();
+        }
       });
       internalSourceRef.current = source;
       if (pending.offsetMs === undefined) source.startAtFrame(relayState.totalFrames);
       else source.start(pending.offsetMs);
+      if (internalSourceRef.current !== source) return;
     } else {
       mtcSourceRef.current = pending.source;
       const transport = pending.source.transportState;
       if (transport && sendCommand("mtc-transport", { state: transport }).status === "failed") { stopLocalSources(); return; }
+      startFeedTimer();
     }
     pendingSourceRef.current = null;
     clearGeneratorTimeout();
     setIsMaster(true);
     setGeneratorPending(null);
-    startFeedTimer();
   }, [clearGeneratorTimeout, sendCommand, startFeedTimer, stopLocalSources]);
 
   useEffect(() => {

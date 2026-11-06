@@ -1,19 +1,20 @@
 import type { TimecodeValue, TimecodeFormat } from "@/types/timecode";
 import { framesToTimecode, msToTimecode, timecodeToFrames, timecodeToString } from "@/lib/timecode";
+import { startTimecodeTicker } from "./timecode-ticker";
 
 export interface InternalSourceCallback {
   (tc: TimecodeValue, totalFrames: number, display: string): void;
 }
 
 /**
- * Internal timecode generator — runs in the browser using requestAnimationFrame.
+ * Internal timecode generator, sampled independently of rendering.
  * Two modes:
  * - Freerun: counts from a start offset using performance.now()
  * - Rundown: takes elapsed ms from external source (rundown timer)
  */
 export class InternalTimecodeSource {
   private running = false;
-  private rafId: number | null = null;
+  private stopTicker: (() => void) | null = null;
   private startTime = 0;
   private offsetFrames = 0;
   private format: TimecodeFormat;
@@ -36,15 +37,17 @@ export class InternalTimecodeSource {
     this.startTime = performance.now();
     this.running = true;
     this.lastEmittedFrame = -1;
+    // Sample twice per maximum frame period so timer jitter around a frame
+    // boundary does not reduce the 30 fps feed to roughly 27 fps.
+    this.stopTicker = startTimecodeTicker(this.tick, 60);
     this.tick();
   }
 
   stop(): void {
+    this.offsetFrames = this.currentFrame();
     this.running = false;
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
+    this.stopTicker?.();
+    this.stopTicker = null;
   }
 
   isRunning(): boolean {
@@ -77,13 +80,11 @@ export class InternalTimecodeSource {
     const totalFrames = this.offsetFrames + elapsedFrames;
     const tc = framesToTimecode(totalFrames, this.format);
 
-    // Only emit when frame changes (avoids flooding at 60Hz RAF)
+    // Coalesced worker messages must not repeat an already emitted frame.
     if (totalFrames !== this.lastEmittedFrame) {
       this.lastEmittedFrame = totalFrames;
       const display = timecodeToString(tc, this.format.dropFrame === "df");
       this.onTimecode(tc, totalFrames, display);
     }
-
-    this.rafId = requestAnimationFrame(this.tick);
   };
 }
