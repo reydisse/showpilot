@@ -1,0 +1,64 @@
+// Disposable local accounts only. Actual timeline -> ChatRelay -> live Chat UI.
+import assert from "node:assert/strict";
+import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
+import { poll } from "./real-browser-fixture.mjs";
+
+await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, operatorPassword, operatorCookie, date }) => {
+  const headers = { Cookie: operatorCookie, Origin: origin, "Content-Type": "application/json" };
+  const read = async path => {
+    const response = await fetch(`${origin}${path}`, { headers });
+    assert.equal(response.status, 200); return response.json();
+  };
+  const events = () => read(`/api/timecode/${orgId}/events?showId=smoke-show`);
+  const history = room => read(`/api/chat/${orgId}/history?room=${room}`);
+  const click = name => browser("find", "role", "button", "click", "--name", name, "--exact");
+  await browser("open", `${origin}/login`);
+  await browser("fill", "#email", operatorEmail);
+  await browser("fill", "#password", operatorPassword);
+  await click("Sign in");
+  await browser("wait", "--url", `**/${orgId}/**`);
+  await browser("open", `${origin}/${orgId}/timecode`);
+  await browser("wait", "text=Start Internal Generator");
+  await browser("tab", "new", `${origin}/${orgId}/chat`);
+  await browser("wait", '[data-testid="chat-panel"]');
+  await browser("tab", "0");
+  const form = 'form:has(input[placeholder="00:05:00:00"])';
+  await browser("select", `${form} select`, "crew-message");
+  await browser("fill", `${form} input[placeholder="00:05:00:00"]`, "00:01:00:00");
+  const message = "Standby cameras\nCamera 2 next";
+  await browser("find", "label", "Crew message", "fill", message);
+  await browser("set", "viewport", "320", "780");
+  await browser("scrollintoview", `${form} textarea`);
+  assert.equal((await browser("eval", `document.querySelector(${JSON.stringify(form)}).scrollWidth <= document.querySelector(${JSON.stringify(form)}).clientWidth + 1`)).result, true);
+  await browser("screenshot", "/tmp/showpilot-crew-editor-320.png");
+  await browser("set", "viewport", "1440", "900");
+  await click("Add Event");
+  await browser("wait", "--fn", `document.querySelector(${JSON.stringify(`${form} input[placeholder="00:05:00:00"]`)}).value === ''`);
+  await click("Fire Post to Production Chat");
+  await poll(async () => (await events())[0]?.executionStatus === "acknowledged", "crew cue acknowledgment");
+  const first = (await events())[0];
+  const posted = (await history("production")).messages;
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].text, message);
+  assert.equal(posted[0].senderName, "Fixture operator · Automation");
+  assert.equal(posted[0].type, "cue");
+  assert.deepEqual((await history("planning")).messages, []);
+  const rundown = await read(`/api/rundown/${orgId}/state?showId=smoke-show&serviceDate=${date}`);
+  assert.equal(rundown.stageMessage, "Fixture private stage message");
+  await browser("tab", "1");
+  const row = `[data-chat-message-id=${JSON.stringify(posted[0].id)}]`;
+  await browser("wait", row);
+  assert.equal((await browser("eval", `document.querySelector(${JSON.stringify(`${row} p`)}).textContent`)).result, message);
+  assert.equal((await browser("eval", `getComputedStyle(document.querySelector(${JSON.stringify(`${row} p`)})).whiteSpace`)).result, "pre-wrap");
+  await browser("screenshot", "/tmp/showpilot-crew-chat.png");
+  await browser("tab", "0");
+  // Simulate an operator retry after a lost acknowledgment, using the same cue.
+  const response = (await browser("eval", `fetch(${JSON.stringify(`/api/timecode/${orgId}/command?showId=smoke-show`)}, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: ${JSON.stringify(JSON.stringify({ action: "retry-event", payload: { id: first.id } }))} }).then(async response => ({ status: response.status, body: await response.text() }))`)).result;
+  assert.equal(response.status, 200, response.body);
+  assert.equal((await history("production")).messages.length, 1);
+  assert.equal((await events())[0].executionId, first.executionId);
+  await click("Re-fire");
+  await click("Fire again");
+  await poll(async () => (await history("production")).messages.length === 2, "deliberate re-fire");
+  console.log(JSON.stringify({ passed: true, productionPosts: 2, retryCreatedDuplicate: false, planningPosts: 0, stageMessageUnchanged: true, lineBreaksPreserved: true }));
+});

@@ -20,6 +20,7 @@ export function automationOutput(event: AutomationEvent): string {
     case "rundown-adjust":
     case "stage-message":
     case "stage-clear": return "rundown";
+    case "crew-message": return "production-chat";
     case "pp-trigger-slide":
     case "pp-trigger-next":
     case "pp-trigger-previous":

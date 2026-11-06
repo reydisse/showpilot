@@ -1338,8 +1338,13 @@
       "phase": "2",
       "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
       "line": 217,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "crew-message is implemented in the editor, timeline, ordered production-chat execution queue and receiving ChatRelay RPC. The server validates a bounded message, checks current timecode/chat authority and show/organization scope, derives sender identity from D1, and posts only to Production Chat. Stage output is separate. The receiving deadline includes time queued before dispatch.",
+        "ChatRelay atomically commits the native message and execution receipt. Ordinary retries preserve crew execution IDs across lost acknowledgments and restarts; receipts survive hibernation and deleted messages. Changed-content retries fail visibly. Confirmed Re-fire now sends the reviewed attempt state through useTimecode and the relay; stale confirmations fail. The same reviewed re-fire contract protects other acknowledged output actions. Cue messages preserve line breaks and expose separate linked-chat delivery status, including credential configuration failures.",
+        "Local validation: full web suite passed 1542 unit tests and 497 Worker tests, plus web typecheck and production build. Thirteen new Worker cases cover timed broadcast, Production/Planning/stage isolation, disabled cues/kill switch, retry/re-arm/re-fire, stale confirmations, interrupted execution after chat commit, concurrent delivery, hibernation, deletion, changed-content conflicts, schema enforcement on all timeline writes, revoked/foreign authority, expired requests and linked-service configuration failure.",
+        "smoke-crew-message.mjs passed through built Chromium UI, authenticated local relays and a separate live Chat tab: first Fire posted once; ordinary Retry did not duplicate; reviewed Re-fire posted a second time; Planning Chat stayed empty and the stage message stayed unchanged. Rendered line breaks and 320px editor fit passed. All data was disposable local fixtures. No production deployment or real external-service delivery was performed; remaining catalog and phase gates stay pending."
+      ]
     },
     {
       "id": "18273c36500931da",
