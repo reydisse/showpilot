@@ -1,3 +1,5 @@
+import type { LiveSessionAuthorityClaim } from "./live-rundown-authority.server";
+
 // A read lease avoids database work in broadcast loops. Writes never use it.
 export const SOCKET_READ_LEASE_MS = 60_000;
 const REFRESH_EARLY_MS = 30_000;
@@ -9,6 +11,14 @@ function isAttachment(value: unknown): value is Record<string, unknown> {
 function attachment(socket: WebSocket): Record<string, unknown> | null {
   const value: unknown = socket.deserializeAttachment();
   return isAttachment(value) ? value : null;
+}
+
+export function socketAuthorityClaim(socket: WebSocket): LiveSessionAuthorityClaim | null {
+  const claim = attachment(socket)?.authClaim;
+  if (!isAttachment(claim) || typeof claim.userId !== "string" || !claim.userId
+    || typeof claim.sessionId !== "string" || !claim.sessionId
+    || typeof claim.orgId !== "string" || !claim.orgId) return null;
+  return { userId: claim.userId, sessionId: claim.sessionId, orgId: claim.orgId };
 }
 
 export function renewSocketReadLease(socket: WebSocket, now = Date.now()): void {

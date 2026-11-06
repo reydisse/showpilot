@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh, socketAuthorityClaim } from "@/lib/socket-read-authority.server";
 import { displaySocketMayReceive } from "@/lib/display-access.server";
 import {
   hasLivePermissionAuthority,
@@ -79,6 +80,7 @@ export class LowerThirdsRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_A
     const path = internalCommand ? url.pathname.slice("/internal".length) : url.pathname;
 
     if (url.pathname === "/ws") {
+      if (authClaim && !(await this.canRead(authClaim))) return new Response("Unauthorized", { status: 401 });
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
@@ -87,6 +89,8 @@ export class LowerThirdsRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_A
         authClaim,
         displayExpiresAt: url.searchParams.has("authDisplayExpiresAt") ? Number(url.searchParams.get("authDisplayExpiresAt")) : undefined,
       });
+      if (authClaim) renewSocketReadLease(server);
+      await scheduleSocketReadRefresh(this.ctx, socket => socketAuthorityClaim(socket) !== null);
 
       // Hydrate late connectors
       if (this.current) {
@@ -180,6 +184,7 @@ export class LowerThirdsRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_A
         ws.close(4403, "Graphics access changed");
         return;
       }
+      renewSocketReadLease(ws);
       const parsed = JSON.parse(data as string) as {
         action: string;
         payload?: Partial<LowerThirdPayload>;
@@ -236,6 +241,7 @@ export class LowerThirdsRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_A
     // an instance Set would lose every connected display on wake.
     for (const ws of this.ctx.getWebSockets()) {
       if (!displaySocketMayReceive(ws)) continue;
+      if (!socketReadLeaseAllows(ws, socketAuthorityClaim(ws) !== null)) continue;
       try {
         ws.send(data);
       } catch {
@@ -243,4 +249,19 @@ export class LowerThirdsRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_A
       }
     }
   }
+
+  private canRead(claim: LiveSessionAuthorityClaim): Promise<boolean> {
+    return hasLivePermissionAuthority(this.env.DB, claim, ["lowerthird:view", "lowerthird:trigger"]);
+  }
+
+  async refreshReadAuthority(userId?: string): Promise<void> {
+    await refreshSocketReadLeases(this.ctx.getWebSockets(), async socket => {
+      const claim = socketAuthorityClaim(socket);
+      if (!claim || (userId && claim.userId !== userId)) return null;
+      return this.canRead(claim);
+    });
+    await scheduleSocketReadRefresh(this.ctx, socket => socketAuthorityClaim(socket) !== null);
+  }
+
+  async alarm(): Promise<void> { await this.refreshReadAuthority(); }
 }

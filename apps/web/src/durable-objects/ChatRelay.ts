@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh, socketAuthorityClaim } from "@/lib/socket-read-authority.server";
 import { isEmojiReaction } from "@showpilot/shared";
 import { scrubDeletedUserFromChat } from "@/lib/chat-account-deletion";
 import { objectionableContentReason } from "@/lib/user-content-safety";
@@ -456,12 +457,13 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         nextAlarm = Math.min(nextAlarm ?? session.expiresAt, session.expiresAt);
       }
     }
-    if (nextAlarm !== null && activeConnections > 0) await this.ctx.storage.setAlarm(nextAlarm);
-    else await this.ctx.storage.deleteAlarm();
+    await scheduleSocketReadRefresh(this.ctx, socket => socketAuthorityClaim(socket) !== null,
+      activeConnections > 0 ? nextAlarm : null);
   }
 
   async alarm(): Promise<void> {
     await this.ensureHistoryLoaded();
+    await this.refreshReadAuthority();
     // Close expired guests before gateway I/O or any further room broadcast.
     for (const socket of this.ctx.getWebSockets()) this.getSession(socket);
     if (this.ctx.getWebSockets().length === 0) return;
@@ -527,12 +529,18 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       } else {
         if (url.searchParams.get("role") === "Guest") return new Response("Guest authority required", { status: 401 });
         session = await this.readMemberSession(url) ?? { ...base, kind: "viewer" };
+        if (session.kind === "viewer" && (url.searchParams.has("authUserId") || url.searchParams.has("authSessionId"))) {
+          return new Response("Unauthorized", { status: 401 });
+        }
       }
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
       this.sessions.set(server, session);
       server.serializeAttachment(session);
+      if (session.kind === "member") renewSocketReadLease(server);
+      await scheduleSocketReadRefresh(this.ctx, socket => socketAuthorityClaim(socket) !== null,
+        await this.ctx.storage.getAlarm());
 
       // Send recent messages for hydration
       server.send(
@@ -676,6 +684,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         return;
       }
 
+      if (session.kind === "member") renewSocketReadLease(ws);
       if (parsed.type === "typing") {
         this.broadcast(JSON.stringify({
           type: "typing",
@@ -1029,7 +1038,21 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       return null;
     }
     this.sessions.set(ws, session);
+    if (!socketReadLeaseAllows(ws, session.kind === "member")) {
+      this.sessions.delete(ws);
+      return null;
+    }
     return session;
+  }
+
+  async refreshReadAuthority(userId?: string): Promise<void> {
+    await refreshSocketReadLeases(this.ctx.getWebSockets(), async socket => {
+      const claim = socketAuthorityClaim(socket);
+      if (!claim || (userId && claim.userId !== userId)) return null;
+      return hasLivePermissionAuthority(this.env.DB, claim, "chat:access");
+    });
+    await scheduleSocketReadRefresh(this.ctx, socket => socketAuthorityClaim(socket) !== null,
+      await this.ctx.storage.getAlarm());
   }
 
   private isDirectMessageRoom(roomId: string): boolean {
