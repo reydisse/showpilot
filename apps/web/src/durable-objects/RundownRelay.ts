@@ -399,7 +399,14 @@ export class RundownRelay extends DurableObject {
     await this.persistState();
   }
 
-  async fetch(request: Request): Promise<Response> {
+  fetch(request: Request): Promise<Response> {
+    // Reads and reconnects also reconcile/persist state. Keep them, room opens,
+    // and purge operations behind the same writer as commands so they cannot
+    // observe or save a mutation whose D1 transaction is still pending.
+    return this.commands.run(() => this.handleRequest(request));
+  }
+
+  private async handleRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     this.orgId = url.searchParams.get("orgId") ?? this.orgId;
     if (url.pathname === "/internal/purge-org" && request.method === "POST") {
@@ -484,29 +491,24 @@ export class RundownRelay extends DurableObject {
       ((showId && showId !== this.state.showId) ||
         (!showId && serviceDate && serviceDate !== this.state.serviceDate))
     ) {
-      await this.commands.run(async () => {
-        if (!internal && !(await this.socketCanWrite(authority))) return;
-        if (!((showId && showId !== this.state.showId)
-          || (!showId && serviceDate && serviceDate !== this.state.serviceDate))) return;
-        // A room is active for one service at a time. Relabelling the old
-        // rows as a newly opened date made the cue sheet show a hybrid of
-        // two services. Empty first; the editor then seeds this date's D1 rows.
-        this.state.serviceDate = serviceDate ?? undefined;
-        this.state.showId = showId ?? undefined;
-        this.state.serviceName = undefined;
-        this.state.scheduledStartTime = undefined;
-        this.state.scheduledCallTime = undefined;
-        this.state.location = undefined;
-        this.state.initialized = false;
-        this.state.items = [];
-        this.state.timer = { ...DEFAULT_TIMER };
-        this.state.ppSlide = null;
-        this.state.ppPreviewSlide = null;
-        this.state.revision += 1;
-        this.state.recentCommandIds = [];
-        this.state.removedItems = [];
-        await this.persistState();
-      });
+      // A room is active for one service at a time. Relabelling the old
+      // rows as a newly opened date made the cue sheet show a hybrid of
+      // two services. Empty first; the editor then seeds this date's D1 rows.
+      this.state.serviceDate = serviceDate ?? undefined;
+      this.state.showId = showId ?? undefined;
+      this.state.serviceName = undefined;
+      this.state.scheduledStartTime = undefined;
+      this.state.scheduledCallTime = undefined;
+      this.state.location = undefined;
+      this.state.initialized = false;
+      this.state.items = [];
+      this.state.timer = { ...DEFAULT_TIMER };
+      this.state.ppSlide = null;
+      this.state.ppPreviewSlide = null;
+      this.state.revision += 1;
+      this.state.recentCommandIds = [];
+      this.state.removedItems = [];
+      await this.persistState();
     }
 
     if (url.pathname === "/ws") {
@@ -560,43 +562,45 @@ export class RundownRelay extends DurableObject {
       if (!body || !canApplyRundownRelayAction(writeAccess, body.action)) {
         return Response.json({ ok: false, reason: "invalid-command" }, { status: 400 });
       }
-      return this.commands.run(async () => {
-        if (!internal && !(await this.socketCanWrite(authority))) return new Response("Unauthorized", { status: 401 });
-        const decision = classifyRelayCommand(
-          this.state.revision,
-          this.state.recentCommandIds,
-          body.id,
-          body.expectedRevision,
-          body.expiresAt,
-        );
-        if (decision === "duplicate") {
-          return Response.json({ ok: true, duplicate: true, revision: this.state.revision });
-        }
-        if (decision === "revision-conflict" || decision === "expired") {
-          return Response.json({
-            ok: false,
-            reason: decision,
-            revision: this.state.revision,
-            state: this.getPublicState(),
-          }, { status: 409 });
-        }
-        const accepted = await this.handleCommand(body.action, body.payload, body.id);
-        return Response.json(
-          {
-            ok: accepted,
-            reason: accepted ? undefined : "invalid-command",
-            revision: this.state.revision,
-            state: accepted ? this.getPublicState() : undefined,
-          },
-          { status: accepted ? 200 : 400 },
-        );
-      });
+      if (!internal && !(await this.socketCanWrite(authority))) return new Response("Unauthorized", { status: 401 });
+      const decision = classifyRelayCommand(
+        this.state.revision,
+        this.state.recentCommandIds,
+        body.id,
+        body.expectedRevision,
+        body.expiresAt,
+      );
+      if (decision === "duplicate") {
+        return Response.json({ ok: true, duplicate: true, revision: this.state.revision });
+      }
+      if (decision === "revision-conflict" || decision === "expired") {
+        return Response.json({
+          ok: false,
+          reason: decision,
+          revision: this.state.revision,
+          state: this.getPublicState(),
+        }, { status: 409 });
+      }
+      const accepted = await this.handleCommand(body.action, body.payload, body.id);
+      return Response.json(
+        {
+          ok: accepted,
+          reason: accepted ? undefined : "invalid-command",
+          revision: this.state.revision,
+          state: accepted ? this.getPublicState() : undefined,
+        },
+        { status: accepted ? 200 : 400 },
+      );
     }
 
     return new Response("Not found", { status: 404 });
   }
 
-  async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+  webSocketMessage(ws: WebSocket, data: string | ArrayBuffer): Promise<void> {
+    return this.commands.run(() => this.handleSocketMessage(ws, data));
+  }
+
+  private async handleSocketMessage(ws: WebSocket, data: string | ArrayBuffer): Promise<void> {
     const attachment = ws.deserializeAttachment?.() as {
       writeAccess?: RundownRelayWriteAccess | null;
       canObserve?: boolean;
@@ -638,59 +642,57 @@ export class RundownRelay extends DurableObject {
           return;
         }
 
-        await this.commands.run(async () => {
-          if (!(await this.socketCanWrite(attachment))) {
-            ws.send(JSON.stringify({
-              type: "command-result",
-              id: parsed.id,
-              accepted: false,
-              reason: "forbidden",
-              revision: this.state.revision,
-            }));
-            ws.close(4403, "Rundown access changed");
-            return;
-          }
-          renewSocketReadLease(ws);
-          const decision = classifyRelayCommand(
-            this.state.revision,
-            this.state.recentCommandIds,
-            parsed.id,
-            parsed.expectedRevision,
-            parsed.expiresAt,
-          );
-          if (decision === "duplicate") {
-            ws.send(JSON.stringify({
-              type: "command-result",
-              id: parsed.id,
-              accepted: true,
-              duplicate: true,
-              revision: this.state.revision,
-            }));
-            return;
-          }
-
-          if (decision === "revision-conflict" || decision === "expired") {
-            this.sendStateToSocket(ws);
-            ws.send(JSON.stringify({
-              type: "command-result",
-              id: parsed.id,
-              accepted: false,
-              reason: decision,
-              revision: this.state.revision,
-            }));
-            return;
-          }
-
-          const accepted = await this.handleCommand(parsed.action, parsed.payload, parsed.id);
-          if (!accepted) this.sendStateToSocket(ws);
+        if (!(await this.socketCanWrite(attachment))) {
           ws.send(JSON.stringify({
             type: "command-result",
             id: parsed.id,
-            accepted,
-            reason: accepted ? undefined : "invalid-command",
+            accepted: false,
+            reason: "forbidden",
             revision: this.state.revision,
           }));
-        });
+          ws.close(4403, "Rundown access changed");
+          return;
+        }
+        renewSocketReadLease(ws);
+        const decision = classifyRelayCommand(
+          this.state.revision,
+          this.state.recentCommandIds,
+          parsed.id,
+          parsed.expectedRevision,
+          parsed.expiresAt,
+        );
+        if (decision === "duplicate") {
+          ws.send(JSON.stringify({
+            type: "command-result",
+            id: parsed.id,
+            accepted: true,
+            duplicate: true,
+            revision: this.state.revision,
+          }));
+          return;
+        }
+
+        if (decision === "revision-conflict" || decision === "expired") {
+          this.sendStateToSocket(ws);
+          ws.send(JSON.stringify({
+            type: "command-result",
+            id: parsed.id,
+            accepted: false,
+            reason: decision,
+            revision: this.state.revision,
+          }));
+          return;
+        }
+
+        const accepted = await this.handleCommand(parsed.action, parsed.payload, parsed.id);
+        if (!accepted) this.sendStateToSocket(ws);
+        ws.send(JSON.stringify({
+          type: "command-result",
+          id: parsed.id,
+          accepted,
+          reason: accepted ? undefined : "invalid-command",
+          revision: this.state.revision,
+        }));
       }
     } catch {
       // Ignore
