@@ -12,11 +12,12 @@ import { hashPassword } from "better-auth/crypto";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, unverifiedOperator = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, unverifiedOperator = false, paidPlan = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "showpilot-display-smoke-"));
   const session = `display-smoke-${process.pid}`;
   const secret = randomUUID();
   const authSecret = randomUUID();
+  const companionSecret = randomUUID();
   const orgId = "display-smoke";
   const date = new Date().toLocaleDateString("en-CA");
   let worker;
@@ -70,7 +71,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     const config = Object.fromEntries(["name", "compatibility_date", "compatibility_flags", "durable_objects", "migrations", "d1_databases", "r2_buckets", "rules", "no_bundle"].map((key) => [key, built[key]]));
     Object.assign(config, {
       main: join(web, "dist/server/index.js"), assets: { directory: join(web, "dist/client") },
-      vars: { KIOSK_SECRET: secret, BETTER_AUTH_SECRET: authSecret, BETTER_AUTH_URL: origin },
+      vars: { KIOSK_SECRET: secret, COMPANION_SECRET: companionSecret, BETTER_AUTH_SECRET: authSecret, BETTER_AUTH_URL: origin },
     });
     const configPath = join(directory, "wrangler.json");
     const state = join(directory, "state");
@@ -83,6 +84,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     const passwordHash = await hashPassword(password);
     const seed = `
   INSERT INTO organization (id,name,slug,createdAt) VALUES ('display-smoke','Display fixture','display-smoke',CURRENT_TIMESTAMP), ('display-other','Other fixture','display-other',CURRENT_TIMESTAMP);
+  ${paidPlan ? "UPDATE organization SET plan = 'pro' WHERE id = 'display-smoke';" : ""}
   INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-operator','Fixture operator','operator@display-smoke.invalid',1,CURRENT_TIMESTAMP);
   INSERT INTO account (id,accountId,providerId,userId,password,issuer,updatedAt) VALUES ('smoke-account','smoke-operator','credential','smoke-operator','${passwordHash}','local:credential',CURRENT_TIMESTAMP);
   INSERT INTO member (id,organizationId,userId,role,createdAt) VALUES ('smoke-member','display-smoke','smoke-operator','owner',CURRENT_TIMESTAMP);
@@ -137,7 +139,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     await check({ origin, orgId, date, browser, pass, crewChatPass, stopServer, startServer, queryFixture, revokeFixtureOperator, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
   } catch (error) {
     // Configuration contains only disposable fixture secrets; redact them anyway.
-    console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]"));
+    console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]").replaceAll(companionSecret, "[fixture secret]"));
     throw error;
   } finally {
     await browser("close").catch(() => {});

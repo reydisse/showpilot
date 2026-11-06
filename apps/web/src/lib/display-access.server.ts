@@ -1,3 +1,4 @@
+import { findScopedToken, scopedTokenIsActive, scopedTokenExpiry } from "./scoped-token-store.server";
 import { signToken, verifyToken } from "./kiosk-token";
 
 export type DisplaySurface = "timer" | "overlay";
@@ -53,11 +54,9 @@ export async function authenticateDisplayRequest(
   // Existing kiosk tokens are signed, view-scoped, and revocable in D1.
   if (payload.purpose !== undefined || payload.view !== surface) return null;
   if (payload.exp !== undefined && (typeof payload.exp !== "number" || !Number.isSafeInteger(payload.exp) || payload.exp * 1000 <= now)) return null;
-  const row = await db.prepare("SELECT view, expiresAt, revokedAt FROM kiosk_token WHERE orgId = ? AND token = ?")
-    .bind(orgId, token).first<{ view: string; expiresAt: string | number | null; revokedAt: unknown }>();
-  if (!row || row.view !== surface || row.revokedAt !== null) return null;
-  const rowExpiry = row.expiresAt === null ? Infinity : typeof row.expiresAt === "number" ? row.expiresAt : Date.parse(row.expiresAt);
-  if (!(rowExpiry > now)) return null;
+  const row = await findScopedToken(db, "kiosk", orgId, token);
+  if (!scopedTokenIsActive(row, now) || row.view !== surface) return null;
+  const rowExpiry = scopedTokenExpiry(row.expiresAt);
   return { orgId, surface, expiresAt: Math.min(now + DISPLAY_PASS_LIFETIME_MS, rowExpiry, typeof payload.exp === "number" ? payload.exp * 1000 : Infinity) };
 }
 

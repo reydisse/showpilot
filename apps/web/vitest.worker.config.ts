@@ -32,6 +32,7 @@ export default defineConfig(async () => {
           bindings: {
             TEST_MIGRATIONS: migrations,
             BETTER_AUTH_SECRET: "worker-test-secret-for-local-integration-only",
+            KIOSK_SECRET: "worker-test-kiosk-secret-for-local-integration-only",
             COMPANION_SECRET: "worker-test-companion-secret-for-local-integration-only",
             BETTER_AUTH_URL: "https://app.showpilot.tech",
             TEST_SHARE_PRISMA: process.env.SHOWPILOT_PROBE_ISOLATE_PRISMA === "1",

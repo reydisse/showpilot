@@ -1,3 +1,4 @@
+import { backfillScopedTokenDigests } from "./lib/scoped-token-store.server";
 import handler from "@tanstack/react-start/server-entry";
 import { withDatabaseRequest, withDatabaseTask } from "./lib/request-database.server";
 import { authenticateBridgeRequest, backfillLegacyBridgeInstallations, migrateLegacyBridgeInstallation } from "./lib/bridge-credentials.server";
@@ -695,6 +696,7 @@ const appServer = {
       checkExpoPushReceipts(e.DB, { accessToken: e.EXPO_ACCESS_TOKEN }),
       createDuePostShowReminders(e.DB),
       createDueDutyReminders(e.DB),
+      backfillScopedTokenDigests(e.DB),
       backfillLegacyBridgeInstallations(e.DB).then((result) => {
         if (result.failed > 0) throw new Error(`Bridge credential migration failed for ${result.failed} installations; ${result.remaining} remain.`);
       }),

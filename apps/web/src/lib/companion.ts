@@ -1,3 +1,4 @@
+import { scopedTokenDigest } from "./scoped-token-store.server";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { env } from "cloudflare:workers";
@@ -81,6 +82,7 @@ export const createCompanionToken = createServerFn({ method: "POST" })
       orgSlug: org.slug,
       scope: "companion",
       iat: Math.floor(Date.now() / 1000),
+      jti: crypto.randomUUID(),
       ...(exp ? { exp } : {}),
     };
 
@@ -90,13 +92,14 @@ export const createCompanionToken = createServerFn({ method: "POST" })
       data: {
         orgId: data.orgId,
         label: data.label,
-        token,
+        token: await scopedTokenDigest(token),
         expiresAt: exp ? new Date(exp * 1000) : null,
         createdBy: userId,
       },
+      select: { id: true, label: true, expiresAt: true, createdAt: true },
     });
 
-    return companionToken;
+    return { ...companionToken, token };
   });
 
 export const listCompanionTokens = createServerFn({ method: "GET" })
@@ -107,6 +110,7 @@ export const listCompanionTokens = createServerFn({ method: "GET" })
     return await prisma.companionToken.findMany({
       where: { orgId: data.orgId, revokedAt: null },
       orderBy: { createdAt: "desc" },
+      select: { id: true, label: true, expiresAt: true, createdAt: true },
     });
   });
 
@@ -121,7 +125,8 @@ export const revokeCompanionToken = createServerFn({ method: "POST" })
     if (!existing) throw new Error("Token not found");
     await assertCompanionTokenPermission(existing.orgId);
     return await prisma.companionToken.update({
-      where: { id: data.tokenId },
+      where: { id: data.tokenId, orgId: existing.orgId },
       data: { revokedAt: new Date() },
+      select: { id: true, revokedAt: true },
     });
   });
