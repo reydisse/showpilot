@@ -3,6 +3,7 @@ import { openTestBridge, approveTestBridgeTarget } from "@/test/bridge-fixtures"
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
+import { framesToTimecode } from "@/lib/timecode";
 
 afterEach(async () => {
   await abortAllDurableObjects();
@@ -63,9 +64,10 @@ async function seedOrganizationAndDevice(orgId: string) {
 }
 
 describe("TimecodeRelay device automation", () => {
-  it("dispatches one validated command through Venue Bridge and records acknowledgement", async () => {
-    const orgId = "timecode-device-success";
+  it.each([{ latencyMs: 0, leadMs: 0, frame: 30 }, { latencyMs: 200, leadMs: 100, frame: 21 }])("dispatches one validated command with $latencyMs ms device latency and $leadMs ms cue lead", async ({ latencyMs, leadMs, frame }) => {
+    const orgId = `timecode-device-success-${latencyMs}`;
     const deviceId = await seedOrganizationAndDevice(orgId);
+    await env.DB.prepare("UPDATE device SET latencyMs = ? WHERE id = ? AND orgId = ?").bind(latencyMs, deviceId, orgId).run();
     const fixture = await timecodeFixture(orgId);
     const bridge = await openBridge(orgId);
     await command(fixture, "add-event", {
@@ -77,11 +79,17 @@ describe("TimecodeRelay device automation", () => {
       payload: { input: 3 },
       label: "ATEM camera 3",
       toleranceFrames: 2,
+      leadMs,
     });
 
+    await command(fixture, "feed-tc", {
+      timecode: framesToTimecode(frame - 3, { frameRate: 30, dropFrame: "ndf" }),
+      format: { frameRate: 30, dropFrame: "ndf" },
+    });
+    expect((await events(fixture))[0].fired).toBe(false);
     const connectMessage = nextMessage(bridge);
     const feed = command(fixture, "feed-tc", {
-      timecode: { hours: 0, minutes: 0, seconds: 1, frames: 0 },
+      timecode: framesToTimecode(frame, { frameRate: 30, dropFrame: "ndf" }),
       format: { frameRate: 30, dropFrame: "ndf" },
     });
     await expect(connectMessage).resolves.toMatchObject({
@@ -110,6 +118,7 @@ describe("TimecodeRelay device automation", () => {
         fired: true,
         executionStatus: "acknowledged",
         executedAt: expect.any(Number),
+        leadMs, deviceLatencyMs: latencyMs, dispatchFrame: frame, triggerFrame: 30,
       }),
     ]);
 

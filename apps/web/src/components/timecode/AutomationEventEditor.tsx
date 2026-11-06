@@ -1,4 +1,5 @@
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES } from "@/types/timecode";
+import { isValidTimingMs, MAX_AUTOMATION_LEAD_MS } from "@/lib/automation-timing";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { useId, useRef, useState } from "react";
@@ -49,6 +50,11 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
   const [label, setLabel] = useState("");
   const [payloadJson, setPayloadJson] = useState("{}");
   const toleranceId = useId();
+  const leadId = useId();
+  const [leadText, setLeadText] = useState("0");
+  const leadMs = Number(leadText);
+  const leadValid = leadText.trim() !== "" && isValidTimingMs(leadMs);
+  const leadError = `Cue lead must be a whole number from 0 to ${MAX_AUTOMATION_LEAD_MS} milliseconds.`;
   const [toleranceText, setToleranceText] = useState(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES));
   const toleranceFrames = Number(toleranceText);
   const toleranceValid = toleranceText.trim() !== "" && isValidTimecodeTolerance(toleranceFrames);
@@ -62,6 +68,7 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
     if (!connected || saving) return;
     setError("");
     if (!toleranceValid) { setError(toleranceError); return; }
+    if (!leadValid) { setError(leadError); return; }
 
     const tc = parseTimecodeString(tcString);
     if (!tc || !isValidTimecode(tc, format)) {
@@ -86,6 +93,7 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
       payload,
       label: label || ACTION_OPTIONS.find((o) => o.value === action)?.label || action,
       toleranceFrames,
+      leadMs,
       category: ACTION_OPTIONS.find((o) => o.value === action)?.category,
     };
     const signature = JSON.stringify(draft);
@@ -93,14 +101,14 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
     setSaving(true);
     try {
       await onAdd({ ...draft, id: attemptRef.current.id });
-      setTcString(""); setLabel(""); setPayloadJson("{}"); setToleranceText(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES)); attemptRef.current = null;
+      setTcString(""); setLabel(""); setPayloadJson("{}"); setToleranceText(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES)); setLeadText("0"); attemptRef.current = null;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Save was not confirmed. Your changes have been kept.");
     } finally { setSaving(false); }
   }
 
   const INPUT_CLASS =
-    "w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-sm text-board-text outline-none focus:border-fire-500/50 transition-colors";
+    "min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-sm text-board-text outline-none focus:border-fire-500/50 transition-colors";
 
   return (
     <form
@@ -112,7 +120,7 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
         Add Automation Event
       </h3>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="text-[10px] text-board-muted uppercase tracking-wider mb-1 block">
             Timecode (HH:MM:SS:FF)
@@ -161,6 +169,15 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
       </div>
 
       <div>
+        <label htmlFor={leadId} className="text-[10px] text-board-muted uppercase tracking-wider mb-1 block">Cue lead (ms)</label>
+        <input id={leadId} type="number" min={0} max={MAX_AUTOMATION_LEAD_MS} step={1} required
+          value={leadText} onChange={event => setLeadText(event.target.value)} aria-invalid={!leadValid}
+          aria-describedby={`${leadId}-help`} className={INPUT_CLASS} />
+        <p id={`${leadId}-help`} className="mt-1 text-xs text-board-muted">Send early by this amount, plus the saved device latency, rounded up to whole frames. The cue's time stays unchanged; dispatch cannot precede 00:00:00:00.</p>
+        {!leadValid && <p role="alert" className="mt-1 text-xs text-red-400">{leadError}</p>}
+      </div>
+
+      <div>
         <label htmlFor={toleranceId} className="text-[10px] text-board-muted uppercase tracking-wider mb-1 block">Tolerance (frames)</label>
         <input id={toleranceId} type="number" min={0} max={MAX_TIMECODE_TOLERANCE_FRAMES} step={1} required
           value={toleranceText} onChange={event => setToleranceText(event.target.value)}
@@ -191,8 +208,8 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
 
       <button
         type="submit"
-        disabled={!toleranceValid}
-        className="flex items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2 text-sm font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
+        disabled={!toleranceValid || !leadValid}
+        className="flex min-h-11 items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2 text-sm font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
       >
         <Plus className="w-3.5 h-3.5" />
         {saving ? "Waiting for relay…" : "Add Event"}

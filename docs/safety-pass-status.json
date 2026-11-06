@@ -1218,24 +1218,46 @@
       "phase": "2",
       "section": "2.4 Offset, latency, and clock drive (audit H20, H22)",
       "line": 203,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "InternalTimecodeSource now uses a dedicated bundled module worker instead of requestAnimationFrame. It samples the monotonic elapsed clock at 60 Hz and emits changed frames up to 30 fps. Sampling at twice the maximum frame rate avoids timer jitter reducing fresh output to roughly 27\u201328 fps. Unsupported/failed module workers use a cancellable interval fallback; browser suspension remains subject to the relay feed watchdog.",
+        "useTimecode sends fresh internal observations directly instead of batching them through the old 100ms interval. MTC flushes fresh observations on a 30 Hz worker and never repeats its last input to hide signal loss. Pause, Stop, disconnect, ownership loss and scope changes cancel local schedulers; resume starts at the relay's exact held frame. A failed first feed cannot leave the UI claiming generator ownership.",
+        "Regressions cover all four frame formats, exact held-frame resume, no animation dependency, coalesced tick deduplication, worker replacement on repeated seeks, fallback and cleanup, roughly 30 fresh internal frames per second, disconnect and failed-start handling. Full validation: 1478 web unit tests and 424 Worker tests passed, plus web tsc and production build. Logs: /tmp/showpilot-clock-web-tests.log, /tmp/showpilot-clock-tsc.log, /tmp/showpilot-clock-build.log.",
+        "node apps/web/scripts/smoke-timecode-clock.mjs passed against the built application, real local authentication and relay in a disposable organization. It disables animation callbacks, verifies the bundled worker loads, confirms an actual hidden-tab visibility transition, and measured 29.87 foreground / 29.77 background fresh feeds per second. Killing the worker while the socket remains open causes the relay to hold the frame at stalled and keep that same frame through signal-lost. Log: /tmp/showpilot-clock-browser.log. This is a short browser rehearsal, not the final full-show or physical-device gate.",
+        "The browser rehearsal uses scripts/real-browser-fixture.mjs with a temporary Chrome profile because Playwright forces focus/visibility on its pages. No real workspace, existing browser profile, or equipment is touched. SHOWPILOT_CHROME_EXECUTABLE can select another Chrome/Chromium installation.",
+        "Not deployed or released. Remaining Phase 2.4 requirements, per-event leadMs/device latency, display interpolation and offset UI, retain separate pending entries."
+      ]
     },
     {
       "id": "ee73b9245260f50a",
       "phase": "2",
       "section": "2.4 Offset, latency, and clock drive (audit H20, H22)",
       "line": 204,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06 partial implementation: per-event leadMs and per-device latencyMs are validated whole milliseconds from 0 to 60000. Migration 0051 adds zero-default device latency. The relay captures org-scoped enabled-device timing at source start/automation enable and native room preparation, persists the snapshot across eviction, and never queries timing from the per-frame evaluation path. Device edits apply at the next boundary; nominal cue time is retained.",
+        "Compensated dispatch subtracts ceil((leadMs + deviceLatencyMs) * frameRate / 1000), clamped at frame zero. Crossing, retry-frame limits, Next, timeline order and MIDI banks use dispatch time. Due actions reserve shared outputs in compensated order; captured implicit device IDs and all accepted target aliases share the same execution queue. A real Worker regression reproduced reversed graphics show/clear order before the fix and now passes.",
+        "Verification: 1488 web unit tests and 438 Worker tests passed, plus Prisma generation, tsc --noEmit and production build. Tests cover all four frame formats, invalid leads, forged server timing fields, org isolation, source cancellation, eviction, snapshot refresh, native LTC, stale native samples, actual Bridge command acknowledgement, and compensated retry limits. The existing relay-read-cache zero-D1-feed test passes unchanged.",
+        "Built-app browser smoke via scripts/smoke-timecode-latency.mjs passed login, device editor -> D1, cue lead save, nominal 1800 / dispatch 1791 at 200ms device + 100ms lead, unchanged captured latency after device edit, and dispatch 1785 on restart at 400ms device latency. Forms inspected at 320px; no equipment commands sent. Logs: /tmp/showpilot-latency-{web-tests,tsc,build,browser}.log. Screenshots: /tmp/showpilot-{device,cue}-latency-320.png.",
+        "Migration 0051 has only been applied in disposable local fixtures; production migration and deployment are not complete.",
+        "2026-11-06 interpolation: TimecodePresentationClock buffers at most 100ms between known relay frames and never predicts beyond the newest observation. The shared presentation hook serves operator clocks, song preview/header clocks, and the public confidence lyrics footer. Its ticks remain inside display components; useTimecode state/display and song cue capture remain authoritative. Display-only public snapshots now include frame count and format without exposing event payloads or control fields.",
+        "Freshness keys use signal.lastFeedAt plus show/format/frame identity, not the timestamp of a duplicate or lyrics broadcast. Local monotonic time avoids client wall-clock skew. Disconnect, Stop/Pause/MIDI Stop, format mismatch, seek, reformat, scope change, and long gaps snap to the actual position; after 500ms without a fresh feed the renderer holds and stops ticking. Legacy snapshots without clock metadata remain readable without interpolation.",
+        "Validation: full web suite passed with 1509 unit and 438 Worker tests, including relay-read-cache; tsc --noEmit and production build passed. Pure/component tests cover all five supported format combinations, drop-frame minute transitions, jitter, duplicates, skew, scope/format changes, disconnection and timer cleanup. No authoritative state is mutated by presentation.",
+        "Built-browser smoke scripts/smoke-timecode-presentation.mjs drove a real authenticated local relay at 10Hz. Operator and public confidence output each rendered all 30 intermediate frames omitted by the feed, never exceeded the latest relay frame, held correctly on stall and socket disconnect, and generated zero feed commands. Foreground emulation isolated visible rendering from OS focus changes; this is separate from the real hidden-tab source proof recorded for the preceding requirement. A 320px screenshot shows uncut clock text and wrapped toolbar; measured text width 127.16px in 238px available. Logs: /tmp/showpilot-interpolation-{web-tests,tsc,build,browser}.log; screenshot: /tmp/showpilot-timecode-presentation-320.png. No deployment performed."
+      ]
     },
     {
       "id": "b6ff05ee0c94909f",
       "phase": "2",
       "section": "2.4 Offset, latency, and clock drive (audit H20, H22)",
       "line": 205,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06: InternalGeneratorStart exposes an optional SMPTE start position, defaults to held-frame resume, validates every supported frame rate and drop-frame labels, and confirms position changes. The review is scoped to the exact show, format and held frame. Pending/offline/running/stale reviews cannot start; the form retains the draft on Cancel and resets to normal resume after a successful start. Another operator ownership disables source controls.",
+        "The relay start command accepts a validated startPosition and checks its preconditions before and after device timing preparation. Stop, seek and reformat during preparation cancel the request. The relay assigns the exact requested frame, preserves fired cues, and retains jump-review holds for large moves. The hook starts its Worker only after master grant and an exact matching running-state echo; a wrong-position echo stops the request without sending a feed. The obsolete browser-only millisecond start method and its callers were removed.",
+        "Validation: full web suite passed with 1520 unit and 456 Worker tests, tsc --noEmit passed, production build passed. Tests cover five format combinations, invalid and stale reviews, dropped frame labels, paused/running guards, no cue catch-up or re-arm, concurrent cancellation, default held-frame resume and exact drop-frame first feed. Existing cancellation/read-cache and source-watchdog regressions remain green.",
+        "Built-app smoke scripts/smoke-timecode-start-position.mjs passed real login, confirmation/Cancel, first feed at frame 300 for 00:00:10:00 at 30fps, first feed at frame 1800 for 00:01:00;02 at 29.97DF, invalid DF label rejection, exact Pause and Stop resume, retained jump review, and the 320px input layout. Logs: /tmp/showpilot-start-position-{web-tests,tsc,build,browser}.log. Screenshot: /tmp/showpilot-start-position-320.png. Disposable local data only, no equipment commands. Production deployment remains pending."
+      ]
     },
     {
       "id": "6949ddb4d7300f07",

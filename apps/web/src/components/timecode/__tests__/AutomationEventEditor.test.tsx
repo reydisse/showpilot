@@ -14,8 +14,10 @@ it("keeps the draft through a failed save and reuses its id until relay confirma
   const timecode = screen.getByPlaceholderText("00:05:00:00");
   fireEvent.change(timecode, { target: { value: "00:00:10:00" } });
   fireEvent.change(screen.getByLabelText("Tolerance (frames)"), { target: { value: "13" } });
+  fireEvent.change(screen.getByLabelText("Cue lead (ms)"), { target: { value: "250" } });
   fireEvent.click(screen.getByRole("button", { name: "Add Event" }));
   expect(timecode).toHaveProperty("value", "00:00:10:00");
+  expect(screen.getByLabelText("Cue lead (ms)")).toHaveProperty("value", "250");
   expect(screen.getByLabelText("Tolerance (frames)")).toHaveProperty("value", "13");
   expect(screen.getByRole("button", { name: "Waiting for relay…" }).closest("fieldset")).toHaveProperty("disabled", true);
   const id = save.mock.calls[0][0].id;
@@ -24,8 +26,25 @@ it("keeps the draft through a failed save and reuses its id until relay confirma
   expect(screen.getByLabelText("Tolerance (frames)")).toHaveProperty("value", "13");
   fireEvent.click(screen.getByRole("button", { name: "Add Event" }));
   expect(save.mock.calls[1][0].id).toBe(id);
+  expect(save.mock.calls[1][0].leadMs).toBe(250);
   await act(async () => confirm());
   expect(timecode).toHaveProperty("value", "");
+  expect(screen.getByLabelText("Cue lead (ms)")).toHaveProperty("value", "0");
+});
+
+it("validates cue lead before saving", async () => {
+  const save = vi.fn(async (_event: NewAutomationEvent) => {});
+  render(<AutomationEventEditor connected format={format} onAdd={save} />);
+  fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
+  const input = screen.getByLabelText("Cue lead (ms)");
+  for (const value of ["", "-1", "0.5", "60001"]) {
+    fireEvent.change(input, { target: { value } });
+    expect(screen.getByRole("button", { name: "Add Event" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("alert").textContent).toContain("Cue lead");
+  }
+  fireEvent.change(input, { target: { value: "100" } });
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
+  expect(save.mock.calls[0][0].leadMs).toBe(100);
 });
 
 it("does not send or clear a draft while offline", () => {

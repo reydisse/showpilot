@@ -1,4 +1,5 @@
 import { CREDENTIAL_MASK, isCredentialField } from "@/lib/credential-fields";
+import { isValidTimingMs, MAX_DEVICE_LATENCY_MS } from "@/lib/automation-timing";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
@@ -301,6 +302,7 @@ function DeviceFormModal({
     )
   );
   const [enabled, setEnabled] = useState(existing?.enabled ?? true);
+  const [latencyText, setLatencyText] = useState(String(existing?.latencyMs ?? 0));
   const [saving, setSaving] = useState(false);
   const [clearCredentials, setClearCredentials] = useState<string[]>([]);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
@@ -323,6 +325,11 @@ function DeviceFormModal({
     e.preventDefault();
     if (!name.trim()) {
       setError("Device name is required.");
+      return;
+    }
+    const latencyMs = Number(latencyText);
+    if (latencyText.trim() === "" || !isValidTimingMs(latencyMs, MAX_DEVICE_LATENCY_MS)) {
+      setError(`Device latency must be a whole number from 0 to ${MAX_DEVICE_LATENCY_MS} milliseconds.`);
       return;
     }
     setSaving(true);
@@ -353,6 +360,7 @@ function DeviceFormModal({
               adapterType,
               settings: JSON.stringify(settings),
               enabled,
+              latencyMs,
             },
           },
         });
@@ -365,6 +373,7 @@ function DeviceFormModal({
             adapterType,
             settings: JSON.stringify(settings),
             enabled,
+            latencyMs,
           },
         });
       }
@@ -378,7 +387,7 @@ function DeviceFormModal({
   };
 
   const INPUT_CLASS =
-    "w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors";
+    "min-h-11 w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -427,6 +436,14 @@ function DeviceFormModal({
               placeholder={adapterMeta?.label ?? "Device name"}
               className={INPUT_CLASS}
             />
+          </div>
+
+          <div>
+            <label htmlFor="device-latency" className="block text-sm text-board-muted mb-1.5">Device latency (ms)</label>
+            <input id="device-latency" type="number" min={0} max={MAX_DEVICE_LATENCY_MS} step={1} required
+              value={latencyText} onChange={event => setLatencyText(event.target.value)} className={INPUT_CLASS}
+              aria-describedby="device-latency-help" />
+            <p id="device-latency-help" className="mt-2 text-xs text-board-muted">Send this device's timed cues early by its measured response delay. Applied when timecode starts or automation is enabled.</p>
           </div>
 
           {fields.length > 0 && (

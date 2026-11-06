@@ -79,9 +79,12 @@ it("does not attach an ambiguous replacement port", async () => {
 });
 
 it("keeps only one internal clock loop during repeated live seeks", () => {
-  const scheduled = new Map<number, FrameRequestCallback>(); let sequence = 0;
-  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { scheduled.set(++sequence, callback); return sequence; });
-  vi.stubGlobal("cancelAnimationFrame", (id: number) => scheduled.delete(id));
+  const scheduled = new Set<object>();
+  vi.stubGlobal("Worker", class {
+    constructor() { scheduled.add(this); }
+    terminate() { scheduled.delete(this); }
+    postMessage() {}
+  });
   const source = new InternalTimecodeSource(state.format, vi.fn()); releases.push(() => source.stop());
   for (let frame = 0; frame < 100; frame++) { source.startAtFrame(frame); expect(scheduled.size).toBe(1); }
   expect(source.currentFrame()).toBeGreaterThanOrEqual(99);

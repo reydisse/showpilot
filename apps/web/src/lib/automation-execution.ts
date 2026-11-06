@@ -1,4 +1,5 @@
 import type { AutomationEvent } from "@/types/timecode";
+import { automationDeviceId } from "./automation-timing";
 
 /** Actions sharing an output stay ordered; unrelated outputs can run together. */
 export function automationOutput(event: AutomationEvent): string {
@@ -21,8 +22,8 @@ export function automationOutput(event: AutomationEvent): string {
     case "pp-trigger-clear": return "propresenter";
     case "device-action":
     case "lighting-scene": {
-      const id = event.targetDeviceId ?? event.payload.deviceId;
-      return `device:${typeof id === "string" ? id : "unresolved"}`;
+      const id = event.timingDeviceId ?? automationDeviceId(event);
+      return `device:${id ?? "unresolved"}`;
     }
     case "custom-webhook": return `webhook:${event.payload.url}`;
     default: {
