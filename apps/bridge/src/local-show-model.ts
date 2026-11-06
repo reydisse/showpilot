@@ -10,6 +10,7 @@ import type {
 
 export const LOCAL_SHOW_LIMIT = 2000;
 export const LOCAL_SHOW_MAX_AGE = 86_400_000;
+export type LocalDeviceOutcome = "acknowledged" | "sent" | "failed";
 /** Only messages written for operators may cross the native control boundary. */
 export class LocalShowError extends Error {}
 export interface LocalShowItem extends RundownTimingItem {

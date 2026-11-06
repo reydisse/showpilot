@@ -17,6 +17,8 @@ const PRODUCT_CONTRACTS = {
     permissionsPath: "apps/desktop/src-tauri/permissions/desktop.json",
     midiCapabilitiesPath: "apps/desktop/src-tauri/capabilities/midi-controller.json",
     midiPermissionsPath: "apps/desktop/src-tauri/permissions/midi-controller.json",
+    localShowCapabilitiesPath: "apps/desktop/src-tauri/capabilities/local-show.json",
+    localShowPermissionsPath: "apps/desktop/src-tauri/permissions/local-show.json",
     tauriPath: "apps/desktop/src-tauri/tauri.conf.json",
     releaseConfigPath: "apps/desktop/ci-release.conf.json",
     workflowPath: ".github/workflows/desktop-release.yml",
@@ -120,6 +122,8 @@ function productSnapshot(root, product) {
     permissions: contract.permissionsPath ? readJson(root, contract.permissionsPath) : undefined,
     midiCapabilities: contract.midiCapabilitiesPath ? readJson(root, contract.midiCapabilitiesPath) : undefined,
     midiPermissions: contract.midiPermissionsPath ? readJson(root, contract.midiPermissionsPath) : undefined,
+    localShowCapabilities: contract.localShowCapabilitiesPath ? readJson(root, contract.localShowCapabilitiesPath) : undefined,
+    localShowPermissions: contract.localShowPermissionsPath ? readJson(root, contract.localShowPermissionsPath) : undefined,
   };
 }
 
@@ -296,8 +300,11 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
   const midiCapability = desktopProduct.midiCapabilities;
   const midiPermission = desktopProduct.midiPermissions?.permission?.find(permission => permission.identifier === "allow-midi-controller");
   const midiCommands = midiPermission?.commands?.allow ?? [];
+  const localShowCapability = desktopProduct.localShowCapabilities;
+  const localShowPermission = desktopProduct.localShowPermissions?.permission?.find(permission => permission.identifier === "allow-local-show-control");
+  const localShowCommands = localShowPermission?.commands?.allow ?? [];
   const desktopCommands = desktopPermission?.commands?.allow ?? [];
-  const allowedCommands = [...desktopCommands, ...midiCommands];
+  const allowedCommands = [...desktopCommands, ...midiCommands, ...localShowCommands];
   add(
     registeredCommands.length > 0
       && registeredCommands.length === allowedCommands.length
@@ -313,6 +320,17 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
     "Desktop capabilities must cover every companion window without a wildcard window grant.",
   );
   const trustedDesktopOrigins = ["https://showpilot.tech/*", "https://app.showpilot.tech/*"];
+  add(
+    localShowCapability?.windows?.length === 1 && localShowCapability.windows[0] === "main"
+      && localShowCapability?.remote?.urls?.length === trustedDesktopOrigins.length
+      && localShowCapability.remote.urls.every(url => trustedDesktopOrigins.includes(url))
+      && localShowCapability.permissions?.length === 1 && localShowCapability.permissions[0] === "allow-local-show-control"
+      && !desktopCapability?.permissions?.includes("allow-local-show-control")
+      && !midiCapability?.permissions?.includes("allow-local-show-control")
+      && !desktopCommands.includes("local_show_command") && !midiCommands.includes("local_show_command")
+      && localShowCommands.length === 1 && localShowCommands[0] === "local_show_command",
+    "Desktop local show control must be restricted to the trusted main workspace, never companion windows.",
+  );
   add(
     midiCapability?.windows?.length === 1 && midiCapability.windows[0] === "main"
       && midiCapability?.remote?.urls?.length === trustedDesktopOrigins.length

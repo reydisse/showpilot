@@ -24,6 +24,10 @@ import {
   type PPBridgeDebugState,
 } from "./protocols/propresenter.js";
 import { BRIDGE_VERSION } from "./version.js";
+import { LocalShowStore } from "./local-show-store.js";
+import { LocalShowManager } from "./local-show-manager.js";
+import { LocalShowError, parsePreparedLocalShow, type PreparedLocalShow, type LocalShowAction } from "./local-show-model.js";
+import type { LocalShowRequest } from "./local-show-control.js";
 
 interface BridgeOptions {
   url: string;
@@ -86,6 +90,13 @@ interface PingMessage {
   type: "ping";
 }
 
+interface PrepareLocalShowMessage {
+  type: "prepare-local-show";
+  id: string;
+  showId: string;
+  protectedSettings: unknown;
+}
+
 const CONNECT_DEVICE_PROTOCOLS = new Set([
   "propresenter",
   "http-command",
@@ -108,7 +119,7 @@ export function connectedBridgeTargets(...groups: Iterable<string>[]): string[] 
   return [...new Set(groups.flatMap((group) => [...group]))].sort();
 }
 
-type IncomingMessage = CommandMessage | ConnectDeviceMessage | DisconnectDeviceMessage | PingMessage | BridgeRoleMessage | BridgePolicyMessage;
+type IncomingMessage = CommandMessage | ConnectDeviceMessage | DisconnectDeviceMessage | PingMessage | BridgeRoleMessage | BridgePolicyMessage | PrepareLocalShowMessage;
 
 function endpointKey(endpoint: BridgeEndpoint): string {
   return JSON.stringify([endpoint.protocol, endpoint.host, endpoint.port]);
@@ -133,6 +144,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function parseIncomingMessage(value: unknown): IncomingMessage | null {
   if (!isRecord(value) || typeof value.type !== "string") return null;
   switch (value.type) {
+    case "prepare-local-show":
+      return typeof value.id === "string" && /^[A-Za-z0-9:_-]{1,100}$/.test(value.id)
+        && typeof value.showId === "string" && /^[A-Za-z0-9:_-]{1,100}$/.test(value.showId)
+        ? {type:value.type,id:value.id,showId:value.showId,protectedSettings:value.protectedSettings} : null;
     case "command":
       return typeof value.id === "string"
         && typeof value.protocol === "string"
@@ -190,6 +205,11 @@ export function shouldReconnectBridge(code: number): boolean {
  * and proxies commands to local network devices.
  */
 export class Bridge {
+  private commandSource: "cloud" | "entering-local" | "local" | "local-held" | "leaving-local" | "stopped" = "cloud";
+  private localStore: LocalShowStore | null = null;
+  private localShow: LocalShowManager | null = null;
+  private localScope: Pick<BridgeRoleMessage, "orgId" | "installationId"> | null = null;
+  private deviceGeneration = 0;
   private ws: WebSocket | null = null;
   private role: "waiting" | "active" | "standby" = "waiting";
   private activeInstallation: BridgeRoleMessage["activeInstallation"] = null;
@@ -203,7 +223,7 @@ export class Bridge {
     requestId: string;
     finish: (approved: boolean) => void;
   } | null = null;
-  private approvedTargets = new Set<string>();
+  private approvedTargets = new Map<string, BridgeEndpoint>();
   private connectionEndpoints = new Map<string, BridgeEndpoint[]>();
   private url: string;
   private key: string | undefined;
@@ -231,6 +251,112 @@ export class Bridge {
     this.key = options.key;
     this.reconnect = options.reconnect ?? true;
     this.propresenter = options.propresenter;
+  }
+
+  /** The parent chooses a credential-scoped cache path before cloud startup. */
+  configureLocalShow(store: LocalShowStore): void {
+    if (this.localStore || this.ws) throw new LocalShowError("Configure local storage before starting Bridge.");
+    this.localStore=store;
+    const saved=store.load();
+    if(saved===null)return;
+    if(!isRecord(saved))throw new LocalShowError("The saved local show cannot be read. Keep the cache for recovery.");
+    const prepared=parsePreparedLocalShow(saved.prepared);
+    this.initializeLocalShow({orgId:prepared.orgId,installationId:prepared.installationId});
+    if(this.localShow?.status().mode==='active')this.commandSource='local-held';
+  }
+
+  private initializeLocalShow(scope:Pick<BridgeRoleMessage,"orgId"|"installationId">): void {
+    if(!this.localStore)return;
+    if(this.localScope && (this.localScope.orgId!==scope.orgId || this.localScope.installationId!==scope.installationId))
+      throw new LocalShowError("The cached show belongs to another workspace or Bridge installation.");
+    if(this.localShow)return;
+    this.localScope=scope;
+    this.localShow=new LocalShowManager({store:this.localStore,scope,
+      activate:prepared=>this.enterLocalControl(prepared),
+      deactivate:()=>this.leaveLocalControl(),
+      execute:action=>this.executeLocalAction(action),
+    });
+  }
+
+  async handleLocalShow(request:LocalShowRequest):Promise<unknown> {
+    if(this.commandSource==='stopped')throw new LocalShowError("The local device engine stopped. Start it before continuing.");
+    if(!this.localStore)throw new LocalShowError("Local show storage is not configured by the desktop app.");
+    if(request.operation==='status')return {...(this.localShow?.status()??{mode:'empty'}),installationId:this.localScope?.installationId??null,commandSource:this.commandSource};
+    if(!this.localShow)throw new LocalShowError("Connect to ShowPilot and prepare a show before enabling local control.");
+    const result=await this.localShow.handle(request);
+    return {...result,installationId:this.localScope?.installationId??null,commandSource:this.commandSource};
+  }
+
+  private async waitForCloudWork():Promise<void> {
+    let timer:ReturnType<typeof setTimeout>|undefined;
+    try {
+      await Promise.race([this.messageWork,new Promise<never>((_,reject)=>{
+        timer=setTimeout(()=>reject(new LocalShowError("A previous cloud device command is still settling. Local control remains held; check the equipment and retry.")),12000);
+      })]);
+    } finally {clearTimeout(timer);}
+  }
+
+  private async enterLocalControl(prepared:PreparedLocalShow):Promise<void> {
+    if(this.commandSource==='stopped')throw new LocalShowError("The local device engine has stopped.");
+    if(this.ws?.readyState===WebSocket.OPEN && this.role!=='active')throw new LocalShowError("This Bridge is not the active installation. Select it in ShowPilot before enabling local control.");
+    this.commandSource='entering-local';
+    const generation=++this.deviceGeneration;
+    this.connectionAttempt++;
+    if(this.reconnectTimer){clearTimeout(this.reconnectTimer);this.reconnectTimer=null;}
+    this.pendingConnectionApproval?.finish(false);
+    const socket=this.ws;
+    this.ws=null;
+    socket?.close(1000,'Local show control enabled');
+    this.settingsRecipient=null;
+    this.settingsScope=null;
+    this.role='waiting';
+    try {
+      await this.waitForCloudWork();
+      await this.disconnectDevices();
+      if(generation!==this.deviceGeneration)throw new LocalShowError("The local device engine stopped during the handoff.");
+      await this.applyTargetPolicy(prepared.approvedTargets);
+      if(generation!==this.deviceGeneration)throw new LocalShowError("The local device engine stopped during the handoff.");
+      this.commandSource='local';
+    } catch(error) {
+      if(generation===this.deviceGeneration)this.commandSource='local-held';
+      throw error;
+    }
+  }
+
+  private async leaveLocalControl():Promise<void> {
+    if(this.commandSource==='stopped')throw new LocalShowError("The local device engine has stopped.");
+    this.commandSource='leaving-local';
+    const generation=++this.deviceGeneration;
+    await this.disconnectDevices();
+    if(generation!==this.deviceGeneration)throw new LocalShowError("The local device engine stopped during the handoff.");
+    this.approvedTargets.clear();
+    this.commandSource='cloud';
+    this.connect();
+  }
+
+  private async executeLocalAction(action:LocalShowAction):Promise<'acknowledged'|'sent'> {
+    if(this.commandSource!=='local')throw new LocalShowError("Local device control is not enabled.");
+    const generation=this.deviceGeneration;
+    // Credentials come from the authenticated preparation, never native UI input.
+    if(action.protocol!=='wol')await this.connectConfiguredDevice({type:'connect-device',protocol:action.protocol,target:action.target,settings:action.settings});
+    if(this.commandSource!=='local'||generation!==this.deviceGeneration)throw new LocalShowError("Device ownership changed before the command was sent.");
+    await this.executeDeviceCommand({type:'command',id:crypto.randomUUID(),protocol:action.protocol,target:action.target,command:action.command});
+    return ['udp','osc','dmx-artnet','dmx-sacn','wol'].includes(action.protocol)?'sent':'acknowledged';
+  }
+
+  private async prepareLocalShow(msg:PrepareLocalShowMessage):Promise<void> {
+    try {
+      const socket=this.ws;
+      if(!this.localShow || !this.settingsRecipient || !this.settingsScope)throw new LocalShowError("This Bridge does not have local show storage enabled.");
+      const prepared=await this.settingsRecipient.open(msg.protectedSettings,{...this.settingsScope,protocol:'local-show',target:msg.showId});
+      if(this.ws!==socket||socket?.readyState!==WebSocket.OPEN||this.role!=='active'||this.commandSource!=='cloud')throw new LocalShowError("The active Bridge changed while preparing the local show.");
+      if(prepared.showId!==msg.showId)throw new LocalShowError("The prepared show does not match the requested show.");
+      const approvedTargets=[...this.approvedTargets.values()];
+      const result=this.localShow.prepare(prepared,approvedTargets);
+      this.send({type:'local-show-prepared',id:msg.id,success:true,sessionId:'sessionId' in result?result.sessionId:null});
+    } catch(error) {
+      this.send({type:'local-show-prepared',id:msg.id,success:false,error:error instanceof LocalShowError?error.message:'Local show preparation could not be verified. Reconnect and try again.'});
+    }
   }
 
   getStatus() {
@@ -265,6 +391,8 @@ export class Bridge {
   }
 
   stop(): void {
+    this.commandSource='stopped';
+    this.deviceGeneration++;
     this.connectionAttempt++;
     this.settingsRecipient = null;
     this.settingsScope = null;
@@ -311,6 +439,7 @@ export class Bridge {
   }
 
   private connect(): void {
+    if(this.commandSource!=='cloud')return;
     const attempt = ++this.connectionAttempt;
     this.settingsRecipient = null;
     this.settingsScope = null;
@@ -357,7 +486,7 @@ export class Bridge {
         const message = parseIncomingMessage(parsed);
         if (message) {
           this.messageWork = this.messageWork.then(async () => {
-            if (this.ws !== socket || socket.readyState !== WebSocket.OPEN) return;
+            if (this.commandSource!=='cloud' || this.ws !== socket || socket.readyState !== WebSocket.OPEN) return;
             try { await this.handleMessage(message); }
             finally {
               if (this.ws !== socket || socket.readyState !== WebSocket.OPEN) {
@@ -376,6 +505,10 @@ export class Bridge {
 
     this.ws.on("close", (code, reason) => {
       if (this.ws !== socket) return;
+      if(code===4403 || code===4410) {
+        try {this.localShow?.applyCloudPolicy([],false);}
+        catch {console.error('[bridge] Local preparation could not record its revocation; local control remains unavailable.');}
+      }
       this.settingsRecipient = null;
       this.settingsScope = null;
       this.role = "waiting";
@@ -425,6 +558,7 @@ export class Bridge {
   private async handleMessage(msg: IncomingMessage): Promise<void> {
     if (msg.type === "bridge-policy") {
       await this.applyTargetPolicy(msg.approvedTargets);
+      if(this.role==='active'||this.role==='standby')this.localShow?.applyCloudPolicy(msg.approvedTargets,this.role==='active');
       this.send({ type: "bridge-policy-applied", policyId: msg.policyId });
       if (this.role === "active") await this.ensureProPresenterConnection();
       return;
@@ -434,6 +568,8 @@ export class Bridge {
       await this.applyTargetPolicy(msg.approvedTargets);
       this.role = msg.role;
       this.settingsScope = { orgId: msg.orgId, installationId: msg.installationId };
+      this.initializeLocalShow(this.settingsScope);
+      this.localShow?.applyCloudPolicy(msg.approvedTargets,msg.role==='active');
       this.activeInstallation = msg.activeInstallation;
       if (msg.role === "standby") {
         await this.disconnectDevices();
@@ -449,6 +585,9 @@ export class Bridge {
     }
     if (msg.type !== "ping" && this.role !== "active") return;
     switch (msg.type) {
+      case "prepare-local-show":
+        await this.prepareLocalShow(msg);
+        break;
       case "command":
         await this.handleCommand(msg);
         break;
@@ -465,7 +604,7 @@ export class Bridge {
   }
 
   private async applyTargetPolicy(endpoints: BridgeEndpoint[]): Promise<void> {
-    this.approvedTargets = new Set(endpoints.map(endpointKey));
+    this.approvedTargets = new Map(endpoints.map(endpoint => [endpointKey(endpoint), endpoint]));
     for (const [target, connected] of this.connectionEndpoints) {
       if (!connected.every(endpoint => this.approvedTargets.has(endpointKey(endpoint)))) {
         await this.handleDisconnectDevice({ target });
@@ -493,6 +632,25 @@ export class Bridge {
 
   private async handleCommand(msg: CommandMessage): Promise<void> {
     try {
+      const response = await this.executeDeviceCommand(msg);
+
+      this.send({
+        type: "command-response",
+        id: msg.id,
+        success: true,
+        response: response ?? undefined,
+      });
+    } catch (err) {
+      this.send({
+        type: "command-response",
+        id: msg.id,
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  private async executeDeviceCommand(msg: CommandMessage): Promise<string | void> {
       await this.authorizeDestination(msg);
       let response: string | void = undefined;
 
@@ -535,20 +693,7 @@ export class Bridge {
           throw new Error(`Unknown protocol: ${msg.protocol}`);
       }
 
-      this.send({
-        type: "command-response",
-        id: msg.id,
-        success: true,
-        response: response ?? undefined,
-      });
-    } catch (err) {
-      this.send({
-        type: "command-response",
-        id: msg.id,
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+      return response;
   }
 
   private async handleConnectDevice(msg: ConnectDeviceMessage): Promise<void> {
@@ -560,6 +705,25 @@ export class Bridge {
       const settings = await this.settingsRecipient.open(msg.protectedSettings, { ...this.settingsScope, protocol: msg.protocol, target: msg.target });
       if (this.ws !== socket || socket?.readyState !== WebSocket.OPEN || this.role !== "active") throw new Error("Bridge disconnected before device configuration.");
       const configured: DeviceConnectionInput = { type: "connect-device", protocol: msg.protocol, target: msg.target, settings };
+      await this.connectConfiguredDevice(configured);
+    } catch (err) {
+      console.error(
+        `[bridge] ${msg.protocol} connection to ${key} failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      this.send({
+        type: "device-status",
+        target: key,
+        connected: false,
+      });
+      this.sendStatus();
+    }
+  }
+
+  private async connectConfiguredDevice(msg: DeviceConnectionInput): Promise<void> {
+    const key = msg.target;
+    const settings = msg.settings;
+    const configured = msg;
+    try {
       await this.authorizeDestination(configured);
       const [endpoint] = resolveBridgeEndpoints(configured);
       const host = endpoint.host.replace(/^\[|\]$/g, "");
@@ -672,15 +836,7 @@ export class Bridge {
         this.viscaModes.delete(key);
         this.viscaSequences.delete(key);
       }
-      console.error(
-        `[bridge] ${msg.protocol} connection to ${key} failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      this.send({
-        type: "device-status",
-        target: key,
-        connected: false,
-      });
-      this.sendStatus();
+      throw err;
     }
   }
 
@@ -1037,6 +1193,7 @@ export class Bridge {
   }
 
   private async requestCommandConnection(msg: CommandMessage): Promise<void> {
+    if(this.commandSource==='local') {await this.authorizeDestination(msg);return;}
     await this.requestConnectionApproval({ type: "command-connection-requested", id: msg.id });
     await this.authorizeDestination(msg);
   }
@@ -1254,6 +1411,7 @@ export class Bridge {
 
     const res = await fetch(url, {
       method,
+      signal: AbortSignal.timeout(5000),
       redirect: "error",
       headers: {
         ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),

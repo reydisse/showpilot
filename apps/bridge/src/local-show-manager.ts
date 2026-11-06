@@ -14,11 +14,12 @@ import {
   LocalShowError,
   parsePreparedLocalShow,
   type LocalShowAction,
+  type LocalDeviceOutcome,
   type PreparedLocalShow,
 } from "./local-show-model.js";
 import type { LocalShowRequest } from "./local-show-control.js";
 
-type DeviceResult = "pending" | "acknowledged" | "failed" | "unknown";
+type DeviceResult = "pending" | LocalDeviceOutcome | "unknown";
 type Entry = { requestId: string; at: number } & (
   | { kind: "transport"; command: RundownTransportCommand }
   | { kind: "device"; actionId: string; result: DeviceResult }
@@ -41,9 +42,9 @@ interface Dependencies {
   activate(prepared: PreparedLocalShow): Promise<void>;
   /** Must close local device connections before restoring cloud command intake. */
   deactivate(): Promise<void>;
-  /** A fulfilled promise means the adapter acknowledged execution. Rejection is
+  /** The adapter distinguishes equipment replies from unacknowledged sends. Rejection is
    * conservatively unknown: it may have failed after sending to the equipment. */
-  execute(action: LocalShowAction): Promise<"acknowledged" | "failed">;
+  execute(action: LocalShowAction): Promise<LocalDeviceOutcome>;
 }
 
 function transportPayload(command: RundownTransportCommand) {
@@ -113,6 +114,7 @@ function parseSavedShow(value: unknown): SavedShow | null {
       isLocalId(entry.actionId) &&
       prepared.actions.some((action) => action.id === entry.actionId) &&
       (entry.result === "pending" ||
+        entry.result === "sent" ||
         entry.result === "acknowledged" ||
         entry.result === "failed" ||
         entry.result === "unknown")
@@ -329,6 +331,30 @@ export class LocalShowManager {
     return this.status();
   }
 
+  /** A received cloud revocation takes effect before the next offline session.
+   * Keep ended journals for reconciliation; never discard operator progress.
+   */
+  applyCloudPolicy(
+    approvedTargets: readonly BridgeEndpoint[],
+    active: boolean,
+  ): void {
+    if (
+      !this.saved ||
+      (this.saved.session && this.saved.session.phase !== "reconciled")
+    )
+      return;
+    const key = (endpoint: BridgeEndpoint) =>
+      JSON.stringify([endpoint.protocol, endpoint.host, endpoint.port]);
+    const approved = new Set(approvedTargets.map(key));
+    if (
+      !active ||
+      !this.saved.prepared.approvedTargets.every((endpoint) =>
+        approved.has(key(endpoint)),
+      )
+    )
+      this.persist(null);
+  }
+
   status() {
     if (!this.saved)
       return { mode: "empty" as const, storageError: this.storageError };
@@ -398,6 +424,12 @@ export class LocalShowManager {
       this.transition = true;
       try {
         await this.dependencies.activate(structuredClone(saved.prepared));
+        if (this.saved?.prepared.sessionId !== saved.prepared.sessionId) {
+          await this.dependencies.deactivate();
+          throw new LocalShowError(
+            "The cloud revoked this preparation during the handoff. Reconnect and prepare the show again.",
+          );
+        }
         if (!saved.session)
           this.persist({
             ...saved,

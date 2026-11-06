@@ -37,11 +37,14 @@ pub struct BridgeConfig {
 struct BridgeProcess {
     child: Child,
     observation: Arc<Mutex<BridgeObservation>>,
+    local_control_token: String,
+    _local_show_lock: fs::File,
 }
 
 struct BridgeObservation {
     connection: BridgeConnection,
     logs: VecDeque<String>,
+    local_control_port: Option<u16>,
 }
 
 impl BridgeObservation {
@@ -49,10 +52,15 @@ impl BridgeObservation {
         Self {
             connection: BridgeConnection::Connecting,
             logs: VecDeque::new(),
+            local_control_port: None,
         }
     }
 
     fn push(&mut self, line: String) {
+        if let Some(port) = line.strip_prefix("[bridge-local-control] ") {
+            self.local_control_port = port.parse::<u16>().ok().filter(|port| *port > 0);
+            return;
+        }
         self.connection = connection_from_log(self.connection, &line);
         self.logs.push_back(line);
         while self.logs.len() > MAX_LOG_LINES {
@@ -315,9 +323,29 @@ fn bridge_command(config: &BridgeConfig) -> Result<Command, String> {
     Ok(command)
 }
 
-fn spawn_process(config: &BridgeConfig) -> Result<BridgeProcess, String> {
+fn lock_local_show_directory(directory: &std::path::Path) -> Result<fs::File, String> {
+    fs::create_dir_all(directory).map_err(|_| "Unable to create local show storage".to_string())?;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(directory.join("owner.lock"))
+        .map_err(|_| "Unable to open local show ownership lock".to_string())?;
+    file.try_lock().map_err(|_| "Another ShowPilot Desktop instance owns local show control. Close it before starting this engine.".to_string())?;
+    Ok(file)
+}
+
+fn spawn_process(
+    config: &BridgeConfig,
+    local_directory: &std::path::Path,
+) -> Result<BridgeProcess, String> {
+    let local_show_lock = lock_local_show_directory(local_directory)?;
     let observation = Arc::new(Mutex::new(BridgeObservation::new()));
     let mut command = bridge_command(config)?;
+    let local_control_token = uuid::Uuid::new_v4().simple().to_string();
+    command.env("SHOWPILOT_LOCAL_CONTROL_TOKEN", &local_control_token);
+    command.env("SHOWPILOT_LOCAL_SHOW_DIRECTORY", local_directory);
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command
         .spawn()
@@ -328,16 +356,49 @@ fn spawn_process(config: &BridgeConfig) -> Result<BridgeProcess, String> {
     if let Some(stderr) = child.stderr.take() {
         capture_output(stderr, Arc::clone(&observation), config.key.clone());
     }
-    Ok(BridgeProcess { child, observation })
+    Ok(BridgeProcess {
+        child,
+        observation,
+        local_control_token,
+        _local_show_lock: local_show_lock,
+    })
 }
 
-fn replace_process(runtime: &BridgeRuntime, config: &BridgeConfig) -> Result<u32, String> {
-    let active = spawn_process(config)?;
-    let pid = active.child.id();
+fn replace_process(
+    runtime: &BridgeRuntime,
+    config: &BridgeConfig,
+    app: &tauri::AppHandle,
+) -> Result<u32, String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("local-shows");
     let mut process = runtime
         .process
         .lock()
         .map_err(|_| "Device engine state unavailable".to_string())?;
+    // One sidecar owns the local device sockets and encrypted show journal.
+    // Reap the previous child before a replacement can open either resource.
+    if let Some(mut previous) = process.take() {
+        if previous
+            .child
+            .try_wait()
+            .map_err(|error| error.to_string())?
+            .is_none()
+        {
+            previous
+                .child
+                .kill()
+                .map_err(|error| format!("Unable to stop the previous device engine: {error}"))?;
+        }
+        previous
+            .child
+            .wait()
+            .map_err(|error| format!("Unable to reap the previous device engine: {error}"))?;
+    }
+    let active = spawn_process(config, &directory)?;
+    let pid = active.child.id();
     *process = Some(active);
     runtime.auto_restart.store(true, Ordering::Relaxed);
     Ok(pid)
@@ -470,7 +531,7 @@ pub fn start_bridge(
         }
     }
     save_config(&app, &config)?;
-    let pid = replace_process(&runtime, &config)?;
+    let pid = replace_process(&runtime, &config, &app)?;
     Ok(BridgeStatus {
         configured: true,
         configured_site: Some(config.site.clone()),
@@ -501,6 +562,118 @@ pub fn stop_bridge(
         .map_err(|_| "Device engine state unavailable".to_string())?;
     *process = None;
     Ok(())
+}
+
+fn request_local_show(
+    port: u16,
+    token: &str,
+    request: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let body =
+        serde_json::to_vec(&request).map_err(|_| "Invalid local show request".to_string())?;
+    if body.len() > 65_536 {
+        return Err("Local show request is too large".into());
+    }
+    // The updater enables reqwest's rustls-no-provider feature. Supply this
+    // client's provider explicitly, without changing the updater's global TLS
+    // configuration. This client only connects to the fixed loopback HTTP URL.
+    let tls = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .map_err(|_| "Unable to configure local control transport".to_string())?
+    .with_root_certificates(rustls::RootCertStore::empty())
+    .with_no_client_auth();
+    let client = reqwest::blocking::Client::builder()
+        .tls_backend_preconfigured(tls)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(std::time::Duration::from_secs(1))
+        .timeout(std::time::Duration::from_secs(16))
+        .build()
+        .map_err(|_| "Unable to initialize native local control".to_string())?;
+    let response = client.post(format!("http://127.0.0.1:{port}/local-show"))
+        .bearer_auth(token).header("Content-Type", "application/json").body(body).send()
+        .map_err(|_| "The local device engine did not confirm the request. Refresh its status before retrying.".to_string())?;
+    let mut bytes = Vec::new();
+    response
+        .take(8 * 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| {
+            "The local device engine response was interrupted. Refresh its status before retrying."
+                .to_string()
+        })?;
+    if bytes.len() > 8 * 1024 * 1024 {
+        return Err("Local show response exceeded its size limit".into());
+    }
+    let value: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|_| "Invalid local device engine response".to_string())?;
+    if value.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+        return Err(value
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .filter(|message| message.len() <= 1000)
+            .unwrap_or(
+                "The local device engine rejected this action. Refresh its status before retrying.",
+            )
+            .to_string());
+    }
+    value
+        .get("result")
+        .cloned()
+        .ok_or_else(|| "Missing local show result".to_string())
+}
+
+#[tauri::command]
+pub async fn local_show_command(
+    window: tauri::WebviewWindow,
+    runtime: tauri::State<'_, BridgeRuntime>,
+    request: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    if window.label() != "main" {
+        return Err("Local show control is only available in the main operator window".into());
+    }
+    let (pid, port, token) = {
+        let mut process = runtime
+            .process
+            .lock()
+            .map_err(|_| "Device engine state unavailable".to_string())?;
+        let active = process.as_mut().ok_or_else(|| {
+            "Start the local device engine before using local show control".to_string()
+        })?;
+        if active
+            .child
+            .try_wait()
+            .map_err(|_| "Unable to inspect the local device engine".to_string())?
+            .is_some()
+        {
+            return Err(
+                "The local device engine stopped. Wait for it to restart and refresh its status."
+                    .into(),
+            );
+        }
+        let port = active
+            .observation
+            .lock()
+            .map_err(|_| "Local control status unavailable".to_string())?
+            .local_control_port
+            .ok_or_else(|| {
+                "Local show control is still starting. Refresh its status in a moment.".to_string()
+            })?;
+        (active.child.id(), port, active.local_control_token.clone())
+    };
+    let result =
+        tauri::async_runtime::spawn_blocking(move || request_local_show(port, &token, request))
+            .await
+            .map_err(|_| "Native local show request did not finish".to_string())?;
+    let process = runtime
+        .process
+        .lock()
+        .map_err(|_| "Device engine state unavailable".to_string())?;
+    if process.as_ref().map(|active| active.child.id()) != Some(pid) {
+        return Err("The local device engine restarted during this request. Refresh its saved state before retrying.".into());
+    }
+    result
 }
 
 pub fn start_supervisor(app: tauri::AppHandle) {
@@ -539,7 +712,7 @@ pub fn start_supervisor(app: tauri::AppHandle) {
             continue;
         }
         if let Ok(Some(config)) = read_config(&app) {
-            let _ = replace_process(&runtime, &config);
+            let _ = replace_process(&runtime, &config, &app);
         }
     });
 }
@@ -555,13 +728,91 @@ pub fn start_saved_bridge(app: &tauri::AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let runtime = app.state::<BridgeRuntime>();
-    replace_process(&runtime, &config)?;
+    replace_process(&runtime, &config, app)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_control_port_is_private_and_validated() {
+        let mut observation = BridgeObservation::new();
+        observation.push("[bridge-local-control] 12345".into());
+        assert_eq!(observation.local_control_port, Some(12345));
+        assert!(observation.logs.is_empty());
+        for malformed in ["0", "65536", "123 bad", "-1"] {
+            observation.push(format!("[bridge-local-control] {malformed}"));
+            assert_eq!(observation.local_control_port, None);
+        }
+    }
+
+    #[test]
+    fn only_one_engine_can_own_a_local_show_directory() {
+        let directory =
+            std::env::temp_dir().join(format!("showpilot-local-lock-{}", uuid::Uuid::new_v4()));
+        let owner = lock_local_show_directory(&directory).unwrap();
+        assert!(lock_local_show_directory(&directory).is_err());
+        drop(owner);
+        let replacement = lock_local_show_directory(&directory).unwrap();
+        drop(replacement);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn native_local_control_authenticates_and_preserves_operator_errors() {
+        use std::io::Write;
+        use std::net::TcpListener;
+        for (status, body, expected) in [
+            (
+                200,
+                r#"{"ok":true,"result":{"mode":"prepared","sequence":0}}"#,
+                Ok(serde_json::json!({"mode":"prepared","sequence":0})),
+            ),
+            (
+                409,
+                r#"{"ok":false,"error":"Local show changed. Refresh its state."}"#,
+                Err("Local show changed. Refresh its state.".to_string()),
+            ),
+        ] {
+            let server = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = server.local_addr().unwrap().port();
+            let receiver = thread::spawn(move || {
+                let (mut socket, _) = server.accept().unwrap();
+                socket
+                    .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                    .unwrap();
+                let mut bytes = Vec::new();
+                let mut buffer = [0; 1024];
+                while !bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                    let read = socket.read(&mut buffer).unwrap();
+                    assert!(read > 0);
+                    bytes.extend_from_slice(&buffer[..read]);
+                }
+                let headers = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
+                assert!(headers.starts_with("post /local-show http/1.1"));
+                assert!(headers.contains("authorization: bearer fixture-native-token\r\n"));
+                write!(socket,"HTTP/1.1 {status} Result\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();
+            });
+            assert_eq!(
+                request_local_show(
+                    port,
+                    "fixture-native-token",
+                    serde_json::json!({"operation":"status"})
+                ),
+                expected
+            );
+            receiver.join().unwrap();
+        }
+        assert!(request_local_show(
+            1,
+            "fixture-native-token",
+            serde_json::json!({"padding":"x".repeat(65536)})
+        )
+        .unwrap_err()
+        .contains("too large"));
+    }
 
     fn config(site: &str, org: &str, key: &str) -> BridgeConfig {
         BridgeConfig {
