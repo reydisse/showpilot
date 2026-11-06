@@ -11,3 +11,6 @@ export interface AutomationDeviceTarget {
   actions: AutomationDeviceAction[];
 }
 export type CueDetails = { status: "ready"; payload: Record<string, unknown> } | { status: "invalid"; message: string };
+
+export interface AutomationDeviceName { id: string; label: string; enabled: boolean }
+export type AutomationDeviceNames = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; value: AutomationDeviceName[] };

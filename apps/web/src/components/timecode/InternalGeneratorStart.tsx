@@ -26,6 +26,7 @@ interface Props {
   connected: boolean;
   pending: "starting" | "stopping" | null;
   onStart: (position?: TimecodeStartPosition) => void;
+  initialCustom?: boolean;
 }
 
 export function InternalGeneratorStart({
@@ -33,9 +34,10 @@ export function InternalGeneratorStart({
   connected,
   pending,
   onStart,
+  initialCustom = false,
 }: Props) {
-  const [custom, setCustom] = useState(false);
-  const [text, setText] = useState("");
+  const [custom, setCustom] = useState(initialCustom);
+  const [text, setText] = useState(() => initialCustom ? timecodeToString(framesToTimecode(clock.totalFrames, clock.format), clock.format.dropFrame === "df") : "");
   const [review, setReview] = useState<TimecodeStartPosition | null>(null);
   const id = useId();
   const parsed = parseTimecodeString(text);

@@ -1,46 +1,34 @@
 import { useState, useEffect } from "react";
-import { Square, Radio, Usb, AlertTriangle } from "lucide-react";
-import { InternalGeneratorStart } from "./InternalGeneratorStart";
-import type { TimecodeStartPosition } from "@/lib/timecode-start";
+import { Radio, Usb, AlertTriangle } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { sameTimecodeFormat, timecodeFormatLabel } from "@/lib/timecode";
 import { findMidiInput, observeMidiInputs } from "@/lib/timecode-sources/midi-inputs";
 import type { TimecodeFormat, FrameRate, DropFrameMode, TimecodeState } from "@/types/timecode";
 
 interface TimecodeSourceSelectorProps {
-  showId: string | null;
   isMaster: boolean;
   connected: boolean;
   pending: "starting" | "stopping" | null;
   running: boolean;
-  totalFrames?: number;
   signal?: TimecodeState["signal"];
   source?: TimecodeState["source"];
   format: TimecodeFormat;
   incomingFormat?: TimecodeState["incomingFormat"];
   mtcSupported: boolean;
-  onStartFreerun: (position?: TimecodeStartPosition) => void;
-  onStopGenerator: () => void;
-  onPauseGenerator?: () => void;
   onStartMtc: (inputId: string, options?: { sysex: boolean }) => Promise<void>;
   onSetFormat: (format: TimecodeFormat, expectedFormat: TimecodeFormat, expectedIncomingFormatId?: string) => void;
 }
 
 export function TimecodeSourceSelector({
-  showId,
   isMaster,
   connected,
   pending,
   running,
-  totalFrames = 0,
   signal,
   source,
   format,
   incomingFormat,
   mtcSupported,
-  onStartFreerun,
-  onStopGenerator,
-  onPauseGenerator,
   onStartMtc,
   onSetFormat,
 }: TimecodeSourceSelectorProps) {
@@ -124,23 +112,6 @@ export function TimecodeSourceSelector({
         onConfirm={() => { if (reformat && !running && connected && !reviewChanged) onSetFormat(reformat.to, reformat.from, reformat.incomingId); }} />
       {/* Source controls */}
       <div className="flex flex-col gap-2">
-        {/* Internal freerun */}
-        {!isMaster ? (
-          <InternalGeneratorStart key={showId} clock={{ showId: showId ?? undefined, format, totalFrames, running, signal, incomingFormat }}
-            connected={connected} pending={pending} onStart={onStartFreerun} />
-        ) : (
-          <button
-            onClick={onStopGenerator}
-            className="flex items-center gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2.5 text-sm font-medium text-red-400 hover:bg-red-500/20 transition-colors"
-          >
-            <Square className="w-4 h-4" />
-            {pending === "stopping" ? "Stopping…" : "Stop Generator"}
-          </button>
-        )}
-
-        {isMaster && onPauseGenerator && <button type="button" onClick={signal?.status === "paused" ? () => onStartFreerun() : onPauseGenerator}
-          className="min-h-11 rounded-lg border border-board-border px-4 text-sm text-board-text">{signal?.status === "paused" ? "Resume clock" : "Pause clock"}</button>}
-
         {/* MTC source */}
         {mtcSupported ? (
           <div className="rounded-lg border border-board-border bg-board-bg p-3 space-y-2">

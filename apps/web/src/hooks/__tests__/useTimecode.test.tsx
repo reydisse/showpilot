@@ -5,6 +5,7 @@ import { useTimecode } from "../useTimecode";
 import { InternalTimecodeSource } from "@/lib/timecode-sources/internal-source";
 import { MtcSource } from "@/lib/timecode-sources/mtc-source";
 import { TimecodeDisplay } from "@/components/timecode/TimecodeDisplay";
+import { TimecodeTransport } from "@/components/timecode/TimecodeTransport";
 import { TimecodeSourceSelector } from "@/components/timecode/TimecodeSourceSelector";
 import type { AutomationEvent, TimecodeState } from "@/types/timecode";
 import { useEffect } from "react";
@@ -333,10 +334,9 @@ describe("timecode connection honesty", () => {
       const clock = useTimecode({ orgId: "test-org", showId: "test-show", enabled: true });
       return <>
         <TimecodeDisplay state={clock.state} connected={clock.connected} size="large" />
-        <TimecodeDisplay state={clock.state} connected={clock.connected} />
-        <TimecodeSourceSelector showId="test-show" isMaster={clock.isMaster} running={clock.state?.running ?? false}
+        <TimecodeTransport state={clock.state} connected={clock.connected} canControl isMaster={clock.isMaster} pending={clock.generatorPending} onStart={clock.startFreerun} onStop={clock.stopGenerator} onPause={clock.pauseGenerator} />
+        <TimecodeSourceSelector isMaster={clock.isMaster} running={clock.state?.running ?? false}
           connected={clock.connected} pending={clock.generatorPending} format={state.format} mtcSupported={false}
-          onStartFreerun={clock.startFreerun} onStopGenerator={clock.stopGenerator}
           onStartMtc={clock.startMtc} onSetFormat={clock.setFormat} />
       </>;
     }
@@ -354,7 +354,7 @@ describe("timecode connection honesty", () => {
     expect(screen.getByRole("button", { name: "Stop Generator" })).toBeTruthy();
     act(() => socket.close());
     expect(screen.getAllByRole("status", { name: "Timecode disconnected" })).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Start Internal Generator" }).closest("fieldset")).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Start Internal Generator" })).toHaveProperty("disabled", true);
   });
 
   it("sends each actual MIDI observation once and keeps listening after signal loss", async () => {
@@ -412,12 +412,13 @@ describe("timecode connection honesty", () => {
     render(<>
       <TimecodeDisplay state={lost} connected size="large" />
       <TimecodeDisplay state={lost} connected />
-      <TimecodeSourceSelector showId="test-show" isMaster connected pending={null} running={false} signal={lost.signal} source="mtc"
-        format={state.format} mtcSupported={false} onStartFreerun={() => {}} onStopGenerator={() => {}}
+      <TimecodeTransport state={lost} connected canControl isMaster pending={null} onStart={() => {}} onStop={() => {}} onPause={() => {}} />
+      <TimecodeSourceSelector isMaster connected pending={null} running={false} signal={lost.signal} source="mtc"
+        format={state.format} mtcSupported={false}
         onStartMtc={async () => {}} onSetFormat={() => {}} />
     </>);
     expect(screen.getByRole("alert").textContent).toContain("MTC signal lost");
-    expect(screen.getAllByRole("status", { name: "Timecode signal lost" })).toHaveLength(2);
+    expect(screen.getAllByRole("status", { name: "Timecode signal lost" })).toHaveLength(3);
     expect(screen.getByRole("button", { name: "Stop Generator" })).toBeTruthy();
     expect(screen.getByText("Signal lost · clock held")).toBeTruthy();
   });
