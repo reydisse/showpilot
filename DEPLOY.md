@@ -492,6 +492,31 @@ probe in `apps/bridge/scripts/check-local-show.mjs` checks the same jump through
 the native engine and reconciles its journal. These are local checks, not a
 production deployment or a physical lighting rehearsal.
 
+### Relative lyric cues
+
+`lyrics-next-section` and `lyrics-previous-section` step from the current lyric
+section using the saved song's section order. They take no target IDs or text
+payload. Show a saved section first through Songs or a `lyrics-goto` cue. The
+timeline's Fire control can execute either action while the clock is stopped.
+
+Both actions share the lyrics output queue. Each reads only the current
+organization's saved song, then replaces the display with one lyric update.
+There is no intermediate clear. If a manual selection changes during the read,
+the cue fails without overwriting that selection. A missing/deleted section or
+the first/last boundary also leaves the current output visible and reports a
+failure. Explicit retry and reviewed re-fire use the current section at that
+time. Stepping preserves the active song load's scoped-clear ownership.
+
+Run `node apps/web/scripts/smoke-lyrics-steps.mjs` after the web build. The script
+creates a song through the built UI, shows its first section, saves and fires
+both cues, and observes a separate confidence-display tab. It checks the same
+lyric element remains mounted through Verse -> Chorus -> Verse, with no blank
+state and preserved line breaks. It also captures the editor at 320px.
+Worker tests cover real D1 section ordering/reordering, consecutive timed steps,
+organization isolation, deleted sections, boundaries, disabling, the kill switch,
+retry, reviewed re-fire and scoped clearing. Direct preview controls, keyboard
+and MIDI shortcuts, and the remaining Phase 2.6 work are still pending.
+
 ### Native configuration credential migration
 
 Desktop, Bridge Desktop and standalone Bridge now store both the installation
