@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   permission: vi.fn(), issue: vi.fn(), list: vi.fn(), rotate: vi.fn(), revoke: vi.fn(), migrate: vi.fn(), refresh: vi.fn(),
-  db: { fixture: true },
+  status: vi.fn(), select: vi.fn(), db: { fixture: true },
 }));
 vi.mock("@tanstack/react-start", () => ({ createServerFn: () => {
   let validate = (data: unknown) => data;
@@ -11,12 +11,13 @@ vi.mock("@tanstack/react-start", () => ({ createServerFn: () => {
   };
   return builder;
 } }));
-vi.mock("cloudflare:workers", () => ({ env: { DB: mocks.db, BRIDGE_RELAY: { getByName: () => ({ refreshCredentialAuthority: mocks.refresh }) } } }));
+vi.mock("cloudflare:workers", () => ({ env: { DB: mocks.db, BRIDGE_RELAY: { getByName: () => ({ refreshCredentialAuthority: mocks.refresh, getBridgeStatus: mocks.status, selectInstallation: mocks.select }) } } }));
 vi.mock("../org-access", () => ({ assertOrgPermission: mocks.permission }));
 vi.mock("../bridge-credentials.server", () => ({
   issueBridgeInstallation: mocks.issue, listBridgeInstallations: mocks.list, migrateLegacyBridgeInstallation: mocks.migrate,
   rotateBridgeInstallation: mocks.rotate, revokeBridgeInstallation: mocks.revoke,
 }));
+import { getBridgeSelection, takeBridgeControl } from "../bridge-selection";
 import { createBridgeInstallation, getBridgeInstallations, revokeBridgeInstallationKey, rotateBridgeInstallationKey } from "../bridge-installations";
 const actor = { orgId: "org-1", installationId: "installation-1" };
 beforeEach(() => {
@@ -29,13 +30,25 @@ describe("Bridge installation management authorization", () => {
   it("requires key-management permission before any store or connection operation", async () => {
     mocks.permission.mockRejectedValue(new Error("Forbidden"));
     for (const action of [
+      () => getBridgeSelection({ data: { orgId: "org-1" } }),
+      () => takeBridgeControl({ data: { ...actor, expectedActiveInstallationId: null, confirmed: true } }),
       () => getBridgeInstallations({ data: { orgId: "org-1" } }),
       () => createBridgeInstallation({ data: { orgId: "org-1", label: "Venue" } }),
       () => rotateBridgeInstallationKey({ data: actor }),
       () => revokeBridgeInstallationKey({ data: actor }),
     ]) await expect(action()).rejects.toThrow("Forbidden");
-    expect(mocks.permission.mock.calls).toEqual(Array.from({ length: 4 }, () => ["org-1", "settings:api_keys"]));
-    for (const fn of [mocks.issue, mocks.list, mocks.migrate, mocks.rotate, mocks.revoke, mocks.refresh]) expect(fn).not.toHaveBeenCalled();
+    expect(mocks.permission.mock.calls).toEqual(Array.from({ length: 6 }, () => ["org-1", "settings:api_keys"]));
+    for (const fn of [mocks.issue, mocks.list, mocks.migrate, mocks.rotate, mocks.revoke, mocks.refresh, mocks.status, mocks.select]) expect(fn).not.toHaveBeenCalled();
+  });
+  it("requires explicit confirmation and forwards the expected selection with the authenticated actor", async () => {
+    await expect(takeBridgeControl({ data: { ...actor, expectedActiveInstallationId: null, confirmed: false as true } })).rejects.toThrow();
+    expect(mocks.permission).not.toHaveBeenCalled();
+    const selection = { activeInstallation: { installationId: "installation-1", label: "Venue" }, connections: [] };
+    mocks.select.mockResolvedValue({ ...selection, connectedTargets: ["private-device"] });
+    await expect(takeBridgeControl({ data: { ...actor, expectedActiveInstallationId: "previous", confirmed: true } })).resolves.toEqual(selection);
+    expect(mocks.select).toHaveBeenCalledExactlyOnceWith({ ...actor, expectedActiveInstallationId: "previous", actorUserId: "owner-1" });
+    mocks.status.mockResolvedValue({ ...selection, deviceEvents: { private: "device-data" } });
+    await expect(getBridgeSelection({ data: { orgId: "org-1" } })).resolves.toEqual(selection);
   });
   it("validates and trims labels and records the authenticated actor", async () => {
     for (const label of ["", " ", "x".repeat(81)]) await expect(createBridgeInstallation({ data: { orgId: "org-1", label } })).rejects.toThrow();

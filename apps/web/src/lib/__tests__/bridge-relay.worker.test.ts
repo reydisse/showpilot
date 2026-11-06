@@ -151,7 +151,7 @@ describe("BridgeRelay device dispatch", () => {
     const sendSlide = (socket: WebSocket, data: unknown) => socket.send(JSON.stringify({
       type: "device-event", target: "propresenter:venue", eventName: "slide", data: JSON.stringify(data),
     }));
-    const { socket, stub } = await openBridge(orgId);
+    const { socket, stub, credential } = await openBridge(orgId);
     const client = await openClient(orgId);
     sendSlide(socket, { text: "Lyric A" });
     await expect.poll(readSlide).toBe("Lyric A");
@@ -165,7 +165,7 @@ describe("BridgeRelay device dispatch", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(await readSlide()).toBe("Lyric A");
 
-    const { socket: reconnected } = await openBridge(orgId);
+    const { socket: reconnected } = await openBridge(orgId, credential);
     sendSlide(reconnected, { text: "Lyric B" });
     await expect.poll(readSlide).toBe("Lyric B");
     sendSlide(reconnected, []); // Malformed data is not a Clear command.
@@ -189,15 +189,16 @@ describe("BridgeRelay device dispatch", () => {
     }
   });
 
-  it("closes a displaced bridge with the terminal takeover code", async () => {
+  it("keeps a second Bridge on standby until an operator explicitly selects it", async () => {
     const first = await openBridge("bridge-takeover-org");
-    const closed = nextClose(first.socket);
-    await openBridge("bridge-takeover-org");
-
-    await expect(closed).resolves.toMatchObject({
-      code: 4410,
-      reason: "Venue Bridge replaced by another installation",
-    });
+    const second = await openBridge("bridge-takeover-org");
+    expect(first.socket.readyState).toBe(WebSocket.OPEN);
+    expect(await first.stub.getBridgeStatus()).toMatchObject({ activeInstallation: { installationId: first.credential.installationId }, connections: [
+      { installationId: first.credential.installationId, role: "active" }, { installationId: second.credential.installationId, role: "standby" },
+    ] });
+    await first.stub.selectInstallation({ orgId: "bridge-takeover-org", installationId: second.credential.installationId, expectedActiveInstallationId: first.credential.installationId, actorUserId: "operator" });
+    expect(first.socket.readyState).toBe(WebSocket.OPEN);
+    expect(await first.stub.getBridgeStatus()).toMatchObject({ activeInstallation: { installationId: second.credential.installationId } });
   });
 
   it("keeps a connected Bridge during rotation overlap and cuts it off on installation revocation", async () => {

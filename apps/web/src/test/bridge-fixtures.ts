@@ -8,15 +8,24 @@ export async function ensureBridgeTestOrg(orgId: string) {
     .bind(orgId, orgId, orgId).run();
 }
 
-export async function openTestBridge(orgId: string) {
+export async function openTestBridge(orgId: string, existing?: Awaited<ReturnType<typeof issueBridgeInstallation>>) {
   await ensureBridgeTestOrg(orgId);
-  const credential = await issueBridgeInstallation(env.DB, { orgId, label: "Test Bridge", actorUserId: "test-owner" });
+  const credential = existing ?? await issueBridgeInstallation(env.DB, { orgId, label: "Test Bridge", actorUserId: "test-owner" });
   const stub = env.BRIDGE_RELAY.getByName(orgId);
   const query = new URLSearchParams({ orgId, role: "bridge", authCredentialId: credential.credentialId });
   const response = await stub.fetch(new Request(`https://bridge.test/ws?${query}`, { headers: internalHeaders }));
   if (response.status !== 101 || !response.webSocket) throw new Error(`Bridge upgrade failed (${response.status})`);
-  response.webSocket.accept();
-  return { stub, socket: response.webSocket, credential };
+  const socket = response.webSocket;
+  let acknowledgeRoles = true;
+  const ready = new Promise<void>(resolve => socket.addEventListener("message", event => {
+    const message = JSON.parse(String(event.data));
+    if (message.type !== "bridge-role") return;
+    if (acknowledgeRoles && message.selectionId) socket.send(JSON.stringify({ type: "bridge-role-applied", role: message.role, selectionId: message.selectionId }));
+    resolve();
+  }));
+  socket.accept();
+  await ready;
+  return { stub, socket: response.webSocket, credential, setRoleAcknowledgment: (enabled: boolean) => { acknowledgeRoles = enabled; } };
 }
 
 export async function bridgeClientTestRequest(orgId: string): Promise<Request> {

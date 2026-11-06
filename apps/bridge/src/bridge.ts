@@ -56,6 +56,13 @@ interface DisconnectDeviceMessage {
   target: string;
 }
 
+interface BridgeRoleMessage {
+  type: "bridge-role";
+  role: "active" | "standby";
+  selectionId?: string;
+  activeInstallation: { installationId: string; label: string } | null;
+}
+
 interface PingMessage {
   type: "ping";
 }
@@ -82,7 +89,7 @@ export function connectedBridgeTargets(...groups: Iterable<string>[]): string[] 
   return [...new Set(groups.flatMap((group) => [...group]))].sort();
 }
 
-type IncomingMessage = CommandMessage | ConnectDeviceMessage | DisconnectDeviceMessage | PingMessage;
+type IncomingMessage = CommandMessage | ConnectDeviceMessage | DisconnectDeviceMessage | PingMessage | BridgeRoleMessage;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -108,6 +115,14 @@ function parseIncomingMessage(value: unknown): IncomingMessage | null {
       return typeof value.target === "string" ? { type: value.type, target: value.target } : null;
     case "ping":
       return { type: value.type };
+    case "bridge-role": {
+      if (value.role !== "active" && value.role !== "standby") return null;
+      if (value.selectionId !== undefined && typeof value.selectionId !== "string") return null;
+      const active = value.activeInstallation;
+      if (active !== null && (!isRecord(active) || typeof active.installationId !== "string" || typeof active.label !== "string")) return null;
+      return { type: value.type, role: value.role, selectionId: value.selectionId,
+        activeInstallation: active === null ? null : { installationId: String(active.installationId), label: String(active.label) } };
+    }
     default:
       return null;
   }
@@ -136,6 +151,9 @@ export function shouldReconnectBridge(code: number): boolean {
  */
 export class Bridge {
   private ws: WebSocket | null = null;
+  private role: "waiting" | "active" | "standby" = "waiting";
+  private activeInstallation: BridgeRoleMessage["activeInstallation"] = null;
+  private messageWork: Promise<void> = Promise.resolve();
   private url: string;
   private key: string | undefined;
   private reconnect: boolean;
@@ -172,6 +190,8 @@ export class Bridge {
 
     return {
       connectedToShowPilot: this.ws?.readyState === WebSocket.OPEN,
+      role: this.role,
+      activeInstallation: this.activeInstallation,
       propresenter,
     };
   }
@@ -196,11 +216,16 @@ export class Bridge {
     }
     this.ws?.close();
     this.ws = null;
-    // Disconnect all device connections
+    this.role = "waiting";
+    void this.disconnectDevices().catch(() => console.error("[bridge] Device shutdown failed"));
+  }
+
+  private async disconnectDevices(): Promise<void> {
+    // Stop device output and polling when this installation becomes standby.
     for (const conn of this.ppConnections.values()) conn.disconnect();
     for (const conn of this.tcpConnections.values()) conn.disconnect();
     for (const conn of this.udpConnections.values()) conn.disconnect();
-    for (const conn of this.atemConnections.values()) void conn.disconnect();
+    const switcherShutdowns = [...this.atemConnections.values()].map(conn => conn.disconnect());
     for (const conn of this.dmxConnections.values()) conn.disconnect();
     for (const conn of this.obsConnections.values()) conn.disconnect();
     for (const conn of this.pjlinkConnections.values()) conn.disconnect();
@@ -218,6 +243,10 @@ export class Bridge {
     this.oscMixerListeners.clear();
     this.oscMixerPollers.clear();
     this.oscMixerFlushTimers.clear();
+    this.httpDeviceSettings.clear();
+    this.viscaModes.clear();
+    this.viscaSequences.clear();
+    await Promise.all(switcherShutdowns);
   }
 
   private connect(): void {
@@ -225,19 +254,13 @@ export class Bridge {
     console.log(`[bridge] Connecting to ${connection.url}...`);
 
     this.ws = new WebSocket(connection.url, connection.options);
+    const socket = this.ws;
 
     this.ws.on("open", () => {
       console.log("[bridge] Connected to ShowPilot");
       this.sendStatus();
-      void this.ensureProPresenterConnection().catch((error) => {
-        console.error(
-          "[bridge] ProPresenter connection failed:",
-          error instanceof Error ? error.message : String(error),
-        );
-      });
-      for (const pp of this.ppConnections.values()) {
-        pp.replayCurrentSlide();
-      }
+      this.role = "waiting";
+      // Device connections start only after the server selects this installation.
     });
 
     this.ws.on("message", (data) => {
@@ -245,7 +268,16 @@ export class Bridge {
         const parsed: unknown = JSON.parse(data.toString());
         const message = parseIncomingMessage(parsed);
         if (message) {
-          void this.handleMessage(message).catch((error) => {
+          this.messageWork = this.messageWork.then(async () => {
+            if (this.ws !== socket || socket.readyState !== WebSocket.OPEN) return;
+            try { await this.handleMessage(message); }
+            finally {
+              if (this.ws !== socket || socket.readyState !== WebSocket.OPEN) {
+                this.role = "waiting";
+                await this.disconnectDevices();
+              }
+            }
+          }).catch((error) => {
             console.error("[bridge] Message handling failed:", error instanceof Error ? error.message : String(error));
           });
         }
@@ -255,6 +287,9 @@ export class Bridge {
     });
 
     this.ws.on("close", (code, reason) => {
+      if (this.ws !== socket) return;
+      this.role = "waiting";
+      void this.disconnectDevices().catch(() => console.error("[bridge] Device shutdown failed"));
       const detail = reason.toString().trim();
       if (code === 1002 && detail.toLowerCase().includes("expected 101")) {
         console.error(
@@ -268,7 +303,7 @@ export class Bridge {
         console.log("[bridge] Reconnecting in 5s...");
         this.reconnectTimer = setTimeout(() => this.connect(), 5000);
       } else if (code === 4410) {
-        console.log("[bridge] This installation was replaced. Start it again only to intentionally take control.");
+        console.log("[bridge] Another connection uses this installation. Create a separate named Bridge key for each computer; select the active Bridge in ShowPilot settings.");
       }
     });
 
@@ -293,6 +328,23 @@ export class Bridge {
   }
 
   private async handleMessage(msg: IncomingMessage): Promise<void> {
+    if (msg.type === "bridge-role") {
+      const changed = this.role !== msg.role;
+      this.role = msg.role;
+      this.activeInstallation = msg.activeInstallation;
+      if (msg.role === "standby") {
+        await this.disconnectDevices();
+        console.log(`[bridge] STANDBY. ${msg.activeInstallation?.label ?? "Another installation"} controls venue devices. Use ShowPilot settings to take control.`);
+      } else if (changed) {
+        console.log("[bridge] ACTIVE. This installation controls venue devices.");
+        await this.ensureProPresenterConnection();
+        for (const pp of this.ppConnections.values()) pp.replayCurrentSlide();
+      }
+      if (msg.selectionId) this.send({ type: "bridge-role-applied", role: msg.role, selectionId: msg.selectionId });
+      this.sendStatus();
+      return;
+    }
+    if (msg.type !== "ping" && this.role !== "active") return;
     switch (msg.type) {
       case "command":
         await this.handleCommand(msg);
@@ -1052,7 +1104,8 @@ export class Bridge {
 
   // ─── Helpers ────────────────────────────────────────────
 
-  private send(data: object): void {
+  private send(data: { type: string; [key: string]: unknown }): void {
+    if (this.role !== "active" && !["bridge-status", "bridge-role-applied", "pong"].includes(data.type)) return;
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
     }
