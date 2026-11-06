@@ -1,4 +1,5 @@
 import type { TimecodeValue, TimecodeFormat } from "@/types/timecode";
+import { isValidTimecode } from "@/lib/timecode";
 
 /**
  * MTC (MIDI Timecode) source via Web MIDI API.
@@ -86,13 +87,18 @@ export class MtcSource {
       return;
     }
 
-    // Full-frame SysEx: F0 7F 7F 01 01 hr mn sc fr F7
+    // Full-frame broadcast: F0 7F 7F 01 01 hr mn sc fr F7. ShowPilot has no
+    // assigned SysEx device ID, so directed messages belong to other devices.
+    // Normal browser access above does not grant SysEx; this decoder is not
+    // evidence that browser full-frame jam sync is available.
     if (
       data[0] === 0xf0 &&
-      data.length >= 10 &&
+      data.length === 10 &&
       data[1] === 0x7f &&
+      data[2] === 0x7f &&
       data[3] === 0x01 &&
-      data[4] === 0x01
+      data[4] === 0x01 &&
+      data[9] === 0xf7
     ) {
       this.handleFullFrame(data);
     }
@@ -149,14 +155,18 @@ export class MtcSource {
   }
 
   private handleFullFrame(data: Uint8Array): void {
+    // A relocation invalidates the previous partial cycle, even if its time
+    // label is malformed. Never splice pre-jump and post-jump quarter frames.
+    this.accumulator = this.emptyAccumulator();
+    if (data.subarray(5, 9).some(byte => byte > 0x7f)) return;
     const hours = data[5] & 0x1f;
     const rateCode = (data[5] >> 5) & 0x03;
-    const minutes = data[6] & 0x7f;
-    const seconds = data[7] & 0x7f;
-    const frames = data[8] & 0x7f;
+    const minutes = data[6];
+    const seconds = data[7];
+    const frames = data[8];
     const format = this.decodeFormat(rateCode);
-
-    this.onTimecode({ hours, minutes, seconds, frames }, format);
+    const timecode = { hours, minutes, seconds, frames };
+    if (isValidTimecode(timecode, format)) this.onTimecode(timecode, format);
   }
 
   private emptyAccumulator(): MtcAccumulator {

@@ -42,7 +42,7 @@ import {
   saveSongMetadata,
   saveSongSection,
 } from "@/lib/songs";
-import { useOrgTimecode } from "@/components/timecode/TimecodeContext";
+import { useShowTimecode, TimecodeShowPicker } from "@/components/timecode/TimecodeContext";
 import type { FrameRate, TimecodeFormat } from "@/types/timecode";
 import { parseTimecodeString, timecodeToFrames } from "@/lib/timecode";
 import { getOrgSettings } from "@/lib/settings";
@@ -159,7 +159,7 @@ function SongStudioPage() {
     grantedPermissions,
     "songs:manage",
   );
-  const timecode = useOrgTimecode();
+  const timecode = useShowTimecode();
   const initialDraft = draftFromSong(song);
   const [metadata, setMetadata] =
     useState<SongMetadataDraft>(initialDraft.metadata);
@@ -913,6 +913,7 @@ function SongStudioPage() {
             </section>
           </main>
           <aside className="space-y-5 xl:sticky xl:top-6 xl:self-start">
+            <TimecodeShowPicker />
             <LyricsPreview
               title={timecode.state?.lyrics?.songTitle ?? metadata.title}
               section={timecode.state?.lyrics?.sectionLabel ?? "Preview"}

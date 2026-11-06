@@ -11,9 +11,9 @@ test("timecode engine is owned by the persistent organization layout", () => {
   const provider = read("../src/components/timecode/TimecodeContext.tsx");
 
   assert.match(layout, /<TimecodeProvider/);
-  assert.match(provider, /useTimecode\(\{ orgId, enabled \}\)/);
+  assert.match(provider, /useTimecode\(\{ orgId, showId, enabled:/);
   assert.doesNotMatch(timecodeRoute, /useTimecode\(/);
   assert.doesNotMatch(songRoute, /useTimecode\(/);
-  assert.match(timecodeRoute, /useOrgTimecode\(\)/);
-  assert.match(songRoute, /useOrgTimecode\(\)/);
+  assert.match(timecodeRoute, /useShowTimecode\(\)/);
+  assert.match(songRoute, /useShowTimecode\(\)/);
 });

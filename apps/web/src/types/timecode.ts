@@ -37,7 +37,17 @@ export interface TimecodeSource {
 
 // ─── Timecode State (broadcast via WebSocket) ───────────────
 
+export interface TimecodeShow {
+  id: string;
+  serviceDate: string;
+  name: string;
+  scheduledStartTime: string | null;
+}
+
 export interface TimecodeState {
+  /** Present on a show-bound room; absent only in pre-migration snapshots. */
+  showId?: string;
+  serviceDate?: string;
   triggersEnabled: TimecodeSettings["triggersEnabled"];
   timecode: TimecodeValue;
   display: string;
@@ -52,7 +62,7 @@ export interface TimecodeState {
 /** Display clients receive output and a failure count, never event payloads. */
 export type TimecodeDisplayState = Pick<
   TimecodeState,
-  "display" | "running" | "serverTime" | "lyrics"
+  "display" | "running" | "serverTime" | "lyrics" | "showId" | "serviceDate"
 > & {
   automation: { status: "ok" | "failed"; failedCueCount: number };
 };
@@ -159,6 +169,7 @@ export type TimecodeWsMessage =
   | { type: "lyrics-update"; lyrics: LyricsDisplayState }
   | { type: "lyrics-clear" }
   | { type: "command"; action: TimecodeCommand; payload?: Record<string, unknown> }
+  | { type: "command-rejected"; action: TimecodeCommand; error: string }
   | { type: "master-status"; granted: boolean };
 
 export type TimecodeCommand =

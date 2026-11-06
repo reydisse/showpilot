@@ -8,6 +8,7 @@ import { verifyCrewChatPass } from "./lib/crew-chat-pass";
 import { chatRelayKey } from "./lib/chat-relay-key";
 import { getTodayDateString } from "./lib/utils";
 import { rundownRelayKey } from "./lib/rundown-relay-key";
+import { getShowTimecodeRelay, resolveTimecodeTarget, timecodeTargetUrl } from "./lib/timecode-target.server";
 import { handleMobileApi } from "./lib/mobile-api.server";
 import { isAllowedApiOrigin } from "./lib/auth-origins";
 import { landingRedirect } from "./lib/domain-routing";
@@ -35,7 +36,7 @@ export { CueSheetRelay } from "./durable-objects/CueSheetRelay";
 interface Env {
   DB: D1Database;
   STORAGE: R2Bucket;
-  TIMECODE_RELAY: DurableObjectNamespace;
+  TIMECODE_RELAY: Cloudflare.Env["TIMECODE_RELAY"];
   BRIDGE_RELAY: DurableObjectNamespace<import("./durable-objects/BridgeRelay").BridgeRelay>;
   RUNDOWN_RELAY: DurableObjectNamespace;
   CHAT_RELAY: DurableObjectNamespace;
@@ -284,6 +285,7 @@ const appServer = {
     const tcMatch = url.pathname.match(/^\/api\/timecode\/([^/]+)\/(.+)$/);
     if (tcMatch) {
       const [, slugOrId, subpath] = tcMatch;
+      if (!["ws", "state", "events", "command"].includes(subpath)) return new Response("Not found", { status: 404 });
       const orgId = await resolveOrgId(slugOrId, e.DB);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
@@ -293,11 +295,11 @@ const appServer = {
       const displayAuthority = publicDisplayRead ? await authenticateDisplayRequest(e.DB, request, orgId, "timer", e.KIOSK_SECRET) : null;
       if (publicDisplayRead && !displayAuthority) return new Response("Display pass required", { status: 401, headers: { "Cache-Control": "no-store" } });
       if (!publicDisplayRead && !canUse(access, "timecode:access")) return new Response("Unauthorized", { status: 401 });
-      const id = e.TIMECODE_RELAY.idFromName(orgId);
-      const stub = e.TIMECODE_RELAY.get(id);
-      const doUrl = publicDisplayRead ? new URL("https://timecode.internal") : new URL(request.url);
-      doUrl.pathname = `/${subpath}`;
-      doUrl.searchParams.set("orgId", orgId);
+      const target = await resolveTimecodeTarget(e.DB, orgId, url.searchParams.get("showId"));
+      if (!target) return Response.json({ error: "Choose an available show for timecode." }, { status: 404 });
+      const stub = await getShowTimecodeRelay(e, target);
+      // Only resolved show identity and server-derived authority cross this boundary.
+      const doUrl = timecodeTargetUrl(target, `/${subpath}`);
       doUrl.searchParams.set("access", publicDisplayRead ? "read" : "write");
       doUrl.searchParams.delete("authDisplayExpiresAt");
       if (displayAuthority) doUrl.searchParams.set("authDisplayExpiresAt", String(displayAuthority.expiresAt));

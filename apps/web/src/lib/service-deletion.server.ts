@@ -1,6 +1,7 @@
 import { getD1 } from "@/lib/d1";
 import { getPrisma } from "@/lib/db";
 import { rundownRelayKey } from "@/lib/rundown-relay-key";
+import { timecodeTargetUrl } from "@/lib/timecode-target.server";
 import { env } from "cloudflare:workers";
 
 type PurgeShowRelay = (show: { orgId: string; showId: string; serviceDate: string }) => Promise<void>;
@@ -9,8 +10,9 @@ async function purgeShowRelay(show: { orgId: string; showId: string; serviceDate
   const workerEnv = env as unknown as {
     BETTER_AUTH_SECRET?: string;
     RUNDOWN_RELAY?: DurableObjectNamespace;
+    TIMECODE_RELAY?: DurableObjectNamespace;
   };
-  if (!workerEnv.BETTER_AUTH_SECRET || !workerEnv.RUNDOWN_RELAY) {
+  if (!workerEnv.BETTER_AUTH_SECRET || !workerEnv.RUNDOWN_RELAY || !workerEnv.TIMECODE_RELAY) {
     throw new Error("Rundown relay deletion is not configured");
   }
 
@@ -30,8 +32,15 @@ async function purgeShowRelay(show: { orgId: string; showId: string; serviceDate
       method: "POST",
       headers: { "x-showpilot-internal-secret": workerEnv.BETTER_AUTH_SECRET },
     }));
+    await response.body?.cancel();
     if (!response.ok) throw new Error("Could not retire the deleted show's live relay");
   }
+  const clock = workerEnv.TIMECODE_RELAY.getByName(roomKeys[0].key);
+  const response = await clock.fetch(new Request(timecodeTargetUrl(show, "/internal/purge-show"), {
+    method: "POST", headers: { "x-showpilot-internal-secret": workerEnv.BETTER_AUTH_SECRET },
+  }));
+  await response.body?.cancel();
+  if (!response.ok) throw new Error("Could not retire the deleted show's timecode");
 }
 
 /**

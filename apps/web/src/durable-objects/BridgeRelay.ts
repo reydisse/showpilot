@@ -2,6 +2,7 @@ import { getBridgeCredentialAuthority, recordBridgeWrite, type BridgeAuditAction
 import { parseRelayPPSlide } from "../lib/rundown-relay-payload";
 import { DurableObject } from "cloudflare:workers";
 import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
+import { resolveTimecodeTarget, timecodeRelayKey, timecodeTargetUrl, type TimecodeTarget } from "@/lib/timecode-target.server";
 import type { BridgeDeviceProtocol } from "@/lib/device-modules/types";
 import {
   hasLivePermissionAuthority,
@@ -50,6 +51,7 @@ interface SocketAttachment {
   orgId: string;
   bridgeInfo?: BridgeRelayStatusInfo;
   credentialId?: string;
+  timecodeTarget?: TimecodeTarget;
   authClaim?: LiveSessionAuthorityClaim;
 }
 
@@ -68,6 +70,7 @@ interface BridgeRelayStatusInfo {
 }
 
 export interface BridgeRelayStatus extends BridgeRelayStatusInfo {
+  timecodeTarget: TimecodeTarget | null;
   bridgeOnline: boolean;
   clientCount: number;
 }
@@ -132,6 +135,11 @@ function parseSocketAttachment(value: unknown): SocketAttachment | null {
     orgId: value.orgId,
     bridgeInfo: bridgeInfo ?? undefined,
     credentialId: typeof value.credentialId === "string" ? value.credentialId : undefined,
+    timecodeTarget: isRecord(value.timecodeTarget)
+      && value.timecodeTarget.orgId === value.orgId
+      && typeof value.timecodeTarget.showId === "string"
+      && typeof value.timecodeTarget.serviceDate === "string"
+      ? { orgId: value.orgId, showId: value.timecodeTarget.showId, serviceDate: value.timecodeTarget.serviceDate } : undefined,
     authClaim: isRecord(value.authClaim)
       && typeof value.authClaim.userId === "string"
       && typeof value.authClaim.sessionId === "string"
@@ -164,6 +172,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   private pendingCommands = new Map<string, PendingDispatch>();
   private pendingConnections = new Map<string, PendingDispatch>();
   private pendingClientCommands = new Map<string, PendingClientCommand>();
+  private timecodeTarget: TimecodeTarget | null = null;
 
   constructor(ctx: DurableObjectState, env: BridgeRelayEnv) {
     super(ctx, env);
@@ -184,6 +193,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         }
         this.bridgeWs = ws;
         this.credentialId = attachment.credentialId ?? null;
+        this.timecodeTarget = attachment.timecodeTarget ?? null;
         this.bridgeOnline = true;
         if (attachment.bridgeInfo) this.bridgeInfo = attachment.bridgeInfo;
       } else {
@@ -257,6 +267,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
 
         if (role === "bridge") {
           // Bridge agent connecting
+          await this.stopBridgeTimecode(this.timecodeTarget);
           if (this.bridgeWs) {
             this.failPendingDispatches("Venue Bridge was replaced");
             // A deliberate replacement must not become a reconnect war. The
@@ -268,6 +279,9 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           }
           this.bridgeWs = server;
           this.credentialId = attachment.credentialId ?? null;
+          this.timecodeTarget = await resolveTimecodeTarget(this.env.DB, this.orgId);
+          attachment.timecodeTarget = this.timecodeTarget ?? undefined;
+          server.serializeAttachment(attachment);
           this.bridgeOnline = true;
           if (!(await this.authorizeBridgeWrite(server, "connected", "from-bridge"))) return new Response("Unauthorized", { status: 401 });
           await this.refreshCredentialAuthority();
@@ -313,6 +327,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     return {
       bridgeOnline: this.bridgeOnline,
       clientCount: this.clientSessions.size,
+      timecodeTarget: this.timecodeTarget,
       ...this.bridgeInfo,
     };
   }
@@ -403,7 +418,9 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       this.failPendingClientCommands("Venue Bridge disconnected");
       // Losing the transport is not a slide Clear. Keep the last confirmed
       // lyric until the bridge supplies its replacement or an explicit clear.
-      void this.stopBridgeTimecode();
+      const target = this.timecodeTarget;
+      this.timecodeTarget = null;
+      void this.stopBridgeTimecode(target);
       void this.broadcastToClients(JSON.stringify({
         type: "bridge-status",
         online: false,
@@ -645,6 +662,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       role: "bridge",
       orgId: this.orgId,
       bridgeInfo: this.bridgeInfo,
+      timecodeTarget: this.timecodeTarget ?? undefined,
       ...(this.credentialId ? { credentialId: this.credentialId } : {}),
     } satisfies SocketAttachment);
   }
@@ -754,11 +772,16 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   }
 
   private async pushTimecode(message: BridgeMessage): Promise<void> {
-    if (!this.orgId || !this.env.TIMECODE_RELAY || !isRecord(message.timecode) || !isRecord(message.format)) return;
-    const relay = this.env.TIMECODE_RELAY.get(this.env.TIMECODE_RELAY.idFromName(this.orgId));
-    await relay.fetch(new Request(`https://timecode.local/command?orgId=${encodeURIComponent(this.orgId)}&access=write`, {
+    const target = this.timecodeTarget;
+    const socket = this.bridgeWs;
+    if (!target || !this.env.BETTER_AUTH_SECRET || !isRecord(message.timecode) || !isRecord(message.format)) return;
+    const relay = this.env.TIMECODE_RELAY.getByName(timecodeRelayKey(target));
+    const binding = await relay.bindShow(target);
+    if (!binding.ok) return;
+    if (socket !== this.bridgeWs || target !== this.timecodeTarget) return;
+    const response = await relay.fetch(new Request(timecodeTargetUrl(target, "/internal/bridge-feed"), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": this.env.BETTER_AUTH_SECRET },
       body: JSON.stringify({
         action: "feed-tc",
         payload: {
@@ -768,15 +791,16 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         },
       }),
     }));
+    await response.body?.cancel();
   }
 
-  private async stopBridgeTimecode(): Promise<void> {
-    if (!this.orgId || !this.env.TIMECODE_RELAY) return;
-    const relay = this.env.TIMECODE_RELAY.get(this.env.TIMECODE_RELAY.idFromName(this.orgId));
-    await relay.fetch(new Request(`https://timecode.local/command?orgId=${encodeURIComponent(this.orgId)}&access=write`, {
+  private async stopBridgeTimecode(target: TimecodeTarget | null): Promise<void> {
+    if (!target || !this.env.BETTER_AUTH_SECRET) return;
+    const relay = this.env.TIMECODE_RELAY.getByName(timecodeRelayKey(target));
+    const response = await relay.fetch(new Request(timecodeTargetUrl(target, "/internal/bridge-disconnected"), {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "bridge-disconnected" }),
+      headers: { "x-showpilot-internal-secret": this.env.BETTER_AUTH_SECRET },
     }));
+    await response.body?.cancel();
   }
 }

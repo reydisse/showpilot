@@ -1,3 +1,4 @@
+import { timecodeFixture } from "@/test/timecode-fixtures";
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
@@ -11,10 +12,12 @@ describe("display socket expiry", () => {
   it.each(["timecode", "rundown", "lowerthirds"])("stops %s broadcasts after the pass deadline, including after hibernation", async (kind) => {
     const orgId = `display-expiry-${kind}`;
     await env.DB.prepare("INSERT INTO organization (id, name, slug, createdAt) VALUES (?, 'Display expiry fixture', ?, CURRENT_TIMESTAMP)").bind(orgId, orgId).run();
-    const stub = kind === "timecode" ? env.TIMECODE_RELAY.getByName(orgId)
+    const clock = kind === "timecode" ? await timecodeFixture(orgId) : null;
+    const stub = clock ? clock.stub
       : kind === "rundown" ? env.RUNDOWN_RELAY.getByName(orgId)
       : env.LOWER_THIRDS_RELAY.getByName(orgId);
     const query = new URLSearchParams({ orgId, access: "read", serviceDate: "2026-11-04", authDisplayExpiresAt: String(Date.now() + 60_000) });
+    if (clock) query.set("showId", clock.target.showId);
     const response = await stub.fetch(new Request(`https://relay.test/ws?${query}`, { headers: { Upgrade: "websocket" } }));
     expect(response.status).toBe(101);
     const socket = response.webSocket;

@@ -17,7 +17,7 @@ import {
   sanitizePayloadSummary,
   type WebhookEventInput,
 } from "@/lib/webhook-events";
-import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
+import { resolveTimecodeTarget, timecodeRelayKey, type TimecodeTarget } from "@/lib/timecode-target.server";
 import { projectTimecodeDisplayState } from "@/lib/timecode-display";
 import {
   hasLivePermissionAuthority,
@@ -83,6 +83,19 @@ class AutomationRejection extends Error {
 }
 
 class AutomationCancelled extends Error {}
+class TimecodeCommandRejection extends Error {}
+
+interface TimecodeSnapshot { state: TimecodeState; events: AutomationEvent[]; target?: TimecodeTarget }
+interface LegacyTimecodeExport { target: TimecodeTarget; snapshot: TimecodeSnapshot | null }
+
+function recoverInterruptedEvents(events: AutomationEvent[]): AutomationEvent[] {
+  return events.map(event => ({ ...event, enabled: event.enabled ?? true,
+    ...(event.executionStatus === "dispatching" ? {
+      fired: false, executionStatus: "failed" as const,
+      executionError: "Acknowledgement interrupted. Check the output before retrying.", executionAttempts: 3,
+    } : {}),
+  }));
+}
 
 export class TimecodeRelay extends DurableObject {
   private state: TimecodeState = {
@@ -98,6 +111,10 @@ export class TimecodeRelay extends DurableObject {
   };
   private events: AutomationEvent[] = [];
   private orgId = "";
+  private target: TimecodeTarget | null = null;
+  private legacyExport: LegacyTimecodeExport | null = null;
+  private hasSnapshot = false;
+  private retired = false;
   private previousFeedFrame: number | null = null;
   private masterSessionId: string | null = null;
   private lastPersistedAt = 0;
@@ -106,8 +123,13 @@ export class TimecodeRelay extends DurableObject {
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
     ctx.blockConcurrencyWhile(async () => {
-      const stored = await ctx.storage.get<{ state: TimecodeState; events: AutomationEvent[] }>("timecode");
+      const stored = await ctx.storage.get<TimecodeSnapshot>("timecode");
+      this.retired = await ctx.storage.get<boolean>("retired") ?? false;
+      this.legacyExport = await ctx.storage.get<LegacyTimecodeExport>("legacy-export") ?? null;
+      this.hasSnapshot = Boolean(stored);
       if (stored) {
+        this.target = stored.target ?? null;
+        this.orgId = this.target?.orgId ?? this.legacyExport?.target.orgId ?? "";
         this.state = {
           ...stored.state,
           triggersEnabled: stored.state.triggersEnabled ?? true,
@@ -115,24 +137,78 @@ export class TimecodeRelay extends DurableObject {
           serverTime: Date.now(),
           lyrics: stored.state.lyrics ?? null,
         };
-        this.events = (stored.events ?? []).map((event) => ({
-          ...event,
-          enabled: event.enabled ?? true,
-          // A process restart cannot prove that an in-flight device command
-          // did not execute. Require the operator to decide whether to retry.
-          ...(event.executionStatus === "dispatching" ? {
-            fired: false, executionStatus: "failed" as const,
-            executionError: "Acknowledgement interrupted. Check the output before retrying.",
-            executionAttempts: 3,
-          } : {}),
-        }));
+        this.events = recoverInterruptedEvents(stored.events ?? []);
       }
     });
   }
 
   private async persist(): Promise<void> {
-    await this.ctx.storage.put("timecode", { state: this.state, events: this.events });
+    if (this.retired) return;
+    await this.ctx.storage.put("timecode", { state: this.state, events: this.events, ...(this.target ? { target: this.target } : {}) } satisfies TimecodeSnapshot);
+    this.hasSnapshot = true;
     this.lastPersistedAt = Date.now();
+  }
+
+  /** Internal RPC: one durable room owns one stable show for its lifetime. */
+  async bindShow(target: TimecodeTarget, refreshMetadata = false): Promise<{ ok: true } | { ok: false; error: string }> {
+    const error = await this.ctx.blockConcurrencyWhile(async () => {
+      if (this.retired) return "This show's timecode has been retired";
+      if (this.target) {
+        if (target.orgId !== this.target.orgId || target.showId !== this.target.showId) return "Timecode room belongs to another show";
+        // Only a freshly resolved Worker target may refresh the date. A Bridge
+        // connection can hold an older date after the same show is rescheduled.
+        if (refreshMetadata && target.serviceDate !== this.target.serviceDate) {
+          this.target = target;
+          this.state.serviceDate = target.serviceDate;
+          await this.persist();
+        }
+        return null;
+      }
+      if (this.legacyExport) return "Legacy timecode room cannot become a show room";
+      const resolved = await resolveTimecodeTarget(this.env.DB, target.orgId, target.showId);
+      if (!resolved) return "This show is unavailable";
+      const legacy = this.env.TIMECODE_RELAY.getByName(target.orgId);
+      // Cue payloads are JSON data, not RPC capabilities. Stream the stored
+      // snapshot through the internal Response contract during this one-time move.
+      const exported = await legacy.exportLegacyForShow(resolved);
+      const snapshot = await exported.json<TimecodeSnapshot | null>();
+      this.target = resolved;
+      this.orgId = resolved.orgId;
+      if (snapshot) {
+        // Preserve cue history, but never resume imported automation implicitly.
+        this.state = { ...snapshot.state, running: false, triggersEnabled: false, serverTime: Date.now() };
+        this.events = recoverInterruptedEvents(snapshot.events);
+      }
+      this.state.showId = resolved.showId;
+      this.state.serviceDate = resolved.serviceDate;
+      await this.persist();
+      return null;
+    });
+    return error ? { ok: false, error } : { ok: true };
+  }
+
+  /** Internal RPC: atomically assign the old timeline to exactly one show. */
+  async exportLegacyForShow(requested: TimecodeTarget): Promise<Response> {
+    if (this.target) throw new Error("A show room is not a legacy timeline");
+    if (this.orgId && this.orgId !== requested.orgId) throw new Error("Organization mismatch");
+    const snapshot = await this.ctx.blockConcurrencyWhile(async () => {
+      this.orgId = requested.orgId;
+      if (!this.legacyExport) {
+        const owner = await resolveTimecodeTarget(this.env.DB, requested.orgId);
+        if (!owner) return null;
+        this.legacyExport = {
+          target: owner,
+          snapshot: this.hasSnapshot ? structuredClone({ state: { ...this.state, running: false, triggersEnabled: false }, events: this.events }) : null,
+        };
+        await this.ctx.storage.put("legacy-export", this.legacyExport);
+        this.state.running = false;
+        this.state.triggersEnabled = false;
+        this.masterSessionId = null;
+        for (const socket of this.ctx.getWebSockets()) socket.close(4409, "Timecode now belongs to a show. Reconnect.");
+      }
+      return this.legacyExport.target.showId === requested.showId ? this.legacyExport.snapshot : null;
+    });
+    return Response.json(snapshot);
   }
 
   private sendMasterStatus(sessionId: string | undefined, granted: boolean): void {
@@ -162,15 +238,22 @@ export class TimecodeRelay extends DurableObject {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
-    // Extract orgId from query param or path
-    this.orgId = url.searchParams.get("orgId") ?? this.orgId;
-
-    if (url.pathname === "/internal/purge-org" && request.method === "POST") {
+    if ((url.pathname === "/internal/purge-org" || url.pathname === "/internal/purge-show") && request.method === "POST") {
       if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) {
         return new Response("Unauthorized", { status: 401 });
       }
-      for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Organization deleted");
-      await this.ctx.storage.deleteAll();
+      if (url.pathname === "/internal/purge-show" && this.target && (
+        url.searchParams.get("orgId") !== this.target.orgId || url.searchParams.get("showId") !== this.target.showId
+      )) return new Response("Timecode show mismatch", { status: 409 });
+      // A Bridge may still hold this room's identity. Retire it permanently so
+      // a late feed or a retry cannot resurrect a deleted show or its timeline.
+      this.retired = true;
+      for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Timecode show deleted");
+      await this.ctx.storage.transaction(async storage => {
+        const keys = await storage.list();
+        await storage.delete([...keys.keys()]);
+        await storage.put("retired", true);
+      });
       this.state = {
         timecode: { hours: 0, minutes: 0, seconds: 0, frames: 0 },
         display: "00:00:00:00",
@@ -185,7 +268,37 @@ export class TimecodeRelay extends DurableObject {
       this.events = [];
       this.masterSessionId = null;
       this.previousFeedFrame = null;
+      this.target = null;
+      this.legacyExport = null;
+      this.hasSnapshot = false;
       return Response.json({ ok: true });
+    }
+
+    if (this.retired) return Response.json({ error: "This show's timecode has been retired" }, { status: 410 });
+    if (!this.target || this.legacyExport) return Response.json({ error: "Choose a show for timecode." }, { status: 409 });
+    if (this.target && (url.searchParams.get("orgId") !== this.target.orgId || url.searchParams.get("showId") !== this.target.showId)) {
+      return Response.json({ error: "Timecode show mismatch" }, { status: 409 });
+    }
+    this.orgId = this.target?.orgId ?? url.searchParams.get("orgId") ?? this.orgId;
+
+    if (url.pathname === "/internal/bridge-feed" || url.pathname === "/internal/bridge-disconnected") {
+      if (request.method !== "POST" || !this.target || !this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      if (url.pathname === "/internal/bridge-disconnected") {
+        if (!this.masterSessionId) await this.handleCommand("bridge-disconnected");
+      } else {
+        if (this.masterSessionId) return Response.json({ error: "An operator controls this clock" }, { status: 409 });
+        const body = await request.json<{ payload?: Record<string, unknown> }>();
+        const format = body.payload?.format;
+        const tc = eventUpdateSchema.shape.triggerTimecode.safeParse(body.payload?.timecode);
+        if (!isValidTimecodeFormat(format) || !tc.success || !tc.data || !isValidTimecode(tc.data, format)) {
+          return Response.json({ error: "Invalid Bridge timecode" }, { status: 400 });
+        }
+        this.state.source = "mtc";
+        await this.handleCommand("feed-tc", body.payload);
+      }
+      return Response.json({ ok: true, showId: this.target.showId, serviceDate: this.target.serviceDate });
     }
 
     if (url.pathname === "/ws") {
@@ -196,6 +309,7 @@ export class TimecodeRelay extends DurableObject {
         canWrite: url.searchParams.get("access") === "write",
         sessionId: crypto.randomUUID(),
         orgId: this.orgId,
+        showId: this.target?.showId,
         authClaim: this.readAuthorityClaim(url),
         displayExpiresAt: url.searchParams.has("authDisplayExpiresAt") ? Number(url.searchParams.get("authDisplayExpiresAt")) : undefined,
       });
@@ -230,7 +344,11 @@ export class TimecodeRelay extends DurableObject {
         action: TimecodeCommand;
         payload?: Record<string, unknown>;
       };
-      await this.handleCommand(body.action, body.payload);
+      try { await this.handleCommand(body.action, body.payload); }
+      catch (error) {
+        if (error instanceof TimecodeCommandRejection) return Response.json({ ok: false, error: error.message }, { status: 400 });
+        throw error;
+      }
       return Response.json({ ok: true });
     }
 
@@ -238,6 +356,7 @@ export class TimecodeRelay extends DurableObject {
   }
 
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+    if (this.retired || !this.target || this.legacyExport) { ws.close(4409, "Timecode show unavailable. Reconnect."); return; }
     try {
       const msg = JSON.parse(data as string) as TimecodeWsMessage;
       if (msg.type === "command") {
@@ -245,9 +364,11 @@ export class TimecodeRelay extends DurableObject {
           canWrite?: boolean;
           sessionId?: string;
           orgId?: string;
+          showId?: string;
           authClaim?: LiveSessionAuthorityClaim | null;
         } | null;
         if (!attachment?.canWrite) return;
+        if (this.target && (attachment.orgId !== this.target.orgId || attachment.showId !== this.target.showId)) { ws.close(4409, "Timecode show mismatch"); return; }
         if (
           attachment.authClaim
           && !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "timecode:access"))
@@ -256,7 +377,11 @@ export class TimecodeRelay extends DurableObject {
           return;
         }
         if (attachment.orgId) this.orgId = attachment.orgId;
-        await this.handleCommand(msg.action, msg.payload, attachment.sessionId);
+        try { await this.handleCommand(msg.action, msg.payload, attachment.sessionId); }
+        catch (error) {
+          if (!(error instanceof TimecodeCommandRejection)) throw error;
+          ws.send(JSON.stringify({ type: "command-rejected", action: msg.action, error: error.message } satisfies TimecodeWsMessage));
+        }
       }
     } catch {
       // Ignore
@@ -325,10 +450,7 @@ export class TimecodeRelay extends DurableObject {
           this.state.format = format;
           for (const event of this.events) {
             event.triggerFrame = timecodeToFrames(event.triggerTimecode, format);
-            event.fired = false;
-            event.executionStatus = "scheduled";
-            delete event.executionError;
-            delete event.executedAt;
+            // Reformatting never re-arms an acknowledged cue. Only Reset/Retry may do that.
           }
           this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
           this.previousFeedFrame = null;
@@ -389,9 +511,12 @@ export class TimecodeRelay extends DurableObject {
       }
 
       case "set-source":
-        if (payload?.source) {
-          this.state.source = payload.source as TimecodeState["source"];
+        // These are the only sources with an actual producer today. Extend
+        // this boundary when LTC/network/rundown producers are implemented.
+        if (payload?.source !== "internal-freerun" && payload?.source !== "mtc") {
+          throw new TimecodeCommandRejection("This timecode source is not implemented.");
         }
+        this.state.source = payload.source;
         await this.persist();
         await this.broadcastState();
         break;
@@ -401,10 +526,7 @@ export class TimecodeRelay extends DurableObject {
           this.state.format = payload.format as TimecodeFormat;
           for (const event of this.events) {
             event.triggerFrame = timecodeToFrames(event.triggerTimecode, this.state.format);
-            event.fired = false;
-            event.executionStatus = "scheduled";
-            delete event.executionError;
-            delete event.executedAt;
+            // Reformatting never re-arms an acknowledged cue. Only Reset/Retry may do that.
           }
           this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
           this.previousFeedFrame = null;
@@ -697,7 +819,7 @@ export class TimecodeRelay extends DurableObject {
     const env = this.env as unknown as Env;
     const assertCanDispatch = () => {
       signal.throwIfAborted();
-      if (!this.state.triggersEnabled || !event.enabled || !this.events.includes(event)) {
+      if (this.retired || !this.target || !this.state.triggersEnabled || !event.enabled || !this.events.includes(event)) {
         throw new AutomationCancelled("Automation was disabled or removed before dispatch.");
       }
     };
@@ -728,7 +850,8 @@ export class TimecodeRelay extends DurableObject {
       type: string,
       payload?: Record<string, unknown>,
     ) => {
-      const target = await getActiveRundownRelayTarget(env.DB, this.orgId);
+      if (!this.target) throw new AutomationCancelled("Choose a show before running automation.");
+      const target = { ...this.target, key: timecodeRelayKey(this.target) };
       assertCanDispatch();
       const rdStub = env.RUNDOWN_RELAY.get(env.RUNDOWN_RELAY.idFromName(target.key));
       const response = await rdStub.fetch(
