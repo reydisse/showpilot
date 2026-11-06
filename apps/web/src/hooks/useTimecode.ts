@@ -60,7 +60,7 @@ export interface UseTimecodeReturn {
   updateEvent: (id: string, updates: Partial<AutomationEvent>) => void;
   removeEvent: (id: string) => void;
   resetEvents: () => void;
-  retryEvent: (id: string) => void;
+  retryEvent: (id: string, expected?: ReturnType<typeof cueReviewState>) => void;
   fireEvent: (id: string) => void;
   fireNext: () => void;
   skipEvent: (id: string) => void;
@@ -479,7 +479,9 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const updateEvent = useCallback((id: string, updates: Partial<AutomationEvent>) => { sendCommand("update-event", { id, updates }); }, [sendCommand]);
   const removeEvent = useCallback((id: string) => { sendCommand("remove-event", { id }); }, [sendCommand]);
   const resetEvents = useCallback(() => { sendCommand("reset-events"); }, [sendCommand]);
-  const retryEvent = useCallback((id: string) => { sendCommand("retry-event", { id }); }, [sendCommand]);
+  const retryEvent = useCallback((id: string, expected?: ReturnType<typeof cueReviewState>) => {
+    sendCommand("retry-event", { id, ...(expected ? { confirmed: true, expected } : {}) });
+  }, [sendCommand]);
   const fireEvent = useCallback((id: string) => { sendCommand("fire-event", { id }); }, [sendCommand]);
   const fireNext = useCallback(() => { sendCommand("fire-next"); }, [sendCommand]);
   const skipEvent = useCallback((id: string) => { sendCommand("skip-event", { id }); }, [sendCommand]);

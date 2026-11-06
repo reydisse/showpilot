@@ -3,6 +3,13 @@ import type { ChatAttachment, MessageType } from "@/lib/adapters/chat-adapter";
 
 export type ExternalChatPlatform = "mattermost" | "slack" | "discord" | "teams";
 
+export class ExternalChatConfigurationError extends Error {
+  constructor(readonly platform: ExternalChatPlatform, cause: unknown) {
+    super(cause instanceof Error ? cause.message : "Linked chat configuration is unavailable.");
+    this.name = "ExternalChatConfigurationError";
+  }
+}
+
 export type ExternalChatConfiguration =
   | { platform: "mattermost"; baseUrl: string; token: string; channelId: string }
   | { platform: "slack"; token: string; channelId: string }
@@ -80,36 +87,41 @@ export async function loadExternalChatConfiguration(
     `SELECT key, value FROM app_setting
      WHERE orgId = ? AND key IN (${EXTERNAL_SETTING_KEYS.map(() => "?").join(", ")})`,
   ).bind(orgId, ...EXTERNAL_SETTING_KEYS).all<{ key: string; value: string }>();
-  const settings = await readSettingValuesForUse(encryptionSecret, orgId, rows.results);
-  const platform = settings["chat-adapter"]?.trim();
+  // The adapter name is public configuration, so it remains available even if
+  // decrypting its credentials fails. Keep that failure attributable in Chat.
+  const platform = rows.results.find(row => row.key === "chat-adapter")?.value.trim();
+  if (platform !== "mattermost" && platform !== "slack" && platform !== "discord" && platform !== "teams") return null;
+  try {
+    const settings = await readSettingValuesForUse(encryptionSecret, orgId, rows.results);
 
-  switch (platform) {
-    case "mattermost":
-      return {
-        platform,
-        baseUrl: cleanBaseUrl(required(settings, "mattermost-url", "Mattermost")),
-        token: required(settings, "mattermost-token", "Mattermost"),
-        channelId: required(settings, "mattermost-channel", "Mattermost"),
-      };
-    case "slack":
-      return {
-        platform,
-        token: required(settings, "slack-token", "Slack"),
-        channelId: required(settings, "slack-channel", "Slack"),
-      };
-    case "discord":
-      return {
-        platform,
-        token: required(settings, "discord-bot-token", "Discord"),
-        channelId: required(settings, "discord-channel-id", "Discord"),
-      };
-    case "teams":
-      return {
-        platform,
-        webhookUrl: required(settings, "teams-webhook-url", "Teams"),
-      };
-    default:
-      return null;
+    switch (platform) {
+      case "mattermost":
+        return {
+          platform,
+          baseUrl: cleanBaseUrl(required(settings, "mattermost-url", "Mattermost")),
+          token: required(settings, "mattermost-token", "Mattermost"),
+          channelId: required(settings, "mattermost-channel", "Mattermost"),
+        };
+      case "slack":
+        return {
+          platform,
+          token: required(settings, "slack-token", "Slack"),
+          channelId: required(settings, "slack-channel", "Slack"),
+        };
+      case "discord":
+        return {
+          platform,
+          token: required(settings, "discord-bot-token", "Discord"),
+          channelId: required(settings, "discord-channel-id", "Discord"),
+        };
+      case "teams":
+        return {
+          platform,
+          webhookUrl: required(settings, "teams-webhook-url", "Teams"),
+        };
+    }
+  } catch (cause) {
+    throw new ExternalChatConfigurationError(platform, cause);
   }
 }
 

@@ -36,6 +36,7 @@ const ACTION_OPTIONS: {
   { value: "rundown-stop", label: "Stop Rundown", category: "Rundown" },
   { value: "rundown-adjust", label: "Adjust Rundown Timer", category: "Rundown" },
   { value: "stage-message", label: "Send Stage Message", category: "Stage Display" },
+  { value: "crew-message", label: "Post to Production Chat", category: "Crew" },
   { value: "stage-clear", label: "Clear Stage Message", category: "Stage Display" },
   { value: "device-action", label: "Trigger Device Action", category: "Devices" },
   { value: "lighting-scene", label: "Recall Lighting Scene", category: "Devices" },
@@ -59,6 +60,8 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
   const [action, setAction] = useState<AutomationActionType>("lower-third-show");
   const [label, setLabel] = useState("");
   const [payloadJson, setPayloadJson] = useState("{}");
+  const [crewMessage, setCrewMessage] = useState("");
+  const crewMessageId = useId();
   const [targetSelection, setTargetSelection] = useState<AutomationTargetOption | null>(null);
   const usesTargetPicker = action === "rundown-goto-item" || action === "lighting-blackout";
   const stepsLyrics = action === "lyrics-next-section" || action === "lyrics-previous-section";
@@ -96,7 +99,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
 
     let payload: Record<string, unknown>;
     try {
-      const parsed: unknown = stepsLyrics ? {} : usesTargetPicker
+      const parsed: unknown = action === "crew-message" ? { message: crewMessage.trim() } : stepsLyrics ? {} : usesTargetPicker
         ? action === "rundown-goto-item" ? { itemId: targetSelection?.id } : { deviceId: targetSelection?.id }
         : structuredProPresenter
         ? { ...(action === "pp-trigger-prop" ? { propName: propName.trim() } : {}), ...(propTarget.trim() ? { target: propTarget.trim() } : {}) }
@@ -126,7 +129,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
     setSaving(true);
     try {
       await onAdd({ ...draft, id: attemptRef.current.id });
-      setTcString(""); setLabel(""); setPayloadJson("{}"); setPropName(""); setPropTarget(""); setTargetSelection(null); setToleranceText(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES)); setLeadText("0"); attemptRef.current = null;
+      setTcString(""); setLabel(""); setPayloadJson("{}"); setCrewMessage(""); setPropName(""); setPropTarget(""); setTargetSelection(null); setToleranceText(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES)); setLeadText("0"); attemptRef.current = null;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Save was not confirmed. Your changes have been kept.");
     } finally { setSaving(false); }
@@ -214,7 +217,11 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
         {!toleranceValid && <p role="alert" className="mt-1 text-xs text-red-400">{toleranceError}</p>}
       </div>
 
-      {stepsLyrics ? <p className="text-xs text-board-muted">Move to the {action === "lyrics-next-section" ? "next" : "previous"} section of the currently displayed song, using its saved section order. Show a section first. At the song boundary, the cue reports an error and keeps the current lyrics.</p> : usesTargetPicker ? <AutomationTargetPicker key={action} kind={action} loadOptions={loadTargets} selection={targetSelection} onSelect={setTargetSelection} /> : structuredProPresenter ? <div className="space-y-3">
+      {action === "crew-message" ? <div className="space-y-2">
+        <label htmlFor={crewMessageId} className="block text-xs text-board-muted">Crew message</label>
+        <textarea id={crewMessageId} required maxLength={4000} rows={3} value={crewMessage} onChange={event => setCrewMessage(event.target.value)} className={INPUT_CLASS} />
+        <p className="text-xs text-board-muted">Post to Production Chat as the controlling operator. Delivery to any linked chat service is shown separately in Chat.</p>
+      </div> : stepsLyrics ? <p className="text-xs text-board-muted">Move to the {action === "lyrics-next-section" ? "next" : "previous"} section of the currently displayed song, using its saved section order. Show a section first. At the song boundary, the cue reports an error and keeps the current lyrics.</p> : usesTargetPicker ? <AutomationTargetPicker key={action} kind={action} loadOptions={loadTargets} selection={targetSelection} onSelect={setTargetSelection} /> : structuredProPresenter ? <div className="space-y-3">
         {action === "pp-trigger-prop" && <div>
           <label htmlFor={propNameId} className="mb-1 block text-xs text-board-muted">Prop name</label>
           <input id={propNameId} value={propName} onChange={event => setPropName(event.target.value)} required maxLength={200} className={INPUT_CLASS} />

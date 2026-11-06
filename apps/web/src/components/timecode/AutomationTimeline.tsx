@@ -23,7 +23,7 @@ interface AutomationTimelineProps {
   state: TimecodeState | null;
   onRemoveEvent: (id: string) => void;
   onResetEvents: () => void;
-  onRetryEvent: (id: string) => void;
+  onRetryEvent: (id: string, expected?: ReturnType<typeof cueReviewState>) => void;
   onFireEvent: (id: string) => void;
   onFireNext: () => void;
   onSkipEvent: (id: string) => void;
@@ -45,6 +45,7 @@ const ACTION_ICONS: Record<string, React.ElementType> = {
   "rundown-stop": Play,
   "rundown-adjust": Clock,
   "stage-message": Monitor,
+  "crew-message": Monitor,
   "stage-clear": Monitor,
   "lighting-scene": Lightbulb,
   "lighting-blackout": Lightbulb,
@@ -74,6 +75,7 @@ const ACTION_COLORS: Record<string, string> = {
   "rundown-stop": "text-fire-500 bg-fire-500/10 border-fire-500/20",
   "rundown-adjust": "text-fire-500 bg-fire-500/10 border-fire-500/20",
   "stage-message": "text-sky-400 bg-sky-500/10 border-sky-500/20",
+  "crew-message": "text-sky-400 bg-sky-500/10 border-sky-500/20",
   "stage-clear": "text-sky-400 bg-sky-500/10 border-sky-500/20",
   "lighting-scene": "text-yellow-400 bg-yellow-500/10 border-yellow-500/20",
   "lighting-blackout": "text-yellow-400 bg-yellow-500/10 border-yellow-500/20",
@@ -114,7 +116,7 @@ export function AutomationTimeline({
   const next = nextAutomationEvent(events, currentFrame);
   const nextId = next?.id;
   const reviewed = confirmation && "event" in confirmation ? events.find(event => event.id === confirmation.event.id) : null;
-  const rearmChanged = confirmation?.kind === "rearm" && (!reviewed || reviewed.executionStatus === "dispatching"
+  const reviewChanged = (confirmation?.kind === "rearm" || confirmation?.kind === "refire") && (!reviewed || reviewed.executionStatus === "dispatching"
     || !cueReviewMatches(reviewed, cueReviewState(confirmation.event)));
 
   return (
@@ -256,14 +258,14 @@ export function AutomationTimeline({
         open={confirmation !== null}
         onOpenChange={(open) => { if (!open) setConfirmation(null); }}
         title={confirmation?.kind === "reset" ? "Reset all automation cues?" : confirmation?.kind === "rearm" ? "Re-arm this cue?" : confirmation?.kind === "refire" ? "Fire this cue again?" : "Delete this automation cue?"}
-        description={confirmation?.kind === "reset" ? "This re-arms every cue. Previously fired actions may run again when their timecode is crossed." : confirmation?.kind === "rearm" ? rearmChanged ? "The cue changed. Close this dialog and review its latest status." : `Make ${confirmation.event.label} available again? This clears its attempt status without firing it now. Check the output before repeating an action.` : confirmation?.kind === "refire" ? `Run ${confirmation.event.label} again now? Check the output before repeating a device action.` : `Remove ${confirmation && "event" in confirmation ? confirmation.event.label : "this cue"} from the timeline?`}
+        description={confirmation?.kind === "reset" ? "This re-arms every cue. Previously fired actions may run again when their timecode is crossed." : confirmation?.kind === "rearm" ? reviewChanged ? "The cue changed. Close this dialog and review its latest status." : `Make ${confirmation.event.label} available again? This clears its attempt status without firing it now. Check the output before repeating an action.` : confirmation?.kind === "refire" ? reviewChanged ? "The cue changed. Close this dialog and review its latest status." : `Run ${confirmation.event.label} again now? Check the output before repeating a device action.` : `Remove ${confirmation && "event" in confirmation ? confirmation.event.label : "this cue"} from the timeline?`}
         confirmLabel={confirmation?.kind === "reset" ? "Reset all" : confirmation?.kind === "rearm" ? "Re-arm cue" : confirmation?.kind === "refire" ? "Fire again" : "Delete cue"}
-        confirmDisabled={!connected || Boolean(rearmChanged)}
+        confirmDisabled={!connected || Boolean(reviewChanged)}
         onConfirm={() => {
           if (!connected || !confirmation) return;
           if (confirmation.kind === "reset") onResetEvents();
-          else if (confirmation.kind === "rearm") { if (!rearmChanged) onRearmEvent(confirmation.event.id, cueReviewState(confirmation.event)); }
-          else if (confirmation.kind === "refire") onRetryEvent(confirmation.event.id);
+          else if (confirmation.kind === "rearm") { if (!reviewChanged) onRearmEvent(confirmation.event.id, cueReviewState(confirmation.event)); }
+          else if (confirmation.kind === "refire") { if (!reviewChanged) onRetryEvent(confirmation.event.id, cueReviewState(confirmation.event)); }
           else onRemoveEvent(confirmation.event.id);
         }}
       />

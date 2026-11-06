@@ -42,6 +42,19 @@ it("does not show stale targets after a keyed show change or a failed refresh", 
   expect(onAdd).not.toHaveBeenCalled();
 });
 
+it("saves a structured crew message and preserves it after an unconfirmed save", async () => {
+  const save = vi.fn(async (_event: NewAutomationEvent) => { throw new Error("Relay disconnected"); });
+  render(<AutomationEventEditor connected format={format} onAdd={save} />);
+  fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "crew-message" } });
+  fireEvent.change(screen.getByLabelText("Crew message"), { target: { value: "  Standby cameras\nCamera 2 next  " } });
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
+  expect(save.mock.calls[0][0]).toMatchObject({ action: "crew-message", payload: { message: "Standby cameras\nCamera 2 next" } });
+  expect(screen.getByRole("alert").textContent).toBe("Relay disconnected");
+  expect(screen.getByLabelText("Crew message")).toHaveProperty("value", "  Standby cameras\nCamera 2 next  ");
+  expect(screen.getByText(/Delivery to any linked chat service/)).toBeTruthy();
+});
+
 it("offers a named prop cue and preserves its fields when saving fails", async () => {
   const save = vi.fn(async (_event: NewAutomationEvent) => { throw new Error("Relay disconnected"); });
   render(<AutomationEventEditor connected format={format} onAdd={save} />);

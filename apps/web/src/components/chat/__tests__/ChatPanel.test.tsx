@@ -43,6 +43,20 @@ const messages: ChatMessage[] = [
 ];
 
 describe("ChatPanel conversation flow", () => {
+  it("shows separate external delivery status on crew cues and preserves their line breaks", () => {
+    const cue: ChatMessage = { ...messages[0], id: "crew", type: "cue", text: "Standby cameras\nCamera 2 next", externalDelivery: { platform: "slack", status: "pending" } };
+    const props = { connectionStatus: "connected" as const, unreadCount: 0, onSendMessage: vi.fn() };
+    const view = render(<ChatPanel {...props} messages={[cue]} />);
+    expect(screen.getByText("Sending to slack…")).toBeTruthy();
+    const text = view.container.querySelector('[data-chat-message-id="crew"] p');
+    expect(text?.textContent).toBe(cue.text);
+    expect(text?.classList.contains("whitespace-pre-wrap")).toBe(true);
+    view.rerender(<ChatPanel {...props} messages={[{ ...cue, externalDelivery: { platform: "slack", status: "failed", error: "Service unavailable" } }]} />);
+    expect(screen.getByRole("alert").textContent).toBe("Not delivered to slack: Service unavailable");
+    view.rerender(<ChatPanel {...props} messages={[{ ...cue, externalDelivery: { platform: "slack", status: "sent" } }]} />);
+    expect(screen.getByText("Delivered to slack")).toBeTruthy();
+  });
+
   it("loads older messages on request and exposes recoverable queued delivery", async () => {
     const onLoadOlderMessages = vi.fn().mockResolvedValue(undefined);
     const onRetryQueuedMessage = vi.fn();

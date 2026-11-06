@@ -34,6 +34,8 @@ import { z } from "zod";
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMECODE_COMMANDS, TIMECODE_FEED_STALL_MS as FEED_STALL_MS } from "@/types/timecode";
 import { automationPayloadProblem } from "@/lib/automation-payload";
 import { resolveLyricsStep } from "@/lib/lyrics-step.server";
+import { crewMessagePayloadSchema } from "@/lib/crew-message";
+import { chatRelayKey } from "@/lib/chat-relay-key";
 import { runProPresenterCue } from "@/lib/automation-propresenter";
 import { AutomationExecutor, automationOutput } from "@/lib/automation-execution";
 import { cueReviewMatches, nextAutomationEvent } from "@/lib/automation-cues";
@@ -60,6 +62,7 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
   "rundown-stop",
   "rundown-adjust",
   "stage-message",
+  "crew-message",
   "stage-clear",
   "device-action",
   "lighting-scene",
@@ -1249,7 +1252,17 @@ export class TimecodeRelay extends DurableObject {
         const event = this.events.find((candidate) => candidate.id === payload.id);
         if (!event?.enabled || event.executionStatus === "dispatching") break;
         if (event.skipped) throw new TimecodeCommandRejection("Re-arm this skipped cue before retrying it.");
+        const refire = payload.confirmed === true;
+        if (refire || (event.fired && event.action !== "crew-message")) {
+          const expected = cueReviewSchema.safeParse(payload.expected);
+          if (!refire || !event.fired || !expected.success || !cueReviewMatches(event, expected.data)) {
+            throw new TimecodeCommandRejection("Review the current cue before firing it again.");
+          }
+        }
+        const deliveryId = event.action === "crew-message" && !refire ? event.executionId : undefined;
         resetCueExecution(event);
+        // A lost chat acknowledgment must not create another production post.
+        if (deliveryId) event.executionId = deliveryId;
         await this.runEvent(event);
         await this.persist();
         this.broadcastState();
@@ -1339,7 +1352,7 @@ export class TimecodeRelay extends DurableObject {
         async (signal) => {
           await this.persist();
           this.broadcastEvents();
-          await this.executeEventAction(event, signal, requiresLiveFeed, generation);
+          await this.executeEventAction(event, signal, requiresLiveFeed, generation, startedAt + 10000);
         },
       );
       event.fired = true;
@@ -1370,7 +1383,7 @@ export class TimecodeRelay extends DurableObject {
     this.broadcastState();
   }
 
-  private async executeEventAction(event: AutomationEvent, signal: AbortSignal, requiresLiveFeed: boolean, generation: number): Promise<void> {
+  private async executeEventAction(event: AutomationEvent, signal: AbortSignal, requiresLiveFeed: boolean, generation: number, deadline: number): Promise<void> {
     const env = this.env as unknown as Env;
     const assertCanDispatch = () => {
       signal.throwIfAborted();
@@ -1550,6 +1563,21 @@ export class TimecodeRelay extends DurableObject {
           "stage-clear": "stage-clear",
         } as const;
         await executeRundownCommand(actions[event.action], event.action, event.payload);
+        break;
+      }
+
+      case "crew-message": {
+        const authority = this.controlOwner()?.attachment.authClaim;
+        if (!authority || !this.target || !event.executionId) throw new Error("Claim timecode control before posting a crew message.");
+        const payload = crewMessagePayloadSchema.parse(event.payload);
+        const chat = this.env.CHAT_RELAY.getByName(chatRelayKey(this.orgId, "production"));
+        const result = await chat.postAutomationCue({
+          orgId: this.orgId, showId: this.target.showId, eventId: event.id,
+          executionId: event.executionId, payload, authority, deadline,
+        });
+        signal.throwIfAborted();
+        if (!result.ok) throw new Error(result.error);
+        logResult(event.action, "success", `Production Chat saved message ${result.messageId}.`);
         break;
       }
 
