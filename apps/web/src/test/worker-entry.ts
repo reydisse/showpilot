@@ -57,8 +57,53 @@ export class TestLowerThirdsRelay extends LowerThirdsRelay {
   }
 }
 
+const prismaIds = new WeakMap<object, number>();
+let nextPrismaId = 0;
+let sharedPrismaProbe: ReturnType<typeof import("../lib/db").getPrisma> | undefined;
+
 export default {
-  fetch(): Response {
+  async fetch(request: Request, bindings: Env): Promise<Response> {
+    if (new URL(request.url).pathname === "/_test/prisma") {
+      const { getPrisma } = await import("../lib/db");
+      const { withDatabaseRequest } = await import("../lib/request-database.server");
+      const queries: string[] = [];
+      const sessions: string[] = [];
+      const database = new Proxy(bindings.DB, {
+        get(target, property) {
+          if (property === "prepare") return (sql: string) => { queries.push("primary"); return target.prepare(sql); };
+          if (property === "withSession") return (constraint: D1SessionConstraint) => {
+            sessions.push(constraint);
+            const session = target.withSession(constraint);
+            return new Proxy(session, {
+              get(target, property) {
+                if (property === "prepare") return (sql: string) => { queries.push(constraint); return target.prepare(sql); };
+                const value: unknown = Reflect.get(target, property, target);
+                return typeof value === "function" ? value.bind(target) : value;
+              },
+            });
+          };
+          const value: unknown = Reflect.get(target, property, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      return withDatabaseRequest(request, database, async () => {
+        const prisma = Reflect.get(bindings, "TEST_SHARE_PRISMA") === true
+          ? sharedPrismaProbe ??= getPrisma()
+          : getPrisma();
+        let clientId = prismaIds.get(prisma);
+        if (!clientId) { clientId = ++nextPrismaId; prismaIds.set(prisma, clientId); }
+        const url = new URL(request.url);
+        const id = url.searchParams.get("orgId") ?? "";
+        if (request.method === "POST") await prisma.organization.update({ where: { id }, data: { name: "Saved by fixture" } });
+        const first = await prisma.organization.findUnique({ where: { id }, select: { id: true, name: true } });
+        if (url.searchParams.has("lazyWrite")) await prisma.organization.update({ where: { id }, data: { name: "Seeded during GET" } });
+        // Interleave another HTTP request while reusing this request's session.
+        await new Promise(resolve => setTimeout(resolve, 10));
+        if (url.searchParams.has("sessionId")) await prisma.session.findUnique({ where: { id: url.searchParams.get("sessionId") ?? "" } });
+        const second = await prisma.organization.findUnique({ where: { id }, select: { id: true, name: true } });
+        return Response.json({ first, second, clientId, reusedWithinRequest: getPrisma() === prisma, sessions, queries }, { headers: { "Set-Cookie": "fixture_cookie=kept; Path=/" } });
+      });
+    }
     return new Response("Worker test entrypoint", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;
