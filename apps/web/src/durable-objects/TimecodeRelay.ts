@@ -13,6 +13,7 @@ import type {
   TimecodeCommand,
   TimecodeWsMessage,
   TimecodeDisplayState,
+  TimecodeControlStatus,
 } from "@/types/timecode";
 import { crossedTriggerFrame, isSafeAutomationWebhookUrl, isValidTimecode, isValidTimecodeFormat, replaceAutomationEventGroup, timecodeToFrames, timecodeToString } from "@/lib/timecode";
 import {
@@ -28,6 +29,7 @@ import {
 } from "@/lib/live-rundown-authority.server";
 import { resolveTimecodeDeviceAction } from "@/lib/timecode-device-actions";
 import { z } from "zod";
+import { TIMECODE_COMMANDS } from "@/types/timecode";
 import { AutomationExecutor, automationOutput } from "@/lib/automation-execution";
 
 interface Env {
@@ -87,6 +89,16 @@ class AutomationRejection extends Error {
 
 class AutomationCancelled extends Error {}
 class TimecodeCommandRejection extends Error {}
+
+interface TimecodeSocketAttachment {
+  canWrite?: boolean;
+  sessionId?: string;
+  orgId?: string;
+  showId?: string;
+  authClaim?: LiveSessionAuthorityClaim | null;
+  controlsTimecode?: boolean;
+}
+const commandSchema = z.object({ action: z.enum(TIMECODE_COMMANDS), payload: z.record(z.string(), z.unknown()).optional() });
 
 interface TimecodeSnapshot { state: TimecodeState; events: AutomationEvent[]; target?: TimecodeTarget }
 interface LegacyTimecodeExport { target: TimecodeTarget; snapshot: TimecodeSnapshot | null }
@@ -164,6 +176,14 @@ export class TimecodeRelay extends DurableObject {
         this.state = { ...this.state, ...clock.state };
         this.previousFeedFrame = clock.previousFeedFrame;
         this.masterSessionId = clock.masterSessionId;
+        if (this.masterSessionId) {
+          const producer = ctx.getWebSockets().find(socket => socket.readyState === WebSocket.OPEN
+            && (socket.deserializeAttachment() as TimecodeSocketAttachment | null)?.sessionId === this.masterSessionId);
+          // A closing socket still needs webSocketClose to promote standby MTC.
+          // An already-running generator from before control ownership existed
+          // keeps control across deployment/hibernation. Viewing cannot steal it.
+          if (producer && !this.controlOwner()) producer.serializeAttachment({ ...producer.deserializeAttachment(), controlsTimecode: true });
+        }
         this.expectedFeedSince = clock.expectedFeedSince;
         this.bridgeFeed = clock.bridgeFeed;
         if (this.updateSignalHealth()) {
@@ -303,6 +323,54 @@ export class TimecodeRelay extends DurableObject {
     }
   }
 
+  // Ownership lives with the hibernating socket attachment. A viewer never
+  // locks the show, and a closed connection cannot leave a durable stale lock.
+  // This is independent of masterSessionId, which selects the clock producer.
+  private controlOwner(): { socket: WebSocket; attachment: TimecodeSocketAttachment } | null {
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment() as TimecodeSocketAttachment | null;
+      if (socket.readyState === WebSocket.OPEN && attachment?.controlsTimecode) return { socket, attachment };
+    }
+    return null;
+  }
+
+  private controlStatus(socket: WebSocket): TimecodeControlStatus {
+    const owner = this.controlOwner();
+    return !owner ? "available" : owner.socket === socket ? "yours" : "other";
+  }
+
+  private broadcastControl(): void {
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment() as TimecodeSocketAttachment | null;
+      if (!attachment?.canWrite || socket.readyState !== WebSocket.OPEN || !socketReadLeaseAllows(socket, true)) continue;
+      try { socket.send(JSON.stringify({ type: "control-status", control: this.controlStatus(socket) } satisfies TimecodeWsMessage)); }
+      catch { socket.close(1011, "Control status unavailable"); }
+    }
+  }
+
+  private authorizeControl(socket: WebSocket, action: TimecodeCommand): boolean {
+    if (action === "bridge-disconnected") throw new TimecodeCommandRejection("Bridge status requires the internal feed endpoint.");
+    const attachment = socket.deserializeAttachment() as TimecodeSocketAttachment;
+    const owner = this.controlOwner();
+    if (owner && owner.socket !== socket) throw new TimecodeCommandRejection("Another operator controls timecode. Ask them to release control first.");
+    if (action === "feed-tc" && (!owner || this.masterSessionId !== attachment.sessionId)) {
+      throw new TimecodeCommandRejection("Start the local timecode source before sending a feed.");
+    }
+    if (action === "release-control") {
+      if (this.masterSessionId === attachment.sessionId) throw new TimecodeCommandRejection("Stop the local timecode source before releasing control.");
+      socket.serializeAttachment({ ...attachment, controlsTimecode: false });
+      this.broadcastControl();
+      return false;
+    }
+    if (!owner) {
+      // An explicit edit/start takes free control synchronously, before any I/O.
+      // Merely opening the screen, syncing or receiving MTC does not claim it.
+      socket.serializeAttachment({ ...attachment, controlsTimecode: true });
+      this.broadcastControl();
+    }
+    return action !== "claim-control";
+  }
+
   private logWebhookEvent(event: WebhookEventInput): void {
     if (!this.orgId) return;
 
@@ -431,11 +499,17 @@ export class TimecodeRelay extends DurableObject {
       if (!canWrite) {
         return new Response("Unauthorized", { status: 401 });
       }
-      const body = (await request.json()) as {
-        action: TimecodeCommand;
-        payload?: Record<string, unknown>;
-      };
-      try { await this.handleCommand(body.action, body.payload); }
+      const body = commandSchema.safeParse(await request.json().catch(() => null));
+      if (!body.success) return Response.json({ error: "Invalid timecode command" }, { status: 400 });
+      const owner = this.controlOwner();
+      if (!owner || owner.attachment.authClaim?.sessionId !== authClaim?.sessionId
+        || owner.attachment.authClaim?.userId !== authClaim?.userId) {
+        return Response.json({ ok: false, error: "Claim timecode control in a connected operator window first." }, { status: 409 });
+      }
+      if (["claim-control", "release-control", "bridge-disconnected"].includes(body.data.action)) {
+        return Response.json({ error: "This command requires its dedicated connection." }, { status: 400 });
+      }
+      try { await this.handleCommand(body.data.action, body.data.payload, owner.attachment.sessionId); }
       catch (error) {
         if (error instanceof TimecodeCommandRejection) return Response.json({ ok: false, error: error.message }, { status: 400 });
         throw error;
@@ -452,13 +526,7 @@ export class TimecodeRelay extends DurableObject {
       const msg = JSON.parse(data as string) as TimecodeWsMessage;
       if (msg.type === "sync") { this.hydrate(ws); return; }
       if (msg.type === "command") {
-        const attachment = ws.deserializeAttachment?.() as {
-          canWrite?: boolean;
-          sessionId?: string;
-          orgId?: string;
-          showId?: string;
-          authClaim?: LiveSessionAuthorityClaim | null;
-        } | null;
+        const attachment = ws.deserializeAttachment?.() as TimecodeSocketAttachment | null;
         if (!attachment?.canWrite) { ws.close(4403, "Timecode write access required"); return; }
         if (this.target && (attachment.orgId !== this.target.orgId || attachment.showId !== this.target.showId)) { ws.close(4409, "Timecode show mismatch"); return; }
         if (
@@ -466,11 +534,20 @@ export class TimecodeRelay extends DurableObject {
           || !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "timecode:access"))
         ) {
           ws.close(4403, "Timecode access changed");
+          await this.webSocketClose(ws);
           return;
         }
         renewSocketReadLease(ws);
         if (attachment.orgId) this.orgId = attachment.orgId;
-        try { await this.handleCommand(msg.action, msg.payload, attachment.sessionId); }
+        const command = commandSchema.safeParse(msg);
+        if (!command.success) { ws.close(4400, "Invalid timecode command"); return; }
+        // Permission checks above may yield; reserve ownership only afterwards.
+        if (ws.readyState !== WebSocket.OPEN) return;
+        try {
+          if (this.authorizeControl(ws, command.data.action)) {
+            await this.handleCommand(command.data.action, command.data.payload, attachment.sessionId);
+          }
+        }
         catch (error) {
           if (!(error instanceof TimecodeCommandRejection)) throw error;
           ws.send(JSON.stringify({ type: "command-rejected", action: msg.action, error: error.message } satisfies TimecodeWsMessage));
@@ -482,7 +559,11 @@ export class TimecodeRelay extends DurableObject {
   }
 
   async webSocketClose(ws: WebSocket) {
-    const attachment = ws.deserializeAttachment?.() as { sessionId?: string } | null;
+    const attachment = ws.deserializeAttachment?.() as TimecodeSocketAttachment | null;
+    if (attachment?.controlsTimecode) {
+      ws.serializeAttachment({ ...attachment, controlsTimecode: false });
+      this.broadcastControl();
+    }
     if (attachment?.sessionId && attachment.sessionId === this.masterSessionId) {
       this.masterSessionId = null;
       this.previousFeedFrame = null;
@@ -544,7 +625,7 @@ export class TimecodeRelay extends DurableObject {
         break;
 
       case "feed-tc": {
-        if (sessionId && this.masterSessionId !== sessionId) break;
+        if (sessionId && this.masterSessionId !== sessionId) throw new TimecodeCommandRejection("Start the local timecode source before sending a feed.");
         if (!payload) break;
         const tc = payload.timecode as TimecodeValue;
         const format = (payload.format as TimecodeFormat) ?? this.state.format;
@@ -1159,7 +1240,7 @@ export class TimecodeRelay extends DurableObject {
   private hydrate(ws: WebSocket): void {
     const attachment = ws.deserializeAttachment() as { canWrite?: boolean } | null;
     this.send(ws, attachment?.canWrite
-      ? { type: "hydrate", state: this.state, events: this.events }
+      ? { type: "hydrate", state: this.state, events: this.events, control: this.controlStatus(ws) }
       : { type: "hydrate", state: this.getDisplayState() }, this.revisions.current());
   }
 
@@ -1227,7 +1308,9 @@ export class TimecodeRelay extends DurableObject {
       if (!attachment?.canWrite) return null;
       if (userId && attachment.authClaim?.userId !== userId) return null;
       if (onlyDue && (attachment.readAuthorizedUntil ?? 0) > Date.now() + 30_000) return null;
-      return Boolean(attachment.authClaim && await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "timecode:access"));
+      const allowed = Boolean(attachment.authClaim && await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "timecode:access"));
+      if (!allowed) await this.webSocketClose(socket);
+      return allowed;
     });
     await this.scheduleAlarm();
   }

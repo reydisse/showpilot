@@ -165,9 +165,11 @@ export interface TimecodeSettings {
 
 // ─── WebSocket Messages ─────────────────────────────────────
 
+export type TimecodeControlStatus = "available" | "yours" | "other";
+
 export type TimecodeWsMessage =
   | { type: "sync"; lastSeenSequence: number | null }
-  | { type: "hydrate"; state: TimecodeState; events: AutomationEvent[] }
+  | { type: "hydrate"; state: TimecodeState; events: AutomationEvent[]; control?: TimecodeControlStatus }
   | { type: "hydrate"; state: TimecodeDisplayState }
   | { type: "tc-update"; state: TimecodeState | TimecodeDisplayState }
   | { type: "event-fired"; event: AutomationEvent; firedAt: number }
@@ -176,23 +178,28 @@ export type TimecodeWsMessage =
   | { type: "lyrics-clear" }
   | { type: "command"; action: TimecodeCommand; payload?: Record<string, unknown> }
   | { type: "command-rejected"; action: TimecodeCommand; error: string }
-  | { type: "master-status"; granted: boolean };
+  | { type: "master-status"; granted: boolean }
+  | { type: "control-status"; control: TimecodeControlStatus };
 
-export type TimecodeCommand =
-  | "start"
-  | "stop"
-  | "feed-tc"
-  | "set-source"
-  | "set-format"
-  | "set-timecode"
-  | "add-event"
-  | "replace-event-group"
-  | "update-event"
-  | "remove-event"
-  | "reset-events"
-  | "retry-event"
-  | "set-event-enabled"
-  | "set-triggers-enabled"
-  | "set-lyrics"
-  | "clear-lyrics"
-  | "bridge-disconnected";
+export const TIMECODE_COMMANDS = [
+  "claim-control",
+  "release-control",
+  "start",
+  "stop",
+  "feed-tc",
+  "set-source",
+  "set-format",
+  "set-timecode",
+  "add-event",
+  "replace-event-group",
+  "update-event",
+  "remove-event",
+  "reset-events",
+  "retry-event",
+  "set-event-enabled",
+  "set-triggers-enabled",
+  "set-lyrics",
+  "clear-lyrics",
+  "bridge-disconnected",
+] as const;
+export type TimecodeCommand = typeof TIMECODE_COMMANDS[number];

@@ -1,7 +1,7 @@
 import { abortAllDurableObjects, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, expect, it } from "vitest";
-import { timecodeFixture } from "@/test/timecode-fixtures";
+import { timecodeFixture, startFixtureTimecodeFeed } from "@/test/timecode-fixtures";
 import type { TimecodeState, TimecodeWsMessage } from "@/types/timecode";
 import { TestTimecodeRelay } from "@/test/worker-entry";
 
@@ -10,7 +10,7 @@ const format = { frameRate: 30, dropFrame: "ndf" };
 const feed = (seconds: number) => ({ timecode: { hours: 0, minutes: 0, seconds, frames: 0 }, format });
 
 async function clock() {
-  const test = await timecodeFixture();
+  const test = await timecodeFixture(undefined, undefined, false);
   const response = await test.stub.fetch(test.url("/ws"), { headers: { Upgrade: "websocket" } });
   const socket = response.webSocket;
   if (!socket) throw new Error("Missing timecode socket");
@@ -18,10 +18,13 @@ async function clock() {
   socket.addEventListener("message", message => { messages.push(JSON.parse(String(message.data))); });
   socket.accept();
   await expect.poll(() => messages.some(message => message.type === "hydrate")).toBe(true);
+  socket.send(JSON.stringify({ type: "command", action: "claim-control" }));
+  await expect.poll(() => messages.some(message => message.type === "control-status" && message.control === "yours")).toBe(true);
   return {
     ...test, socket, messages,
     state: async () => (await test.stub.fetch(test.url("/state"))).json<TimecodeState>(),
     command: async (action: string, payload?: unknown) => {
+      if (action === "feed-tc") await startFixtureTimecodeFeed(test.stub, test.url);
       const response = await test.stub.fetch(test.url("/command"), { method: "POST", body: JSON.stringify({ action, payload }) });
       expect(response.status).toBe(200); await response.arrayBuffer();
     },

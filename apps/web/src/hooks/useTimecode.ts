@@ -7,6 +7,7 @@ import type {
   LyricsDisplayState,
   TimecodeWsMessage,
   TimecodeCommand,
+  TimecodeControlStatus,
 } from "@/types/timecode";
 import { timecodeToFrames } from "@/lib/timecode";
 import { InternalTimecodeSource } from "@/lib/timecode-sources/internal-source";
@@ -31,6 +32,9 @@ export interface UseTimecodeReturn {
   connected: boolean;
   events: AutomationEvent[];
   isMaster: boolean;
+  control: TimecodeControlStatus | null;
+  claimControl: () => void;
+  releaseControl: () => void;
   generatorPending: "starting" | "stopping" | null;
   lastError: string | null;
 
@@ -78,6 +82,8 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const [events, setEvents] = useState<AutomationEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [isMaster, setIsMaster] = useState(false);
+  const [control, setControl] = useState<TimecodeControlStatus | null>(null);
+  const controlRef = useRef<TimecodeControlStatus | null>(null);
   const [generatorPending, setGeneratorPending] = useState<"starting" | "stopping" | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [mtcSupported, setMtcSupported] = useState(false);
@@ -122,6 +128,11 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
       || confirmedScope.current?.orgId !== requestedScope.current.orgId
       || confirmedScope.current?.showId !== requestedScope.current.showId) {
       const error = "Timecode disconnected. Reconnect before sending this command.";
+      setLastError(error);
+      return { status: "failed", error };
+    }
+    if (controlRef.current === "other") {
+      const error = "Another operator controls timecode. Ask them to release control first.";
       setLastError(error);
       return { status: "failed", error };
     }
@@ -174,6 +185,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
 
   useEffect(() => {
     setState(null); stateRef.current = null; setEvents([]); setLastError(null);
+    controlRef.current = null; setControl(null);
     setConnected(false); readyRef.current = false; confirmedScope.current = null;
     if (!enabled || !orgId || !showId) return;
     const base = relayBaseUrl ?? window.location.origin;
@@ -204,6 +216,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
         if (!current()) return;
         wsRef.current = null; readyRef.current = false; confirmedScope.current = null; setConnected(false);
         sequence.disconnect();
+        controlRef.current = null; setControl(null);
         if (internalSourceRef.current || mtcSourceRef.current || pendingSourceRef.current) {
           setLastError("Timecode disconnected. The local source stopped; reconnect before starting again.");
         }
@@ -216,7 +229,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
         if (!current()) return;
         try {
           const msg = JSON.parse(event.data) as TimecodeWsMessage;
-          if (msg.type !== "hydrate" && msg.type !== "master-status" && msg.type !== "command-rejected") {
+          if (msg.type !== "hydrate" && msg.type !== "master-status" && msg.type !== "control-status" && msg.type !== "command-rejected") {
             const decision = sequence.delta(msg);
             if (decision === "refresh") {
               readyRef.current = false; setConnected(false); awaitHydrate();
@@ -230,6 +243,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
                 if (msg.state.showId !== showId) { setLastError("Timecode show mismatch. Reconnecting."); ws.close(); break; }
                 clearTimeout(hydrateTimeout);
                 sequence.snapshot(msg);
+                controlRef.current = msg.control ?? "available"; setControl(controlRef.current);
                 stateRef.current = msg.state; formatRef.current = msg.state.format;
                 confirmedScope.current = { orgId, showId };
                 setState(msg.state); setEvents(msg.events); readyRef.current = true; setConnected(true);
@@ -262,9 +276,17 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
             case "event-fired": setEvents((prev) => prev.map((e) => e.id === msg.event.id ? msg.event : e)); break;
             case "lyrics-update": setState((prev) => prev ? { ...prev, lyrics: msg.lyrics } : prev); break;
             case "lyrics-clear": setState((prev) => prev ? { ...prev, lyrics: null } : prev); break;
+            case "control-status":
+              controlRef.current = msg.control; setControl(msg.control);
+              if (msg.control === "other") {
+                stopLocalSources();
+                failEdits("Another operator controls timecode. Your changes have been kept in the form.");
+              }
+              break;
             case "command-rejected":
               setLastError(msg.error);
-              if (msg.action === "set-source") stopLocalSources();
+              if (msg.action === "set-source" || msg.action === "start" || msg.action === "feed-tc") stopLocalSources();
+              if (msg.action === "add-event" || msg.action === "replace-event-group") failEdits(msg.error);
               break;
             case "master-status":
               if (msg.granted && pendingSourceRef.current) masterGrantedRef.current = true;
@@ -372,6 +394,8 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
       return group.length === ids.size && group.every((event) => ids.has(event.id));
     });
   }, [saveEvents]);
+  const claimControl = useCallback(() => { sendCommand("claim-control"); }, [sendCommand]);
+  const releaseControl = useCallback(() => { sendCommand("release-control"); }, [sendCommand]);
   const setTimecode = useCallback((timecode: TimecodeValue) => { sendCommand("set-timecode", { timecode }); }, [sendCommand]);
   const setFormat = useCallback((format: TimecodeFormat) => { sendCommand("set-format", { format }); }, [sendCommand]);
   const updateEvent = useCallback((id: string, updates: Partial<AutomationEvent>) => { sendCommand("update-event", { id, updates }); }, [sendCommand]);
@@ -386,6 +410,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const visibleState = confirmedScope.current?.orgId === orgId && state?.showId === showId ? state : null;
   return {
     state: visibleState, display: visibleState?.display ?? "00:00:00:00", connected: connected && visibleState !== null,
+    control: visibleState ? control : null, claimControl, releaseControl,
     events: visibleState ? events : [], isMaster: visibleState !== null && isMaster, generatorPending, lastError,
     startFreerun, stopGenerator, startMtc, stopMtc: stopGenerator, setTimecode, setFormat,
     addEvent, replaceEventGroup, updateEvent, removeEvent, resetEvents, retryEvent, setEventEnabled,

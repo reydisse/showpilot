@@ -1,4 +1,4 @@
-import { timecodeFixture } from "@/test/timecode-fixtures";
+import { timecodeFixture, startFixtureTimecodeFeed } from "@/test/timecode-fixtures";
 import { openTestBridge } from "@/test/bridge-fixtures";
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects } from "cloudflare:test";
@@ -22,8 +22,8 @@ function nextMessage(socket: WebSocket): Promise<Record<string, unknown>> {
 
 async function openBridge(orgId: string): Promise<WebSocket> { return (await openTestBridge(orgId)).socket; }
 
-async function command(orgId: string, action: string, payload?: Record<string, unknown>) {
-  const { stub, url } = await timecodeFixture(orgId);
+async function command({ stub, url }: Awaited<ReturnType<typeof timecodeFixture>>, action: string, payload?: Record<string, unknown>) {
+  if (action === "feed-tc") await startFixtureTimecodeFeed(stub, url);
   return stub.fetch(new Request(
     url("/command"),
     {
@@ -34,8 +34,7 @@ async function command(orgId: string, action: string, payload?: Record<string, u
   ));
 }
 
-async function events(orgId: string) {
-  const { stub, url } = await timecodeFixture(orgId);
+async function events({ stub, url }: Awaited<ReturnType<typeof timecodeFixture>>) {
   const response = await stub.fetch(
     new Request(url("/events")),
   );
@@ -66,8 +65,9 @@ describe("TimecodeRelay device automation", () => {
   it("dispatches one validated command through Venue Bridge and records acknowledgement", async () => {
     const orgId = "timecode-device-success";
     const deviceId = await seedOrganizationAndDevice(orgId);
+    const fixture = await timecodeFixture(orgId);
     const bridge = await openBridge(orgId);
-    await command(orgId, "add-event", {
+    await command(fixture, "add-event", {
       id: "event-1",
       triggerTimecode: { hours: 0, minutes: 0, seconds: 1, frames: 0 },
       action: "device-action",
@@ -79,7 +79,7 @@ describe("TimecodeRelay device automation", () => {
     });
 
     const connectMessage = nextMessage(bridge);
-    const feed = command(orgId, "feed-tc", {
+    const feed = command(fixture, "feed-tc", {
       timecode: { hours: 0, minutes: 0, seconds: 1, frames: 0 },
       format: { frameRate: 30, dropFrame: "ndf" },
     });
@@ -103,7 +103,7 @@ describe("TimecodeRelay device automation", () => {
     bridge.send(JSON.stringify({ type: "command-response", id: sentCommand.id, success: true, response: "ok" }));
     expect((await feed).ok).toBe(true);
 
-    await expect(events(orgId)).resolves.toEqual([
+    await expect(events(fixture)).resolves.toEqual([
       expect.objectContaining({
         id: "event-1",
         fired: true,
@@ -114,7 +114,7 @@ describe("TimecodeRelay device automation", () => {
 
     let duplicate = false;
     bridge.addEventListener("message", () => { duplicate = true; }, { once: true });
-    await command(orgId, "feed-tc", {
+    await command(fixture, "feed-tc", {
       timecode: { hours: 0, minutes: 0, seconds: 1, frames: 1 },
       format: { frameRate: 30, dropFrame: "ndf" },
     });
@@ -125,7 +125,8 @@ describe("TimecodeRelay device automation", () => {
   it("keeps an offline bridge failure visible instead of marking the event successful", async () => {
     const orgId = "timecode-device-offline";
     const deviceId = await seedOrganizationAndDevice(orgId);
-    await command(orgId, "add-event", {
+    const fixture = await timecodeFixture(orgId);
+    await command(fixture, "add-event", {
       id: "event-offline",
       triggerTimecode: { hours: 0, minutes: 0, seconds: 1, frames: 0 },
       action: "device-action",
@@ -133,12 +134,12 @@ describe("TimecodeRelay device automation", () => {
       label: "ATEM cut",
       toleranceFrames: 2,
     });
-    await command(orgId, "feed-tc", {
+    await command(fixture, "feed-tc", {
       timecode: { hours: 0, minutes: 0, seconds: 1, frames: 0 },
       format: { frameRate: 30, dropFrame: "ndf" },
     });
 
-    await expect(events(orgId)).resolves.toEqual([
+    await expect(events(fixture)).resolves.toEqual([
       expect.objectContaining({
         id: "event-offline",
         fired: false,

@@ -1,4 +1,4 @@
-import { timecodeFixture } from "@/test/timecode-fixtures";
+import { timecodeFixture, startFixtureTimecodeFeed } from "@/test/timecode-fixtures";
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,12 +10,13 @@ afterEach(async () => {
 });
 
 async function timeline() {
-  const { orgId, stub, url } = await timecodeFixture();
+  const { orgId, stub, url, controlSocket } = await timecodeFixture();
   return {
-    orgId,
+    orgId, controlSocket,
     stub,
     url,
     async command(action: TimecodeCommand, payload?: Record<string, unknown>) {
+      if (action === "feed-tc") await startFixtureTimecodeFeed(stub, url);
       const response = await stub.fetch(new Request(url("/command"), {
         method: "POST", body: JSON.stringify({ action, payload }),
       }));
@@ -70,9 +71,8 @@ describe("automation acknowledgement", () => {
     const test = await timeline();
     const event = { id: "retry-save", action: "stage-clear", label: "Original", triggerTimecode: atZero, payload: {} };
     await test.command("add-event", event);
-    const response = await test.stub.fetch(new Request(test.url("/ws"), { headers: { Upgrade: "websocket" } }));
-    if (!response.webSocket) throw new Error("Missing timecode socket");
-    const socket = response.webSocket;
+    const socket = test.controlSocket;
+    if (!socket) throw new Error("Missing control socket");
     const next = (type: string) => new Promise<Record<string, unknown>>((resolve) => {
       const handler = (message: MessageEvent) => {
         const data = JSON.parse(String(message.data));
@@ -81,7 +81,6 @@ describe("automation acknowledgement", () => {
       };
       socket.addEventListener("message", handler);
     });
-    const hydration = next("hydrate"); socket.accept(); await hydration;
     const echo = next("events-update");
     socket.send(JSON.stringify({ type: "command", action: "add-event", payload: { ...event, label: "Retry must not replace existing event" } }));
     expect(await echo).toMatchObject({ events: [{ id: "retry-save", label: "Original" }] });

@@ -85,11 +85,13 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, stopServer, s
 
   const timecodePath = `${origin}/api/timecode/${orgId}`;
   const event = { id: "smoke-event", label: "Safety fixture cue", action: "stage-message", triggerTimecode: { hours: 0, minutes: 0, seconds: 30, frames: 0 }, triggerFrame: 900, toleranceFrames: 5, enabled: true, fired: false, payload: { message: "Fixture cue message" } };
-  const added = await fetch(`${timecodePath}/command`, { method: "POST", headers: { Cookie: operatorCookie, "Content-Type": "application/json", Origin: origin }, body: JSON.stringify({ action: "add-event", payload: event }) });
-  assert.equal(added.status, 200);
+  await browser("open", `${origin}/${orgId}/timecode`);
+  await browser("find", "role", "button", "click", "--name", "Take control", "--exact");
+  await browser("wait", "text=You control this show's timecode.");
+  const added = await browser("eval", `fetch('/api/timecode/${orgId}/command?showId=smoke-show', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(${JSON.stringify({ action: "add-event", payload: event })})}).then(response => response.status)`);
+  assert.equal(added.result, 200);
   const events = async () => (await fetch(`${timecodePath}/events`, { headers: { Cookie: operatorCookie } })).json();
   assert.equal((await events()).length, 1);
-  await browser("open", `${origin}/${orgId}/timecode`);
   await browser("wait", "text=Safety fixture cue");
   assert.equal((await browser("eval", "document.body.textContent.includes('Load Demo Show')")).result, false, "Demo events must not be offered in a real timeline");
   await clickButton("Reset All");

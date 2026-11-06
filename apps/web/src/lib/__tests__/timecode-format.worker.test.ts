@@ -1,4 +1,4 @@
-import { timecodeFixture } from "@/test/timecode-fixtures";
+import { timecodeFixture, startFixtureTimecodeFeed } from "@/test/timecode-fixtures";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -7,6 +7,7 @@ afterEach(async () => {
 });
 
 async function command(fixture: Awaited<ReturnType<typeof timecodeFixture>>, action: string, payload?: Record<string, unknown>) {
+  if (action === "feed-tc") await startFixtureTimecodeFeed(fixture.stub, fixture.url);
   const response = await fixture.stub.fetch(new Request(fixture.url("/command"), {
     method: "POST",
     body: JSON.stringify({ action, payload }),

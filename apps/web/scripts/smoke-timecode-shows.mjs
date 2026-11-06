@@ -5,11 +5,9 @@ import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
 await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorCookie, operatorEmail, operatorPassword }) => {
   const headers = { Cookie: operatorCookie, Origin: origin, "Content-Type": "application/json" };
   async function command(showId, action, payload) {
-    const response = await fetch(`${origin}/api/timecode/${orgId}/command?showId=${showId}`, {
-      method: "POST", headers, body: JSON.stringify({ action, payload }),
-    });
-    assert.equal(response.status, 200, `${showId}: ${action}`);
-    assert.equal((await response.json()).ok, true);
+    const { result } = await browser("eval", `fetch('/api/timecode/${orgId}/command?showId=${showId}', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(${JSON.stringify({ action, payload })})}).then(async response => ({status:response.status, body:await response.json()}))`);
+    assert.equal(result.status, 200, `${showId}: ${action}`);
+    assert.equal(result.body.ok, true);
   }
   async function state(showId) {
     const response = await fetch(`${origin}/api/timecode/${orgId}/state?showId=${showId}`, { headers });
@@ -21,7 +19,21 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorCookie, ope
     await clickButton("Choose show");
     await browser("click", `[role="menuitem"]:has-text("${name}")`);
   };
+  await browser("open", `${origin}/login`);
+  await browser("fill", "#email", operatorEmail);
+  await browser("fill", "#password", operatorPassword);
+  await clickButton("Sign in");
+  await browser("wait", "--url", `**/${orgId}/**`);
   for (const [showId, name, seconds] of [["smoke-show", "Morning", 1], ["smoke-second-show", "Evening", 2]]) {
+    await browser("eval", `new Promise((resolve, reject) => {
+      const socket = new WebSocket(location.origin.replace('http', 'ws') + '/api/timecode/${orgId}/ws?showId=${showId}');
+      const timer = setTimeout(() => reject(new Error('Control not granted')), 5000);
+      socket.onmessage = event => {
+        const message = JSON.parse(event.data);
+        if (message.type === 'hydrate') socket.send(JSON.stringify({type:'command',action:'claim-control'}));
+        if (message.type === 'control-status' && message.control === 'yours') { clearTimeout(timer); resolve(true); }
+      };
+    })`);
     await command(showId, "add-event", {
       id: `${name}-cue`, label: `${name} unique cue`, action: "stage-message",
       triggerTimecode: { hours: 0, minutes: 0, seconds: 30, frames: 0 }, payload: { message: name },
@@ -31,11 +43,6 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorCookie, ope
       songId: name, songTitle: name, sectionId: "verse", sectionLabel: "Verse", lyrics: `${name} held lyric`,
     });
   }
-  await browser("open", `${origin}/login`);
-  await browser("fill", "#email", operatorEmail);
-  await browser("fill", "#password", operatorPassword);
-  await clickButton("Sign in");
-  await browser("wait", "--url", `**/${orgId}/**`);
   await browser("open", `${origin}/${orgId}/timecode`);
   await browser("wait", "text=Morning unique cue");
   assert.equal((await browser("eval", "document.body.textContent.includes('Evening unique cue')")).result, false);

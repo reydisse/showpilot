@@ -17,7 +17,7 @@ describe("TimecodeRelay implemented sources", () => {
   });
 
   it("accepts supported sources and reports unsupported socket commands to the sender", async () => {
-    const { stub, url } = await timecodeFixture();
+    const { stub, url, controlSocket } = await timecodeFixture();
     for (const source of ["mtc", "internal-freerun"]) {
       const response = await stub.fetch(new Request(url("/command"), {
         method: "POST", body: JSON.stringify({ action: "set-source", payload: { source } }),
@@ -26,14 +26,12 @@ describe("TimecodeRelay implemented sources", () => {
       await response.arrayBuffer();
       expect(await (await stub.fetch(url("/state"))).json()).toMatchObject({ source });
     }
-    const response = await stub.fetch(new Request(url("/ws"), { headers: { Upgrade: "websocket" } }));
-    const socket = response.webSocket;
+    const socket = controlSocket;
     if (!socket) throw new Error("Missing fixture socket");
     const rejected = new Promise(resolve => socket.addEventListener("message", event => {
       const data: unknown = JSON.parse(String(event.data));
       if (data && typeof data === "object" && "type" in data && data.type === "command-rejected") resolve(data);
     }));
-    socket.accept();
     socket.send(JSON.stringify({ type: "command", action: "set-source", payload: { source: "network" } }));
     expect(await rejected).toEqual({ type: "command-rejected", action: "set-source", error: "This timecode source is not implemented." });
     socket.close();
