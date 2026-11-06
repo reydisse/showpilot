@@ -597,6 +597,32 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### ProPresenter feed recovery
+
+The shared ProPresenter observer bounds feed reads at eight seconds and aborts
+reads superseded by a pushed slide, device status, workspace/target change,
+disconnect or hidden tab. Failed reads back off to at most thirty seconds;
+confirmed feed/device updates restore the normal interval. Hidden tabs continue
+receiving pushed slides. Failed transport preserves the last confirmed slide;
+only a valid explicit clear removes it.
+
+Rundown and Graphics expose timestamped failures and Reconnect ProPresenter feed.
+Reconnect keeps the existing preview and error until confirmation, and duplicate
+slide snapshots do not re-fire the preview callback. Graphics labels retained
+content as last confirmed instead of inferring a connection from its presence.
+Its import actions stack below the preview on small screens so lyrics remain
+readable. This observer does not stop the shared venue connection or resend slide
+commands.
+
+After building, run `node apps/web/scripts/smoke-propresenter-feed-recovery.mjs`.
+It uses real login, disposable settings/allowlist/Bridge keys and a protocol 3
+Bridge fixture to verify both pages, disconnect retention, timestamps, manual
+retry, automatic recovery, explicit clear and the 320px preview. It does not
+exercise physical ProPresenter. Hook tests cover stalled/late reads, backoff,
+push precedence, hidden tabs, workspace/target changes and disable/re-enable.
+No migration is required. ProPresenter mutation confirmation and the remaining
+operator-error audit are separate follow-up work.
+
 ### Operator read recovery
 
 Show Flow crew presence, active-show selection and external timer reads share an

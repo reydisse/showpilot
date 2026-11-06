@@ -18,7 +18,7 @@ function requiresFragments(path, fragments) {
 
 test("screen-bound web polling pauses while hidden and cannot overlap", () => {
   const contracts = [
-    ["apps/web/src/hooks/useProPresenter.ts", ["document.visibilityState", "polling", "startingRevision !== revision"]],
+    ["apps/web/src/hooks/useProPresenter.ts", ["document.visibilityState", "request !== current", "controller.abort()"]],
     ["apps/web/src/components/dashboard/tm-operations.tsx", ["document.visibilityState", "polling", "refreshInFlightRef"]],
     ["apps/web/src/components/layout/NotificationCenter.tsx", ["document.visibilityState", "refreshInFlightRef"]],
     ["apps/web/src/components/layout/LiveRundownBar.tsx", ["document.visibilityState", "refreshing"]],
