@@ -50,78 +50,37 @@ async function assertGraphicPermission(orgId: string, permission: Permission) {
 // ─── Graphic Templates ─────────────────────────────────────
 
 export const getGraphicTemplates = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
-  .handler(async ({ data }) => {
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
+  .handler(async ({ data }) => withPrimaryDatabase(async () => {
     await assertGraphicPermission(data.orgId, "lowerthird:view");
     const prisma = getPrisma();
     return await prisma.graphicTemplate.findMany({
       where: { orgId: data.orgId },
       orderBy: { createdAt: "asc" },
     });
-  });
+  }));
 
-export const addGraphicTemplate = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        name: labelSchema,
-        title: graphicTextSchema,
-        subtitle: graphicTextSchema.optional(),
-        style: styleSchema.optional(),
-      }),
-      data,
-    ),
-  )
+const graphicContentSchema = z.object({
+  name: labelSchema,
+  title: graphicTextSchema,
+  subtitle: graphicTextSchema,
+  style: styleSchema,
+});
+const libraryOperationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("create"), content: graphicContentSchema }),
+  z.object({ kind: z.literal("update"), id: idSchema, content: graphicContentSchema }),
+  z.object({ kind: z.literal("delete"), id: idSchema }),
+]);
+export type GraphicLibraryOperation = z.infer<typeof libraryOperationSchema>;
+
+export const mutateGraphicLibrary = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({
+    orgId: idSchema, requestId: z.string().uuid(), operation: libraryOperationSchema,
+  }), data))
   .handler(async ({ data }) => {
     await assertGraphicPermission(data.orgId, "lowerthird:configure");
-    const prisma = getPrisma();
-    return await prisma.graphicTemplate.create({
-      data: {
-        orgId: data.orgId,
-        name: data.name,
-        title: data.title,
-        subtitle: data.subtitle ?? "",
-        style: data.style ?? "{}",
-      },
-    });
-  });
-
-export const updateGraphicTemplate = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        id: idSchema,
-        updates: z
-          .object({
-            name: labelSchema,
-            title: graphicTextSchema,
-            subtitle: graphicTextSchema,
-            style: styleSchema,
-          })
-          .partial(),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertGraphicPermission(data.orgId, "lowerthird:configure");
-    const prisma = getPrisma();
-    return await prisma.graphicTemplate.updateMany({
-      where: { id: data.id, orgId: data.orgId },
-      data: data.updates,
-    });
-  });
-
-export const deleteGraphicTemplate = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
-  )
-  .handler(async ({ data }) => {
-    await assertGraphicPermission(data.orgId, "lowerthird:configure");
-    const prisma = getPrisma();
-    await prisma.graphicTemplate.deleteMany({ where: { id: data.id, orgId: data.orgId } });
+    const { applyGraphicLibraryOperation } = await import("./graphic-library.server");
+    return applyGraphicLibraryOperation(getD1(), data);
   });
 
 const SCENE_KEY_PREFIX = "graphic-scene:";

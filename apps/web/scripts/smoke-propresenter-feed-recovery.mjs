@@ -69,6 +69,27 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorEmail
     heartbeat = setInterval(() => { if (bridge.readyState === WebSocket.OPEN) bridge.send(JSON.stringify({ type: "bridge-status", devices: connected ? 1 : 0, targets: connected ? [target] : [], version: "fixture" })); }, 2000);
     await browser("open", `${origin}/${orgId}/streaming/graphics`);
     await click("Connect ProPresenter"); await browser("wait", "text=Opening fixture lyric");
+    // Imported slides share the library receipt: lose the reply after the real save.
+    await evaluate(`(() => {
+      window.__beforeImportFetch = window.fetch; window.__loseImport = true; window.__importPosts = [];
+      window.fetch = async (input, init) => {
+        const post = init?.method === 'POST';
+        if (post) window.__importPosts.push(init.body);
+        const response = await window.__beforeImportFetch(input, init);
+        if (post && window.__loseImport && response.ok) { window.__loseImport = false; await response.text(); throw new TypeError('Fixture lost imported graphic reply'); }
+        return response;
+      }; return true;
+    })()`);
+    await browser("click", 'section:has(h2:text-is("ProPresenter import")) button:text-is("Title")');
+    await browser("wait", '[aria-label="Graphics library confirmation"] time');
+    const imported = () => queryFixture(`SELECT id FROM graphic_template WHERE orgId='${orgId}' AND title='Opening fixture lyric'`);
+    assert.equal((await imported()).length, 1);
+    await click("Retry library change");
+    await browser("wait", "--fn", "!document.querySelector('[aria-label=\"Graphics library confirmation\"]')");
+    assert.equal((await imported()).length, 1);
+    const importPosts = await evaluate("window.__importPosts");
+    assert.equal(importPosts.at(-1), importPosts.at(-2));
+    await evaluate("window.fetch = window.__beforeImportFetch; true");
     currentText = "Retained fixture lyric"; publish(currentText);
     await browser("wait", "text=Retained fixture lyric");
     bridge.terminate();
@@ -153,7 +174,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorEmail
     await click("On Kiosk"); await browser("wait", "text=Kiosk output change confirmed.");
     await browser("wait", 'button:text-is("Kiosk Off")');
     assert.deepEqual(commands, ["next", "previous"]);
-    console.log(JSON.stringify({passed:true,graphicsDisconnectHonesty:true,retainedSlide:true,timestampedRetry:true,manualReconnect:true,explicitClear:true,rundownRecovery:true,fits320:true,physicalProPresenter:false,lostCommandResponseAfterExecution:true,commandsNeverReplayed:true,reviewDoesNotSend:true,kioskErrorVisibleWithFeedOff:true}));
+    console.log(JSON.stringify({passed:true,graphicsDisconnectHonesty:true,retainedSlide:true,timestampedRetry:true,manualReconnect:true,explicitClear:true,rundownRecovery:true,fits320:true,physicalProPresenter:false,importRetryNoDuplicate:true,lostCommandResponseAfterExecution:true,commandsNeverReplayed:true,reviewDoesNotSend:true,kioskErrorVisibleWithFeedOff:true}));
   } catch (error) {
     console.error(JSON.stringify({ bridgeMessages, page: await evaluate("document.body.innerText") }));
     await browser("screenshot", "/tmp/showpilot-pp-feed-diagnostic.png");

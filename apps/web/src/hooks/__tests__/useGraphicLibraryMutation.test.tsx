@@ -1,0 +1,53 @@
+import { act, cleanup, renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { useGraphicLibraryMutation } from "../useGraphicLibraryMutation";
+const api = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/graphics", () => ({ mutateGraphicLibrary: api }));
+const operation = { kind: "create" as const, content: { name: "Original", title: "Original", subtitle: "", style: "{}" } };
+beforeEach(() => { vi.useFakeTimers(); api.mockReset(); api.mockImplementation(async ({ data }) => ({ requestId: data.requestId, id: data.requestId })); });
+afterEach(() => { cleanup(); vi.useRealTimers(); });
+it("retains the same request and captured content on explicit retry, without automatic replay", async () => {
+  api.mockRejectedValueOnce(new Error("response lost after commit"));
+  const { result } = renderHook(() => useGraphicLibraryMutation("org"));
+  const mutable = structuredClone(operation);
+  await act(async () => { expect(await result.current.run(mutable)).toBe(false); });
+  mutable.content.title = "Changed after send";
+  expect(result.current.failure?.occurredAt).toBe(Date.now());
+  await act(async () => { await vi.advanceTimersByTimeAsync(20_000); expect(await result.current.run(operation)).toBe(false); });
+  expect(api).toHaveBeenCalledOnce();
+  await act(async () => { expect(await result.current.run()).toBe(true); });
+  expect(api.mock.calls[1][0].data).toEqual(api.mock.calls[0][0].data);
+  expect(api.mock.calls[1][0].data.operation.content.title).toBe("Original");
+  expect(result.current.locked).toBe(false);
+});
+it("bounds a stalled mutation, blocks overlapping actions and ignores its late acknowledgement", async () => {
+  let resolve!: (value: unknown) => void;
+  api.mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  const { result } = renderHook(() => useGraphicLibraryMutation("org"));
+  act(() => { void result.current.run(operation); void result.current.run(operation); result.current.reviewed(); });
+  expect(api).toHaveBeenCalledOnce();
+  await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+  expect(api.mock.calls[0][0].signal.aborted).toBe(true);
+  expect(result.current.pending).toBe(false); expect(result.current.failure).not.toBeNull();
+  await act(async () => resolve({ requestId: api.mock.calls[0][0].data.requestId, id: "late" }));
+  expect(result.current.failure).not.toBeNull();
+});
+it("does not accept a missing or unrelated acknowledgement", async () => {
+  api.mockResolvedValueOnce({ requestId: "other", id: "other" });
+  const { result } = renderHook(() => useGraphicLibraryMutation("org"));
+  await act(async () => { expect(await result.current.run(operation)).toBe(false); });
+  expect(result.current.locked).toBe(true);
+  act(() => result.current.reviewed());
+  expect(result.current.locked).toBe(false); expect(api).toHaveBeenCalledOnce();
+});
+it("cancels on workspace change and ignores the old completion while a new action is pending", async () => {
+  let old!: (value: unknown) => void;
+  api.mockImplementationOnce(() => new Promise(done => { old = done; })).mockImplementationOnce(() => new Promise(() => {}));
+  const { result, rerender } = renderHook(({ orgId }) => useGraphicLibraryMutation(orgId), { initialProps: { orgId: "old" } });
+  act(() => { void result.current.run(operation); });
+  rerender({ orgId: "new" });
+  expect(api.mock.calls[0][0].signal.aborted).toBe(true);
+  act(() => { void result.current.run(operation); });
+  await act(async () => old({ requestId: api.mock.calls[0][0].data.requestId, id: "old" }));
+  expect(result.current.pending).toBe(true); expect(result.current.attempt?.orgId).toBe("new");
+});
