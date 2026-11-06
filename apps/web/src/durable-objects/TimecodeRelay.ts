@@ -90,6 +90,18 @@ class TimecodeCommandRejection extends Error {}
 interface TimecodeSnapshot { state: TimecodeState; events: AutomationEvent[]; target?: TimecodeTarget }
 interface LegacyTimecodeExport { target: TimecodeTarget; snapshot: TimecodeSnapshot | null }
 
+const FEED_STALL_MS = 500;
+const FEED_LOST_MS = 2000;
+interface BridgeFeed { timecode: TimecodeValue; format: TimecodeFormat; receivedAt: number }
+/** Small durable journal; never rewrite the full event timeline at feed rate. */
+interface ClockSnapshot {
+  state: Pick<TimecodeState, "timecode" | "display" | "totalFrames" | "format" | "source" | "running" | "serverTime" | "signal">;
+  previousFeedFrame: number | null;
+  masterSessionId: string | null;
+  expectedFeedSince: number | null;
+  bridgeFeed: BridgeFeed | null;
+}
+
 function recoverInterruptedEvents(events: AutomationEvent[]): AutomationEvent[] {
   return events.map(event => ({ ...event, enabled: event.enabled ?? true,
     ...(event.executionStatus === "dispatching" ? {
@@ -110,6 +122,7 @@ export class TimecodeRelay extends DurableObject {
     serverTime: Date.now(),
     totalFrames: 0,
     lyrics: null,
+    signal: { status: "idle", lastFeedAt: null },
   };
   private events: AutomationEvent[] = [];
   private orgId = "";
@@ -119,6 +132,8 @@ export class TimecodeRelay extends DurableObject {
   private retired = false;
   private previousFeedFrame: number | null = null;
   private masterSessionId: string | null = null;
+  private expectedFeedSince: number | null = null;
+  private bridgeFeed: BridgeFeed | null = null;
   private lastPersistedAt = 0;
   private readonly executor = new AutomationExecutor();
 
@@ -141,14 +156,75 @@ export class TimecodeRelay extends DurableObject {
         };
         this.events = recoverInterruptedEvents(stored.events ?? []);
       }
+      const clock = await ctx.storage.get<ClockSnapshot>("clock");
+      if (clock && !this.retired && !this.legacyExport) {
+        this.state = { ...this.state, ...clock.state };
+        this.previousFeedFrame = clock.previousFeedFrame;
+        this.masterSessionId = clock.masterSessionId;
+        this.expectedFeedSince = clock.expectedFeedSince;
+        this.bridgeFeed = clock.bridgeFeed;
+        if (this.updateSignalHealth()) {
+          await this.persistClock();
+          this.broadcastState();
+        }
+      }
     });
   }
 
   private async persist(): Promise<void> {
     if (this.retired) return;
-    await this.ctx.storage.put("timecode", { state: this.state, events: this.events, ...(this.target ? { target: this.target } : {}) } satisfies TimecodeSnapshot);
+    await this.ctx.storage.put({
+      timecode: { state: this.state, events: this.events, ...(this.target ? { target: this.target } : {}) } satisfies TimecodeSnapshot,
+      clock: this.clockSnapshot(),
+    });
+    await this.scheduleAlarm();
     this.hasSnapshot = true;
     this.lastPersistedAt = Date.now();
+  }
+
+  private clockSnapshot(): ClockSnapshot {
+    const { timecode, display, totalFrames, format, source, running, serverTime, signal } = this.state;
+    return { state: { timecode, display, totalFrames, format, source, running, serverTime, signal },
+      previousFeedFrame: this.previousFeedFrame, masterSessionId: this.masterSessionId,
+      expectedFeedSince: this.expectedFeedSince, bridgeFeed: this.bridgeFeed };
+  }
+
+  private async persistClock(): Promise<void> {
+    if (this.retired) return;
+    await this.ctx.storage.put("clock", this.clockSnapshot());
+    await this.scheduleAlarm();
+  }
+
+  private feedDeadline(): number | null {
+    const signal = this.state.signal;
+    const last = signal?.lastFeedAt ?? this.expectedFeedSince;
+    if (!signal || last === null || signal.status === "idle" || signal.status === "timecode-lost") return null;
+    return last + (signal.status === "timecode-stalled" ? FEED_LOST_MS : FEED_STALL_MS);
+  }
+
+  private scheduleAlarm(): Promise<void> {
+    return scheduleSocketReadRefresh(this.ctx, socket => this.socketNeedsReadLease(socket), this.feedDeadline());
+  }
+
+  private updateSignalHealth(): boolean {
+    const signal = this.state.signal;
+    const last = signal?.lastFeedAt ?? this.expectedFeedSince;
+    if (!signal || signal.status === "idle" || last === null) return false;
+    const age = Date.now() - last;
+    if (age < FEED_STALL_MS) return false;
+    const status = age >= FEED_LOST_MS ? "timecode-lost" : "timecode-stalled";
+    if (signal.status === status) return false;
+    this.state.signal = { ...signal, status };
+    this.state.running = false;
+    this.state.serverTime = Date.now();
+    return true;
+  }
+
+  private holdClock(): void {
+    this.state.running = false;
+    this.state.signal = { status: "idle", lastFeedAt: this.state.signal?.lastFeedAt ?? null };
+    this.expectedFeedSince = null;
+    this.previousFeedFrame = null;
   }
 
   /** Internal RPC: one durable room owns one stable show for its lifetime. */
@@ -288,17 +364,22 @@ export class TimecodeRelay extends DurableObject {
         return new Response("Unauthorized", { status: 401 });
       }
       if (url.pathname === "/internal/bridge-disconnected") {
+        this.bridgeFeed = null;
+        await this.persistClock();
         if (!this.masterSessionId) await this.handleCommand("bridge-disconnected");
       } else {
-        if (this.masterSessionId) return Response.json({ error: "An operator controls this clock" }, { status: 409 });
         const body = await request.json<{ payload?: Record<string, unknown> }>();
         const format = body.payload?.format;
         const tc = eventUpdateSchema.shape.triggerTimecode.safeParse(body.payload?.timecode);
         if (!isValidTimecodeFormat(format) || !tc.success || !tc.data || !isValidTimecode(tc.data, format)) {
           return Response.json({ error: "Invalid Bridge timecode" }, { status: 400 });
         }
-        this.state.source = "mtc";
-        await this.handleCommand("feed-tc", body.payload);
+        this.bridgeFeed = { timecode: tc.data, format, receivedAt: Date.now() };
+        if (this.masterSessionId) await this.persistClock();
+        else {
+          this.state.source = "mtc";
+          await this.handleCommand("feed-tc", body.payload);
+        }
       }
       return Response.json({ ok: true, showId: this.target.showId, serviceDate: this.target.serviceDate });
     }
@@ -323,7 +404,7 @@ export class TimecodeRelay extends DurableObject {
       });
 
       if (canWrite) renewSocketReadLease(server);
-      await scheduleSocketReadRefresh(this.ctx, socket => this.socketNeedsReadLease(socket));
+      await this.scheduleAlarm();
 
       // Hydrate
       const hydrate: TimecodeWsMessage = canWrite
@@ -405,13 +486,23 @@ export class TimecodeRelay extends DurableObject {
     if (attachment?.sessionId && attachment.sessionId === this.masterSessionId) {
       this.masterSessionId = null;
       this.previousFeedFrame = null;
+      const standby = this.bridgeFeed;
+      if (standby && Date.now() - standby.receivedAt < FEED_STALL_MS) {
+        this.state.source = "mtc";
+        await this.handleCommand("feed-tc", { timecode: standby.timecode, format: standby.format }, undefined, standby.receivedAt);
+        return;
+      }
+      // Retain the loss deadline so a disconnected source reports loss rather
+      // than looking like an intentional Stop. The held frame never advances.
       this.state.running = false;
+      this.state.signal = { status: "timecode-stalled", lastFeedAt: this.state.signal?.lastFeedAt ?? null };
+      this.expectedFeedSince ??= Date.now();
       await this.persist();
       this.broadcastState();
     }
   }
 
-  webSocketError() {}
+  async webSocketError(ws: WebSocket) { await this.webSocketClose(ws); }
 
   private readAuthorityClaim(url: URL): LiveSessionAuthorityClaim | null {
     const userId = url.searchParams.get("authUserId")?.trim();
@@ -426,6 +517,7 @@ export class TimecodeRelay extends DurableObject {
     action: TimecodeCommand,
     payload?: Record<string, unknown>,
     sessionId?: string,
+    feedReceivedAt = Date.now(),
   ): Promise<void> {
     switch (action) {
       case "start":
@@ -436,6 +528,8 @@ export class TimecodeRelay extends DurableObject {
         if (sessionId) this.masterSessionId = sessionId;
         this.sendMasterStatus(sessionId, true);
         this.state.running = true;
+        this.expectedFeedSince = Date.now();
+        this.state.signal = { status: "waiting", lastFeedAt: null };
         await this.persist();
         this.broadcastState();
         break;
@@ -444,8 +538,7 @@ export class TimecodeRelay extends DurableObject {
         if (sessionId && this.masterSessionId && this.masterSessionId !== sessionId) break;
         this.masterSessionId = null;
         this.sendMasterStatus(sessionId, false);
-        this.state.running = false;
-        this.previousFeedFrame = null;
+        this.holdClock();
         await this.persist();
         this.broadcastState();
         break;
@@ -456,6 +549,7 @@ export class TimecodeRelay extends DurableObject {
         const tc = payload.timecode as TimecodeValue;
         const format = (payload.format as TimecodeFormat) ?? this.state.format;
         if (!isValidTimecodeFormat(format) || !tc || !isValidTimecode(tc, format)) break;
+        this.updateSignalHealth();
         const formatChanged = format.frameRate !== this.state.format.frameRate
           || format.dropFrame !== this.state.format.dropFrame;
         if (formatChanged) {
@@ -472,6 +566,7 @@ export class TimecodeRelay extends DurableObject {
         // trusting a stale client-side conversion.
         const totalFrames = timecodeToFrames(tc, format);
 
+        const resuming = this.state.signal?.status === "timecode-stalled" || this.state.signal?.status === "timecode-lost";
         this.state.timecode = tc;
         this.state.totalFrames = totalFrames;
         this.state.display = timecodeToString(tc, format.dropFrame === "df");
@@ -479,10 +574,14 @@ export class TimecodeRelay extends DurableObject {
         if (!sessionId) this.state.source = "mtc";
         this.state.running = true;
         this.state.serverTime = Date.now();
+        this.state.signal = { status: "live", lastFeedAt: feedReceivedAt };
+        this.expectedFeedSince = null;
 
         // Evaluate automation events
-        const previousFrame = this.previousFeedFrame;
+        // A lost feed is a gap, never an instruction to catch up missed cues.
+        const previousFrame = resuming ? null : this.previousFeedFrame;
         this.previousFeedFrame = totalFrames;
+        await this.persistClock();
         // Clock delivery cannot wait for device or webhook acknowledgement.
         this.broadcastState();
         const eventFired = await this.evaluateEvents(previousFrame, totalFrames);
@@ -500,7 +599,8 @@ export class TimecodeRelay extends DurableObject {
         if (this.state.source !== "mtc") break;
         this.masterSessionId = null;
         this.state.running = false;
-        this.previousFeedFrame = null;
+        this.state.signal = { status: "timecode-stalled", lastFeedAt: this.state.signal?.lastFeedAt ?? null };
+        this.expectedFeedSince ??= Date.now();
         await this.persist();
         this.broadcastState();
         break;
@@ -760,7 +860,7 @@ export class TimecodeRelay extends DurableObject {
   // ─── Automation Engine ──────────────────────────────────
 
   private async evaluateEvents(previousFrame: number | null, totalFrames: number): Promise<boolean> {
-    if (!this.state.triggersEnabled) return false;
+    if (!this.state.triggersEnabled || !this.state.running) return false;
     const executions: Promise<void>[] = [];
     for (const event of this.events) {
       if (!event.enabled || event.fired || event.executionStatus === "dispatching") continue;
@@ -773,13 +873,13 @@ export class TimecodeRelay extends DurableObject {
         ? event.executionRetryable === true && attempts < 3 && withinRetryWindow
         : crossedTriggerFrame(previousFrame, totalFrames, event.triggerFrame, event.toleranceFrames);
       if (!shouldRun) continue;
-      executions.push(this.runEvent(event));
+      executions.push(this.runEvent(event, true));
     }
     await Promise.allSettled(executions);
     return executions.length > 0;
   }
 
-  private async runEvent(event: AutomationEvent): Promise<void> {
+  private async runEvent(event: AutomationEvent, requiresLiveFeed = false): Promise<void> {
     // Reserve before yielding, so concurrent feed messages cannot dispatch twice.
     event.executionStatus = "dispatching";
     event.executionAttempts = (event.executionAttempts ?? 0) + 1;
@@ -796,7 +896,7 @@ export class TimecodeRelay extends DurableObject {
         async (signal) => {
           await this.persist();
           this.broadcastEvents();
-          await this.executeEventAction(event, signal);
+          await this.executeEventAction(event, signal, requiresLiveFeed);
         },
       );
       event.fired = true;
@@ -827,10 +927,14 @@ export class TimecodeRelay extends DurableObject {
     this.broadcastState();
   }
 
-  private async executeEventAction(event: AutomationEvent, signal: AbortSignal): Promise<void> {
+  private async executeEventAction(event: AutomationEvent, signal: AbortSignal, requiresLiveFeed: boolean): Promise<void> {
     const env = this.env as unknown as Env;
     const assertCanDispatch = () => {
       signal.throwIfAborted();
+      const lastFeed = this.state.signal?.lastFeedAt ?? this.expectedFeedSince;
+      if (requiresLiveFeed && (!this.state.running || (lastFeed !== null && Date.now() - lastFeed >= FEED_STALL_MS))) {
+        throw new AutomationCancelled("Timecode signal lost before dispatch.");
+      }
       if (this.retired || !this.target || !this.state.triggersEnabled || !event.enabled || !this.events.includes(event)) {
         throw new AutomationCancelled("Automation was disabled or removed before dispatch.");
       }
@@ -1107,17 +1211,26 @@ export class TimecodeRelay extends DurableObject {
   }
 
   /** Worker-only RPC used by permission changes; alarms handle missed pushes. */
-  async refreshReadAuthority(userId?: string): Promise<void> {
+  async refreshReadAuthority(userId?: string, onlyDue = false): Promise<void> {
     await refreshSocketReadLeases(this.ctx.getWebSockets(), async socket => {
-      const attachment = socket.deserializeAttachment() as { canWrite?: boolean; authClaim?: LiveSessionAuthorityClaim | null } | null;
+      const attachment = socket.deserializeAttachment() as { canWrite?: boolean; authClaim?: LiveSessionAuthorityClaim | null; readAuthorizedUntil?: number } | null;
       if (!attachment?.canWrite) return null;
       if (userId && attachment.authClaim?.userId !== userId) return null;
+      if (onlyDue && (attachment.readAuthorizedUntil ?? 0) > Date.now() + 30_000) return null;
       return Boolean(attachment.authClaim && await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "timecode:access"));
     });
-    await scheduleSocketReadRefresh(this.ctx, socket => this.socketNeedsReadLease(socket));
+    await this.scheduleAlarm();
   }
 
-  async alarm(): Promise<void> { await this.refreshReadAuthority(); }
+  async alarm(): Promise<void> {
+    const checkingFeed = this.feedDeadline() !== null;
+    if (this.updateSignalHealth()) {
+      await this.persistClock();
+      this.broadcastState();
+    }
+    // The 500ms watchdog must not turn read-lease renewal into 2Hz D1 polling.
+    await this.refreshReadAuthority(undefined, checkingFeed);
+  }
 
   private send(ws: WebSocket, data: string): void {
     if (!displaySocketMayReceive(ws) || !socketReadLeaseAllows(ws, this.socketNeedsReadLease(ws))) return;

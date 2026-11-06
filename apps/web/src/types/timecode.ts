@@ -45,6 +45,11 @@ export interface TimecodeShow {
 }
 
 export interface TimecodeState {
+  /** Absent only on snapshots/clients predating the feed watchdog. */
+  signal?: {
+    status: "idle" | "waiting" | "live" | "timecode-stalled" | "timecode-lost";
+    lastFeedAt: number | null;
+  };
   /** Present on a show-bound room; absent only in pre-migration snapshots. */
   showId?: string;
   serviceDate?: string;
@@ -62,7 +67,7 @@ export interface TimecodeState {
 /** Display clients receive output and a failure count, never event payloads. */
 export type TimecodeDisplayState = Pick<
   TimecodeState,
-  "display" | "running" | "serverTime" | "lyrics" | "showId" | "serviceDate"
+  "display" | "running" | "serverTime" | "lyrics" | "showId" | "serviceDate" | "signal"
 > & {
   automation: { status: "ok" | "failed"; failedCueCount: number };
 };

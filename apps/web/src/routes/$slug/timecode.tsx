@@ -117,6 +117,9 @@ function TimecodePage() {
           connected={connected}
           pending={generatorPending}
           running={state?.running ?? false}
+          totalFrames={state?.totalFrames ?? 0}
+          signal={state?.signal}
+          source={state?.source}
           format={state?.format ?? { frameRate: 30, dropFrame: "ndf" }}
           mtcSupported={mtcSupported}
           onStartFreerun={startFreerun}

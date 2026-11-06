@@ -1,13 +1,16 @@
 import { useState, useEffect } from "react";
 import { Play, Square, Radio, Usb, AlertTriangle } from "lucide-react";
 import { MtcSource } from "@/lib/timecode-sources/mtc-source";
-import type { TimecodeFormat, FrameRate, DropFrameMode } from "@/types/timecode";
+import type { TimecodeFormat, FrameRate, DropFrameMode, TimecodeState } from "@/types/timecode";
 
 interface TimecodeSourceSelectorProps {
   isMaster: boolean;
   connected: boolean;
   pending: "starting" | "stopping" | null;
   running: boolean;
+  totalFrames?: number;
+  signal?: TimecodeState["signal"];
+  source?: TimecodeState["source"];
   format: TimecodeFormat;
   mtcSupported: boolean;
   onStartFreerun: (offsetMs?: number) => void;
@@ -21,6 +24,9 @@ export function TimecodeSourceSelector({
   connected,
   pending,
   running,
+  totalFrames = 0,
+  signal,
+  source,
   format,
   mtcSupported,
   onStartFreerun,
@@ -63,6 +69,12 @@ export function TimecodeSourceSelector({
       <h3 className="text-xs font-medium text-board-muted uppercase tracking-wider">
         Timecode Source
       </h3>
+      {(signal?.status === "timecode-stalled" || signal?.status === "timecode-lost") && (
+        <p role="alert" className="flex items-center gap-2 text-sm text-amber-400">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {source === "mtc" ? "MTC signal lost" : "Timecode signal lost"}. Clock held; automation paused.
+        </p>
+      )}
 
       {/* Frame rate selector */}
       <div className="flex items-center gap-2">
@@ -89,13 +101,13 @@ export function TimecodeSourceSelector({
       {/* Source controls */}
       <div className="flex flex-col gap-2">
         {/* Internal freerun */}
-        {!running || !isMaster ? (
+        {!isMaster ? (
           <button
-            onClick={() => onStartFreerun(0)}
+            onClick={() => onStartFreerun()}
             className="flex items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2.5 text-sm font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
           >
             <Play className="w-4 h-4" />
-            {pending === "starting" ? "Starting…" : pending === "stopping" ? "Stopping…" : "Start Internal Generator"}
+            {pending === "starting" ? "Starting…" : pending === "stopping" ? "Stopping…" : totalFrames > 0 ? "Resume Internal Generator" : "Start Internal Generator"}
           </button>
         ) : (
           <button

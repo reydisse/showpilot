@@ -7,6 +7,7 @@ import { TimecodeDisplay } from "@/components/timecode/TimecodeDisplay";
 import { TimecodeSourceSelector } from "@/components/timecode/TimecodeSourceSelector";
 import type { AutomationEvent, TimecodeState } from "@/types/timecode";
 import { useEffect } from "react";
+import { framesToTimecode } from "@/lib/timecode";
 import { TimecodeProvider, useShowTimecode } from "@/components/timecode/TimecodeContext";
 import { getTimecodeShows } from "@/lib/timecode-shows";
 
@@ -175,6 +176,76 @@ describe("timecode connection honesty", () => {
     act(() => socket.close());
     expect(screen.getAllByRole("status", { name: "Timecode disconnected" })).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Start Internal Generator" }).closest("fieldset")).toHaveProperty("disabled", true);
+  });
+
+  it("sends each actual MIDI observation once and keeps listening after signal loss", async () => {
+    const input: { id: string; onmidimessage: ((event: { data: Uint8Array }) => void) | null } = { id: "mtc", onmidimessage: null };
+    vi.stubGlobal("navigator", { requestMIDIAccess: async () => ({ inputs: new Map([[input.id, input]]) }) });
+    const { result } = hook();
+    const socket = Socket.instances[0];
+    act(() => hydrate(socket));
+    await act(async () => { await result.current.startMtc("mtc"); });
+    act(() => {
+      socket.receive({ type: "master-status", granted: true });
+      socket.receive({ type: "tc-update", state: { ...state, source: "mtc", running: true } });
+    });
+    const midiFrame = (frame: number) => {
+      const nibbles = [frame, 0, 0, 0, 0, 0, 0, 6];
+      nibbles.forEach((value, index) => input.onmidimessage?.({ data: new Uint8Array([0xf1, (index << 4) | value]) }));
+    };
+    const feeds = () => socket.sent.map(message => JSON.parse(message)).filter(message => message.action === "feed-tc");
+    act(() => { midiFrame(1); vi.advanceTimersByTime(100); });
+    expect(feeds()).toHaveLength(1);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(feeds()).toHaveLength(1);
+    act(() => socket.receive({ type: "tc-update", state: { ...state, source: "mtc", running: false, signal: { status: "timecode-lost", lastFeedAt: 1 } } }));
+    expect(input.onmidimessage).not.toBeNull();
+    expect(result.current.isMaster).toBe(true);
+    act(() => { midiFrame(2); vi.advanceTimersByTime(100); });
+    expect(feeds()).toHaveLength(2);
+    expect(feeds()[1].payload.timecode.frames).toBe(2);
+  });
+
+  it("shows MTC signal loss with a stop control while holding the last frame", () => {
+    const lost: TimecodeState = { ...state, source: "mtc", signal: { status: "timecode-stalled", lastFeedAt: 1 } };
+    render(<>
+      <TimecodeDisplay state={lost} connected size="large" />
+      <TimecodeDisplay state={lost} connected />
+      <TimecodeSourceSelector isMaster connected pending={null} running={false} signal={lost.signal} source="mtc"
+        format={state.format} mtcSupported={false} onStartFreerun={() => {}} onStopGenerator={() => {}}
+        onStartMtc={async () => {}} onSetFormat={() => {}} />
+    </>);
+    expect(screen.getByRole("alert").textContent).toContain("MTC signal lost");
+    expect(screen.getAllByRole("status", { name: "Timecode signal lost" })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Stop Generator" })).toBeTruthy();
+    expect(screen.getByText("Signal lost · clock held")).toBeTruthy();
+  });
+
+  it.each<TimecodeState["format"]>([
+    { frameRate: 24, dropFrame: "ndf" }, { frameRate: 25, dropFrame: "ndf" },
+    { frameRate: 29.97, dropFrame: "df" }, { frameRate: 30, dropFrame: "ndf" },
+  ])("resumes the exact held frame after Stop at $frameRate $dropFrame", format => {
+    const held: TimecodeState = { ...state, format, totalFrames: 1800, timecode: framesToTimecode(1800, format) };
+    const { result } = hook();
+    const socket = Socket.instances[0];
+    act(() => { socket.open(); socket.receive({ type: "hydrate", state: held, events: [] }); });
+    const resume = () => {
+      result.current.startFreerun();
+      socket.receive({ type: "master-status", granted: true });
+      socket.receive({ type: "tc-update", state: { ...held, running: true } });
+      vi.advanceTimersByTime(100);
+    };
+    act(resume);
+    act(() => {
+      result.current.stopGenerator();
+      socket.receive({ type: "master-status", granted: false });
+      socket.receive({ type: "tc-update", state: held });
+    });
+    act(resume);
+    const feeds = socket.sent.map(message => JSON.parse(message)).filter(message => message.action === "feed-tc");
+    expect(feeds).toHaveLength(2);
+    expect(feeds.map(message => message.payload.totalFrames)).toEqual([1800, 1800]);
+    expect(feeds[1].payload.timecode).toEqual(held.timecode);
   });
 
   it("does not run a rejected or unconfirmed generator start", () => {

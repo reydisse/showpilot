@@ -60,7 +60,7 @@ export interface UseTimecodeReturn {
 const FEED_INTERVAL_MS = 100;
 const CONFIRM_TIMEOUT_MS = 5_000;
 type PendingSource =
-  | { kind: "internal"; offsetMs: number }
+  | { kind: "internal"; offsetMs: number | undefined }
   | { kind: "mtc"; source: MtcSource };
 type PendingEdit = {
   matches: (events: AutomationEvent[]) => boolean;
@@ -142,6 +142,9 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
       if (latest && masterGrantedRef.current) sendCommand("feed-tc", {
         timecode: latest.tc, totalFrames: latest.totalFrames, format: latest.format,
       });
+      // A feed is proof of a new source callback, not proof that this timer is
+      // still running. Repeating a stale MTC frame hides cable/DAW signal loss.
+      latestTcRef.current = null;
     }, FEED_INTERVAL_MS);
   }, [sendCommand]);
 
@@ -156,7 +159,8 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
         latestTcRef.current = { tc, totalFrames, format: formatRef.current };
       });
       internalSourceRef.current = source;
-      source.start(pending.offsetMs);
+      if (pending.offsetMs === undefined) source.startAtFrame(relayState.totalFrames);
+      else source.start(pending.offsetMs);
     } else {
       mtcSourceRef.current = pending.source;
     }
@@ -221,7 +225,9 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
                 stateRef.current = msg.state; formatRef.current = msg.state.format;
                 internalSourceRef.current?.setFormat(msg.state.format);
                 setState(msg.state);
-                if (!msg.state.running && !pendingSourceRef.current) stopLocalSources();
+                if (!msg.state.running && !pendingSourceRef.current
+                  && msg.state.signal?.status !== "timecode-stalled"
+                  && msg.state.signal?.status !== "timecode-lost") stopLocalSources();
                 startConfirmedSource(msg.state);
               }
               break;
@@ -271,7 +277,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     }, CONFIRM_TIMEOUT_MS);
   }, [clearGeneratorTimeout, stopLocalSources]);
 
-  const startFreerun = useCallback((offsetMs = 0): TimecodeSendResult => {
+  const startFreerun = useCallback((offsetMs?: number): TimecodeSendResult => {
     if (pendingSourceRef.current) return { status: "failed", error: "A generator start is already pending." };
     if (!readyRef.current || wsRef.current?.readyState !== 1) return sendCommand("start");
     stopLocalSources(); setLastError(null);
