@@ -57,18 +57,19 @@ await withLocalSmokeFixture(
       `${form} input[placeholder="00:05:00:00"]`,
       "00:01:00:00",
     );
-    await browser("select", `${form} select`, "device-action");
+    await browser("select", `${form} select >> nth=0`, "device-action");
     await browser("find", "label", "Cue lead (ms)", "fill", "100");
     await browser("find", "label", "Tolerance (frames)", "fill", "0");
-    await browser(
-      "fill",
-      `${form} textarea`,
-      JSON.stringify({
-        deviceId,
-        actionId: "set_program_input",
-        params: { input: 3 },
-      }),
-    );
+    await browser("wait", "--fn", `Array.from(document.querySelectorAll('option')).some(option => option.value === ${JSON.stringify(deviceId)})`);
+    await browser("select", `${form} select >> nth=1`, deviceId);
+    await browser("select", `${form} select >> nth=2`, "set_program_input");
+    const parameterId = (await browser("eval", `Array.from(document.querySelectorAll(${JSON.stringify(`${form} label`)})).find(label => label.textContent.trim() === 'Input').htmlFor`)).result;
+    await browser("fill", `[id=${JSON.stringify(parameterId)}]`, "3");
+    await browser("set", "viewport", "320", "780");
+    await browser("scrollintoview", `[id=${JSON.stringify(parameterId)}]`);
+    assert.equal((await browser("eval", `document.querySelector(${JSON.stringify(form)}).scrollWidth <= document.querySelector(${JSON.stringify(form)}).clientWidth + 1`)).result, true);
+    await browser("screenshot", "/tmp/showpilot-device-cue-fields-320.png");
+    await browser("set", "viewport", "1440", "900");
     await browser(
       "find",
       "role",

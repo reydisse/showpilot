@@ -26,7 +26,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await browser("wait", "text=Start Internal Generator");
   const form = 'form:has(input[placeholder="00:05:00:00"])';
   for (const [action, second] of [["triggers-disable", 1], ["triggers-enable", 3]]) {
-    await browser("select", `${form} select`, action);
+    await browser("select", `${form} select >> nth=0`, action);
     await browser("fill", `${form} input[placeholder="00:05:00:00"]`, `00:00:0${second}:00`);
     assert.equal((await browser("eval", `document.querySelector(${JSON.stringify(form)}).querySelector('textarea') === null`)).result, true);
     if (action === "triggers-disable") {

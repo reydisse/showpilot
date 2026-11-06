@@ -7,6 +7,7 @@ afterEach(cleanup);
 const format = { frameRate: 30, dropFrame: "ndf" } as const;
 
 it.each([
+  { action: "rundown-start-item", field: "Rundown item", payload: { itemId: "target" }, label: "Start Message" },
   { action: "rundown-goto-item", field: "Rundown item", payload: { itemId: "target" }, label: "Jump to Message" },
   { action: "lighting-blackout", field: "Lighting device", payload: { deviceId: "target" }, label: "Blackout Message" },
 ])("saves a named $action target without raw JSON", async ({ action, field, payload, label }) => {
@@ -14,7 +15,7 @@ it.each([
   const loadTargets = vi.fn(async () => [{ id: "target", label: "Message" }]);
   render(<AutomationEventEditor connected format={format} onAdd={save} loadTargets={loadTargets} />);
   fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
-  fireEvent.change(screen.getByRole("combobox"), { target: { value: action } });
+  fireEvent.change(screen.getByLabelText("Action"), { target: { value: action } });
   expect(screen.getByRole("button", { name: "Add Event" })).toHaveProperty("disabled", true);
   await screen.findByRole("option", { name: "1. Message" });
   fireEvent.change(screen.getByLabelText(field), { target: { value: "target" } });
@@ -30,9 +31,9 @@ it("does not show stale targets after a keyed show change or a failed refresh", 
   const newLoad = vi.fn(async () => { throw new Error("Target list unavailable"); });
   const onAdd = vi.fn(async (_event: NewAutomationEvent) => {});
   const view = render(<AutomationEventEditor key="first-show" connected format={format} onAdd={onAdd} loadTargets={oldLoad} />);
-  fireEvent.change(screen.getByRole("combobox"), { target: { value: "rundown-goto-item" } });
+  fireEvent.change(screen.getByLabelText("Action"), { target: { value: "rundown-goto-item" } });
   view.rerender(<AutomationEventEditor key="second-show" connected format={format} onAdd={onAdd} loadTargets={newLoad} />);
-  fireEvent.change(screen.getByRole("combobox"), { target: { value: "rundown-goto-item" } });
+  fireEvent.change(screen.getByLabelText("Action"), { target: { value: "rundown-goto-item" } });
   await screen.findByText("Target list unavailable");
   await act(async () => release([{ id: "old", label: "Old show" }]));
   expect(screen.queryByRole("option", { name: /Old show/ })).toBeNull();
@@ -46,7 +47,7 @@ it("saves a structured crew message and preserves it after an unconfirmed save",
   const save = vi.fn(async (_event: NewAutomationEvent) => { throw new Error("Relay disconnected"); });
   render(<AutomationEventEditor connected format={format} onAdd={save} />);
   fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
-  fireEvent.change(screen.getByRole("combobox"), { target: { value: "crew-message" } });
+  fireEvent.change(screen.getByLabelText("Action"), { target: { value: "crew-message" } });
   fireEvent.change(screen.getByLabelText("Crew message"), { target: { value: "  Standby cameras\nCamera 2 next  " } });
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
   expect(save.mock.calls[0][0]).toMatchObject({ action: "crew-message", payload: { message: "Standby cameras\nCamera 2 next" } });
@@ -59,7 +60,7 @@ it("offers a named prop cue and preserves its fields when saving fails", async (
   const save = vi.fn(async (_event: NewAutomationEvent) => { throw new Error("Relay disconnected"); });
   render(<AutomationEventEditor connected format={format} onAdd={save} />);
   fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
-  fireEvent.change(screen.getByRole("combobox"), { target: { value: "pp-trigger-prop" } });
+  fireEvent.change(screen.getByLabelText("Action"), { target: { value: "pp-trigger-prop" } });
   fireEvent.change(screen.getByLabelText("Prop name"), { target: { value: " Standby " } });
   fireEvent.change(screen.getByLabelText("ProPresenter target (optional)"), { target: { value: "propresenter:venue.local:50001" } });
   expect(screen.queryByRole("textbox", { name: "Action details (JSON)" })).toBeNull();
@@ -71,12 +72,12 @@ it("offers a named prop cue and preserves its fields when saving fails", async (
   expect(save.mock.calls[1][0].id).toBe(save.mock.calls[0][0].id);
 });
 
-it.each(["pp-trigger-previous", "pp-clear-props", "lyrics-next-section", "lyrics-previous-section", "lyrics-clear"])("saves %s without carrying stale JSON or prop details", async action => {
+it.each(["pp-trigger-previous", "pp-clear-props", "lyrics-next-section", "lyrics-previous-section", "lyrics-clear"])("saves %s without carrying stale graphic or prop details", async action => {
   const save = vi.fn(async (_event: NewAutomationEvent) => {});
   render(<AutomationEventEditor connected format={format} onAdd={save} />);
   fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
-  fireEvent.change(document.querySelector("textarea")!, { target: { value: '{"action":"clear-all"}' } });
-  fireEvent.change(screen.getByRole("combobox"), { target: { value: action } });
+  fireEvent.change(screen.getByLabelText("First line"), { target: { value: "Old graphic text" } });
+  fireEvent.change(screen.getByLabelText("Action"), { target: { value: action } });
   expect(screen.queryByLabelText("Prop name")).toBeNull();
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
   expect(save.mock.calls[0][0]).toMatchObject({ action, payload: {} });
@@ -87,6 +88,7 @@ it("keeps the draft through a failed save and reuses its id until relay confirma
   let fail: (error: Error) => void = () => {};
   const save = vi.fn((_event: NewAutomationEvent) => new Promise<void>((resolve, reject) => { confirm = resolve; fail = reject; }));
   render(<AutomationEventEditor connected format={format} onAdd={save} />);
+  fireEvent.change(screen.getByLabelText("First line"), { target: { value: "Welcome" } });
   const timecode = screen.getByPlaceholderText("00:05:00:00");
   fireEvent.change(timecode, { target: { value: "00:00:10:00" } });
   fireEvent.change(screen.getByLabelText("Tolerance (frames)"), { target: { value: "13" } });
@@ -111,6 +113,7 @@ it("keeps the draft through a failed save and reuses its id until relay confirma
 it("validates cue lead before saving", async () => {
   const save = vi.fn(async (_event: NewAutomationEvent) => {});
   render(<AutomationEventEditor connected format={format} onAdd={save} />);
+  fireEvent.change(screen.getByLabelText("First line"), { target: { value: "Welcome" } });
   fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
   const input = screen.getByLabelText("Cue lead (ms)");
   for (const value of ["", "-1", "0.5", "60001"]) {
@@ -126,6 +129,7 @@ it("validates cue lead before saving", async () => {
 it("does not send or clear a draft while offline", () => {
   const save = vi.fn(async () => {});
   const { rerender } = render(<AutomationEventEditor connected format={format} onAdd={save} />);
+  fireEvent.change(screen.getByLabelText("First line"), { target: { value: "Welcome" } });
   const input = screen.getByPlaceholderText("00:05:00:00");
   fireEvent.change(input, { target: { value: "00:01:00:00" } });
   rerender(<AutomationEventEditor connected={false} format={format} onAdd={save} />);
@@ -138,6 +142,7 @@ it("does not send or clear a draft while offline", () => {
 it("uses the shared default, rejects invalid tolerance and saves exact zero", async () => {
   const save = vi.fn(async (_event: NewAutomationEvent) => {});
   render(<AutomationEventEditor connected format={format} onAdd={save} />);
+  fireEvent.change(screen.getByLabelText("First line"), { target: { value: "Welcome" } });
   const tolerance = screen.getByLabelText("Tolerance (frames)");
   expect(tolerance).toHaveProperty("value", "5");
   fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:01:00" } });
@@ -154,14 +159,12 @@ it("uses the shared default, rejects invalid tolerance and saves exact zero", as
   expect(tolerance).toHaveProperty("value", "5");
 });
 
-it.each(["triggers-disable", "triggers-enable"])("saves %s without stale JSON and explains the safety precedence", async action => {
+it.each(["triggers-disable", "triggers-enable"])("saves %s without stale graphic text and explains the safety precedence", async action => {
   const save = vi.fn(async (_event: NewAutomationEvent) => {});
   render(<AutomationEventEditor connected format={format} onAdd={save} />);
   fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
-  const details = document.querySelector("textarea");
-  if (!details) throw new Error("Missing initial JSON field");
-  fireEvent.change(details, { target: { value: "invalid JSON from the previous action" } });
-  fireEvent.change(screen.getByRole("combobox"), { target: { value: action } });
+  fireEvent.change(screen.getByLabelText("First line"), { target: { value: "Previous graphic" } });
+  fireEvent.change(screen.getByLabelText("Action"), { target: { value: action } });
   expect(document.querySelector("textarea")).toBeNull();
   expect(screen.getByText(/pause wins/)).toBeTruthy();
   if (action === "triggers-enable") expect(screen.getByText(/cannot override the safety kill switch/)).toBeTruthy();
@@ -173,7 +176,7 @@ it("saves named Start and Stop with structured fields, inline duration validatio
   const save = vi.fn(async (_event: NewAutomationEvent) => { throw new Error("Relay disconnected"); });
   render(<AutomationEventEditor connected format={format} onAdd={save} timerNames={["Speaker countdown"]} />);
   fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
-  fireEvent.change(screen.getByRole("combobox"), { target: { value: "timer-start" } });
+  fireEvent.change(screen.getByLabelText("Action"), { target: { value: "timer-start" } });
   fireEvent.change(screen.getByLabelText("Timer name"), { target: { value: " Speaker countdown " } });
   fireEvent.change(screen.getByLabelText("Duration (m:ss)"), { target: { value: "5:99" } });
   expect(screen.getByRole("button", { name: "Add Event" })).toHaveProperty("disabled", true);
@@ -193,7 +196,7 @@ it("edits metadata without forcing media reselection and preserves a rejected dr
   const editing = { ...baseEditingCue(), action: "media-play" as const, payload: { mediaId: "saved-media-123456", etag: "original-etag", output: "Program", volume: 0.75 } };
   const save = vi.fn(async (_event: NewAutomationEvent) => { throw new Error("The cue changed while you were editing."); });
   render(<AutomationEventEditor connected editing={editing} format={format} onAdd={save} />);
-  expect(screen.getByRole("combobox")).toHaveProperty("disabled", true);
+  expect(screen.getByLabelText("Action")).toHaveProperty("disabled", true);
   fireEvent.change(screen.getByLabelText("Label"), { target: { value: "Changed label" } });
   fireEvent.change(screen.getByLabelText("Tolerance (frames)"), { target: { value: "7" } });
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
@@ -237,7 +240,7 @@ it("offers a validated webhook URL field instead of JSON", async () => {
   const save = vi.fn(async (_event: NewAutomationEvent) => {});
   render(<AutomationEventEditor connected format={format} onAdd={save} />);
   fireEvent.change(screen.getByLabelText("Timecode (HH:MM:SS:FF)"), { target: { value: "00:00:10:00" } });
-  fireEvent.change(screen.getByRole("combobox"), { target: { value: "custom-webhook" } });
+  fireEvent.change(screen.getByLabelText("Action"), { target: { value: "custom-webhook" } });
   expect(document.querySelector("textarea")).toBeNull();
   const url = screen.getByLabelText("Webhook URL");
   fireEvent.change(url, { target: { value: "https://127.0.0.1/hook" } });
@@ -245,4 +248,59 @@ it("offers a validated webhook URL field instead of JSON", async () => {
   fireEvent.change(url, { target: { value: "https://example.com/hook" } });
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
   expect(save.mock.calls[0][0]).toMatchObject({ action: "custom-webhook", payload: { url: "https://example.com/hook" } });
+});
+
+
+it.each([
+  { action: "lower-third-show", field: "First line", value: "Welcome", payload: { type: "freetext", style: "default", line1: "Welcome", line2: "" } },
+  { action: "stage-message", field: "Stage message", value: "Stand by", payload: { message: "Stand by" } },
+  { action: "rundown-adjust", field: "Seconds to add or subtract", value: "-12.5", payload: { deltaMs: -12500 } },
+  { action: "rundown-adjust", field: "Seconds to add or subtract", value: "1.001", payload: { deltaMs: 1001 } },
+])("saves structured $action fields", async ({ action, field, value, payload }) => {
+  const save = vi.fn(async (_event: NewAutomationEvent) => {});
+  render(<AutomationEventEditor connected format={format} onAdd={save} />);
+  fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
+  fireEvent.change(screen.getByLabelText("Action"), { target: { value: action } });
+  fireEvent.change(screen.getByLabelText(field), { target: { value } });
+  expect(screen.queryByText("Action details (JSON)")).toBeNull();
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
+  expect(save).toHaveBeenCalledOnce();
+  expect(save.mock.calls[0][0]).toMatchObject({ action, payload });
+});
+
+
+it("preserves a legacy device target when only metadata changes", async () => {
+  const editing: import("@/types/timecode").AutomationEvent = { ...baseEditingCue(), action: "device-action", targetDeviceId: "saved-device", targetActionId: "saved-action", payload: { deviceId: "ignored-old-alias", actionId: "ignored-action", input: 3 } };
+  const save = vi.fn(async (_event: NewAutomationEvent) => {});
+  render(<AutomationEventEditor connected editing={editing} format={format} onAdd={save} />);
+  fireEvent.change(screen.getByLabelText("Label"), { target: { value: "Rename only" } });
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
+  expect(save).toHaveBeenCalledOnce();
+  expect(save.mock.calls[0][0]).toMatchObject({ payload: { deviceId: "saved-device", actionId: "saved-action", input: 3 } });
+});
+
+
+it.each(["0.0001", "86400.001", "-86400.001", ""])("rejects invalid adjustment seconds %s while typing", value => {
+  render(<AutomationEventEditor connected format={format} onAdd={async () => {}} />);
+  fireEvent.change(screen.getByLabelText("Timecode (HH:MM:SS:FF)"), { target: { value: "00:00:10:00" } });
+  fireEvent.change(screen.getByLabelText("Action"), { target: { value: "rundown-adjust" } });
+  fireEvent.change(screen.getByLabelText("Seconds to add or subtract"), { target: { value } });
+  expect(screen.getByRole("button", { name: "Add Event" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("status").textContent).toContain("three decimal places");
+});
+
+
+it.each([
+  { type: "person", payload: { name: "Ada", title: "Speaker" }, field: "Person name", value: "Grace", expected: { name: "Grace", title: "Speaker" } },
+  { type: "scripture", payload: { scripture: "Saved verse", translation: "KJV" }, field: "Scripture text", value: "Updated verse", expected: { scripture: "Updated verse", translation: "KJV" } },
+])("edits saved $type lower thirds without converting them to free text", async ({ type, payload, field, value, expected }) => {
+  const editing: import("@/types/timecode").AutomationEvent = { ...baseEditingCue(), action: "lower-third-show", payload: { ...payload, type, style: "minimal" } };
+  const save = vi.fn(async (_event: NewAutomationEvent) => {});
+  render(<AutomationEventEditor connected editing={editing} format={format} onAdd={save} />);
+  fireEvent.click(screen.getByLabelText("Change action details"));
+  expect(screen.getByLabelText("Lower third type")).toHaveProperty("value", type);
+  fireEvent.change(screen.getByLabelText(field), { target: { value } });
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
+  expect(save).toHaveBeenCalledOnce();
+  expect(save.mock.calls[0][0].payload).toEqual({ ...expected, type, style: "minimal" });
 });
