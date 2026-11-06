@@ -216,6 +216,16 @@ confidence rendering against a real 10 Hz local relay. Its foreground-emulation
 mode isolates rendering from OS focus changes; `smoke-timecode-clock.mjs` checks
 the source in a genuinely hidden tab separately.
 
+The internal generator resumes its held frame by default. To choose an offset,
+stop the source, select **Start at a specific timecode**, enter the SMPTE position,
+and confirm. The relay validates the reviewed show, frame rate, and held position
+again after device preparation. A late Stop, seek, or reformat cancels that start.
+The browser waits for the exact confirmed frame before feeding, including at
+drop-frame boundaries. Large moves retain automation's jump-review hold, and
+fired cues stay fired. The old browser-only millisecond start path is removed.
+`node apps/web/scripts/smoke-timecode-start-position.mjs` checks this flow in the
+built app, including exact first frames and Pause/Stop resume behavior.
+
 ### Kiosk and Companion token storage
 
 The token digest release keeps the existing `token` columns and stores a

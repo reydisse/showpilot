@@ -114,8 +114,9 @@ function TimecodePage() {
 
         {/* Large TC display */}
         <TimecodeSourceSelector
+          showId={timecode.showId}
           isMaster={isMaster}
-          connected={connected}
+          connected={connected && control !== "other"}
           pending={generatorPending}
           running={state?.running ?? false}
           totalFrames={state?.totalFrames ?? 0}

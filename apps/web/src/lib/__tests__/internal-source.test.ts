@@ -97,7 +97,7 @@ describe("internal timecode clock", () => {
     vi.stubGlobal("Worker", undefined);
     const emit = vi.fn();
     const source = new InternalTimecodeSource(formats[3], emit);
-    source.start(10_000);
+    source.startAtFrame(300);
     vi.advanceTimersByTime(1_000);
     expect(emit.mock.calls.length).toBeGreaterThanOrEqual(29);
     expect(emit.mock.calls.length).toBeLessThanOrEqual(31);
