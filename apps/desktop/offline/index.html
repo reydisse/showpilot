@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' asset:; script-src 'self'; style-src 'self'; connect-src https://app.showpilot.tech; img-src 'self' data: https://app.showpilot.tech" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' asset:; script-src 'self'; style-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost https://app.showpilot.tech; img-src 'self' data: https://app.showpilot.tech" />
     <title>ShowPilot Desktop</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -13,7 +13,7 @@
         <div class="brand-mark">SP</div>
         <p class="eyebrow">SHOWPILOT DESKTOP</p>
         <h1>Opening your production workspace…</h1>
-        <p class="muted">Checking the secure cloud connection and the latest local show snapshot.</p>
+        <p class="muted">Reading the local engine and checking the cloud connection.</p>
         <div class="spinner" aria-label="Loading"></div>
       </section>
     </main>

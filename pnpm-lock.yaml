@@ -134,6 +134,9 @@ importers:
       bun:
         specifier: 1.4.0
         version: 1.4.0
+      jsdom:
+        specifier: 27.4.0
+        version: 27.4.0(@noble/hashes@2.3.0)
 
   apps/landing:
     dependencies:

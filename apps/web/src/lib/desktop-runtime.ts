@@ -214,6 +214,12 @@ export async function cacheDesktopService(payload: unknown): Promise<string | nu
   });
 }
 
+export async function openDesktopLocalShow(): Promise<void> {
+  const core = getTauriCore();
+  if (!core) throw new Error("Local show control requires ShowPilot Desktop.");
+  await core.invoke("open_local_show");
+}
+
 export async function getDesktopBridgeStatus(): Promise<DesktopBridgeStatus | null> {
   const core = getTauriCore();
   if (!core) return null;

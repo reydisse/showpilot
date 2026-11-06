@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   checkUpdate: vi.fn(),
   installUpdate: vi.fn(),
   openWindow: vi.fn(),
+  openLocalShow: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -34,6 +35,7 @@ vi.mock("@/lib/desktop-runtime", async (importOriginal) => {
     installDesktopUpdate: mocks.installUpdate,
     isDesktopRuntime: () => true,
     openDesktopWindow: mocks.openWindow,
+    openDesktopLocalShow: mocks.openLocalShow,
     stopDesktopBridge: vi.fn().mockResolvedValue(undefined),
   };
 });
@@ -41,6 +43,7 @@ vi.mock("@/lib/desktop-runtime", async (importOriginal) => {
 describe("DesktopStatusBar", () => {
   beforeEach(() => {
     mocks.configure.mockReset();
+    mocks.openLocalShow.mockReset().mockResolvedValue(undefined);
     mocks.getBridgeStatus.mockReset().mockResolvedValue({ configured: false, running: false, connection: "offline", pid: null, logs: [], lastError: null });
     mocks.checkUpdate.mockReset().mockResolvedValue(null);
     mocks.installUpdate.mockReset().mockResolvedValue({ version: "0.1.4", notes: null, date: null });
@@ -141,4 +144,12 @@ describe("DesktopStatusBar", () => {
     expect(screen.getByRole("button", { name: "Restart required" }).hasAttribute("disabled")).toBe(true);
   });
 
+});
+
+it("opens the native local workspace and surfaces older-engine failures", async () => {
+  mocks.openLocalShow.mockRejectedValueOnce(new Error("Unsupported command"));
+  render(<DesktopStatusBar />);
+  fireEvent.click(screen.getByRole("button", { name: "Local show" }));
+  await screen.findByText("The local workspace could not open. Update ShowPilot Desktop and try again.");
+  expect(mocks.openLocalShow).toHaveBeenCalledTimes(1);
 });
