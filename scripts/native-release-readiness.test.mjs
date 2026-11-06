@@ -17,6 +17,17 @@ test("the repository satisfies every native release contract", () => {
   assert.deepEqual(findNativeReleaseIssues(snapshot()), []);
 });
 
+test("rejects a Windows release path that hides the unsigned fallback", () => {
+  for (const product of ["desktop", "bridge"]) {
+    const current = snapshot();
+    current.products[product].workflow = current.products[product].workflow.replace(
+      "UNSIGNED Windows build: Windows signing credentials are entirely absent.",
+      "Windows signing is optional.",
+    );
+    assert.ok(findNativeReleaseIssues(current).some((issue) => issue.includes("release workflow is missing")));
+  }
+});
+
 test("rejects platform jobs that bypass the signing preflight", () => {
   for (const product of ["desktop", "bridge"]) {
     const current = snapshot();

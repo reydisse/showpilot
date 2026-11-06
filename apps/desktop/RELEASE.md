@@ -27,20 +27,31 @@ we do not publish macOS downloads that Gatekeeper reports as damaged.
 
 ## One-time Windows setup
 
-Windows browser downloads must be Authenticode signed. Obtain a current code-
-signing certificate or trusted-signing service for the ShowPilot legal entity;
-do not publish an installer that asks operators to ignore SmartScreen.
+Windows browser downloads should be Authenticode signed. Obtain a current code-
+signing certificate or trusted-signing service for the ShowPilot legal entity.
 
-For the PFX workflow currently encoded in GitHub Actions, add:
+For the PFX workflow currently encoded in GitHub Actions, add all three of
+these secrets together:
 
 - `WINDOWS_CERTIFICATE`: the base64-encoded `.pfx`
 - `WINDOWS_CERTIFICATE_PASSWORD`: the `.pfx` export password
 - `WINDOWS_TIMESTAMP_URL`: the HTTP or HTTPS timestamp service supplied by the
   certificate issuer
 
-The Windows job imports the certificate, discovers its thumbprint, merges it
-into `ci-release.conf.json`, and refuses the release unless the application,
-EXE installer, and MSI installer all have valid Authenticode signatures.
+When all three are present and valid, the Windows job imports the certificate,
+discovers its thumbprint, merges it into `ci-release.conf.json`, and refuses
+the release unless the application, EXE installer, and MSI installer all have
+valid Authenticode signatures.
+
+When all three are absent, the same job builds an explicitly **unsigned**
+Windows installer. The log, Actions summary, release asset `WINDOWS-SIGNING.txt`,
+and the workflow artifact say `UNSIGNED Windows build: Windows signing
+credentials are entirely absent.` SmartScreen may warn. Do not describe that
+build as signed, and do not publish it as the signed production download.
+
+A partial set, a non-HTTP(S) timestamp URL, a certificate that is not valid
+base64, or a certificate import that has no private key fails the job. Those
+states are not converted into an unsigned build and are not reported as signed.
 
 ## Release a version
 
@@ -97,9 +108,11 @@ not use saved device configuration or connect to production equipment.
 
 ## Internal Windows test build
 
-Until the Windows signing credentials are configured, maintainers can manually
-run **Build Windows Desktop Test**. It publishes a clearly labeled, unsigned
-GitHub prerelease for internal installation testing only. The workflow does not
-create updater artifacts and the prerelease must never be added to the public
-download manifest or updater feed. Windows Defender SmartScreen may warn when a
-tester opens these installers.
+Until the Windows signing credentials are configured, a tagged Desktop release
+produces the unsigned Windows installers described above, with
+`WINDOWS-SIGNING.txt` attached to the draft release. Maintainers can also
+manually run **Build Windows Desktop Test** for an expiring Actions artifact.
+That test workflow does not publish a GitHub release. Neither unsigned path is
+the signed production download, and neither may be added to the public download
+manifest or updater feed as a signed installer. Windows Defender SmartScreen
+may warn when a tester opens these installers.
