@@ -125,7 +125,7 @@ describe("automation safety controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "Re-fire" }));
     expect(props.onRetryEvent).not.toHaveBeenCalled();
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Fire again" }));
-    expect(props.onRetryEvent).toHaveBeenCalledWith("Next item");
+    expect(props.onRetryEvent).toHaveBeenCalledWith("Next item", { fired: true, skipped: false, executionId: null });
   });
 
   it("disables mutation controls while disconnected", () => {
@@ -137,5 +137,17 @@ describe("automation safety controls", () => {
     expect(props.onResetEvents).not.toHaveBeenCalled();
     expect(props.onRemoveEvent).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("rejects a stale re-fire confirmation when the execution changes", () => {
+    const used = cue("Crew cue", { fired: true, executionStatus: "acknowledged", executionId: "first" });
+    const props = setup([used]);
+    fireEvent.click(screen.getByRole("button", { name: "Re-fire" }));
+    props.rerender({ events: [{ ...used, executionId: "second" }] });
+    expect(screen.getByText("The cue changed. Close this dialog and review its latest status.")).toBeTruthy();
+    const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "Fire again" });
+    expect(confirm).toHaveProperty("disabled", true);
+    fireEvent.click(confirm);
+    expect(props.onRetryEvent).not.toHaveBeenCalled();
   });
 });

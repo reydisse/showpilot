@@ -110,6 +110,7 @@ export type AutomationActionType =
   | "rundown-stop"
   | "rundown-adjust"
   | "stage-message"
+  | "crew-message"
   | "stage-clear"
   | "lighting-scene"
   | "lighting-blackout"

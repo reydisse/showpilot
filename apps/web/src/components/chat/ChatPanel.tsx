@@ -57,6 +57,14 @@ const MESSAGE_TYPES: { value: MessageType; label: string; icon: React.ReactNode 
 ];
 const MESSAGE_REACTIONS = QUICK_REACTION_EMOJIS;
 
+function ExternalDeliveryStatus({ delivery, alignRight = false }: { delivery: ChatMessage["externalDelivery"]; alignRight?: boolean }) {
+  if (!delivery) return null;
+  return <p role={delivery.status === "failed" ? "alert" : "status"} className={cn("mt-1 px-2 text-xs", alignRight && "text-right", delivery.status === "failed" ? "text-red-300" : "text-board-muted")}>
+    {delivery.status === "failed" ? `Not delivered to ${delivery.platform}: ${delivery.error ?? "gateway unavailable"}`
+      : delivery.status === "pending" ? `Sending to ${delivery.platform}…` : `Delivered to ${delivery.platform}`}
+  </p>;
+}
+
 function MessageTypeSelector({
   value,
   onChange,
@@ -215,7 +223,8 @@ function ChatMessageRow({
               <span className="truncate text-[10px] text-board-muted">{message.senderName}</span>
               <span className="ml-auto shrink-0 text-[9px] tabular-nums text-board-muted/50">{formatTimestamp(message.timestamp)}</span>
             </div>
-            <p className={cn("break-words [overflow-wrap:anywhere] text-[13px] leading-5", message.type === "alert" ? "font-medium text-red-100" : "text-amber-100")}>{message.text}</p>
+            <p className={cn("whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[13px] leading-5", message.type === "alert" ? "font-medium text-red-100" : "text-amber-100")}>{message.text}</p>
+            <ExternalDeliveryStatus delivery={message.externalDelivery} />
           </div>
         </div>
       </div>
@@ -332,8 +341,7 @@ function ChatMessageRow({
           {message.editedAt && !message.deletedAt ? <span>· edited</span> : null}
           {isSeen ? <span className="font-medium text-sky-300/75">· Seen</span> : null}
         </div>
-        {message.externalDelivery?.status === "pending" ? <p className={cn("mt-1 px-2 text-[9px] text-board-muted", isOwn && "text-right")}>Sending to {message.externalDelivery.platform}…</p> : null}
-        {message.externalDelivery?.status === "failed" ? <p className={cn("mt-1 px-2 text-[9px] text-red-300", isOwn && "text-right")}>Not delivered to {message.externalDelivery.platform}: {message.externalDelivery.error ?? "gateway unavailable"}</p> : null}
+        <ExternalDeliveryStatus delivery={message.externalDelivery} alignRight={isOwn} />
         {message.delivery ? <div className={cn("mt-1 flex items-center gap-2 px-2 text-[9px]", isOwn && "justify-end", message.delivery === "failed" ? "text-red-300" : "text-board-muted")}><span>{message.delivery === "waiting" ? "Waiting for connection" : message.delivery === "sending" ? "Sending…" : message.deliveryError ?? "Not sent"}</span>{message.delivery === "failed" && onRetryQueued ? <button type="button" onClick={() => onRetryQueued(message.id)} className="font-semibold text-fire-300 hover:underline">Retry</button> : null}{onCancelQueued ? <button type="button" onClick={() => onCancelQueued(message.id)} className="hover:text-board-text hover:underline">Cancel</button> : null}</div> : null}
         {!message.deletedAt && !message.delivery && <div className={cn(
           "z-10 mt-1 flex max-w-full shrink-0 self-start rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition [@media(hover:hover)]:absolute [@media(hover:hover)]:bottom-5 [@media(hover:hover)]:mt-0 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100",
