@@ -174,8 +174,7 @@ mode for `.dev.vars` values):
 ## D1 migrations
 
 Migrations are **hand-written sequential SQL files** in
-`apps/web/prisma/migrations/` named `000N_name.sql` (currently through
-`0039_auth_rate_limit.sql`). They deliberately do **not** use wrangler's
+`apps/web/prisma/migrations/` named `000N_name.sql`. They deliberately do **not** use wrangler's
 migrations-directory convention — never run `wrangler d1 migrations apply`.
 Nothing applies them automatically; the deploy workflow only *checks* and
 blocks.
@@ -313,9 +312,54 @@ database. Older local databases created with direct `wrangler d1 execute`
 commands have no runner history; continue applying explicit files there or use
 a fresh local state directory.
 
+### Phase 0 Bridge credential rollout
+
+Apply `0048_bridge_installation_credentials.sql` before deploying the Bridge
+credential changes. The SQL adds three tables and five named indexes. It does
+not alter existing settings or credentials, so the previous Worker can keep
+running after the schema change.
+
+Use the bookmark and migration procedure above. Before applying the file,
+confirm that none of its tables or indexes exists and that the foreign key
+check returns no rows. Count legacy keys without selecting their values:
+
+```sh
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT name, type FROM sqlite_master WHERE name LIKE 'bridge_%' ORDER BY name; SELECT COUNT(*) AS legacy_key_rows FROM app_setting WHERE key = 'api-key'; PRAGMA foreign_key_check;"
+```
+
+After applying the file, the schema query must return three tables and five
+named indexes. All three tables must be empty, the legacy key count must be
+unchanged, and the foreign key check must still return no rows:
+
+```sh
+pnpm exec wrangler d1 execute showpilot-db --remote --command="SELECT name, type FROM sqlite_master WHERE name LIKE 'bridge_%' ORDER BY name; SELECT (SELECT COUNT(*) FROM bridge_installation) AS installations, (SELECT COUNT(*) FROM bridge_credential) AS credentials, (SELECT COUNT(*) FROM bridge_credential_audit) AS audit_entries; SELECT COUNT(*) AS legacy_key_rows FROM app_setting WHERE key = 'api-key'; PRAGMA foreign_key_check;"
+```
+
+Only then append the filename to `applied-remote.txt`. Keep the preflight,
+bookmark, migration result, and postcondition output in the private release
+record outside the repository.
+
+After deployment, the Worker converts legacy keys to hashes on Bridge
+reconnection or in bounded scheduled batches. Existing Bridges keep using the
+same header credential. Conversion removes the plaintext setting. Verify that
+`legacy_key_rows` reaches zero without reading or logging credential values.
+Use a disposable test organization to check installation creation, rotation,
+revocation, and Bridge reconnects.
+
+**Rollback boundary:** before credential conversion, the previous Worker can
+use the unchanged settings with the additional tables present. After conversion,
+do not roll back to a Worker that only accepts the removed plaintext settings.
+Deploy a corrective build that retains installation authentication and the
+new schema. A database restore requires the explicit owner approval described
+above and can discard newer show data. Never recreate plaintext credentials
+from a backup as an automatic rollback step.
+
 ### Current state
 
-The production manifest records every migration through `0046_equipment_revision.sql`.
+The production manifest records every migration through `0048_bridge_installation_credentials.sql`.
+Migration 0048 was applied on 2026-11-05 after a clean preflight and a saved
+Time Travel bookmark. Its postcondition verified three empty tables, five
+named indexes, an unchanged legacy key count, and no foreign key violations.
 Migrations 0030 through 0035 were applied in order on 2026-08-28. Migrations
 0036 and 0037 were applied in order on 2026-09-10. Migrations 0038 and 0039
 were applied in order on 2026-09-18. Before each rollout, every

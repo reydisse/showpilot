@@ -52,3 +52,4 @@
 0045_checklist_entry_state.sql
 0046_equipment_revision.sql
 0047_crew_schedule_link_selection.sql
+0048_bridge_installation_credentials.sql
