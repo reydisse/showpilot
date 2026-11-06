@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   signing-values:
-    name: Report missing signing values
+    name: Report signing readiness
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -21,8 +21,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      # This dedicated readiness report may fail while ordinary CI and the
-      # unsigned test workflow continue to run without signing credentials.
+      # Apple and updater values remain mandatory. Windows credentials that
+      # are entirely absent select an explicitly unsigned Windows build.
+      # A partial or invalid Windows configuration fails this job.
       - name: Check required values before any native build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

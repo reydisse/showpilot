@@ -247,6 +247,10 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
       "WINDOWS_TIMESTAMP_URL",
       "Import-PfxCertificate",
       "Get-AuthenticodeSignature",
+      "node scripts/native-release-secrets.mjs --windows-mode",
+      "UNSIGNED Windows build: Windows signing credentials are entirely absent.",
+      "partial or invalid Windows signing configuration",
+      "NotSigned",
       `pnpm native:verify --product ${product} --tag`,
     ];
     const missingWorkflowFragments = includesEvery(
