@@ -1,0 +1,51 @@
+import { act, cleanup, renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { useCueSheetWrites } from "../useCueSheetWrites";
+const api = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/cue-sheet", () => ({ mutateCueSheet: api }));
+const operation = { kind: "note" as const, showId: "show", serviceDate: "2026-11-06", itemId: "item", columnId: "column", expectedText: "", text: "Original" };
+beforeEach(() => { vi.useFakeTimers(); api.mockReset(); api.mockImplementation(async ({ data }) => ({ requestId: data.requestId, outcome: "applied", currentText: "Original" })); });
+afterEach(() => { cleanup(); vi.useRealTimers(); });
+it("retains the exact note, base and receipt until explicit retry, without automatic replay",async()=>{
+  api.mockRejectedValueOnce(new Error("Response lost"));
+  const {result}=renderHook(()=>useCueSheetWrites("org")); const mutable=structuredClone(operation);
+  await act(async()=>{await result.current.run("cell",mutable);}); mutable.text="Changed after send";
+  expect(result.current.entries.get("cell")?.failure?.occurredAt).toBe(Date.now());
+  await act(async()=>{await vi.advanceTimersByTimeAsync(30_000);expect(await result.current.run("cell",mutable)).toBeNull();});
+  expect(api).toHaveBeenCalledOnce();
+  await act(async()=>{expect((await result.current.run("cell"))?.result.outcome).toBe("applied");});
+  expect(api.mock.calls[1][0].data).toEqual(api.mock.calls[0][0].data); expect(result.current.entries.size).toBe(0);
+});
+it("bounds stalled writes, leaves other cells editable, and ignores a late acknowledgement",async()=>{
+  let resolve!: (value:unknown)=>void; api.mockImplementationOnce(()=>new Promise(done=>{resolve=done;}));
+  const {result}=renderHook(()=>useCueSheetWrites("org"));
+  act(()=>{void result.current.run("first",operation);void result.current.run("first",operation);});
+  await act(async()=>{expect((await result.current.run("second",{...operation,columnId:"other"}))?.result.outcome).toBe("applied");});
+  expect(api).toHaveBeenCalledTimes(2);
+  await act(async()=>vi.advanceTimersByTimeAsync(10_000));
+  expect(api.mock.calls[0][0].signal.aborted).toBe(true); expect(result.current.entries.get("first")?.pending).toBe(false);
+  await act(async()=>resolve({requestId:api.mock.calls[0][0].data.requestId,outcome:"applied",currentText:"Late"}));
+  expect(result.current.entries.get("first")?.failure).not.toBeNull();
+});
+it("keeps conflicts for explicit review and cannot abandon an uncertain write",async()=>{
+  api.mockImplementationOnce(async({data})=>({requestId:data.requestId,outcome:"conflict",currentText:"Other operator"}));
+  const {result}=renderHook(()=>useCueSheetWrites("org"));
+  await act(async()=>{await result.current.run("cell",operation);});
+  const requestId=result.current.entries.get("cell")!.attempt.requestId;
+  await act(async()=>{expect(await result.current.run("cell")).toBeNull();}); expect(api).toHaveBeenCalledOnce();
+  act(()=>{expect(result.current.clearConflict("cell","wrong")).toBe(false);expect(result.current.clearConflict("cell",requestId)).toBe(true);});
+  api.mockRejectedValueOnce(new Error("Unknown outcome"));
+  await act(async()=>{await result.current.run("cell",{...operation,expectedText:"Other operator"});});
+  const uncertain=result.current.entries.get("cell")!.attempt.requestId;
+  act(()=>expect(result.current.clearConflict("cell",uncertain)).toBe(false));
+});
+it("checks acknowledgements and cancels old workspace writes on navigation",async()=>{
+  api.mockResolvedValueOnce({requestId:"other",outcome:"applied",currentText:"Wrong"});
+  const {result,rerender,unmount}=renderHook(({orgId})=>useCueSheetWrites(orgId),{initialProps:{orgId:"old"}});
+  await act(async()=>{expect(await result.current.run("cell",operation)).toBeNull();}); expect(result.current.entries.get("cell")?.failure).not.toBeNull();
+  let resolve!: (value:unknown)=>void; api.mockImplementationOnce(()=>new Promise(done=>{resolve=done;}));
+  act(()=>{void result.current.run("cell");}); rerender({orgId:"new"});
+  expect(api.mock.calls[1][0].signal.aborted).toBe(true); expect(result.current.entries.size).toBe(0);
+  await act(async()=>resolve({requestId:api.mock.calls[1][0].data.requestId,outcome:"applied",currentText:"Old"}));
+  expect(result.current.entries.size).toBe(0); unmount(); expect(vi.getTimerCount()).toBe(0);
+});

@@ -95,6 +95,7 @@ export function useCueSheetSync(options: Options) {
           ]);
           if (!current() || request !== pending || refreshAgain || awaitingSnapshot) return;
           for (const message of buffered) deliver(message);
+          if (refreshAgain) return;
           buffered = []; synchronized = true; attempts = 0;
           setState({ status: "connected", error: null });
         } catch (error) {
@@ -110,7 +111,10 @@ export function useCueSheetSync(options: Options) {
         }
       };
       retryConnection = () => {
-        if (current() && socket.readyState === WebSocket.OPEN && !awaitingSnapshot) void refresh();
+        if (current() && socket.readyState === WebSocket.OPEN && !awaitingSnapshot) {
+          if (request) refreshAgain = true;
+          else void refresh();
+        }
         else connect();
       };
       const awaitHydrate = () => {
