@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { createBridgeSettingsRecipient } from "../../../packages/shared/src/bridge-settings.mjs";
 import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
 const { WebSocket } = createRequire(new URL("../../bridge/package.json", import.meta.url))("ws");
-await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, operatorPassword, queryFixture }) => {
+await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, operatorPassword, queryFixture, stopServer, startServer }) => {
   const recipient = await createBridgeSettingsRecipient();
   const click = name => browser("find", "role", "button", "click", "--name", name, "--exact");
   const evaluate = async expression => (await browser("eval", expression)).result;
@@ -24,6 +24,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
     await browser("find", "label", "Port", "fill", "9910");
     await browser("select", 'label:has-text("Protocol") select', "atem");
     await click("Approve destination"); await browser("wait", "text=192.0.2.10:9910");
+    const openBridge = async () => {
     bridge = new WebSocket(`${origin.replace("http:", "ws:")}/api/bridge/${orgId}/ws?role=bridge`, { headers: { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "3", "x-showpilot-settings-key": recipient.publicKey } });
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("Fixture Bridge did not become active")), 10000);
@@ -42,6 +43,8 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
       });
     });
     bridge.on("close", (code, reason) => { closed = { code, reason: String(reason) }; });
+    };
+    await openBridge();
     heartbeat = setInterval(() => { if (bridge.readyState === WebSocket.OPEN) bridge.send(JSON.stringify({ type: "bridge-status", devices: 0, targets: [], version: "fixture" })); }, 2000);
     await browser("open", `${origin}/${orgId}/dashboard/devices`);
     await browser("click", 'button:text-is("Add Device") >> nth=0');
@@ -62,11 +65,23 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
     }
     assert.equal(await evaluate("[...document.querySelectorAll('[role=alert]')].some(el => el.textContent.includes('Fixture switcher refused connection'))"), true);
     await browser("wait", 'button:text-is("Retry connection")');
+    assert.equal(await evaluate("[...document.querySelectorAll('[role=alert] time')].some(el => Number.isFinite(Date.parse(el.dateTime)))"), true, "Failure must include a timestamp");
     await browser("screenshot", "/tmp/showpilot-device-connection-error.png");
     const before = attempts; acceptConnection = true;
     await click("Retry connection"); await browser("wait", 'button:text-is("Disconnect")');
     assert.ok(attempts > before);
     assert.equal(await evaluate("[...document.querySelectorAll('[role=alert]')].some(el => el.textContent.includes('Fixture switcher refused connection'))"), false);
-    console.log(JSON.stringify({ passed: true, nativeFailureReasonVisible: true, retryConnects: true, errorClearedAfterSuccess: true, physicalDeviceConnected: false, blankPortUsesAdapterDefault: true }));
+    const attemptsBeforeOutage = attempts;
+    await stopServer();
+    await browser("wait", 'text=Reconnecting.');
+    assert.equal(await evaluate("[...document.querySelectorAll('[role=alert] time')].some(el => Number.isFinite(Date.parse(el.dateTime)))"), true);
+    assert.equal(await evaluate("[...document.querySelectorAll('button')].some(el => el.textContent.trim() === 'Disconnect')"), false);
+    await browser("set", "viewport", "320", "740");
+    await browser("screenshot", "/tmp/showpilot-device-recovery-320.png");
+    await startServer(); await openBridge();
+    await browser("wait", 'button:text-is("Disconnect")');
+    assert.ok(attempts > attemptsBeforeOutage, "Device must reconnect after the venue Bridge is restored");
+    assert.equal(await evaluate("[...document.querySelectorAll('[role=alert]')].some(el => /Bridge connection|Command outcomes/.test(el.textContent))"), false);
+    console.log(JSON.stringify({ socketOutageVisible: true, timestampVisible: true, restoresWithoutPageReload: true, passed: true, nativeFailureReasonVisible: true, retryConnects: true, errorClearedAfterSuccess: true, physicalDeviceConnected: false, blankPortUsesAdapterDefault: true }));
   } finally { clearInterval(heartbeat); bridge?.terminate(); }
 });
