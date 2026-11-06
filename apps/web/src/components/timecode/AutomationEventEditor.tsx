@@ -1,4 +1,6 @@
 import { parseNamedTimerDuration } from "@/lib/named-timers";
+import { MediaCueFields } from "./MediaCueFields";
+import type { MediaAsset } from "@/lib/media-library";
 import { isTriggerControlAction } from "@/lib/automation-execution";
 import { automationPayloadProblem } from "@/lib/automation-payload";
 import { AutomationTargetPicker, type AutomationTargetOption, type LoadAutomationTargets } from "./AutomationTargetPicker";
@@ -20,6 +22,7 @@ interface AutomationEventEditorProps {
   connected: boolean;
   loadTargets?: LoadAutomationTargets;
   timerNames?: string[];
+  orgId?: string;
   format: import("@/types/timecode").TimecodeFormat;
 }
 
@@ -43,6 +46,8 @@ const ACTION_OPTIONS: {
   { value: "triggers-enable", label: "Resume Automatic Cues", category: "Automation" },
   { value: "timer-start", label: "Start Named Timer", category: "Timers" },
   { value: "timer-stop", label: "Stop Named Timer", category: "Timers" },
+  { value: "media-play", label: "Play Media", category: "Media" },
+  { value: "media-stop", label: "Stop Media", category: "Media" },
   { value: "crew-message", label: "Post to Production Chat", category: "Crew" },
   { value: "stage-clear", label: "Clear Stage Message", category: "Stage Display" },
   { value: "device-action", label: "Trigger Device Action", category: "Devices" },
@@ -61,7 +66,7 @@ const ACTION_OPTIONS: {
   { value: "custom-webhook", label: "Custom Webhook", category: "Other" },
 ];
 
-export function AutomationEventEditor({ onAdd, format, connected, loadTargets, timerNames = [] }: AutomationEventEditorProps) {
+export function AutomationEventEditor({ onAdd, format, connected, loadTargets, timerNames = [], orgId }: AutomationEventEditorProps) {
   const workspaceTerms = useWorkspaceTerms();
   const [tcString, setTcString] = useState("");
   const [action, setAction] = useState<AutomationActionType>("lower-third-show");
@@ -72,6 +77,11 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
   const [targetSelection, setTargetSelection] = useState<AutomationTargetOption | null>(null);
   const usesTargetPicker = action === "rundown-goto-item" || action === "lighting-blackout";
   const namedTimer = action === "timer-start" || action === "timer-stop";
+  const mediaAction = action === "media-play" || action === "media-stop";
+  const [mediaOutput, setMediaOutput] = useState("Program");
+  const [mediaAsset, setMediaAsset] = useState<MediaAsset | null>(null);
+  const [mediaVolume, setMediaVolume] = useState("100");
+  const mediaVolumeValid = mediaVolume.trim() !== "" && Number.isInteger(Number(mediaVolume)) && Number(mediaVolume) >= 0 && Number(mediaVolume) <= 100;
   const timerNameId = useId();
   const timerDurationId = useId();
   const [timerName, setTimerName] = useState("");
@@ -113,7 +123,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
 
     let payload: Record<string, unknown>;
     try {
-      const parsed: unknown = namedTimer ? { name: timerName.trim(), ...(action === "timer-start" ? { durationMs: timerDurationMs } : {}) } : action === "crew-message" ? { message: crewMessage.trim() } : stepsLyrics || controlsTriggers ? {} : usesTargetPicker
+      const parsed: unknown = mediaAction ? { output: mediaOutput.trim(), ...(action === "media-play" ? { mediaId: mediaAsset?.id, etag: mediaAsset?.etag, volume: mediaVolumeValid ? Number(mediaVolume) / 100 : null } : {}) } : namedTimer ? { name: timerName.trim(), ...(action === "timer-start" ? { durationMs: timerDurationMs } : {}) } : action === "crew-message" ? { message: crewMessage.trim() } : stepsLyrics || controlsTriggers ? {} : usesTargetPicker
         ? action === "rundown-goto-item" ? { itemId: targetSelection?.id } : { deviceId: targetSelection?.id }
         : structuredProPresenter
         ? { ...(action === "pp-trigger-prop" ? { propName: propName.trim() } : {}), ...(propTarget.trim() ? { target: propTarget.trim() } : {}) }
@@ -133,7 +143,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
       triggerTimecode: tc,
       action,
       payload,
-      label: label || (namedTimer ? `${action === "timer-start" ? "Start" : "Stop"} ${timerName.trim()}` : "") || (usesTargetPicker && targetSelection ? `${action === "rundown-goto-item" ? "Jump to" : "Blackout"} ${targetSelection.label}` : "") || ACTION_OPTIONS.find((o) => o.value === action)?.label || action,
+      label: label || (mediaAction ? action === "media-play" ? `Play ${mediaAsset?.name ?? "media"} on ${mediaOutput.trim()}` : `Stop media on ${mediaOutput.trim()}` : "") || (namedTimer ? `${action === "timer-start" ? "Start" : "Stop"} ${timerName.trim()}` : "") || (usesTargetPicker && targetSelection ? `${action === "rundown-goto-item" ? "Jump to" : "Blackout"} ${targetSelection.label}` : "") || ACTION_OPTIONS.find((o) => o.value === action)?.label || action,
       toleranceFrames,
       leadMs,
       category: ACTION_OPTIONS.find((o) => o.value === action)?.category,
@@ -231,7 +241,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
         {!toleranceValid && <p role="alert" className="mt-1 text-xs text-red-400">{toleranceError}</p>}
       </div>
 
-      {namedTimer ? <div className="space-y-3">
+      {mediaAction ? <MediaCueFields key={action} orgId={orgId} play={action === "media-play"} output={mediaOutput} onOutput={setMediaOutput} asset={mediaAsset} onAsset={setMediaAsset} volume={mediaVolume} onVolume={setMediaVolume} /> : namedTimer ? <div className="space-y-3">
         <div><label htmlFor={timerNameId} className="mb-1 block text-xs text-board-muted">Timer name</label>
           <input id={timerNameId} list={`${timerNameId}-options`} value={timerName} onChange={event => setTimerName(event.target.value)} maxLength={80} required className={INPUT_CLASS} placeholder="Speaker countdown" />
           <datalist id={`${timerNameId}-options`}>{timerNames.map(name => <option key={name} value={name} />)}</datalist>
@@ -282,7 +292,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
 
       <button
         type="submit"
-        disabled={!toleranceValid || !leadValid || (namedTimer && (!timerName.trim() || (action === "timer-start" && timerDurationMs === null))) || (usesTargetPicker && !targetSelection)}
+        disabled={!toleranceValid || !leadValid || (mediaAction && (!mediaOutput.trim() || (action === "media-play" && (!mediaAsset || !mediaVolumeValid)))) || (namedTimer && (!timerName.trim() || (action === "timer-start" && timerDurationMs === null))) || (usesTargetPicker && !targetSelection)}
         className="flex min-h-11 items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2 text-sm font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
       >
         <Plus className="w-3.5 h-3.5" />
