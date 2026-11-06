@@ -108,8 +108,7 @@ it("encrypts the mobile create/edit path, masks mobile reads, and resolves the s
   expect(edited.status).toBe(200);
   expect(JSON.parse(await stored(id, device.orgId)).password).toBe(JSON.parse(before).password);
   const resolved = await resolveTimecodeDeviceAction(env.DB, device.orgId, {
-    id: "cue", label: "OBS cue", action: "device-action", targetDeviceId: id, targetActionId: "start_streaming",
-    payload: {}, triggerTimecode: { hours: 0, minutes: 0, seconds: 1, frames: 0 }, enabled: true, fired: false, toleranceFrames: 5, triggerFrame: 30,
+    action: "device-action", targetDeviceId: id, targetActionId: "start_streaming", payload: {},
   }, binding);
   expect(resolved.connectionSettings.password).toBe("mobile-secret");
   expect(resolved.target).toBe("10.0.0.8:4455");

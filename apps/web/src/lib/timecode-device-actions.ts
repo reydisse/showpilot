@@ -52,7 +52,7 @@ async function resolveLightingDevice(db: D1Database, orgId: string): Promise<Tim
 export async function resolveTimecodeDeviceAction(
   db: D1Database,
   orgId: string,
-  event: AutomationEvent,
+  event: Pick<AutomationEvent, "action" | "payload" | "targetDeviceId" | "targetActionId">,
   encryptionKeys?: string,
 ): Promise<ResolvedTimecodeDeviceAction> {
   const deviceId = optionalString(
