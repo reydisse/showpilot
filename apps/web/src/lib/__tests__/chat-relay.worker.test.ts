@@ -1,5 +1,6 @@
+import { seedRelayMember } from "@/test/relay-fixtures";
 import { env } from "cloudflare:workers";
-import { abortAllDurableObjects, runDurableObjectAlarm } from "cloudflare:test";
+import { abortAllDurableObjects, evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 
 afterEach(async () => {
@@ -30,9 +31,15 @@ function nextFrame(socket: WebSocket, expectedType?: string): Promise<Record<str
 }
 
 async function openChat(orgId: string, roomId = "production", expectEmpty = true, userId = "user-1") {
+  const authority = await seedRelayMember(orgId, userId);
+  const url = (path: string) => {
+    const url = new URL(`https://chat.test${path}`);
+    url.search = new URLSearchParams({ orgId, room: roomId, userId, name: "Ava", role: "Producer", access: "write", authUserId: authority.userId, authSessionId: authority.sessionId }).toString();
+    return url;
+  };
   const stub = env.CHAT_RELAY.getByName(`${orgId}:${roomId}`);
   const response = await stub.fetch(new Request(
-    `https://chat.test/ws?orgId=${orgId}&room=${roomId}&userId=${encodeURIComponent(userId)}&name=Ava&role=Producer`,
+    url("/ws"),
     { headers: { Upgrade: "websocket" } },
   ));
   expect(response.status).toBe(101);
@@ -42,7 +49,7 @@ async function openChat(orgId: string, roomId = "production", expectEmpty = true
   const hydrationFrame = await hydration;
   expect(hydrationFrame.type).toBe("hydrate");
   if (expectEmpty) expect(hydrationFrame.messages).toEqual([]);
-  return { stub, socket: response.webSocket, hydration: hydrationFrame };
+  return { stub, socket: response.webSocket, hydration: hydrationFrame, url };
 }
 
 describe("ChatRelay threads", () => {
@@ -52,7 +59,8 @@ describe("ChatRelay threads", () => {
     socket.send(JSON.stringify({ type: "message", text: "My own message", clientMessageId: crypto.randomUUID() }));
     await mine;
     const incoming = nextFrame(socket, "message");
-    await stub.fetch(new Request("https://chat.test/send?orgId=unread-count-org", {
+    const sender = await seedRelayMember("unread-count-org", "user-2");
+    await stub.fetch(new Request(`https://chat.test/send?orgId=unread-count-org&access=write&userId=user-2&name=Sam&authUserId=${sender.userId}&authSessionId=${sender.sessionId}`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ senderId: "user-2", senderName: "Sam", text: "Incoming group message" }),
     }));
@@ -139,7 +147,7 @@ describe("ChatRelay threads", () => {
     const sent = nextFrame(member.socket, "message");
     member.socket.send(JSON.stringify({ type: "message", text: "Member original", clientMessageId: messageId }));
     await sent;
-    const response = await member.stub.fetch(new Request(`https://chat.test/ws?orgId=guest-ownership-org&room=production&userId=user-1&name=Guest&role=Guest&guestExpiresAt=${Date.now() + 60000}`, { headers: { Upgrade: "websocket" } }));
+    const response = await member.stub.fetch(new Request(`https://chat.test/internal/guest-ws?orgId=guest-ownership-org&room=production&userId=user-1&name=Guest&role=Guest&guestExpiresAt=${Date.now() + 60000}`, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } }));
     if (!response.webSocket) throw new Error("Missing guest socket");
     const guest = response.webSocket;
     const hydration = nextFrame(guest, "hydrate"); guest.accept(); await hydration;
@@ -155,7 +163,7 @@ describe("ChatRelay threads", () => {
   it("rejects a guest connection without a current expiry", async () => {
     const stub = env.CHAT_RELAY.getByName("expired-guest-org:production");
     for (const expiry of ["", "NaN", "0", String(Date.now() - 1)]) {
-      const response = await stub.fetch(new Request(`https://chat.test/ws?orgId=expired-guest-org&role=Guest&guestExpiresAt=${expiry}`, { headers: { Upgrade: "websocket" } }));
+      const response = await stub.fetch(new Request(`https://chat.test/internal/guest-ws?orgId=expired-guest-org&role=Guest&guestExpiresAt=${expiry}`, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } }));
       expect(response.status).toBe(401);
     }
   });
@@ -163,11 +171,12 @@ describe("ChatRelay threads", () => {
   it("closes an idle expired guest without closing the member connection", async () => {
     const member = await openChat("guest-expiry-org");
     const expiresAt = Date.now() + 150;
-    const response = await member.stub.fetch(new Request(`https://chat.test/ws?orgId=guest-expiry-org&role=Guest&guestExpiresAt=${expiresAt}`, { headers: { Upgrade: "websocket" } }));
+    const response = await member.stub.fetch(new Request(`https://chat.test/internal/guest-ws?orgId=guest-expiry-org&role=Guest&guestExpiresAt=${expiresAt}`, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } }));
     if (!response.webSocket) throw new Error("Missing guest socket");
     const guest = response.webSocket;
     const closed = new Promise<number>(resolve => guest.addEventListener("close", event => resolve(event.code), { once: true }));
     const hydration = nextFrame(guest, "hydrate"); guest.accept(); await hydration;
+    await evictDurableObject(member.stub);
     await new Promise(resolve => setTimeout(resolve, Math.max(0, expiresAt - Date.now() + 20)));
     await runDurableObjectAlarm(member.stub);
     await expect(closed).resolves.toBe(1008);
@@ -253,10 +262,10 @@ describe("ChatRelay threads", () => {
 
     const deliveryFrame = nextFrame(socket, "message-edited");
     const rootEvent = await stub.fetch(new Request(
-      "https://chat.test/external/import?orgId=slack-thread-org&room=production&access=external",
+      "https://chat.test/internal/external-import?orgId=slack-thread-org&room=production&access=external",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET },
         body: JSON.stringify({
           platform: "slack",
           message: {
@@ -278,10 +287,10 @@ describe("ChatRelay threads", () => {
 
     const replyFrame = nextFrame(socket, "message");
     const replyEvent = await stub.fetch(new Request(
-      "https://chat.test/external/import?orgId=slack-thread-org&room=production&access=external",
+      "https://chat.test/internal/external-import?orgId=slack-thread-org&room=production&access=external",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET },
         body: JSON.stringify({
           platform: "slack",
           message: {
@@ -307,10 +316,10 @@ describe("ChatRelay threads", () => {
     });
 
     const duplicateEvent = await stub.fetch(new Request(
-      "https://chat.test/external/import?orgId=slack-thread-org&room=production&access=external",
+      "https://chat.test/internal/external-import?orgId=slack-thread-org&room=production&access=external",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET },
         body: JSON.stringify({
           platform: "slack",
           message: {
@@ -327,10 +336,10 @@ describe("ChatRelay threads", () => {
 
     const editedFrame = nextFrame(socket, "message-edited");
     const editedEvent = await stub.fetch(new Request(
-      "https://chat.test/external/import?orgId=slack-thread-org&room=production&access=external",
+      "https://chat.test/internal/external-import?orgId=slack-thread-org&room=production&access=external",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET },
         body: JSON.stringify({
           platform: "slack",
           message: {
@@ -354,10 +363,10 @@ describe("ChatRelay threads", () => {
 
     const deletedFrame = nextFrame(socket, "message-deleted");
     const deletedEvent = await stub.fetch(new Request(
-      "https://chat.test/external/import?orgId=slack-thread-org&room=production&access=external",
+      "https://chat.test/internal/external-import?orgId=slack-thread-org&room=production&access=external",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET },
         body: JSON.stringify({
           platform: "slack",
           message: {
@@ -396,7 +405,7 @@ describe("ChatRelay threads", () => {
 
     for (let start = 0; start < 2_000; start += 100) {
       await Promise.all(Array.from({ length: 100 }, (_, offset) => firstConnection.stub.fetch(new Request(
-        `https://chat.test/send?orgId=${orgId}&room=${roomId}&access=write`,
+        firstConnection.url("/send"),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

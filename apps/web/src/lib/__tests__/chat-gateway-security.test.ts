@@ -27,6 +27,7 @@ import server from "../../server";
 
 const testEnv = {
   KIOSK_SECRET: "test-only-secret",
+  BETTER_AUTH_SECRET: "test-only-internal-secret",
   DB: {
     prepare: (sql: string) => ({
       bind: (...params: unknown[]) => ({
@@ -58,6 +59,14 @@ beforeEach(() => {
 });
 
 describe("chat gateway authority boundary", () => {
+  it.each(["internal/guest-ws", "internal/external-import", "external/import"])("does not expose %s to a caller", async path => {
+    const response = await server.fetch(new Request(`https://chat.test/api/chat/org/${path}?guestToken=valid`, {
+      headers: { "x-showpilot-internal-secret": "forged" },
+    }), testEnv, {});
+    expect(response.status).toBe(404);
+    expect(mocks.relay).not.toHaveBeenCalled();
+  });
+
   it("counts only the authenticated user's group rooms and accessible DMs", async () => {
     mocks.session.mockResolvedValue({ user: { id: "member-1", name: "Crew" } });
     mocks.access.mockResolvedValue({ role: "member", permissions: ["chat:access"] });
@@ -90,6 +99,8 @@ describe("chat gateway authority boundary", () => {
     expect(response.status).toBe(200);
     const forwarded: Request = mocks.relay.mock.calls[0][0];
     const params = new URL(forwarded.url).searchParams;
+    expect(new URL(forwarded.url).pathname).toBe("/internal/guest-ws");
+    expect(forwarded.headers.get("x-showpilot-internal-secret")).toBe(testEnv.BETTER_AUTH_SECRET);
     expect(params.get("userId")).toBeNull();
     expect(params.get("name")).toBe("Guest A");
     expect(params.get("role")).toBe("Guest");

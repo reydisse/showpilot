@@ -577,9 +577,10 @@
       "line": 110,
       "status": "pending",
       "evidence": [
-        "Partial: TimecodeRelay, LowerThirdsRelay and CueSheetRelay require live member/session permissions for writes. Real Worker tests cover missing, expired, revoked and wrong-user claims, hibernation, display projections and event-specific permissions.",
+        "Partial: TimecodeRelay, LowerThirdsRelay, CueSheetRelay and ChatRelay require live member/session permissions for writes. Real Worker tests cover missing, expired, revoked and wrong-user claims, hibernation, display projections and event-specific permissions.",
         "Lower-third automation and Companion use explicit internal trigger/clear paths protected by the Worker secret; public gateways never forward those paths. Actual timecode execution tests exercise the internal calls.",
-        "Remaining: close claimless rundown and chat paths, preserve authenticated guest and external-chat operations, then verify every relay before marking this requirement complete."
+        "Chat guest upgrades and Slack imports use narrow Worker-secret-protected paths. Guest claims preserve verified expiry across hibernation; legacy integration sockets cannot write. Built browser smoke-chat-authority.mjs verifies guest/member messages, HTTP attribution, open-socket revocation and expired passes.",
+        "Remaining: close claimless rundown paths and migrate its legitimate internal callers, then verify every relay before marking this requirement complete."
       ]
     },
     {
@@ -601,9 +602,10 @@
       "line": 112,
       "status": "pending",
       "evidence": [
-        "Partial: TimecodeRelay, LowerThirdsRelay and CueSheetRelay require live member/session permissions for writes. Real Worker tests cover missing, expired, revoked and wrong-user claims, hibernation, display projections and event-specific permissions.",
+        "Partial: TimecodeRelay, LowerThirdsRelay, CueSheetRelay and ChatRelay require live member/session permissions for writes. Real Worker tests cover missing, expired, revoked and wrong-user claims, hibernation, display projections and event-specific permissions.",
         "Lower-third automation and Companion use explicit internal trigger/clear paths protected by the Worker secret; public gateways never forward those paths. Actual timecode execution tests exercise the internal calls.",
-        "Remaining: close claimless rundown and chat paths, preserve authenticated guest and external-chat operations, then verify every relay before marking this requirement complete."
+        "Chat guest upgrades and Slack imports use narrow Worker-secret-protected paths. Guest claims preserve verified expiry across hibernation; legacy integration sockets cannot write. Built browser smoke-chat-authority.mjs verifies guest/member messages, HTTP attribution, open-socket revocation and expired passes.",
+        "Remaining: close claimless rundown paths and migrate its legitimate internal callers, then verify every relay before marking this requirement complete."
       ]
     },
     {
