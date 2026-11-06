@@ -14,6 +14,7 @@ async function fixture() {
   const tc: UseTimecodeReturn = {
     state: { showId: "show", source: "internal-freerun", format: { frameRate: 30, dropFrame: "ndf" }, running: false, timecode: { hours: 0, minutes: 0, seconds: 0, frames: 0 }, totalFrames: 0, display: "00:00:00:00", serverTime: 0, lyrics: null, triggersEnabled: true },
     connected: true, control: "yours", display: "00:00:00:00", events: [], isMaster: false, generatorPending: null, lastError: null, mtcSupported: true,
+    controlLyrics: vi.fn(async () => {}), lyricsPending: null, lyricsError: null,
     controller: { revision: 1, config: { ...emptyMidiController().config, input: { id: input.id, name: input.name, manufacturer: input.manufacturer }, output: { id: output.id, name: output.name, manufacturer: output.manufacturer }, feedback: "apc-mini-mk2", bindings: [
       { id: "next", input: { kind: "note", channel: 0, number: 0 }, action: { kind: "fire-next" } },
       { id: "scrub", input: { kind: "cc", channel: 0, number: 48 }, action: { kind: "scrub", frames: 90 } },
@@ -38,6 +39,18 @@ it("requires arming, suppresses held-pad repeats, and disarms immediately for a 
   act(() => { input.send([0x80, 0, 127]); input.send([0x90, 0, 127]); });
   expect(tc.fireNext).toHaveBeenCalledOnce();
   expect(screen.getByRole("button", { name: "Arm controller" })).toBeTruthy();
+});
+
+it("maps note presses to lyric stepping and suppresses a held footswitch", async () => {
+  const { tc, input, rerender } = await fixture();
+  rerender({ ...tc, controller: { revision: 2, config: { ...tc.controller.config, bindings: [
+    { id: "lyric-next", input: { kind: "note", channel: 0, number: 1 }, action: { kind: "lyrics-next" } },
+    { id: "lyric-previous", input: { kind: "note", channel: 0, number: 2 }, action: { kind: "lyrics-previous" } },
+  ] } } });
+  fireEvent.click(screen.getByRole("button", { name: "Reload saved mappings" }));
+  fireEvent.click(screen.getByRole("button", { name: "Arm controller" }));
+  await act(async () => { input.send([0x90, 1, 127]); input.send([0x90, 1, 127]); input.send([0x90, 2, 127]); });
+  expect(vi.mocked(tc.controlLyrics).mock.calls).toEqual([["next"], ["previous"]]);
 });
 it("cancels buffered fader movement on unplug, disarm, control loss and show changes", async () => {
   const { tc, input, access, rerender } = await fixture();

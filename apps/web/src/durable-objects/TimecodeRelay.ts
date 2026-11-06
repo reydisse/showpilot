@@ -34,6 +34,8 @@ import { z } from "zod";
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMECODE_COMMANDS, TIMECODE_FEED_STALL_MS as FEED_STALL_MS } from "@/types/timecode";
 import { automationPayloadProblem } from "@/lib/automation-payload";
 import { resolveLyricsStep } from "@/lib/lyrics-step.server";
+import { lyricsControlSchema, lyricsReviewMatches } from "@/lib/lyrics-control";
+import { withOperationTimeout } from "@/lib/operation-timeout";
 import { NamedTimerStore } from "@/lib/named-timer-store.server";
 import { MediaOutputManager, isMediaOutputSocket } from "@/lib/media-output.server";
 import { mediaPlaySchema, mediaStopSchema } from "@/lib/media-output";
@@ -609,6 +611,13 @@ export class TimecodeRelay extends DurableObject {
     const canWrite = url.searchParams.get("access") === "write"
       && authClaim !== null
       && await hasLivePermissionAuthority(this.env.DB, authClaim, "timecode:access");
+
+    if (url.pathname === "/lyrics-controls" && request.method === "GET") {
+      if (!canWrite) return new Response("Unauthorized", { status: 401 });
+      const owner = this.controlOwner();
+      return this.targetJson({ canControl: Boolean(owner && owner.attachment.authClaim?.sessionId === authClaim?.sessionId
+        && owner.attachment.authClaim?.userId === authClaim?.userId) });
+    }
 
     if (url.pathname === "/media-ws") {
       if (!canWrite) return new Response("Unauthorized", { status: 401 });
@@ -1349,10 +1358,37 @@ export class TimecodeRelay extends DurableObject {
           lyrics: payload.lyrics as string,
           nextLabel: typeof payload.nextLabel === "string" ? payload.nextLabel : "",
           updatedAt: Date.now(),
+          revision: crypto.randomUUID(),
           manual: true,
         };
         await this.persist();
         this.broadcastLyrics(this.state.lyrics);
+        this.broadcastState();
+        break;
+      }
+
+      case "control-lyrics": {
+        const parsed = lyricsControlSchema.safeParse(payload);
+        if (!parsed.success) throw new TimecodeCommandRejection("Review the displayed lyrics before changing the section.");
+        const current = this.state.lyrics;
+        if (!current || !lyricsReviewMatches(current, parsed.data.expected)) throw new TimecodeCommandRejection("Lyrics changed. Review the current section before trying again.");
+        const owner = this.controlOwner();
+        const claim = owner?.attachment.authClaim;
+        if (!claim || owner.attachment.sessionId !== sessionId) throw new TimecodeCommandRejection("Claim timecode control before changing lyrics.");
+        const deadline = Date.now() + 5_000;
+        let next: LyricsDisplayState | null;
+        try {
+          next = parsed.data.operation === "clear" ? null : await withOperationTimeout(
+            resolveLyricsStep(this.env.DB, this.orgId, current, parsed.data.operation), 5_000, "Song sections could not load in time. Try again.");
+          const allowed = await withOperationTimeout(hasLivePermissionAuthority(this.env.DB, claim, "timecode:access"),
+            Math.max(1, deadline - Date.now()), "Lyrics permission check timed out.");
+          if (!allowed) throw new Error("Timecode access changed. Sign in and check your permissions.");
+        } catch (error) { throw new TimecodeCommandRejection(error instanceof Error ? error.message : "The song section could not load."); }
+        if (Date.now() >= deadline || this.retired || this.controlOwner()?.socket !== owner.socket
+          || this.state.lyrics !== current) throw new TimecodeCommandRejection("Lyrics or timecode control changed. Review the display before trying again.");
+        this.state.lyrics = next ? { ...next, manual: true } : null;
+        await this.persist();
+        if (this.state.lyrics) this.broadcastLyrics(this.state.lyrics); else this.broadcast({ type: "lyrics-clear" });
         this.broadcastState();
         break;
       }
@@ -1728,6 +1764,7 @@ export class TimecodeRelay extends DurableObject {
           updatedAt: Date.now(),
           manual: event.payload.manual === true,
           generationKey: event.sourceKey,
+          revision: crypto.randomUUID(),
         } satisfies LyricsDisplayState;
         this.broadcastLyrics(this.state.lyrics);
         break;

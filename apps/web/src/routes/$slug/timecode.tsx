@@ -5,7 +5,10 @@ import { getBlackoutTargets } from "@/lib/automation-targets";
 import { getRundownState } from "@/lib/rundown";
 import type { AutomationTargetKind } from "@/components/timecode/AutomationTargetPicker";
 import { useWorkspace } from "@/components/workspace/WorkspaceProvider";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { LyricsControls } from "@/components/timecode/LyricsControls";
+import { ConfidenceSlide } from "@/components/confidence/ConfidenceSlide";
+import { readConfidenceLayout, CONFIDENCE_LAYOUT_KEY } from "@/lib/confidence-layout";
 import { createFileRoute } from "@tanstack/react-router";
 import { FileDown, Music2 } from "lucide-react";
 import { useShowTimecode, TimecodeShowPicker, TimecodeControlNotice } from "@/components/timecode/TimecodeContext";
@@ -39,6 +42,10 @@ function TimecodePage() {
   const { slug } = Route.useParams();
   const { orgId } = Route.useRouteContext() as { orgId: string };
   const { settings } = Route.useLoaderData();
+  const lyricsLayout = useMemo(() => {
+    const layout = readConfidenceLayout(settings[CONFIDENCE_LAYOUT_KEY]);
+    return { ...layout, contentMode: "lyrics" as const, lyrics: { ...layout.lyrics, showNext: false, showReference: false } };
+  }, [settings]);
 
   const timecode = useShowTimecode();
   const {
@@ -183,7 +190,15 @@ function TimecodePage() {
         />
 
         {state?.lyrics ? (
-          <div className="overflow-hidden rounded-xl border border-board-border bg-black"><div className="border-b border-white/10 px-4 py-3"><p className="text-xs font-semibold text-white">{state.lyrics.songTitle}</p><p className="text-[10px] uppercase tracking-wider text-amber-400">{state.lyrics.sectionLabel}</p></div><div className="flex min-h-48 items-center justify-center p-6 text-center"><p className="whitespace-pre-line text-2xl font-semibold leading-tight text-white">{state.lyrics.lyrics}</p></div><p className="border-t border-white/10 px-4 py-3 text-[10px] text-white/40">{state.lyrics.nextLabel ? `NEXT · ${state.lyrics.nextLabel}` : "END OF SONG"}</p></div>
+          <section aria-label="Live lyrics" className="overflow-hidden rounded-xl border border-board-border bg-black">
+            <div className="border-b border-white/10 px-4 py-3"><h2 className="text-sm font-semibold text-white">{state.lyrics.songTitle}</h2><p className="text-xs uppercase tracking-wider text-amber-400">{state.lyrics.sectionLabel}</p></div>
+            <div className="h-[clamp(15rem,40vh,32rem)] p-4 sm:p-6"><ConfidenceSlide layout={lyricsLayout} slide={{ text: state.lyrics.lyrics, slideId: state.lyrics.sectionId, presentationName: state.lyrics.songTitle, notes: "", isScripture: false }} /></div>
+            <div className="space-y-3 border-t border-white/10 px-4 py-3">
+              <p className="text-xs text-board-muted">{state.lyrics.nextLabel ? `NEXT · ${state.lyrics.nextLabel}` : "END OF SONG"}</p>
+              <LyricsControls enabled={connected && control === "yours"} pending={timecode.lyricsPending} error={timecode.lyricsError} onChange={timecode.controlLyrics} keyboard />
+              {control !== "yours" && <p className="text-xs text-board-muted">Take timecode control above to change lyrics.</p>}
+            </div>
+          </section>
         ) : null}
         <MediaLibrary key={orgId} orgId={orgId} />
       </div>
