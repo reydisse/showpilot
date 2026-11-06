@@ -11,3 +11,13 @@ export async function seedRelayMember(orgId: string, userId = `${orgId}-operator
   ]);
   return { userId, sessionId, orgId };
 }
+
+export async function withRelayMember(input: string | URL): Promise<URL> {
+  const url = new URL(input);
+  const orgId = url.searchParams.get("orgId");
+  if (!orgId) throw new Error("A relay fixture requires an organization");
+  const member = await seedRelayMember(orgId);
+  url.searchParams.set("authUserId", member.userId);
+  url.searchParams.set("authSessionId", member.sessionId);
+  return url;
+}

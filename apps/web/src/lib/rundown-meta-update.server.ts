@@ -1,3 +1,4 @@
+import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import { rundownRelayKey } from "@/lib/rundown-relay-key";
 
 export class RundownMetadataConflictError extends Error {
@@ -16,6 +17,7 @@ function sameInstant(left: string, right: string): boolean {
 export async function updateRundownMetadataThroughRelay(input: {
   env: {
     DB: D1Database;
+    BETTER_AUTH_SECRET?: string;
     RUNDOWN_RELAY?: DurableObjectNamespace<import("@/durable-objects/RundownRelay").RundownRelay>;
   };
   orgId: string;
@@ -62,7 +64,7 @@ export async function updateRundownMetadataThroughRelay(input: {
   const key = rundownRelayKey(input.orgId, input.serviceDate, input.serviceDate, input.showId);
   const relay = input.env.RUNDOWN_RELAY.get(input.env.RUNDOWN_RELAY.idFromName(key));
   const query = `orgId=${encodeURIComponent(input.orgId)}&serviceDate=${encodeURIComponent(input.serviceDate)}&showId=${encodeURIComponent(input.showId)}&access=edit`;
-  const stateResponse = await relay.fetch(new Request(`https://rundown.local/state?${query}`));
+  const stateResponse = await relay.fetch(rundownInternalRequest(`https://rundown.local/state?${query}`, input.env.BETTER_AUTH_SECRET));
   if (!stateResponse.ok) throw new Error("Live rundown editing is temporarily unavailable.");
   const state = await stateResponse.json<{ revision?: number }>();
   if (!Number.isSafeInteger(state.revision) || (state.revision ?? -1) < 0) {
@@ -73,7 +75,7 @@ export async function updateRundownMetadataThroughRelay(input: {
   // with either the database version here or the serialized relay command.
   await readExpectedVersion();
 
-  const response = await relay.fetch(new Request(`https://rundown.local/command?${query}`, {
+  const response = await relay.fetch(rundownInternalRequest(`https://rundown.local/command?${query}`, input.env.BETTER_AUTH_SECRET, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

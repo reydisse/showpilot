@@ -575,12 +575,13 @@
       "phase": "1",
       "section": "1.2 No claim means read only (audit C2)",
       "line": 110,
-      "status": "pending",
+      "status": "verified",
       "evidence": [
-        "Partial: TimecodeRelay, LowerThirdsRelay, CueSheetRelay and ChatRelay require live member/session permissions for writes. Real Worker tests cover missing, expired, revoked and wrong-user claims, hibernation, display projections and event-specific permissions.",
-        "Lower-third automation and Companion use explicit internal trigger/clear paths protected by the Worker secret; public gateways never forward those paths. Actual timecode execution tests exercise the internal calls.",
-        "Chat guest upgrades and Slack imports use narrow Worker-secret-protected paths. Guest claims preserve verified expiry across hibernation; legacy integration sockets cannot write. Built browser smoke-chat-authority.mjs verifies guest/member messages, HTTP attribution, open-socket revocation and expired passes.",
-        "Remaining: close claimless rundown paths and migrate its legitimate internal callers, then verify every relay before marking this requirement complete."
+        "All six production relays require explicit live authority for writes. Timecode, rundown, lower-third, cue-sheet and chat real Worker regressions cover missing/expired/revoked/mismatched member claims; Bridge tests cover missing client claims and current credential revocation after hibernation.",
+        "Rundown HTTP and WebSocket commands revalidate within the single-writer queue. Worker tests revoke membership while commands are queued and rotate a technical-manager PIN while its socket is open; all writes are rejected. Claimless requests cannot relabel/reset the room or receive operator projections.",
+        "Worker-owned rundown commands/state, graphics trigger/clear, chat guest upgrades and external imports use narrow secret-protected internal paths. Public gateways allow only public endpoints. Internal callers migrated across Bridge, timecode, Companion, mobile edits and metadata updates.",
+        "Verified guest chat claims retain expiry through hibernation. Legacy integration sockets cannot write. Built smoke-chat-authority.mjs verifies guest/member writes, HTTP attribution, open-socket revocation and expired passes.",
+        "Full web verification: 1287 unit tests, 180 real Worker tests, tsc and production build pass. Built smoke-show-day-safety.mjs, smoke-timecode-shows.mjs and smoke-display-access.mjs pass. Broadcast caching/out-of-band read revocation remains separately tracked in 1.3."
       ]
     },
     {
@@ -600,12 +601,13 @@
       "phase": "1",
       "section": "1.2 No claim means read only (audit C2)",
       "line": 112,
-      "status": "pending",
+      "status": "verified",
       "evidence": [
-        "Partial: TimecodeRelay, LowerThirdsRelay, CueSheetRelay and ChatRelay require live member/session permissions for writes. Real Worker tests cover missing, expired, revoked and wrong-user claims, hibernation, display projections and event-specific permissions.",
-        "Lower-third automation and Companion use explicit internal trigger/clear paths protected by the Worker secret; public gateways never forward those paths. Actual timecode execution tests exercise the internal calls.",
-        "Chat guest upgrades and Slack imports use narrow Worker-secret-protected paths. Guest claims preserve verified expiry across hibernation; legacy integration sockets cannot write. Built browser smoke-chat-authority.mjs verifies guest/member messages, HTTP attribution, open-socket revocation and expired passes.",
-        "Remaining: close claimless rundown paths and migrate its legitimate internal callers, then verify every relay before marking this requirement complete."
+        "All six production relays require explicit live authority for writes. Timecode, rundown, lower-third, cue-sheet and chat real Worker regressions cover missing/expired/revoked/mismatched member claims; Bridge tests cover missing client claims and current credential revocation after hibernation.",
+        "Rundown HTTP and WebSocket commands revalidate within the single-writer queue. Worker tests revoke membership while commands are queued and rotate a technical-manager PIN while its socket is open; all writes are rejected. Claimless requests cannot relabel/reset the room or receive operator projections.",
+        "Worker-owned rundown commands/state, graphics trigger/clear, chat guest upgrades and external imports use narrow secret-protected internal paths. Public gateways allow only public endpoints. Internal callers migrated across Bridge, timecode, Companion, mobile edits and metadata updates.",
+        "Verified guest chat claims retain expiry through hibernation. Legacy integration sockets cannot write. Built smoke-chat-authority.mjs verifies guest/member writes, HTTP attribution, open-socket revocation and expired passes.",
+        "Full web verification: 1287 unit tests, 180 real Worker tests, tsc and production build pass. Built smoke-show-day-safety.mjs, smoke-timecode-shows.mjs and smoke-display-access.mjs pass. Broadcast caching/out-of-band read revocation remains separately tracked in 1.3."
       ]
     },
     {
@@ -821,8 +823,10 @@
       "phase": "1",
       "section": "Phase 1 gate (all must pass before Phase 2)",
       "line": 169,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Actual Worker tests across all six relays reject claimless and revoked writes, including queued rundown commands and hibernation. Gateway tests discard client-supplied auth/access/role/key fields and public maintenance routes. Browser smoke verifies display projections, valid operator commands and revocation of an open chat socket. See timecode-authority.worker.test.ts, rundown-authority.worker.test.ts, graphics-authority.worker.test.ts, cue-sheet-authority.worker.test.ts, chat-authority.worker.test.ts, bridge-relay.worker.test.ts and display-gateway-security.test.ts."
+      ]
     },
     {
       "id": "08075d24c7d50999",

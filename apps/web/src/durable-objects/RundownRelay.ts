@@ -524,34 +524,54 @@ export class RundownRelay extends DurableObject {
       this.hydrationPromise = null;
       return Response.json({ ok: true });
     }
+    const internal = url.pathname === "/internal/command" || url.pathname === "/internal/state";
+    if (internal && (!this.env.BETTER_AUTH_SECRET
+      || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET
+      || request.method !== (url.pathname === "/internal/command" ? "POST" : "GET"))) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    const path = internal ? url.pathname.slice("/internal".length) : url.pathname;
     await this.hydrateFromStorage();
     await this.reconcileProPresenterOutputSetting();
     const serviceDate = url.searchParams.get("serviceDate");
     const showId = url.searchParams.get("showId");
     const access = url.searchParams.get("access");
+    const authClaim = this.readAuthorityClaim(url, request);
+    const writeAccess = access === "edit" || access === "control" ? access : null;
+    const authority = { writeAccess, authClaim } satisfies {
+      writeAccess: RundownRelayWriteAccess | null;
+      authClaim: LiveRundownAuthorityClaim | null;
+    };
+    const canWrite = writeAccess !== null && (internal || await this.socketCanWrite(authority));
+    const canObserve = access === "observe" && (internal || await this.socketCanObserve(authClaim));
     if (
-      (access === "edit" || access === "control") &&
+      canWrite &&
       ((showId && showId !== this.state.showId) ||
         (!showId && serviceDate && serviceDate !== this.state.serviceDate))
     ) {
-      // A room is active for one service at a time. Relabelling the old
-      // rows as a newly opened date made the cue sheet show a hybrid of
-      // two services. Empty first; the editor then seeds this date's D1 rows.
-      this.state.serviceDate = serviceDate ?? undefined;
-      this.state.showId = showId ?? undefined;
-      this.state.serviceName = undefined;
-      this.state.scheduledStartTime = undefined;
-      this.state.scheduledCallTime = undefined;
-      this.state.location = undefined;
-      this.state.initialized = false;
-      this.state.items = [];
-      this.state.timer = { ...DEFAULT_TIMER };
-      this.state.ppSlide = null;
-      this.state.ppPreviewSlide = null;
-      this.state.revision += 1;
-      this.state.recentCommandIds = [];
-      this.state.removedItems = [];
-      await this.persistState();
+      await this.commands.run(async () => {
+        if (!internal && !(await this.socketCanWrite(authority))) return;
+        if (!((showId && showId !== this.state.showId)
+          || (!showId && serviceDate && serviceDate !== this.state.serviceDate))) return;
+        // A room is active for one service at a time. Relabelling the old
+        // rows as a newly opened date made the cue sheet show a hybrid of
+        // two services. Empty first; the editor then seeds this date's D1 rows.
+        this.state.serviceDate = serviceDate ?? undefined;
+        this.state.showId = showId ?? undefined;
+        this.state.serviceName = undefined;
+        this.state.scheduledStartTime = undefined;
+        this.state.scheduledCallTime = undefined;
+        this.state.location = undefined;
+        this.state.initialized = false;
+        this.state.items = [];
+        this.state.timer = { ...DEFAULT_TIMER };
+        this.state.ppSlide = null;
+        this.state.ppPreviewSlide = null;
+        this.state.revision += 1;
+        this.state.recentCommandIds = [];
+        this.state.removedItems = [];
+        await this.persistState();
+      });
     }
 
     if (url.pathname === "/ws") {
@@ -559,12 +579,12 @@ export class RundownRelay extends DurableObject {
       const [client, server] = Object.values(pair);
       this.ctx.acceptWebSocket(server);
       server.serializeAttachment?.({
-        writeAccess: access === "edit" || access === "control" ? access : null,
-        canObserve: access === "observe",
+        writeAccess: canWrite ? writeAccess : null,
+        canObserve,
         orgId: this.orgId,
         serviceDate: serviceDate ?? null,
         showId: showId ?? null,
-        authClaim: this.readAuthorityClaim(url, request),
+        authClaim,
         displayExpiresAt: url.searchParams.has("authDisplayExpiresAt") ? Number(url.searchParams.get("authDisplayExpiresAt")) : undefined,
       });
 
@@ -572,7 +592,7 @@ export class RundownRelay extends DurableObject {
       server.send(
         JSON.stringify({
           type: "hydrate",
-          state: access === "edit" || access === "control" || access === "observe"
+          state: canWrite || canObserve
             ? this.getPublicState()
             : this.getDisplayState(),
         })
@@ -581,14 +601,14 @@ export class RundownRelay extends DurableObject {
       return new Response(null, { status: 101, webSocket: client });
     }
 
-    if (url.pathname === "/state") {
+    if (path === "/state") {
       return Response.json(
-        access === "read" ? this.getDisplayState() : this.getPublicState(),
+        canWrite || canObserve ? this.getPublicState() : this.getDisplayState(),
       );
     }
 
-    if (url.pathname === "/command" && request.method === "POST") {
-      if (access !== "edit" && access !== "control") {
+    if (path === "/command" && request.method === "POST") {
+      if (!canWrite || !writeAccess) {
         return new Response("Unauthorized", { status: 401 });
       }
       let rawBody: unknown;
@@ -598,10 +618,11 @@ export class RundownRelay extends DurableObject {
         return Response.json({ ok: false, reason: "invalid-command" }, { status: 400 });
       }
       const body = parseRundownRelayHttpCommand(rawBody);
-      if (!body || !canApplyRundownRelayAction(access, body.action)) {
+      if (!body || !canApplyRundownRelayAction(writeAccess, body.action)) {
         return Response.json({ ok: false, reason: "invalid-command" }, { status: 400 });
       }
       return this.commands.run(async () => {
+        if (!internal && !(await this.socketCanWrite(authority))) return new Response("Unauthorized", { status: 401 });
         const decision = classifyRelayCommand(
           this.state.revision,
           this.state.recentCommandIds,
@@ -667,18 +688,7 @@ export class RundownRelay extends DurableObject {
           }));
           return;
         }
-        if (!attachment?.writeAccess) return;
-        if (!(await this.socketCanWrite(attachment))) {
-          ws.send(JSON.stringify({
-            type: "command-result",
-            id: parsed.id,
-            accepted: false,
-            reason: "forbidden",
-            revision: this.state.revision,
-          }));
-          ws.close(4403, "Rundown access changed");
-          return;
-        }
+        if (!attachment?.writeAccess) { ws.close(4403, "Rundown write access required"); return; }
         if (!canApplyRundownRelayAction(attachment.writeAccess, parsed.action)) {
           ws.send(JSON.stringify({
             type: "command-result",
@@ -691,6 +701,17 @@ export class RundownRelay extends DurableObject {
         }
 
         await this.commands.run(async () => {
+          if (!(await this.socketCanWrite(attachment))) {
+            ws.send(JSON.stringify({
+              type: "command-result",
+              id: parsed.id,
+              accepted: false,
+              reason: "forbidden",
+              revision: this.state.revision,
+            }));
+            ws.close(4403, "Rundown access changed");
+            return;
+          }
           const decision = classifyRelayCommand(
             this.state.revision,
             this.state.recentCommandIds,
@@ -757,14 +778,18 @@ export class RundownRelay extends DurableObject {
     };
   }
 
+  private async socketCanObserve(claim: LiveRundownAuthorityClaim | null | undefined): Promise<boolean> {
+    return Boolean(claim && await hasLiveRundownAuthority(this.env.DB, claim, [
+      "show:view", "rundown:view", "rundown:edit", "cuesheet:view", "cuesheet:edit", "cuesheet:add_notes",
+    ]));
+  }
+
   private async socketCanWrite(attachment: {
     writeAccess?: RundownRelayWriteAccess | null;
     authClaim?: LiveRundownAuthorityClaim | null;
   }): Promise<boolean> {
     if (!attachment.writeAccess) return false;
-    // Internal/bridge calls do not carry a member session. Internet clients
-    // always receive a server-derived claim at the Worker gateway.
-    if (!attachment.authClaim) return true;
+    if (!attachment.authClaim) return false;
     return hasLiveRundownAuthority(
       this.env.DB,
       attachment.authClaim,
@@ -1273,7 +1298,8 @@ export class RundownRelay extends DurableObject {
       canObserve?: boolean;
       authClaim?: LiveRundownAuthorityClaim | null;
     } | null;
-    if (attachment?.writeAccess && !(await this.socketCanWrite(attachment))) {
+    if ((attachment?.writeAccess && !(await this.socketCanWrite(attachment)))
+      || (attachment?.canObserve && !(await this.socketCanObserve(attachment.authClaim)))) {
       ws.close(4403, "Rundown access changed");
       return;
     }

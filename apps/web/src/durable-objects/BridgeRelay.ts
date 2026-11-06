@@ -1,3 +1,4 @@
+import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import { getBridgeCredentialAuthority, recordBridgeWrite, type BridgeAuditAction } from "@/lib/bridge-credentials.server";
 import { parseRelayPPSlide } from "../lib/rundown-relay-payload";
 import { DurableObject } from "cloudflare:workers";
@@ -735,7 +736,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       const rdId = this.env.RUNDOWN_RELAY.idFromName(target.key);
       const rdStub = this.env.RUNDOWN_RELAY.get(rdId);
       await rdStub.fetch(
-        new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
+        rundownInternalRequest(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, this.env.BETTER_AUTH_SECRET, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -757,7 +758,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       const rdId = this.env.RUNDOWN_RELAY.idFromName(target.key);
       const rdStub = this.env.RUNDOWN_RELAY.get(rdId);
       await rdStub.fetch(
-        new Request(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
+        rundownInternalRequest(`https://rundown.local/command?orgId=${encodeURIComponent(this.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, this.env.BETTER_AUTH_SECRET, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

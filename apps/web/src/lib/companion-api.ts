@@ -1,3 +1,4 @@
+import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import { env } from "cloudflare:workers";
 import { z } from "zod";
 import { verifyCompanionToken } from "@/lib/companion-token";
@@ -126,7 +127,7 @@ async function rundownRelayCommand(
   const id = bindings.RUNDOWN_RELAY.idFromName(target.key);
   const stub = bindings.RUNDOWN_RELAY.get(id);
   const response = await stub.fetch(
-    new Request(`https://rundown.local/command?orgId=${encodeURIComponent(orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, {
+    rundownInternalRequest(`https://rundown.local/command?orgId=${encodeURIComponent(orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=control`, bindings.BETTER_AUTH_SECRET, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, payload }),
@@ -141,7 +142,7 @@ async function rundownRelayState(orgId: string, target: RundownTarget): Promise<
   const id = bindings.RUNDOWN_RELAY.idFromName(target.key);
   const stub = bindings.RUNDOWN_RELAY.get(id);
   const res = await stub.fetch(
-    new Request(`https://rundown.local/state?orgId=${encodeURIComponent(orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=observe`),
+    rundownInternalRequest(`https://rundown.local/state?orgId=${encodeURIComponent(orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=observe`, bindings.BETTER_AUTH_SECRET),
   );
   const data = (await res.json()) as Partial<RelayState>;
   return {

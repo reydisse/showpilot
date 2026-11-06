@@ -1,3 +1,4 @@
+import { withRelayMember } from "@/test/relay-fixtures";
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects, evictDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
@@ -52,7 +53,7 @@ async function command(
   access: "edit" | "control" = "edit",
 ) {
   const response = await relayFor(orgId).fetch(new Request(
-    `https://rundown.test/command?orgId=${orgId}&serviceDate=${serviceDate}&access=${access}`,
+    await withRelayMember(`https://rundown.test/command?orgId=${orgId}&serviceDate=${serviceDate}&access=${access}`),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -65,7 +66,7 @@ async function command(
 
 async function state(orgId: string): Promise<Record<string, unknown>> {
   const response = await relayFor(orgId).fetch(new Request(
-    `https://rundown.test/state?orgId=${orgId}&serviceDate=${serviceDate}&access=observe`,
+    await withRelayMember(`https://rundown.test/state?orgId=${orgId}&serviceDate=${serviceDate}&access=observe`),
   ));
   return response.json<Record<string, unknown>>();
 }
@@ -141,7 +142,7 @@ describe("RundownRelay live authority", () => {
     await createOrg(orgId);
     await command(orgId, "stage-message", { message: "Delete this show" });
     const response = await relayFor(orgId).fetch(new Request(
-      `https://rundown.test/ws?orgId=${orgId}&serviceDate=${serviceDate}&showId=show-1&access=observe`,
+      await withRelayMember(`https://rundown.test/ws?orgId=${orgId}&serviceDate=${serviceDate}&showId=show-1&access=observe`),
       { headers: { Upgrade: "websocket" } },
     ));
     if (!response.webSocket) throw new Error("Rundown upgrade did not return a WebSocket");
@@ -154,7 +155,7 @@ describe("RundownRelay live authority", () => {
     });
 
     const purged = await relayFor(orgId).fetch(new Request(
-      `https://rundown.test/internal/purge-show?orgId=${orgId}&showId=show-1&serviceDate=${serviceDate}`,
+      await withRelayMember(`https://rundown.test/internal/purge-show?orgId=${orgId}&showId=show-1&serviceDate=${serviceDate}`),
       { method: "POST", headers: { "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" } },
     ));
     expect(purged.status).toBe(200);
@@ -167,7 +168,7 @@ describe("RundownRelay live authority", () => {
     await createOrg(orgId);
     await command(orgId, "stage-message", { message: "Delete me" });
     const response = await relayFor(orgId).fetch(new Request(
-      `https://rundown.test/ws?orgId=${orgId}&serviceDate=${serviceDate}&access=observe`,
+      await withRelayMember(`https://rundown.test/ws?orgId=${orgId}&serviceDate=${serviceDate}&access=observe`),
       { headers: { Upgrade: "websocket" } },
     ));
     if (!response.webSocket) throw new Error("Rundown upgrade did not return a WebSocket");
@@ -180,13 +181,13 @@ describe("RundownRelay live authority", () => {
     });
 
     const denied = await relayFor(orgId).fetch(new Request(
-      `https://rundown.test/internal/purge-org?orgId=${orgId}`,
+      await withRelayMember(`https://rundown.test/internal/purge-org?orgId=${orgId}`),
       { method: "POST" },
     ));
     expect(denied.status).toBe(401);
 
     const purged = await relayFor(orgId).fetch(new Request(
-      `https://rundown.test/internal/purge-org?orgId=${orgId}`,
+      await withRelayMember(`https://rundown.test/internal/purge-org?orgId=${orgId}`),
       {
         method: "POST",
         headers: { "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" },
@@ -289,7 +290,7 @@ describe("RundownRelay running order matches confidence displays", () => {
     const before = await state(orgId);
     const post = async (id: string, expiresAt: number) => {
       const response = await relayFor(orgId).fetch(new Request(
-        `https://rundown.test/command?orgId=${orgId}&serviceDate=${serviceDate}&access=control`,
+        await withRelayMember(`https://rundown.test/command?orgId=${orgId}&serviceDate=${serviceDate}&access=control`),
         { method: "POST", body: JSON.stringify({ action: "timer-next", id, expiresAt, expectedRevision: before.revision }) },
       ));
       return { status: response.status, body: await response.json() };
@@ -298,7 +299,7 @@ describe("RundownRelay running order matches confidence displays", () => {
     expect(await state(orgId)).toMatchObject({ revision: before.revision, timer: { playback: "stop" } });
 
     const response = await relayFor(orgId).fetch(new Request(
-      `https://rundown.test/ws?orgId=${orgId}&serviceDate=${serviceDate}&access=control`,
+      await withRelayMember(`https://rundown.test/ws?orgId=${orgId}&serviceDate=${serviceDate}&access=control`),
       { headers: { Upgrade: "websocket" } },
     ));
     if (!response.webSocket) throw new Error("Missing rundown socket");
