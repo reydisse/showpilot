@@ -1,3 +1,4 @@
+import { RundownHandoffNotice } from "./RundownHandoffNotice";
 import { RuntimeErrorNotice } from "./RuntimeErrorNotice";
 import { Link } from "@tanstack/react-router";
 import { SidebarProvider } from "./SidebarContext";
@@ -37,6 +38,7 @@ export function AppShell({
           <DesktopStatusBar orgId={orgId} />
           <MobileHeader />
           {orgId && <RuntimeErrorNotice orgId={orgId} />}
+          {orgId && slug && <RundownHandoffNotice orgId={orgId} slug={slug} />}
           {showLiveRundown && orgId && slug ? (
             <LiveRundownBar orgId={orgId} slug={slug} canControl={canControlRundown} />
           ) : null}
