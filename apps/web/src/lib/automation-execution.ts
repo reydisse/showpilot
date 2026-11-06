@@ -19,6 +19,9 @@ export function automationOutput(event: AutomationEvent): string {
     case "stage-clear": return "rundown";
     case "pp-trigger-slide":
     case "pp-trigger-next":
+    case "pp-trigger-previous":
+    case "pp-trigger-prop":
+    case "pp-clear-props":
     case "pp-trigger-clear": return "propresenter";
     case "device-action":
     case "lighting-scene": {

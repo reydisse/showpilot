@@ -1,3 +1,4 @@
+import { proPresenterPayloadProblem } from "@/lib/automation-propresenter";
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES } from "@/types/timecode";
 import { isValidTimingMs, MAX_AUTOMATION_LEAD_MS } from "@/lib/automation-timing";
 import { workspaceCopy } from "@showpilot/shared";
@@ -39,6 +40,9 @@ const ACTION_OPTIONS: {
   { value: "lyrics-clear", label: "Clear Lyrics", category: "Lyrics" },
   { value: "pp-trigger-slide", label: "Trigger ProPresenter Slide", category: "Lyrics" },
   { value: "pp-trigger-next", label: "Next ProPresenter Slide", category: "Lyrics" },
+  { value: "pp-trigger-previous", label: "Previous ProPresenter Slide", category: "Lyrics" },
+  { value: "pp-trigger-prop", label: "Trigger ProPresenter Prop", category: "ProPresenter" },
+  { value: "pp-clear-props", label: "Clear ProPresenter Props", category: "ProPresenter" },
   { value: "pp-trigger-clear", label: "Clear ProPresenter Slide", category: "Lyrics" },
   { value: "custom-webhook", label: "Custom Webhook", category: "Other" },
 ];
@@ -49,6 +53,11 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
   const [action, setAction] = useState<AutomationActionType>("lower-third-show");
   const [label, setLabel] = useState("");
   const [payloadJson, setPayloadJson] = useState("{}");
+  const propNameId = useId();
+  const targetId = useId();
+  const [propName, setPropName] = useState("");
+  const [propTarget, setPropTarget] = useState("");
+  const structuredProPresenter = action === "pp-trigger-prop" || action === "pp-clear-props" || action === "pp-trigger-previous";
   const toleranceId = useId();
   const leadId = useId();
   const [leadText, setLeadText] = useState("0");
@@ -78,7 +87,9 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
 
     let payload: Record<string, unknown>;
     try {
-      const parsed: unknown = JSON.parse(payloadJson);
+      const parsed: unknown = structuredProPresenter
+        ? { ...(action === "pp-trigger-prop" ? { propName: propName.trim() } : {}), ...(propTarget.trim() ? { target: propTarget.trim() } : {}) }
+        : JSON.parse(payloadJson);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Expected an object");
       payload = Object.fromEntries(Object.entries(parsed));
     } catch {
@@ -86,6 +97,8 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
       return;
     }
 
+    const payloadProblem = proPresenterPayloadProblem(action, payload);
+    if (payloadProblem) { setError(payloadProblem); return; }
     const draft: NewAutomationEvent = {
       enabled: true,
       triggerTimecode: tc,
@@ -101,7 +114,7 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
     setSaving(true);
     try {
       await onAdd({ ...draft, id: attemptRef.current.id });
-      setTcString(""); setLabel(""); setPayloadJson("{}"); setToleranceText(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES)); setLeadText("0"); attemptRef.current = null;
+      setTcString(""); setLabel(""); setPayloadJson("{}"); setPropName(""); setPropTarget(""); setToleranceText(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES)); setLeadText("0"); attemptRef.current = null;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Save was not confirmed. Your changes have been kept.");
     } finally { setSaving(false); }
@@ -189,7 +202,19 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
         {!toleranceValid && <p role="alert" className="mt-1 text-xs text-red-400">{toleranceError}</p>}
       </div>
 
-      <div>
+      {structuredProPresenter ? <div className="space-y-3">
+        {action === "pp-trigger-prop" && <div>
+          <label htmlFor={propNameId} className="mb-1 block text-xs text-board-muted">Prop name</label>
+          <input id={propNameId} value={propName} onChange={event => setPropName(event.target.value)} required maxLength={200} className={INPUT_CLASS} />
+          <p className="mt-1 text-xs text-board-muted">Use the exact name in ProPresenter. Clear existing props, wait 200 ms, then trigger this prop. Slides and other layers stay visible.</p>
+        </div>}
+        <div>
+          <label htmlFor={targetId} className="mb-1 block text-xs text-board-muted">ProPresenter target (optional)</label>
+          <input id={targetId} value={propTarget} onChange={event => setPropTarget(event.target.value)} placeholder="propresenter:192.168.1.20:50001" className={INPUT_CLASS} />
+          <p className="mt-1 text-xs text-board-muted">Leave blank when only one ProPresenter is connected. Otherwise, use its connected target address.</p>
+        </div>
+        {action === "pp-clear-props" && <p className="text-xs text-board-muted">Clears only the props layer.</p>}
+      </div> : <div>
         <label className="text-[10px] text-board-muted uppercase tracking-wider mb-1 block">
           Action details (JSON)
         </label>
@@ -202,9 +227,9 @@ export function AutomationEventEditor({ onAdd, format, connected }: AutomationEv
         <p className="mt-1 text-[10px] leading-4 text-board-muted">
           {action === "stage-message" ? 'Use {"message":"Stand by"}.' : action === "rundown-adjust" ? 'Use {"deltaMs":30000} to add 30 seconds.' : action === "device-action" || action === "lighting-scene" ? "Include the device/action identifiers configured in Devices." : action === "custom-webhook" ? 'Use {"url":"https://…"}.' : "No details are required for this action."}
         </p>
-      </div>
+      </div>}
 
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
 
       <button
         type="submit"
