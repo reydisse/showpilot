@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deleteCredential, readCredential, writeCredential } from "../dist/credential-store.js";
 import { loadConfigFile, saveConfigFile } from "../dist/setup-server.js";
+import { LocalShowStore } from "../dist/local-show-store.js";
 
 const reference = `showpilot-smoke-${randomUUID()}`;
 const firstKey = `sp_${randomUUID()}`;
@@ -67,8 +68,30 @@ try {
   const migrated = readFileSync(configPath, "utf8");
   loadConfigFile(directory);
   assert.equal(readFileSync(configPath, "utf8"), migrated);
+
+  // The local show contains private device settings and operator progress.
+  // Exercise the compiled store against the real OS vault in two processes.
+  const showPath = join(directory, "local-show.json");
+  const localShow = { fixture: true, password: stagePassword, sequence: 0 };
+  const store = new LocalShowStore(showPath);
+  store.save(localShow);
+  const envelope = readFileSync(showPath, "utf8");
+  const showKey = JSON.parse(envelope).keyReference;
+  references.add(showKey);
+  assert.equal(envelope.includes(stagePassword), false);
+  assert.equal(envelope.includes(readCredential(showKey)), false);
+  await promisify(execFile)(process.execPath, ["--input-type=module", "-e", `
+    import { LocalShowStore } from ${JSON.stringify(new URL("../dist/local-show-store.js", import.meta.url).href)};
+    const store = new LocalShowStore(process.env.SHOWPILOT_SMOKE_LOCAL_SHOW);
+    const saved = store.load();
+    if (saved?.password !== process.env.SHOWPILOT_SMOKE_PASSWORD || saved?.sequence !== 0) throw new Error('Encrypted show did not survive process restart');
+    store.save({...saved,sequence:1});
+  `], { env: { ...process.env, SHOWPILOT_SMOKE_LOCAL_SHOW: showPath, SHOWPILOT_SMOKE_PASSWORD: stagePassword }, timeout: 15_000 });
+  assert.deepEqual(store.load(), { ...localShow, sequence: 1 });
+  deleteCredential(showKey);
+  assert.throws(() => new LocalShowStore(showPath).load(), /could not be verified/);
 } finally {
   for (const entry of references) deleteCredential(entry);
   rmSync(directory, { recursive: true, force: true });
 }
-console.log("Standalone Bridge OS vault and configuration: restart, password replacement/clearing, key-only migration and cleanup passed.");
+console.log("Standalone Bridge OS vault, configuration and encrypted local show: cross-process recovery, password replacement/clearing, key-only migration, missing-key rejection and cleanup passed.");
