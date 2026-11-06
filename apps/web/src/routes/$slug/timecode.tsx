@@ -115,6 +115,7 @@ function TimecodePage() {
           signal={state?.signal}
           source={state?.source}
           format={state?.format ?? { frameRate: 30, dropFrame: "ndf" }}
+          incomingFormat={state?.incomingFormat}
           mtcSupported={mtcSupported}
           onStartFreerun={startFreerun}
           onStopGenerator={stopGenerator}

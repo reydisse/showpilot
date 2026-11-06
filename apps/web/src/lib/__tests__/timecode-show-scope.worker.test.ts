@@ -177,7 +177,8 @@ describe("show-scoped timecode rooms", () => {
       expect(await response.json()).toMatchObject({stageMessage:expected});
     }
     // A format change must not make the acknowledged cue eligible again.
-    await morning.command("set-format",{format:{frameRate:25,dropFrame:"ndf"}});
+    await morning.command("stop");
+    await morning.command("set-format",{format:{frameRate:25,dropFrame:"ndf"},expectedFormat:{frameRate:30,dropFrame:"ndf"},confirmed:true});
     expect(await morning.events()).toEqual([expect.objectContaining({fired:true,executionStatus:"acknowledged"})]);
     await morning.command("feed-tc",{timecode:cue.triggerTimecode,format:{frameRate:30,dropFrame:"ndf"}});
     expect(await morning.events()).toEqual([expect.objectContaining({fired:true,executionAttempts:1})]);

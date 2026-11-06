@@ -15,7 +15,7 @@ import type {
   TimecodeDisplayState,
   TimecodeControlStatus,
 } from "@/types/timecode";
-import { isLargeTimecodeJump, framesToTimecode, crossedTriggerFrame, isSafeAutomationWebhookUrl, isValidTimecode, isValidTimecodeFormat, replaceAutomationEventGroup, timecodeToFrames, timecodeToString } from "@/lib/timecode";
+import { sameTimecodeFormat, normalizeTimecodeForFormat, isLargeTimecodeJump, framesToTimecode, crossedTriggerFrame, isSafeAutomationWebhookUrl, isValidTimecode, isValidTimecodeFormat, replaceAutomationEventGroup, timecodeToFrames, timecodeToString } from "@/lib/timecode";
 import {
   appendWebhookEvent,
   sanitizePayloadSummary,
@@ -105,14 +105,17 @@ interface LegacyTimecodeExport { target: TimecodeTarget; snapshot: TimecodeSnaps
 
 const FEED_STALL_MS = 500;
 const FEED_LOST_MS = 2000;
+const FORMAT_STABILITY_FEEDS = 5;
+interface FormatCandidate { format: TimecodeFormat; count: number; receivedAt: number; producer: string | null }
 interface BridgeFeed { timecode: TimecodeValue; format: TimecodeFormat; receivedAt: number }
 /** Small durable journal; never rewrite the full event timeline at feed rate. */
 interface ClockSnapshot {
-  state: Pick<TimecodeState, "timecode" | "display" | "totalFrames" | "format" | "source" | "running" | "serverTime" | "signal" | "triggersEnabled" | "automationHold">;
+  state: Pick<TimecodeState, "timecode" | "display" | "totalFrames" | "format" | "source" | "running" | "serverTime" | "signal" | "triggersEnabled" | "automationHold" | "incomingFormat">;
   previousFeedFrame: number | null;
   masterSessionId: string | null;
   expectedFeedSince: number | null;
   bridgeFeed: BridgeFeed | null;
+  formatCandidate?: FormatCandidate | null;
 }
 
 function recoverInterruptedEvents(events: AutomationEvent[]): AutomationEvent[] {
@@ -149,6 +152,7 @@ export class TimecodeRelay extends DurableObject {
   private masterSessionId: string | null = null;
   private expectedFeedSince: number | null = null;
   private bridgeFeed: BridgeFeed | null = null;
+  private formatCandidate: FormatCandidate | null = null;
   private lastPersistedAt = 0;
   private readonly executor = new AutomationExecutor();
   private readonly revisions: RelaySequenceStore;
@@ -188,6 +192,7 @@ export class TimecodeRelay extends DurableObject {
         }
         this.expectedFeedSince = clock.expectedFeedSince;
         this.bridgeFeed = clock.bridgeFeed;
+        this.formatCandidate = clock.formatCandidate ?? null;
         if (this.updateSignalHealth()) {
           await this.persistClock();
           this.broadcastState();
@@ -208,10 +213,10 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private clockSnapshot(): ClockSnapshot {
-    const { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automationHold } = this.state;
-    return { state: { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automationHold },
+    const { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automationHold, incomingFormat } = this.state;
+    return { state: { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automationHold, incomingFormat },
       previousFeedFrame: this.previousFeedFrame, masterSessionId: this.masterSessionId,
-      expectedFeedSince: this.expectedFeedSince, bridgeFeed: this.bridgeFeed };
+      expectedFeedSince: this.expectedFeedSince, bridgeFeed: this.bridgeFeed, formatCandidate: this.formatCandidate };
   }
 
   private async persistClock(): Promise<void> {
@@ -247,6 +252,8 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private holdClock(): void {
+    this.formatCandidate = null;
+    this.state.incomingFormat = null;
     this.automationGeneration++;
     this.state.running = false;
     this.state.signal = { status: "idle", lastFeedAt: this.state.signal?.lastFeedAt ?? null };
@@ -586,8 +593,12 @@ export class TimecodeRelay extends DurableObject {
       this.previousFeedFrame = null;
       const standby = this.bridgeFeed;
       if (standby && Date.now() - standby.receivedAt < FEED_STALL_MS) {
-        this.holdForJump(previousFrame === null ? null : timecodeToFrames(this.state.timecode, standby.format),
-          timecodeToFrames(standby.timecode, standby.format), standby.format);
+        if (sameTimecodeFormat(standby.format, this.state.format)) {
+          this.holdForJump(previousFrame, timecodeToFrames(standby.timecode, standby.format));
+        }
+        this.state.running = false;
+        this.state.signal = { status: "waiting", lastFeedAt: null };
+        this.expectedFeedSince = Date.now();
         this.state.source = "mtc";
         await this.handleCommand("feed-tc", { timecode: standby.timecode, format: standby.format }, undefined, standby.receivedAt);
         return;
@@ -650,26 +661,42 @@ export class TimecodeRelay extends DurableObject {
         const format = (payload.format as TimecodeFormat) ?? this.state.format;
         if (!isValidTimecodeFormat(format) || !tc || !isValidTimecode(tc, format)) break;
         this.updateSignalHealth();
-        const formatChanged = format.frameRate !== this.state.format.frameRate
-          || format.dropFrame !== this.state.format.dropFrame;
-        const previousPosition = this.previousFeedFrame === null ? null
-          : formatChanged ? timecodeToFrames(this.state.timecode, format) : this.previousFeedFrame;
-        if (formatChanged) {
-          this.state.format = format;
-          for (const event of this.events) {
-            event.triggerFrame = timecodeToFrames(event.triggerTimecode, format);
-            // Reformatting never re-arms an acknowledged cue. Only Reset/Retry may do that.
+        if (!sameTimecodeFormat(format, this.state.format)) {
+          const proposalChanged = this.state.incomingFormat && !sameTimecodeFormat(this.state.incomingFormat.format, format);
+          if (proposalChanged) this.state.incomingFormat = null;
+          const prior = this.formatCandidate;
+          const sameInput = prior && prior.producer === (sessionId ?? null)
+            && sameTimecodeFormat(prior.format, format) && feedReceivedAt - prior.receivedAt < FEED_STALL_MS;
+          this.formatCandidate = { format, producer: sessionId ?? null, receivedAt: feedReceivedAt,
+            count: sameInput ? Math.min(FORMAT_STABILITY_FEEDS, prior.count + 1) : 1 };
+          if (this.formatCandidate.count >= FORMAT_STABILITY_FEEDS) {
+            if (!this.state.incomingFormat || !sameTimecodeFormat(this.state.incomingFormat.format, format)) {
+              this.state.incomingFormat = { id: crypto.randomUUID(), format };
+              this.automationGeneration++;
+            }
+            this.state.triggersEnabled = false;
+            this.state.running = false;
+            this.state.signal = { status: "format-mismatch", lastFeedAt: feedReceivedAt };
+            this.state.serverTime = Date.now();
+            this.expectedFeedSince = null;
+            if (!sessionId) this.state.source = "mtc";
           }
-          this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
-          this.previousFeedFrame = null;
-          this.broadcastEvents();
+          // Keep the clock/timeline in their confirmed format. Never execute a
+          // feed at the wrong rate or count a different producer's observations.
+          await this.persistClock();
+          if (this.state.incomingFormat || proposalChanged) this.broadcastState();
+          break;
         }
+        this.formatCandidate = null;
+        this.state.incomingFormat = null;
+        const previousPosition = this.previousFeedFrame;
         // The relay derives frame position from the accepted format instead of
         // trusting a stale client-side conversion.
         const totalFrames = timecodeToFrames(tc, format);
         this.holdForJump(previousPosition, totalFrames);
 
-        const resuming = this.state.signal?.status === "timecode-stalled" || this.state.signal?.status === "timecode-lost";
+        const resuming = this.state.signal?.status === "timecode-stalled" || this.state.signal?.status === "timecode-lost"
+          || this.state.signal?.status === "format-mismatch";
         this.state.timecode = tc;
         this.state.totalFrames = totalFrames;
         this.state.display = timecodeToString(tc, format.dropFrame === "df");
@@ -744,20 +771,45 @@ export class TimecodeRelay extends DurableObject {
         this.broadcastState();
         break;
 
-      case "set-format":
-        if (isValidTimecodeFormat(payload?.format)) {
-          this.state.format = payload.format as TimecodeFormat;
-          for (const event of this.events) {
-            event.triggerFrame = timecodeToFrames(event.triggerTimecode, this.state.format);
-            // Reformatting never re-arms an acknowledged cue. Only Reset/Retry may do that.
-          }
-          this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
-          this.previousFeedFrame = null;
+      case "set-format": {
+        const format = payload?.format;
+        if (!isValidTimecodeFormat(format) || !isValidTimecodeFormat(payload?.expectedFormat) || payload?.confirmed !== true) {
+          throw new TimecodeCommandRejection("Confirm Reformat timeline before changing the frame rate.");
+        }
+        if (!sameTimecodeFormat(payload.expectedFormat, this.state.format)) {
+          throw new TimecodeCommandRejection("The timeline format changed. Review the new format before confirming.");
+        }
+        if (this.state.running) throw new TimecodeCommandRejection("Stop the clock before reformatting the timeline.");
+        const incoming = this.state.incomingFormat;
+        if (incoming ? payload.expectedIncomingFormatId !== incoming.id || !sameTimecodeFormat(incoming.format, format)
+          : Boolean(payload.expectedIncomingFormatId)) {
+          throw new TimecodeCommandRejection("The input format changed. Review the latest detected format.");
+        }
+        const invalid = this.events.find(event => !isValidTimecode(event.triggerTimecode, format));
+        if (invalid) throw new TimecodeCommandRejection(`Cue “${invalid.label}” has a timecode that is invalid at the new frame rate. Correct or remove that cue before reformatting.`);
+        this.automationGeneration++;
+        this.state.triggersEnabled = false;
+        this.state.format = format;
+        this.state.timecode = normalizeTimecodeForFormat(this.state.timecode, format);
+        this.state.totalFrames = timecodeToFrames(this.state.timecode, format);
+        this.state.display = timecodeToString(this.state.timecode, format.dropFrame === "df");
+        this.state.serverTime = Date.now();
+        this.state.incomingFormat = null;
+        this.formatCandidate = null;
+        for (const event of this.events) event.triggerFrame = timecodeToFrames(event.triggerTimecode, format);
+        this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
+        // Preserve the baseline for jump detection when the newly formatted
+        // input resumes. Neither fired cues nor review holds are re-armed here.
+        this.previousFeedFrame = this.state.totalFrames;
+        if (this.state.signal?.status === "format-mismatch") {
+          this.state.signal = { status: "waiting", lastFeedAt: null };
+          this.expectedFeedSince = Date.now();
         }
         await this.persist();
         this.broadcastState();
         this.broadcastEvents();
         break;
+      }
 
       case "add-event": {
         if (!payload) break;
@@ -893,6 +945,7 @@ export class TimecodeRelay extends DurableObject {
 
       case "set-triggers-enabled":
         if (typeof payload?.enabled !== "boolean") break;
+        if (payload.enabled && this.state.incomingFormat) throw new TimecodeCommandRejection("Confirm the input format before enabling automation.");
         if (payload.enabled && this.state.automationHold) {
           if (payload.confirmed !== true || payload.expectedHoldId !== this.state.automationHold.id) {
             throw new TimecodeCommandRejection("Review the latest timecode jump before resuming automation.");

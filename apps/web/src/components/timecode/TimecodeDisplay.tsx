@@ -15,7 +15,8 @@ export function TimecodeDisplay({
   const display = state?.display ?? "00:00:00:00";
   const running = state?.running ?? false;
   const lost = state?.signal?.status === "timecode-stalled" || state?.signal?.status === "timecode-lost";
-  const statusLabel = !connected ? "Disconnected" : lost ? "Signal lost" : running ? "Running" : "Stopped";
+  const mismatch = state?.signal?.status === "format-mismatch";
+  const statusLabel = !connected ? "Disconnected" : mismatch ? "Format mismatch" : lost ? "Signal lost" : running ? "Running" : "Stopped";
 
   if (size === "large") {
     return (
@@ -32,7 +33,7 @@ export function TimecodeDisplay({
           <span
             className={`w-2 h-2 rounded-full ${
               connected
-                ? lost ? "bg-amber-500" : running
+                ? lost || mismatch ? "bg-amber-500" : running
                   ? "bg-green-500 animate-pulse"
                   : "bg-green-500"
                 : "bg-red-500"
@@ -41,7 +42,7 @@ export function TimecodeDisplay({
           <span>
             {!connected
               ? "Disconnected"
-              : lost ? "Signal lost · clock held" : running
+              : mismatch ? "Format mismatch · clock held" : lost ? "Signal lost · clock held" : running
                 ? `Running · ${state?.format.frameRate}fps ${state?.format.dropFrame === "df" ? "DF" : "NDF"}`
                 : "Stopped · position held"}
           </span>
@@ -65,7 +66,7 @@ export function TimecodeDisplay({
       <span
         className={`w-1.5 h-1.5 rounded-full ${
           connected
-            ? lost ? "bg-amber-500" : running
+            ? lost || mismatch ? "bg-amber-500" : running
               ? "bg-green-500 animate-pulse"
               : "bg-green-500"
             : "bg-board-muted/30"
@@ -78,7 +79,7 @@ export function TimecodeDisplay({
       >
         {display}
       </span>
-      {connected && lost && <span className="text-xs text-amber-400">Signal lost</span>}
+      {connected && (lost || mismatch) && <span className="text-xs text-amber-400">{mismatch ? "Format mismatch" : "Signal lost"}</span>}
     </div>
   );
 }

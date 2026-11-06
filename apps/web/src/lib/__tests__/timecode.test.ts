@@ -7,6 +7,7 @@ import {
   msToTimecode,
   crossedTriggerFrame,
   isLargeTimecodeJump,
+  normalizeTimecodeForFormat,
   isValidTimecode,
   isSafeAutomationWebhookUrl,
   isValidTimecodeFormat,
@@ -160,6 +161,15 @@ describe("crossedTriggerFrame", () => {
   it("does not fire old events on initial hydration or rewind", () => {
     expect(crossedTriggerFrame(null, 500, 100, 2)).toBe(false);
     expect(crossedTriggerFrame(500, 100, 300, 2)).toBe(false);
+  });
+});
+
+describe("confirmed clock reformat", () => {
+  it("retains valid labels and adjusts only the held frame when necessary", () => {
+    expect(normalizeTimecodeForFormat({ hours: 1, minutes: 2, seconds: 3, frames: 12 }, fmt25)).toEqual({ hours: 1, minutes: 2, seconds: 3, frames: 12 });
+    expect(normalizeTimecodeForFormat({ hours: 1, minutes: 2, seconds: 3, frames: 29 }, fmt25)).toEqual({ hours: 1, minutes: 2, seconds: 3, frames: 24 });
+    expect(normalizeTimecodeForFormat({ hours: 1, minutes: 1, seconds: 0, frames: 0 }, fmt2997df)).toEqual({ hours: 1, minutes: 1, seconds: 0, frames: 2 });
+    expect(normalizeTimecodeForFormat({ hours: 1, minutes: 10, seconds: 0, frames: 0 }, fmt2997df)).toEqual({ hours: 1, minutes: 10, seconds: 0, frames: 0 });
   });
 });
 

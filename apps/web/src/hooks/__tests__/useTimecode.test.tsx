@@ -188,6 +188,28 @@ describe("timecode connection honesty", () => {
     expect(result.current.lastError).toContain("show mismatch");
   });
 
+  it("keeps the local source alive through format review and waiting for the next accepted feed", () => {
+    const { result } = hook();
+    const socket = Socket.instances[0];
+    act(() => { hydrate(socket); result.current.startFreerun(); });
+    act(() => {
+      socket.receive({ type: "master-status", granted: true });
+      socket.receive({ type: "tc-update", state: { ...state, running: true } });
+    });
+    expect(result.current.isMaster).toBe(true);
+    const stop = vi.spyOn(InternalTimecodeSource.prototype, "stop");
+    for (const status of ["format-mismatch", "waiting"] as const) {
+      act(() => socket.receive({ type: "tc-update", state: { ...state, running: false, signal: { status, lastFeedAt: null } } }));
+      expect(result.current.isMaster).toBe(true);
+      expect(stop).not.toHaveBeenCalled();
+    }
+    act(() => result.current.setFormat({ frameRate: 25, dropFrame: "ndf" }, state.format, "reviewed-input"));
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ action: "set-format", payload: { confirmed: true, expectedFormat: state.format, expectedIncomingFormatId: "reviewed-input" } });
+    act(() => socket.receive({ type: "tc-update", state: { ...state, running: false, signal: { status: "idle", lastFeedAt: null } } }));
+    expect(result.current.isMaster).toBe(false);
+    expect(stop).toHaveBeenCalled();
+  });
+
   it("shows source rejection and cancels the pending local generator", () => {
     const start = vi.spyOn(InternalTimecodeSource.prototype, "start");
     const { result } = hook();
