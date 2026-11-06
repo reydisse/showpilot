@@ -2,8 +2,9 @@
 
 ShowPilot Desktop is the native host for the complete ShowPilot web app. Development
 loads the local web app. Release builds start from a bundled bootstrap, open
-`https://showpilot.tech` when reachable, and otherwise open the last bounded
-rundown snapshot in an explicitly local-only rehearsal engine.
+`https://app.showpilot.tech` when reachable and safe to leave local control, and
+otherwise show the prepared local rundown and device cues. Active and finished
+local sessions stay visible until the operator returns control or reviews progress.
 Desktop-only features are exposed through a small, validated Tauri command
 boundary.
 
@@ -41,9 +42,13 @@ non-local URLs; release companion windows always use `https://showpilot.tech`.
   returns the platform and application-data location.
 - `cache_service` validates, size-limits and atomically writes an active-show
   snapshot to the ShowPilot application-data directory.
-- `get_cached_service` supplies the bundled cold-start fallback. The fallback
-  can navigate the cached rundown and run a local rehearsal timer, and clearly
-  states that it does not update cloud state, teammates, lyrics, kiosks or venue devices.
+- `get_cached_service` remains available for older hosted clients. The current
+  offline screen uses `local_show_command` and the encrypted Bridge preparation.
+- `local_show_command` runs prepared timer and device actions through the native
+  engine. Device receipts persist before dispatch; retries reuse their request ID.
+  Returning control pauses the local timer and preserves its revision-bound journal.
+- `open_local_show` opens the bundled local controls from the main workspace. Both
+  local commands are restricted to the main window and trusted ShowPilot origins.
 - `open_companion_window` opens validated dedicated Timer, Show Board and
   Check-in windows; live output windows stay on top.
 - The embedded, architecture-matched ShowPilot device engine provides the same
@@ -54,9 +59,21 @@ non-local URLs; release companion windows always use `https://showpilot.tech`.
 - The signed native updater checks ShowPilot's private-R2-backed release
   manifest, downloads the correct platform bundle and restarts after install.
 
-Only bundled development content and the exact `https://showpilot.tech`
-origin receive native capability access.
+Bundled content and the exact `https://showpilot.tech` and
+`https://app.showpilot.tech` origins receive native capability access.
 
 The standalone ShowPilot Bridge remains the supported agent for remote devices,
 browser-only operators and headless production computers. A machine running
 ShowPilot Desktop does not need the standalone Bridge for its own local devices.
+
+## Local control verification
+
+`pnpm --filter @showpilot/desktop test:offline` builds the Bridge and runs the
+rendered offline controls against its actual local-show manager. It covers timer
+advance, confirmations, a lost device reply, pending equipment, unknown outcomes,
+restart recovery, saved review journals, status retry and keyboard focus.
+
+Local-mode rollout is still in progress. The authenticated preparation service and
+offline controls are implemented; the hosted preparation and revision-conflict
+review UI, complete product rehearsal and native ownership audit remain required
+before release. See the Phase 2.3 entries in `docs/safety-pass-status.json`.

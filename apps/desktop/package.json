@@ -7,12 +7,13 @@
     "tauri": "tauri",
     "bridge:prepare": "pnpm --filter @showpilot/bridge build",
     "bridge:build": "node scripts/build-bridge.mjs",
-    "test:offline": "node --test scripts/offline-shell.test.mjs && node --check offline/offline.js",
+    "test:offline": "pnpm --filter @showpilot/bridge build && node --test scripts/offline-shell.test.mjs && node --check offline/offline.js",
     "desktop:dev": "pnpm bridge:build && tauri dev",
     "desktop:build": "tauri build"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0",
-    "bun": "1.4.0"
+    "bun": "1.4.0",
+    "jsdom": "27.4.0"
   }
 }

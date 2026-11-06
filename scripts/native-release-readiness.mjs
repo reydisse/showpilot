@@ -327,8 +327,8 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
       && localShowCapability.permissions?.length === 1 && localShowCapability.permissions[0] === "allow-local-show-control"
       && !desktopCapability?.permissions?.includes("allow-local-show-control")
       && !midiCapability?.permissions?.includes("allow-local-show-control")
-      && !desktopCommands.includes("local_show_command") && !midiCommands.includes("local_show_command")
-      && localShowCommands.length === 1 && localShowCommands[0] === "local_show_command",
+      && ["local_show_command", "open_local_show"].every(command => !desktopCommands.includes(command) && !midiCommands.includes(command))
+      && localShowCommands.length === 2 && ["local_show_command", "open_local_show"].every(command => localShowCommands.includes(command)),
     "Desktop local show control must be restricted to the trusted main workspace, never companion windows.",
   );
   add(

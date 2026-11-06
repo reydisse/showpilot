@@ -166,6 +166,7 @@ test("rejects local show control from companion windows or untrusted origins", (
     desktop => desktop.localShowCapabilities.remote.urls.push("https://untrusted.example/*"),
     desktop => desktop.capabilities.permissions.push("allow-local-show-control"),
     desktop => desktop.permissions.permission[0].commands.allow.push("local_show_command"),
+    desktop => desktop.permissions.permission[0].commands.allow.push("open_local_show"),
     desktop => desktop.localShowPermissions.permission[0].commands.allow.pop(),
   ];
   for (const mutate of mutations) {

@@ -63,6 +63,9 @@ jobs:
       - name: Test bridge
         run: pnpm --filter @showpilot/bridge test
 
+      - name: Test Desktop offline controls
+        run: pnpm --filter @showpilot/desktop test:offline
+
       - name: Test Bridge desktop updater
         run: pnpm --filter @showpilot/bridge-desktop test
 

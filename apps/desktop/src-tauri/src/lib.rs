@@ -199,6 +199,37 @@ fn engine_info(app: tauri::AppHandle) -> EngineInfo {
 }
 
 #[tauri::command]
+fn open_local_show(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Local show control is only available in the main operator window".into());
+    }
+    // Navigate only to our bundled assets. No caller-supplied URL can expand the
+    // native command's trusted origin or open a companion control surface.
+    let origin = if cfg!(windows) {
+        let https = window
+            .app_handle()
+            .config()
+            .app
+            .windows
+            .iter()
+            .find(|config| config.label == "main")
+            .is_some_and(|config| config.use_https_scheme);
+        if https {
+            "https://tauri.localhost"
+        } else {
+            "http://tauri.localhost"
+        }
+    } else {
+        "tauri://localhost"
+    };
+    let url = tauri::Url::parse(&format!("{origin}/index.html?local=1"))
+        .map_err(|_| "The bundled local workspace address is invalid".to_string())?;
+    window
+        .navigate(url)
+        .map_err(|_| "The bundled local workspace could not be opened".to_string())
+}
+
+#[tauri::command]
 fn cache_service(app: tauri::AppHandle, payload: String) -> Result<String, String> {
     validate_snapshot(&payload)?;
     let path = service_cache_path(&app)?;
@@ -356,6 +387,7 @@ pub fn run() {
             confidence_output_ready,
             close_confidence_output_window,
             engine_info,
+            open_local_show,
             focus_main_window,
             restart_desktop,
             cache_service,

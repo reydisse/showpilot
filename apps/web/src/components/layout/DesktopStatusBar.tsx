@@ -11,6 +11,7 @@ import {
   isDesktopLocalDeviceMode,
   isDesktopRuntime,
   openDesktopWindow,
+  openDesktopLocalShow,
   stopDesktopBridge,
   type DesktopBridgeStatus,
   type DesktopEngineInfo,
@@ -277,6 +278,14 @@ export function DesktopStatusBar({ orgId }: { orgId?: string } = {}) {
         </span>
       ) : null}
       <div className="ml-auto flex max-w-full flex-wrap items-center gap-1 [&>button]:whitespace-nowrap">
+        <button
+          type="button"
+          onClick={() => void openDesktopLocalShow().catch(() => setError("The local workspace could not open. Update ShowPilot Desktop and try again."))}
+          title="Open this computer's prepared show and local controls"
+          className="flex min-h-11 items-center gap-1.5 rounded-md px-2 py-1 text-board-muted transition hover:bg-board-border/60 hover:text-board-text"
+        >
+          <Laptop className="h-3 w-3" /> Local show
+        </button>
         <button
           type="button"
           disabled={updateState === "checking" || updateState === "confirming" || updateState === "installing" || updateState === "restart-required"}
