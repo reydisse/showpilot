@@ -6,8 +6,8 @@
  * when a bridge is connected.
  */
 
-type BridgeStatusCallback = (online: boolean) => void;
-type DeviceStatusCallback = (target: string, connected: boolean) => void;
+type BridgeStatusCallback = (online: boolean, error?: string) => void;
+type DeviceStatusCallback = (target: string, connected: boolean, error?: string) => void;
 
 interface PendingCommand {
   resolve: (response?: string) => void;
@@ -141,7 +141,12 @@ export class BridgeProxy {
 
   /** Request bridge to connect to a device */
   connectDevice(protocol: string, target: string, settings?: Record<string, unknown>): void {
-    this.send({ type: "connect-device", protocol, target, settings: settings ?? {} });
+    try {
+      if (!this.connected || !this.bridgeOnline || this.ws?.readyState !== 1) throw new Error("Bridge connection is unavailable. Reconnect and try again.");
+      this.send({ type: "connect-device", protocol, target, settings: settings ?? {} });
+    } catch {
+      this.notifyDeviceStatus(target, false, "Bridge connection is unavailable. Reconnect and try again.");
+    }
   }
 
   /** Request bridge to disconnect from a device */
@@ -156,6 +161,13 @@ export class BridgeProxy {
       case "bridge-status":
         this.bridgeOnline = msg.online as boolean;
         this.notifyStatus(this.bridgeOnline);
+        break;
+
+      case "ping-response":
+        if (msg.success === false) {
+          this.bridgeOnline = false;
+          this.notifyStatus(false, typeof msg.error === "string" ? msg.error : "Bridge connectivity check failed");
+        }
         break;
 
       case "command-response": {
@@ -180,11 +192,8 @@ export class BridgeProxy {
       }
 
       case "device-status": {
-        const target = msg.target as string;
-        const connected = Boolean(msg.connected);
-        for (const cb of this.deviceStatusListeners) {
-          cb(target, connected);
-        }
+        if (typeof msg.target !== "string" || typeof msg.connected !== "boolean") return;
+        this.notifyDeviceStatus(msg.target, msg.connected, typeof msg.error === "string" ? msg.error : undefined);
         break;
       }
     }
@@ -196,10 +205,12 @@ export class BridgeProxy {
     }
   }
 
-  private notifyStatus(online: boolean): void {
-    for (const cb of this.statusListeners) {
-      cb(online);
-    }
+  private notifyStatus(online: boolean, error?: string): void {
+    for (const cb of this.statusListeners) cb(online, error);
+  }
+
+  private notifyDeviceStatus(target: string, connected: boolean, error?: string): void {
+    for (const cb of this.deviceStatusListeners) cb(target, connected, error);
   }
 
   private notifyDeviceEvent(msg: Record<string, unknown>): void {

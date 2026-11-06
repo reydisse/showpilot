@@ -59,7 +59,7 @@ function DeviceDetailPage() {
               onClick={connect}
               className="min-h-[44px] rounded-lg bg-fire-500/10 border border-fire-500/20 px-3 py-1.5 text-xs font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
             >
-              Connect
+              {error ? "Retry connection" : "Connect"}
             </button>
           ) : null}
         </div>
