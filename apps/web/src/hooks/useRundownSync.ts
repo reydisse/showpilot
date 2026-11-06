@@ -186,6 +186,8 @@ interface UseRundownSyncReturn {
   /** Current stage message broadcast to kiosk (empty string = none active) */
   stageMessage: string;
   lastError: string | null;
+  lastErrorAt: number | null;
+  retryConnection: () => void;
   /** True while local commands still need relay confirmation. */
   saving: boolean;
   unconfirmedCount: number;
@@ -231,8 +233,19 @@ export function useRundownSync(
   const [ppPreviewSlide, setPpPreviewSlide] = useState<PPSlideState | null>(null);
   const [ppOutputEnabled, setPpOutputEnabled] = useState(false);
   const [stageMessage, setStageMessage] = useState("");
-  const [lastError, setLastError] = useState<string | null>(null);
-  const [transportError, setTransportError] = useState<string | null>(null);
+  const scope = JSON.stringify([orgId, serviceDate, showId, view]);
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  type Failure = { scope: string; message: string; occurredAt: number };
+  const [commandError, setCommandError] = useState<Failure | null>(null);
+  const [transportError, setTransportFailure] = useState<Failure | null>(null);
+  const [connectionError, setConnectionFailure] = useState<Failure | null>(null);
+  const setLastError = useCallback((message: string | null) => setCommandError(message ? { scope: scopeRef.current, message, occurredAt: Date.now() } : null), []);
+  const setTransportError = useCallback((message: string | null) => setTransportFailure(message ? { scope: scopeRef.current, message, occurredAt: Date.now() } : null), []);
+  const visibleError = [transportError, commandError, connectionError].find(error => error?.scope === scope) ?? null;
+  const dropConnectionRef = useRef<(socket: WebSocket, message: string) => void>(() => {});
+  const reconnectRef = useRef<() => void>(() => {});
+  const retryConnection = useCallback(() => reconnectRef.current(), []);
   const [unconfirmedCount, setUnconfirmedCount] = useState(0);
   const serverClockOffsetRef = useRef<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -292,9 +305,9 @@ export function useRundownSync(
         confirmCommand(pending.id);
         setLastError("That rundown change could not be confirmed. Review live state before trying again.");
       }
-      if (wsRef.current === ws) ws.close();
+      dropConnectionRef.current(ws, "Rundown confirmation timed out. Reconnecting to confirm live state.");
     }, 8_000);
-    ws.send(JSON.stringify({
+    try { ws.send(JSON.stringify({
       type: "command",
       id: pending.id,
       expectedRevision: pending.expectedRevision,
@@ -303,14 +316,17 @@ export function useRundownSync(
       ...(isLiveRundownTransport(pending.action) ? {
         expiresAt: pending.queuedAt + RUNDOWN_TRANSPORT_MAX_AGE_MS + (serverClockOffsetRef.current ?? 0),
       } : {}),
-    }));
-  }, [clearPendingTimer, confirmCommand]);
+    })); } catch {
+      dropConnectionRef.current(ws, "Rundown change could not be sent. Reconnecting with unconfirmed changes retained.");
+    }
+  }, [clearPendingTimer, confirmCommand, setLastError, setTransportError]);
 
   useEffect(() => {
     let disposed = false;
     let activeSocket: WebSocket | null = null;
     let reconnectTimer: number | null = null;
     let reconnectAttempts = 0;
+    let hydrationTimer: number | null = null;
 
     setConnected(false);
     setHydrated(false);
@@ -325,6 +341,8 @@ export function useRundownSync(
     clearPendingTimer();
     setLastError(null);
     setTransportError(null);
+    setConnectionFailure(null);
+    setPpPreviewSlide(null);
     setStateServiceDate(null);
     setStateShowId(null);
     setServiceName(null);
@@ -350,16 +368,48 @@ export function useRundownSync(
     if (showId) query.set("showId", showId);
     if (view === "show") query.set("view", "show");
     const suffix = query.size ? `?${query.toString()}` : "";
-    const url = `${protocol}://${window.location.host}/api/rundown/${orgId}/ws${suffix}`;
+    const url = `${protocol}://${window.location.host}/api/rundown/${encodeURIComponent(orgId)}/ws${suffix}`;
 
     const scheduleReconnect = () => {
-      if (disposed || reconnectTimer) return;
+      if (disposed || reconnectTimer !== null) return;
       const delay = Math.min(1000 * 2 ** reconnectAttempts, 30_000);
       reconnectAttempts = Math.min(reconnectAttempts + 1, 6);
       reconnectTimer = window.setTimeout(() => {
         reconnectTimer = null;
         connect();
       }, delay);
+    };
+
+    const clearHydrationTimer = () => {
+      if (hydrationTimer !== null) window.clearTimeout(hydrationTimer);
+      hydrationTimer = null;
+    };
+    const connectionFailed = (message: string) => {
+      setConnected(false);
+      setConnectionFailure({ scope, message, occurredAt: Date.now() });
+      scheduleReconnect();
+    };
+    const dropConnection = (ws: WebSocket, message: string) => {
+      if (disposed || activeSocket !== ws || wsRef.current !== ws) return;
+      clearHydrationTimer();
+      clearPendingTimer();
+      if (pendingCommandRef.current) {
+        commandQueue.current.unshift(pendingCommandRef.current);
+        pendingCommandRef.current = null;
+      }
+      activeSocket = null;
+      wsRef.current = null;
+      socketHydratedRef.current = false;
+      ws.close();
+      connectionFailed(message);
+    };
+    dropConnectionRef.current = dropConnection;
+    reconnectRef.current = () => {
+      if (disposed) return;
+      if (activeSocket) dropConnection(activeSocket, "Reconnecting to confirm live rundown state.");
+      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+      connect();
     };
 
     const stateMatchesTarget = (state: Record<string, unknown>) => {
@@ -380,24 +430,28 @@ export function useRundownSync(
         activeSocket?.readyState === WebSocket.CONNECTING
       ) return;
 
-      const ws = new WebSocket(url);
+      let ws: WebSocket;
+      try { ws = new WebSocket(url); }
+      catch {
+        connectionFailed("The rundown connection could not open. Reconnecting.");
+        return;
+      }
       activeSocket = ws;
       wsRef.current = ws;
       socketHydratedRef.current = false;
 
-      ws.onopen = () => {
-        if (disposed || activeSocket !== ws) return;
-        reconnectAttempts = 0;
-
-      };
+      hydrationTimer = window.setTimeout(() => {
+        dropConnection(ws, "Live rundown state was not confirmed within five seconds. Reconnecting.");
+      }, 5_000);
 
       ws.onmessage = (event) => {
         if (disposed || activeSocket !== ws || wsRef.current !== ws) return;
         try {
-          const msg = JSON.parse(event.data);
-          if (!isObject(msg)) return;
+          const msg: unknown = JSON.parse(event.data);
+          if (!isObject(msg) || typeof msg.type !== "string") throw new Error("Invalid rundown message");
 
           if (msg.type === "command-result") {
+            if (typeof msg.id !== "string" || typeof msg.accepted !== "boolean" || typeof msg.revision !== "number" || !Number.isSafeInteger(msg.revision) || msg.revision < 0) throw new Error("Invalid rundown acknowledgement");
             const pending = pendingCommandRef.current;
             if (pending && msg.id === pending.id) {
               clearPendingTimer();
@@ -423,7 +477,11 @@ export function useRundownSync(
 
           if (msg.type !== "hydrate" && msg.type !== "state") return;
           const state = msg.state;
-          if (!isObject(state) || !stateMatchesTarget(state)) return;
+          if (!isObject(state) || typeof state.revision !== "number" || !Number.isSafeInteger(state.revision) || state.revision < 0) throw new Error("Invalid rundown state");
+          if (!stateMatchesTarget(state)) {
+            dropConnection(ws, "The rundown update did not match the selected show. Reconnecting.");
+            return;
+          }
 
           if (typeof state.revision === "number" && Number.isFinite(state.revision)) {
             revisionRef.current = Math.max(revisionRef.current, state.revision);
@@ -472,32 +530,20 @@ export function useRundownSync(
           if (Object.prototype.hasOwnProperty.call(state, "stageMessage")) {
             setStageMessage(typeof state.stageMessage === "string" ? state.stageMessage : "");
           }
+          clearHydrationTimer();
+          reconnectAttempts = 0;
+          setConnectionFailure(null);
           socketHydratedRef.current = true;
           setHydrated(true);
           setConnected(true);
           dispatchNextCommand();
         } catch {
-          // Ignore malformed relay frames without disturbing the live state.
+          dropConnection(ws, "A rundown update could not be read. Reconnecting with the last known state.");
         }
       };
 
-      ws.onclose = () => {
-        if (disposed || activeSocket !== ws) return;
-        clearPendingTimer();
-        if (pendingCommandRef.current) {
-          commandQueue.current.unshift(pendingCommandRef.current);
-          pendingCommandRef.current = null;
-        }
-        activeSocket = null;
-        if (wsRef.current === ws) wsRef.current = null;
-        socketHydratedRef.current = false;
-        setConnected(false);
-        scheduleReconnect();
-      };
-
-      ws.onerror = () => {
-        if (!disposed && activeSocket === ws) ws.close();
-      };
+      ws.onclose = () => dropConnection(ws, "Rundown connection lost. Reconnecting with unconfirmed changes retained.");
+      ws.onerror = () => dropConnection(ws, "Rundown connection failed. Reconnecting with unconfirmed changes retained.");
     }
 
     // Deferring the first connection by one task prevents React Strict Mode's
@@ -530,6 +576,9 @@ export function useRundownSync(
 
     return () => {
       disposed = true;
+      clearHydrationTimer();
+      reconnectRef.current = () => {};
+      dropConnectionRef.current = () => {};
       window.removeEventListener("pagehide", handOffPending);
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       handOffPending();
@@ -538,7 +587,7 @@ export function useRundownSync(
       activeSocket?.close();
       activeSocket = null;
     };
-  }, [clearPendingTimer, confirmCommand, dispatchNextCommand, orgId, serviceDate, showId, view]);
+  }, [clearPendingTimer, confirmCommand, dispatchNextCommand, orgId, serviceDate, showId, view, scope, setLastError, setTransportError]);
 
   const sendCommand = useCallback(
     (action: string, payload?: Record<string, unknown>) => {
@@ -594,7 +643,9 @@ export function useRundownSync(
     ppPreviewSlide,
     ppOutputEnabled,
     stageMessage,
-    lastError: transportError ?? lastError,
+    lastError: visibleError?.message ?? null,
+    lastErrorAt: visibleError?.occurredAt ?? null,
+    retryConnection,
     saving: unconfirmedCount > 0,
     unconfirmedCount,
     hasPendingCommands,
