@@ -1,3 +1,4 @@
+import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh } from "@/lib/socket-read-authority.server";
 import type { RelayPPSlide } from "@/lib/rundown-relay-payload";
 import { DurableObject } from "cloudflare:workers";
 import { displaySocketMayReceive } from "@/lib/display-access.server";
@@ -588,6 +589,9 @@ export class RundownRelay extends DurableObject {
         displayExpiresAt: url.searchParams.has("authDisplayExpiresAt") ? Number(url.searchParams.get("authDisplayExpiresAt")) : undefined,
       });
 
+      if (canWrite || canObserve) renewSocketReadLease(server);
+      await scheduleSocketReadRefresh(this.ctx, socket => this.socketNeedsReadLease(socket));
+
       // Hydrate with current state
       server.send(
         JSON.stringify({
@@ -660,6 +664,7 @@ export class RundownRelay extends DurableObject {
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
     const attachment = ws.deserializeAttachment?.() as {
       writeAccess?: RundownRelayWriteAccess | null;
+      canObserve?: boolean;
       orgId?: string;
       authClaim?: LiveRundownAuthorityClaim | null;
     } | null;
@@ -669,9 +674,7 @@ export class RundownRelay extends DurableObject {
       const raw: unknown = JSON.parse(data as string);
       if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return;
       if ((raw as Record<string, unknown>).type === "ping") {
-        if (attachment?.writeAccess && !(await this.socketCanWrite(attachment))) {
-          ws.close(4403, "Rundown access changed");
-        }
+        socketReadLeaseAllows(ws, Boolean(attachment?.writeAccess || attachment?.canObserve));
         return;
       }
       if ((raw as Record<string, unknown>).type === "command") {
@@ -712,6 +715,7 @@ export class RundownRelay extends DurableObject {
             ws.close(4403, "Rundown access changed");
             return;
           }
+          renewSocketReadLease(ws);
           const decision = classifyRelayCommand(
             this.state.revision,
             this.state.recentCommandIds,
@@ -731,7 +735,7 @@ export class RundownRelay extends DurableObject {
           }
 
           if (decision === "revision-conflict" || decision === "expired") {
-            await this.sendStateToSocket(ws);
+            this.sendStateToSocket(ws);
             ws.send(JSON.stringify({
               type: "command-result",
               id: parsed.id,
@@ -743,7 +747,7 @@ export class RundownRelay extends DurableObject {
           }
 
           const accepted = await this.handleCommand(parsed.action, parsed.payload, parsed.id);
-          if (!accepted) await this.sendStateToSocket(ws);
+          if (!accepted) this.sendStateToSocket(ws);
           ws.send(JSON.stringify({
             type: "command-result",
             id: parsed.id,
@@ -1238,7 +1242,7 @@ export class RundownRelay extends DurableObject {
       this.state.recentCommandIds = [...this.state.recentCommandIds, commandId].slice(-100);
     }
     await this.persistState();
-    await this.broadcastState();
+    this.broadcastState();
 
     if (previousPlayback === "stop" && this.state.timer.playback === "play") {
       this.persistActiveShow();
@@ -1291,18 +1295,14 @@ export class RundownRelay extends DurableObject {
     });
   }
 
-  private async sendStateToSocket(ws: WebSocket): Promise<void> {
+  private sendStateToSocket(ws: WebSocket): void {
     if (!displaySocketMayReceive(ws)) return;
     const attachment = ws.deserializeAttachment?.() as {
       writeAccess?: RundownRelayWriteAccess | null;
       canObserve?: boolean;
       authClaim?: LiveRundownAuthorityClaim | null;
     } | null;
-    if ((attachment?.writeAccess && !(await this.socketCanWrite(attachment)))
-      || (attachment?.canObserve && !(await this.socketCanObserve(attachment.authClaim)))) {
-      ws.close(4403, "Rundown access changed");
-      return;
-    }
+    if (!socketReadLeaseAllows(ws, Boolean(attachment?.writeAccess || attachment?.canObserve))) return;
     ws.send(JSON.stringify({
       type: "state",
       state: attachment?.writeAccess || attachment?.canObserve
@@ -1311,14 +1311,31 @@ export class RundownRelay extends DurableObject {
     }));
   }
 
-  private async broadcastState(): Promise<void> {
-    // Use ctx.getWebSockets() instead of manual Set — survives hibernation
-    await Promise.all(this.ctx.getWebSockets().map(async (ws) => {
-      try {
-        await this.sendStateToSocket(ws);
-      } catch {
-        try { ws.close(1011, "Broadcast failed"); } catch {}
-      }
-    }));
+  private broadcastState(): void {
+    for (const socket of this.ctx.getWebSockets()) {
+      try { this.sendStateToSocket(socket); }
+      catch { try { socket.close(1011, "Broadcast failed"); } catch {} }
+    }
   }
+
+  private socketNeedsReadLease(socket: WebSocket): boolean {
+    const attachment = socket.deserializeAttachment() as { writeAccess?: RundownRelayWriteAccess | null; canObserve?: boolean } | null;
+    return Boolean(attachment?.writeAccess || attachment?.canObserve);
+  }
+
+  /** Worker-only RPC; command authority still comes from live per-message checks. */
+  async refreshReadAuthority(userId?: string): Promise<void> {
+    await refreshSocketReadLeases(this.ctx.getWebSockets(), async socket => {
+      const attachment = socket.deserializeAttachment() as {
+        writeAccess?: RundownRelayWriteAccess | null; canObserve?: boolean; authClaim?: LiveRundownAuthorityClaim | null;
+      } | null;
+      if (!attachment?.writeAccess && !attachment?.canObserve) return null;
+      if (userId && attachment.authClaim?.userId !== userId) return null;
+      return attachment.writeAccess ? this.socketCanWrite(attachment) : this.socketCanObserve(attachment.authClaim);
+    });
+    await scheduleSocketReadRefresh(this.ctx, socket => this.socketNeedsReadLease(socket));
+  }
+
+  async alarm(): Promise<void> { await this.refreshReadAuthority(); }
+
 }

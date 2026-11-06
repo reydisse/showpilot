@@ -616,7 +616,10 @@
       "section": "1.3 Stop re-authenticating every broadcast (audit C6, H15)",
       "line": 116,
       "status": "pending",
-      "evidence": []
+      "evidence": [
+        "Partial: TimecodeRelay, RundownRelay and BridgeRelay cache member read authority in hibernation-safe socket attachments for 60 seconds, refresh out of band by DO alarm after 30 seconds, and fail closed on expired leases. Broadcast loops perform synchronous sends; command checks still query live authority. Worker-only refreshReadAuthority RPC is available for permission-change pushes.",
+        "Remaining: apply read revocation to ChatRelay, CueSheetRelay and LowerThirdsRelay and connect permission-changing mutations to the refresh RPCs. This requirement remains pending."
+      ]
     },
     {
       "id": "44b728a9107f7db2",
@@ -833,8 +836,12 @@
       "phase": "1",
       "section": "Phase 1 gate (all must pass before Phase 2)",
       "line": 170,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "apps/web/src/lib/__tests__/relay-read-cache.worker.test.ts: actual TimecodeRelay, real D1 prepare counter, four authenticated operator sockets and ten Bridge feeds spaced 100ms apart. Every reader receives every feed; D1 prepare count stays unchanged. Before the cache change, the same probe observed 320 D1 prepares.",
+        "The same suite verifies read-alarm refresh, member revocation after hibernation, session expiry via refresh RPC, and fail-closed delivery when an alarm is delayed. Eight tests pass.",
+        "2026-11-05: full web suite passed (1287 unit, 188 Worker tests), tsc and production build passed. Built-app smoke-timecode-shows.mjs and smoke-show-day-safety.mjs passed with disposable local fixtures."
+      ]
     },
     {
       "id": "ee3e5d8b92b5667b",

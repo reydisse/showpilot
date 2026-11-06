@@ -1,3 +1,4 @@
+import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh } from "@/lib/socket-read-authority.server";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import { getBridgeCredentialAuthority, recordBridgeWrite, type BridgeAuditAction } from "@/lib/bridge-credentials.server";
 import { parseRelayPPSlide } from "../lib/rundown-relay-payload";
@@ -288,7 +289,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           await this.refreshCredentialAuthority();
           this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
           // Notify all clients bridge is online
-          await this.broadcastToClients(
+          this.broadcastToClients(
             JSON.stringify({
               type: "bridge-status",
               online: true,
@@ -297,7 +298,9 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           );
         } else {
           // Browser client connecting
+          renewSocketReadLease(server);
           this.clientSessions.add(server);
+          await this.refreshCredentialAuthority();
           // Send current bridge status
           server.send(
             JSON.stringify({
@@ -393,6 +396,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           this.clientSessions.delete(ws);
           return;
         }
+        renewSocketReadLease(ws);
         // Message from browser client → forward to bridge
         await this.handleClientMessage(msg, ws, attachment.authClaim.userId);
       }
@@ -453,7 +457,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           deviceEvents: this.bridgeInfo.deviceEvents,
         };
         this.serializeBridgeAttachment();
-        await this.broadcastToClients(JSON.stringify({
+        this.broadcastToClients(JSON.stringify({
           type: "bridge-status",
           online: true,
           ...this.bridgeInfo,
@@ -512,7 +516,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         }
         // Unsolicited device events are shared venue state and reach every
         // operator. Command replies above are deliberately point-to-point.
-        await this.broadcastToClients(JSON.stringify(msg));
+        this.broadcastToClients(JSON.stringify(msg));
         break;
 
       case "device-status":
@@ -535,7 +539,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           }
         }
         // Forward directly to all browser clients
-        await this.broadcastToClients(JSON.stringify(msg));
+        this.broadcastToClients(JSON.stringify(msg));
         break;
 
       case "pong":
@@ -632,22 +636,11 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     this.pendingClientCommands.clear();
   }
 
-  private async broadcastToClients(data: string): Promise<void> {
+  private broadcastToClients(data: string): void {
     for (const ws of [...this.clientSessions]) {
-      const attachment = parseSocketAttachment(ws.deserializeAttachment?.());
-      if (
-        attachment?.authClaim
-        && !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "devices:access"))
-      ) {
-        ws.close(4403, "Device access changed");
-        this.clientSessions.delete(ws);
-        continue;
-      }
-      try {
-        ws.send(data);
-      } catch {
-        this.clientSessions.delete(ws);
-      }
+      if (!socketReadLeaseAllows(ws, true)) { this.clientSessions.delete(ws); continue; }
+      try { ws.send(data); }
+      catch { this.clientSessions.delete(ws); }
     }
   }
 
@@ -672,21 +665,29 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   async refreshCredentialAuthority(): Promise<void> {
     const socket = this.bridgeWs;
     const credentialId = this.credentialId;
-    if (!socket || !credentialId) return;
-    const authority = await getBridgeCredentialAuthority(this.env.DB, this.orgId, credentialId);
-    if (socket !== this.bridgeWs || credentialId !== this.credentialId) return;
-    if (!authority) {
-      socket.close(4403, "Venue Bridge credential expired or revoked");
-      this.disconnectSocket(socket);
-      await this.ctx.storage.deleteAlarm();
-    } else if (authority.expiresAt !== null) {
-      await this.ctx.storage.setAlarm(authority.expiresAt);
-    } else {
-      await this.ctx.storage.deleteAlarm();
+    let expiresAt: number | null = null;
+    if (socket && credentialId) {
+      const authority = await getBridgeCredentialAuthority(this.env.DB, this.orgId, credentialId);
+      if (socket !== this.bridgeWs || credentialId !== this.credentialId) return;
+      if (!authority) {
+        socket.close(4403, "Venue Bridge credential expired or revoked");
+        this.disconnectSocket(socket);
+      } else expiresAt = authority.expiresAt;
     }
+    await scheduleSocketReadRefresh(this.ctx, ws => parseSocketAttachment(ws.deserializeAttachment())?.role === "client", expiresAt);
   }
 
-  async alarm(): Promise<void> { await this.refreshCredentialAuthority(); }
+  async refreshReadAuthority(userId?: string): Promise<void> {
+    await refreshSocketReadLeases(this.ctx.getWebSockets(), async socket => {
+      const attachment = parseSocketAttachment(socket.deserializeAttachment());
+      if (attachment?.role !== "client") return null;
+      if (userId && attachment.authClaim?.userId !== userId) return null;
+      return Boolean(attachment.authClaim && await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "devices:access"));
+    });
+    await this.refreshCredentialAuthority();
+  }
+
+  async alarm(): Promise<void> { await this.refreshReadAuthority(); }
 
   private async authorizeBridgeWrite(socket: WebSocket, action: BridgeAuditAction, direction: "from-bridge" | "to-bridge", actorUserId?: string): Promise<boolean> {
     const credentialId = this.credentialId;
