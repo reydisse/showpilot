@@ -252,6 +252,7 @@ export class Bridge {
   }
 
   feedTimecode(payload: {
+    source?: "mtc" | "ltc-bridge";
     timecode: { hours: number; minutes: number; seconds: number; frames: number };
     format: { frameRate: 24 | 25 | 29.97 | 30; dropFrame: "df" | "ndf" };
     totalFrames: number;

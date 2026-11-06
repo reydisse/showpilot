@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 afterEach(() => abortAllDurableObjects());
 
 describe("TimecodeRelay implemented sources", () => {
-  it.each(["ltc-bridge", "network", "internal-rundown", "unknown", null, 1])("rejects unimplemented source %s without changing the clock", async (source) => {
+  it.each(["network", "internal-rundown", "unknown", null, 1])("rejects unimplemented source %s without changing the clock", async (source) => {
     const { stub, url, target } = await timecodeFixture();
     const response = await stub.fetch(new Request(url("/command"), {
       method: "POST", body: JSON.stringify({ action: "set-source", payload: { source } }),
@@ -14,6 +14,14 @@ describe("TimecodeRelay implemented sources", () => {
     expect(await response.json()).toMatchObject({ ok: false, error: "This timecode source is not implemented.", showId: target.showId, serviceDate: target.serviceDate });
     const state = await (await stub.fetch(url("/state"))).json();
     expect(state).toMatchObject({ source: "internal-freerun", running: false });
+  });
+
+  it("requires actual Bridge audio before claiming LTC as active", async () => {
+    const { stub, url } = await timecodeFixture();
+    const response = await stub.fetch(url("/command"), { method: "POST", body: JSON.stringify({ action: "set-source", payload: { source: "ltc-bridge" } }) });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "Select the LTC audio input in ShowPilot Bridge. Valid audio activates the source." });
+    expect(await (await stub.fetch(url("/state"))).json()).toMatchObject({ source: "internal-freerun", running: false });
   });
 
   it("accepts supported sources and reports unsupported socket commands to the sender", async () => {

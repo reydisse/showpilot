@@ -72,14 +72,15 @@ export function TimecodeSourceSelector({
       <h3 className="text-xs font-medium text-board-muted uppercase tracking-wider">
         Timecode Source
       </h3>
-      {source === "mtc" && <MtcFrameAge lastFeedAt={signal?.lastFeedAt ?? null} />}
+      {(source === "mtc" || source === "ltc-bridge") && <InputFrameAge label={source === "mtc" ? "MTC" : "LTC"} lastFeedAt={signal?.lastFeedAt ?? null} />}
+      {source === "ltc-bridge" && <p role="status" className="text-sm text-board-muted">LTC audio input. Change the audio device, channel, and input frame rate in ShowPilot Bridge.</p>}
       {signal?.status === "paused" && <p role="status" className="text-sm text-board-muted">Clock paused. Position and source ownership are held.</p>}
       {signal?.status === "midi-stopped" && <p role="status" className="text-sm text-board-muted">MIDI transport stopped. Clock held; listening for Start or Continue.</p>}
       {signal?.status === "midi-waiting" && <p role="status" className="text-sm text-amber-200">Waiting for MIDI position and timecode. Send a full-frame sync or Song Position Pointer with MTC before continuing.</p>}
       {(signal?.status === "timecode-stalled" || signal?.status === "timecode-lost") && (
         <p role="alert" className="flex items-center gap-2 text-sm text-amber-400">
           <AlertTriangle className="h-4 w-4 shrink-0" />
-          {source === "mtc" ? "MTC signal lost" : "Timecode signal lost"}. Clock held; automation paused.
+          {source === "mtc" ? "MTC signal lost" : source === "ltc-bridge" ? "LTC signal lost" : "Timecode signal lost"}. Clock held; automation paused.
         </p>
       )}
 
@@ -224,12 +225,12 @@ export function TimecodeSourceSelector({
   );
 }
 
-function MtcFrameAge({ lastFeedAt }: { lastFeedAt: number | null }) {
+function InputFrameAge({ lastFeedAt, label }: { lastFeedAt: number | null; label: "MTC" | "LTC" }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(timer);
   }, []);
   const seconds = lastFeedAt === null ? null : Math.max(0, Math.floor((now - lastFeedAt) / 1_000));
-  return <p className="text-xs text-board-muted">{seconds === null ? "Waiting for an MTC frame" : `Last MTC frame received ${seconds}s ago`}</p>;
+  return <p className="text-xs text-board-muted">{seconds === null ? `Waiting for an ${label} frame` : `Last ${label} frame received ${seconds}s ago`}</p>;
 }

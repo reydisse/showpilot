@@ -1176,6 +1176,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": this.env.BETTER_AUTH_SECRET },
       body: JSON.stringify({
         payload: transport ? { state: message.state } : {
+          source: message.source ?? "mtc",
           timecode: message.timecode,
           format: message.format,
           totalFrames: message.totalFrames,

@@ -13,3 +13,19 @@ it("checks native timecode labels and strips unrelated fields", () => {
   expect(parseDesktopTimecode({ ...feed, format: { frameRate: 30, dropFrame: "df" } })).toBeNull();
   expect(parseDesktopTimecode({ ...feed, timecode: { ...feed.timecode, minutes: 1, frames: 0 }, format: { frameRate: 29.97, dropFrame: "df" } })).toBeNull();
 });
+
+it("preserves native LTC source and rejects unsupported source claims", () => {
+  const feed = { type: "timecode-feed", source: "ltc-bridge", timecode: { hours: 0, minutes: 0, seconds: 1, frames: 0 }, format: { frameRate: 30, dropFrame: "ndf" }, totalFrames: 30 };
+  expect(parseDesktopTimecode(feed)).toEqual(feed);
+  for (const source of ["network", "internal-freerun", "", null, 1]) expect(parseDesktopTimecode({ ...feed, source })).toBeNull();
+});
+
+it("discards delayed or malformed native messages before they can revive the clock", () => {
+  const message = { type: "timecode-feed", source: "ltc-bridge", timecode: { hours: 0, minutes: 0, seconds: 1, frames: 0 }, format: { frameRate: 30, dropFrame: "ndf" }, totalFrames: 30 };
+  const now = 1_000_000;
+  expect(parseDesktopTimecode({ ...message, expiresAt: now + 200 }, now)).toEqual(message);
+  for (const expiresAt of [now - 1, now, now + 201, "tomorrow", Infinity, NaN, null]) {
+    expect(parseDesktopTimecode({ ...message, expiresAt }, now)).toBeNull();
+    expect(parseDesktopTimecode({ type: "timecode-transport", state: "stopped", expiresAt }, now)).toBeNull();
+  }
+});

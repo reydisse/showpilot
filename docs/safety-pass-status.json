@@ -1164,7 +1164,12 @@
       "section": "2.2 Real LTC input (audit TC/M3, Phase 2 item 14)",
       "line": 194,
       "status": "pending",
-      "evidence": []
+      "evidence": [
+        "Partial implementation: native CPAL audio capture, selected channel/rate, bounded PCM and sidecar queues, exclusive MTC/LTC selection, persisted selection, input-level/lock/age UI, and authenticated show-scoped LTC relay feeds.",
+        "Local regression evidence: 1438 web unit tests and 400 Worker tests passed before additional LTC show-scope/format cases; those targeted cases also passed. Bridge 101 tests, Bridge UI 9 tests, native 32 tests, web/Bridge typechecks, web/Bridge/UI builds, and native release contracts passed.",
+        "Built UI rehearsal scripts/smoke-timecode-inputs.mjs passed permission retry, selected channel/rate, lock, unplug/replug, Stop, and 320\u20132560px layout checks. apps/bridge/scripts/check-native-timecode.mjs delivered 20 decoded PCM frames through native transport and the compiled sidecar to an authenticated local WebSocket, ending at 00:00:01:22.",
+        "Local ARM64 app bundled with microphone permission description, audio-input entitlement, timecode dependency notices, and a valid ad-hoc signature. Still pending: all-platform bundle CI and a physical audio-interface LTC rehearsal; do not count the synthetic capture fixture as hardware verification."
+      ]
     },
     {
       "id": "1a9c238b7fce50a1",
