@@ -20,13 +20,10 @@ import { TimecodeProvider } from "@/components/timecode/TimecodeContext";
 
 export const Route = createFileRoute("/$slug")({
   pendingComponent: OrgPending,
-  beforeLoad: async ({ params }) => {
-    let routeContext;
-    try {
-      routeContext = await getOrgRouteContext({ data: params.slug });
-    } catch {
-      throw redirect({ to: "/login" });
-    }
+  beforeLoad: async ({ params, abortController, preload }) => {
+    const signal = abortController.signal;
+    const routeContext = await getOrgRouteContext({ data: params.slug, signal });
+    signal.throwIfAborted();
     if (!routeContext) {
       throw redirect({ to: "/login" });
     }
@@ -43,16 +40,17 @@ export const Route = createFileRoute("/$slug")({
 
     // Side effect: keep Better Auth's active org in sync with the visited
     // org so its other flows (invitations, etc.) stay consistent.
-    if (activeOrganizationId !== org.id) {
+    if (!preload && activeOrganizationId !== org.id) {
       try {
-        await setActiveOrg({ data: org.id });
+        await setActiveOrg({ data: org.id, signal });
       } catch {
         // Non-critical — role above does not depend on the active org
       }
     }
+    signal.throwIfAborted();
 
     return {
-      workspace: await getWorkspaceProfile({ data: { orgId: org.id } }),
+      workspace: await getWorkspaceProfile({ data: { orgId: org.id }, signal }),
       user,
       org,
       orgId: org.id,

@@ -1,8 +1,10 @@
 import { createRouter as createTanStackRouter } from '@tanstack/react-router'
 import { routeTree } from './routeTree.gen'
 import { RouteError, RouteNotFound } from './components/ui/RouteRecovery'
+import { installRouteLoadDeadlines } from './lib/route-load-deadlines'
 
 export function getRouter() {
+  installRouteLoadDeadlines(routeTree)
   const router = createTanStackRouter({
     routeTree,
     defaultErrorComponent: RouteError,

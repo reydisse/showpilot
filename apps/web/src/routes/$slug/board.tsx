@@ -25,7 +25,8 @@ const MEMBERS_PER_PAGE = 8;
 
 export const Route = createFileRoute("/$slug/board")({
   pendingComponent: () => <BoardSkeleton />,
-  loader: async ({ context }) => {
+  loader: async ({ context, abortController }) => {
+    const signal = abortController.signal;
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(
       context.role,
@@ -33,10 +34,11 @@ export const Route = createFileRoute("/$slug/board")({
       context.slug,
       context.orgId,
     );
+    signal.throwIfAborted();
     const [members, clockFormat, settings] = await Promise.all([
-      getCrewMembers({ data: { orgId: context.orgId } }),
-      getClockFormat({ data: { orgId: context.orgId } }),
-      getOrgSettings({ data: { orgId: context.orgId } }),
+      getCrewMembers({ data: { orgId: context.orgId }, signal }),
+      getClockFormat({ data: { orgId: context.orgId }, signal }),
+      getOrgSettings({ data: { orgId: context.orgId }, signal }),
     ]);
     return {
       members: members as Member[],

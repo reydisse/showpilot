@@ -8,14 +8,17 @@ import {
 } from "@/lib/session";
 
 export const Route = createFileRoute("/")({
-  beforeLoad: async () => {
+  beforeLoad: async ({ abortController, preload }) => {
+    const signal = abortController.signal;
     // admin.showpilot.tech → go to /superadmin
-    const host = await getRequestHost().catch(() => "");
+    const host = await getRequestHost({ signal }).catch(() => "");
+    signal.throwIfAborted();
     if (host.startsWith("admin.")) {
       throw redirect({ to: "/superadmin" });
     }
 
-    const result = await getSessionWithOrg().catch(() => null);
+    const result = await getSessionWithOrg({ signal }).catch(() => null);
+    signal.throwIfAborted();
 
     // Not logged in
     if (!result?.user) {
@@ -29,22 +32,27 @@ export const Route = createFileRoute("/")({
 
     // No active org → find one and activate it
     try {
-      const orgs = await listUserOrgs();
+      const orgs = await listUserOrgs({ signal });
+      signal.throwIfAborted();
       if (orgs && orgs.length > 0) {
-        await setActiveOrg({ data: orgs[0].id });
+        if (!preload) await setActiveOrg({ data: orgs[0].id, signal });
+        signal.throwIfAborted();
         throw redirect({ to: "/$slug", params: { slug: orgs[0].slug } });
       }
     } catch (e) {
+      signal.throwIfAborted();
       if (isRedirect(e)) throw e;
     }
 
     // No orgs at all → check invitations
     try {
-      const invitations = await getUserInvitations();
+      const invitations = await getUserInvitations({ signal });
+      signal.throwIfAborted();
       if (invitations.length > 0) {
         throw redirect({ to: "/invitations" });
       }
     } catch (e) {
+      signal.throwIfAborted();
       if (isRedirect(e)) throw e;
     }
 

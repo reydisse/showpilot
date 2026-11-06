@@ -34,7 +34,7 @@ export const Route = createFileRoute("/$slug/timecode")({
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "timecode:access", params.slug, context.orgId);
   },
-  loader: async ({ context }) => ({ settings: await getOrgSettings({ data: { orgId: context.orgId } }) }),
+  loader: async ({ context, abortController }) => ({ settings: await getOrgSettings({ data: { orgId: context.orgId }, signal: abortController.signal }) }),
   component: TimecodePage,
 });
 
