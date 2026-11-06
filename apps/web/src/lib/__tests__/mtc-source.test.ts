@@ -11,6 +11,66 @@ function feed(source: MtcSource, pieces: Array<[number, number]>) {
 }
 
 describe("MtcSource", () => {
+  const before = [12, 1, 11, 3, 0, 0, 0, 6]; // 00:00:59:28
+  const after = [0, 0, 0, 0, 1, 0, 0, 6]; // 00:01:00:00
+  const forward = [0, 1, 2, 3, 4, 5, 6, 7];
+  function sequence(source: MtcSource, values: number[], order = forward) {
+    feed(source, order.map((piece) => [piece, values[piece]]));
+  }
+
+  it("emits once per complete cycle, matching the native Bridge decoder", () => {
+    const callback = vi.fn();
+    const source = new MtcSource(callback);
+    sequence(source, before);
+    sequence(source, after);
+    expect(callback).toHaveBeenCalledTimes(2);
+    expect(callback).toHaveBeenLastCalledWith(
+      { hours: 0, minutes: 1, seconds: 0, frames: 0 },
+      { frameRate: 30, dropFrame: "ndf" },
+    );
+  });
+
+  it.each(forward)("recovers without stale pieces when piece %i is dropped", (missing) => {
+    const callback = vi.fn();
+    const source = new MtcSource(callback);
+    sequence(source, before);
+    sequence(source, after, forward.filter((piece) => piece !== missing));
+    expect(callback).toHaveBeenCalledTimes(1);
+    sequence(source, after);
+    expect(callback).toHaveBeenCalledTimes(2);
+    expect(callback).toHaveBeenLastCalledWith(
+      { hours: 0, minutes: 1, seconds: 0, frames: 0 },
+      { frameRate: 30, dropFrame: "ndf" },
+    );
+  });
+
+  it.each([0, 1, 2, 3, 4, 5, 6])("rejects adjacent pieces reordered at %i", (swapped) => {
+    const callback = vi.fn();
+    const source = new MtcSource(callback);
+    const order = [...forward];
+    [order[swapped], order[swapped + 1]] = [order[swapped + 1], order[swapped]];
+    sequence(source, after, order);
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it("reacquires after a direction change and supports wrapping across piece zero", () => {
+    const callback = vi.fn();
+    const source = new MtcSource(callback);
+    sequence(source, after, [0, 1, 2, 1, 0, 7, 6, 5, 4]);
+    expect(callback).not.toHaveBeenCalled();
+    sequence(source, after, [3, 2]);
+    expect(callback).toHaveBeenCalledTimes(1);
+    sequence(source, after, [4, 5, 6, 7, 0, 1, 2, 3]);
+    expect(callback).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a repeated piece until another complete sequence arrives", () => {
+    const callback = vi.fn();
+    const source = new MtcSource(callback);
+    sequence(source, after, [0, 1, 2, 3, 3, 4, 5, 6, 7]);
+    expect(callback).not.toHaveBeenCalled();
+  });
+
   it("preserves 29.97 drop-frame mode", () => {
     const callback = vi.fn();
     const source = new MtcSource(callback);

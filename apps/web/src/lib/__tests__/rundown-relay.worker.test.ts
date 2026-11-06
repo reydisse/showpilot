@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { abortAllDurableObjects } from "cloudflare:test";
+import { abortAllDurableObjects, evictDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RundownItem } from "@/types/rundown";
 import { nextPlayableItem } from "../rundown-transport";
@@ -51,7 +51,7 @@ async function command(
   payload: Record<string, unknown>,
   access: "edit" | "control" = "edit",
 ) {
-  return relayFor(orgId).fetch(new Request(
+  const response = await relayFor(orgId).fetch(new Request(
     `https://rundown.test/command?orgId=${orgId}&serviceDate=${serviceDate}&access=${access}`,
     {
       method: "POST",
@@ -59,6 +59,8 @@ async function command(
       body: JSON.stringify({ action, payload }),
     },
   ));
+  await response.arrayBuffer();
+  return response;
 }
 
 async function state(orgId: string): Promise<Record<string, unknown>> {
@@ -278,6 +280,85 @@ describe("RundownRelay live authority", () => {
 });
 
 describe("RundownRelay running order matches confidence displays", () => {
+  it("rejects expired HTTP and socket transport without advancing, and acknowledges applied retries", async () => {
+    const orgId = "relay-transport-deadline";
+    await createOrg(orgId);
+    await command(orgId, "seed", { items: [
+      { id: "first", title: "First", type: "segment", duration: 60000, notes: "", assignee: "", cue: "", status: "upcoming", sortOrder: 0, hardStop: false },
+    ] });
+    const before = await state(orgId);
+    const post = async (id: string, expiresAt: number) => {
+      const response = await relayFor(orgId).fetch(new Request(
+        `https://rundown.test/command?orgId=${orgId}&serviceDate=${serviceDate}&access=control`,
+        { method: "POST", body: JSON.stringify({ action: "timer-next", id, expiresAt, expectedRevision: before.revision }) },
+      ));
+      return { status: response.status, body: await response.json() };
+    };
+    expect(await post("http-late", Date.now() - 1)).toMatchObject({ status: 409, body: { reason: "expired", revision: before.revision } });
+    expect(await state(orgId)).toMatchObject({ revision: before.revision, timer: { playback: "stop" } });
+
+    const response = await relayFor(orgId).fetch(new Request(
+      `https://rundown.test/ws?orgId=${orgId}&serviceDate=${serviceDate}&access=control`,
+      { headers: { Upgrade: "websocket" } },
+    ));
+    if (!response.webSocket) throw new Error("Missing rundown socket");
+    const socket = response.webSocket;
+    const hydration = nextFrame(socket, "hydrate");
+    socket.accept();
+    await hydration;
+    const freshState = nextFrame(socket, "state");
+    const rejected = nextFrame(socket, "command-result");
+    socket.send(JSON.stringify({ type: "command", action: "timer-next", id: "ws-late", expiresAt: Date.now() - 1 }));
+    expect(await rejected).toMatchObject({ accepted: false, reason: "expired", revision: before.revision });
+    expect(await freshState).toMatchObject({ state: { timer: { playback: "stop" } } });
+    expect(await post("applied", Date.now() + 5_000)).toMatchObject({ status: 200, body: { ok: true } });
+    const after = await state(orgId);
+    expect(after).toMatchObject({ timer: { playback: "play", currentItemId: "first" } });
+    expect(await post("applied", Date.now() - 1)).toMatchObject({ status: 200, body: { duplicate: true, revision: after.revision } });
+    expect(await state(orgId)).toMatchObject({ revision: after.revision, timer: { currentItemId: "first" } });
+    socket.close();
+  });
+
+  it("rejects reset while playing and allows it after a pause", async () => {
+    const orgId = "relay-reset-playing-guard";
+    await createOrg(orgId);
+    const item = { id: "segment", title: "Live", type: "segment", duration: 60000, notes: "", assignee: "", cue: "", status: "upcoming", sortOrder: 0, hardStop: false };
+    await command(orgId, "seed", { items: [item] });
+    await command(orgId, "timer-start", { itemId: item.id }, "control");
+    const before = await state(orgId);
+    expect((await command(orgId, "reset", {})).status).toBe(400);
+    expect(await state(orgId)).toMatchObject({ revision: before.revision, timer: { playback: "play", currentItemId: item.id } });
+    await command(orgId, "timer-pause", {}, "control");
+    expect((await command(orgId, "reset", {})).status).toBe(200);
+    expect(await state(orgId)).toMatchObject({ timer: { playback: "stop", currentItemId: null }, items: [{ status: "upcoming", actualStart: null, actualEnd: null }] });
+  });
+
+  it("deletes the current item atomically and undo restores it without restarting or losing later edits", async () => {
+    const orgId = "relay-delete-undo";
+    await createOrg(orgId);
+    const item = (id: string) => ({ id, title: id, type: "segment", duration: 60000, notes: "", assignee: "", cue: "", status: "upcoming", sortOrder: 0, hardStop: false });
+    await command(orgId, "seed", { items: [item("first"), item("second")] });
+    await command(orgId, "timer-start", { itemId: "first" }, "control");
+    expect((await command(orgId, "remove-item", { id: "first" })).status).toBe(200);
+    expect(await state(orgId)).toMatchObject({ timer: { playback: "stop", currentItemId: null }, items: [{ id: "second" }] });
+    await command(orgId, "update-item", { id: "second", updates: { title: "Edited by another operator" } });
+    await evictDurableObject(relayFor(orgId));
+    expect((await command(orgId, "restore-item", { id: "first", item: { title: "Forged undo" } })).status).toBe(200);
+    const restored = await state(orgId);
+    expect(restored).toMatchObject({ timer: { playback: "stop", currentItemId: null }, items: [
+      { id: "first", title: "first", status: "complete", actualStart: expect.any(String), actualEnd: expect.any(String) },
+      { id: "second", title: "Edited by another operator" },
+    ] });
+    expect(restored).not.toHaveProperty("removedItems");
+    const persisted = await env.DB.prepare("SELECT title, status FROM rundown_item WHERE orgId = ? AND serviceDate = ? AND itemId = ?")
+      .bind(orgId, serviceDate, "first").first();
+    expect(persisted).toMatchObject({ title: "first", status: "complete" });
+    expect((await command(orgId, "restore-item", { id: "first" })).status).toBe(400);
+    await command(orgId, "remove-item", { id: "first" });
+    await command(orgId, "clear-all", {});
+    expect((await command(orgId, "restore-item", { id: "first" })).status).toBe(400);
+  });
+
   it("skips headings and completed rows, then stops at the end", async () => {
     const orgId = "relay-next-display-contract";
     await createOrg(orgId);

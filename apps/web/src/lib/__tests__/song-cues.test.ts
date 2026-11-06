@@ -75,3 +75,10 @@ describe("buildSongAutomationEvents", () => {
     expect(withClear[2].payload.generationKey).toBe(withClear[0].sourceKey);
   });
 });
+
+it.each([-1, 1.5, NaN, Infinity])("rejects unsafe cue offset %s instead of piling cues at frame zero", (offsetFrames) => {
+  expect(() => buildSongAutomationEvents({
+    song: { id: "song-1", title: "Offset" }, cues: [], format: { frameRate: 30, dropFrame: "ndf" },
+    target: "native", offsetFrames,
+  })).toThrow("zero or greater");
+});

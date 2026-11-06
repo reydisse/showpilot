@@ -37,7 +37,10 @@ function ActiveRundownSession({ target, orgId, slug, canControl }: LiveRundownBa
     target.showId,
   );
   const [now, setNow] = useState(Date.now());
-  const { requestEndShow, endShowDialog } = useShowEndConfirmation(`${orgId}:${target.showId ?? target.serviceDate}:${timer.currentItemId}:${timer.playback === "stop"}`);
+  const { requestEndShow, endShowDialog } = useShowEndConfirmation(
+    { orgId, ...target }, () => sendCommand("timer-stop"),
+    !connected ? "Reconnect to live state before ending this show." : !canControl ? "Control access is required." : undefined,
+  );
 
   useEffect(() => {
     if (timer.playback !== "play") return;
@@ -104,7 +107,7 @@ function ActiveRundownSession({ target, orgId, slug, canControl }: LiveRundownBa
             aria-label="Next rundown item"
             disabled={!connected}
             onClick={() => {
-              if (!nextPlayableItem(items, timer.currentItemId)) requestEndShow(() => sendCommand("timer-next"));
+              if (!nextPlayableItem(items, timer.currentItemId)) requestEndShow();
               else sendCommand("timer-next");
             }}
             className="flex h-9 w-9 items-center justify-center rounded-lg text-board-muted hover:bg-white/5 hover:text-board-text disabled:opacity-35"

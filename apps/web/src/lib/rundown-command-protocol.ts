@@ -1,4 +1,4 @@
-export type RelayCommandDecision = "apply" | "duplicate" | "revision-conflict";
+export type RelayCommandDecision = "apply" | "duplicate" | "revision-conflict" | "expired";
 
 export type RundownRelayWriteAccess = "edit" | "control";
 
@@ -7,6 +7,8 @@ export interface RundownRelayHttpCommand {
   payload?: Record<string, unknown>;
   id?: string;
   expectedRevision?: number;
+  /** Absolute relay-clock deadline for time-sensitive operator commands. */
+  expiresAt?: number;
 }
 
 const EDIT_ACTIONS = new Set([
@@ -14,6 +16,7 @@ const EDIT_ACTIONS = new Set([
   "add-item",
   "update-item",
   "remove-item",
+  "restore-item",
   "reorder",
   "timer-mode",
   "pp-slide",
@@ -49,8 +52,12 @@ export function parseRundownRelayHttpCommand(value: unknown): RundownRelayHttpCo
     )
   ) return null;
 
+  if (value.expiresAt !== undefined && (typeof value.expiresAt !== "number"
+    || !Number.isSafeInteger(value.expiresAt) || value.expiresAt < 0)) return null;
+
   return {
     action,
+    ...(value.expiresAt === undefined ? {} : { expiresAt: value.expiresAt }),
     ...(value.payload === undefined ? {} : { payload: value.payload }),
     ...(value.id === undefined ? {} : { id: value.id }),
     ...(value.expectedRevision === undefined
@@ -77,8 +84,11 @@ export function classifyRelayCommand(
   recentCommandIds: readonly string[],
   commandId?: string,
   expectedRevision?: number,
+  expiresAt?: number,
+  now = Date.now(),
 ): RelayCommandDecision {
   if (commandId && recentCommandIds.includes(commandId)) return "duplicate";
+  if (expiresAt !== undefined && now >= expiresAt) return "expired";
   if (
     typeof expectedRevision === "number" &&
     Number.isFinite(expectedRevision) &&

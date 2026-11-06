@@ -1,6 +1,7 @@
 # Workspace profiles review
 
-Implemented from `SPEC-workspace-profiles.md` on `feature/workspace-profiles`.
+Implemented on `feature/workspace-profiles`. The original specification is
+preserved in Git history: `git show 32e2507:SPEC-workspace-profiles.md`.
 
 ## Behavior
 

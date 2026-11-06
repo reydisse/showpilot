@@ -150,7 +150,18 @@ interface PPSlideState {
   updatedAt: number;
 }
 
+const TRANSPORT_MAX_AGE_MS = 5_000;
+
+function isLiveTransport(action: string): boolean {
+  return action.startsWith("timer-") && action !== "timer-mode";
+}
+
+function isExpired(command: QueuedCommand): boolean {
+  return isLiveTransport(command.action) && Date.now() - command.queuedAt >= TRANSPORT_MAX_AGE_MS;
+}
+
 interface QueuedCommand {
+  queuedAt: number;
   id: string;
   action: string;
   payload?: Record<string, unknown>;
@@ -185,6 +196,7 @@ interface UseRundownSyncReturn {
   lastError: string | null;
   /** True while local commands still need relay confirmation. */
   saving: boolean;
+  unconfirmedCount: number;
   /** Synchronous pending check for navigation guards. */
   hasPendingCommands: () => boolean;
   sendCommand: (action: string, payload?: Record<string, unknown>) => void;
@@ -228,7 +240,9 @@ export function useRundownSync(
   const [ppOutputEnabled, setPpOutputEnabled] = useState(false);
   const [stageMessage, setStageMessage] = useState("");
   const [lastError, setLastError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [transportError, setTransportError] = useState<string | null>(null);
+  const [unconfirmedCount, setUnconfirmedCount] = useState(0);
+  const serverClockOffsetRef = useRef<number | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const socketHydratedRef = useRef(false);
   const revisionRef = useRef(0);
@@ -244,7 +258,7 @@ export function useRundownSync(
 
   const confirmCommand = useCallback((id: string) => {
     unconfirmedCommandIdsRef.current.delete(id);
-    setSaving(unconfirmedCommandIdsRef.current.size > 0);
+    setUnconfirmedCount(unconfirmedCommandIdsRef.current.size);
   }, []);
 
   const clearPendingTimer = useCallback(() => {
@@ -261,7 +275,12 @@ export function useRundownSync(
       pendingCommandRef.current
     ) return;
 
-    const entry = commandQueue.current.shift();
+    let entry = commandQueue.current.shift();
+    while (entry && isExpired(entry)) {
+      confirmCommand(entry.id);
+      setTransportError("An unconfirmed transport command expired and will not be retried. Review live state before trying again.");
+      entry = commandQueue.current.shift();
+    }
     if (!entry) return;
     const pending = {
       ...entry,
@@ -288,6 +307,9 @@ export function useRundownSync(
       expectedRevision: pending.expectedRevision,
       action: pending.action,
       payload: pending.payload,
+      ...(isLiveTransport(pending.action) ? {
+        expiresAt: pending.queuedAt + TRANSPORT_MAX_AGE_MS + (serverClockOffsetRef.current ?? 0),
+      } : {}),
     }));
   }, [clearPendingTimer, confirmCommand]);
 
@@ -297,15 +319,18 @@ export function useRundownSync(
     let reconnectTimer: number | null = null;
     let reconnectAttempts = 0;
 
+    setConnected(false);
     setHydrated(false);
+    serverClockOffsetRef.current = null;
     socketHydratedRef.current = false;
     revisionRef.current = 0;
     commandQueue.current = [];
     pendingCommandRef.current = null;
     unconfirmedCommandIdsRef.current.clear();
-    setSaving(false);
+    setUnconfirmedCount(0);
     clearPendingTimer();
     setLastError(null);
+    setTransportError(null);
     setStateServiceDate(null);
     setStateShowId(null);
     setServiceName(null);
@@ -369,7 +394,7 @@ export function useRundownSync(
       ws.onopen = () => {
         if (disposed || activeSocket !== ws) return;
         reconnectAttempts = 0;
-        setConnected(true);
+
       };
 
       ws.onmessage = (event) => {
@@ -389,6 +414,8 @@ export function useRundownSync(
               confirmCommand(pending.id);
               if (msg.accepted === false && msg.reason === "revision-conflict") {
                 setLastError("Another operator changed the rundown first. Live state was refreshed; review it before trying again.");
+              } else if (msg.accepted === false && msg.reason === "expired") {
+                setTransportError("That transport command expired before it could apply. Live state was restored.");
               } else if (msg.accepted === false) {
                 setLastError("That rundown change was rejected. Live state was restored.");
               } else {
@@ -433,7 +460,13 @@ export function useRundownSync(
           if ("initialized" in state) {
             setStateInitialized(state.initialized === true);
           }
-          if ("timer" in state) setTimer(normalizeTimerState(state.timer));
+          if ("timer" in state) {
+            setTimer(normalizeTimerState(state.timer));
+            if (isObject(state.timer) && typeof state.timer.serverTime === "number"
+              && Number.isFinite(state.timer.serverTime)) {
+              serverClockOffsetRef.current = state.timer.serverTime - Date.now();
+            }
+          }
           if (Object.prototype.hasOwnProperty.call(state, "ppPreviewSlide")) {
             setPpPreviewSlide(normalizePpPreviewSlide(state.ppPreviewSlide));
           }
@@ -445,6 +478,7 @@ export function useRundownSync(
           }
           socketHydratedRef.current = true;
           setHydrated(true);
+          setConnected(true);
           dispatchNextCommand();
         } catch {
           // Ignore malformed relay frames without disturbing the live state.
@@ -465,7 +499,9 @@ export function useRundownSync(
         scheduleReconnect();
       };
 
-      ws.onerror = () => {};
+      ws.onerror = () => {
+        if (!disposed && activeSocket === ws) ws.close();
+      };
     }
 
     // Deferring the first connection by one task prevents React Strict Mode's
@@ -487,8 +523,10 @@ export function useRundownSync(
         // Route changes tear down this socket. Keepalive requests carry any
         // unconfirmed work to the relay with the same idempotency keys.
         let expectedRevision = revisionRef.current;
+        const serverClockOffset = serverClockOffsetRef.current;
         void commandsToHandOff.reduce<Promise<void>>(async (previous, command) => {
           await previous;
+          if (isExpired(command) || (isLiveTransport(command.action) && serverClockOffset === null)) return;
           try {
             const response = await fetch(
               `${window.location.origin}/api/rundown/${encodeURIComponent(orgId)}/command${suffix}`,
@@ -502,6 +540,9 @@ export function useRundownSync(
                   id: command.id,
                   expectedRevision: command.expectedRevision ?? expectedRevision,
                   payload: command.payload,
+                  ...(isLiveTransport(command.action) ? {
+                    expiresAt: command.queuedAt + TRANSPORT_MAX_AGE_MS + (serverClockOffset ?? 0),
+                  } : {}),
                 }),
               },
             );
@@ -515,7 +556,7 @@ export function useRundownSync(
       commandQueue.current = [];
       pendingCommandRef.current = null;
       unconfirmedCommandIdsRef.current.clear();
-      setSaving(false);
+      setUnconfirmedCount(0);
       socketHydratedRef.current = false;
       if (wsRef.current === activeSocket) wsRef.current = null;
       activeSocket?.close();
@@ -525,14 +566,16 @@ export function useRundownSync(
 
   const sendCommand = useCallback(
     (action: string, payload?: Record<string, unknown>) => {
+      if (isLiveTransport(action)) setTransportError(null);
       const id = createBrowserId();
       unconfirmedCommandIdsRef.current.add(id);
-      setSaving(true);
+      setUnconfirmedCount(unconfirmedCommandIdsRef.current.size);
       commandQueue.current.push({
         id,
         action,
         payload,
         attempts: 0,
+        queuedAt: Date.now(),
       });
       dispatchNextCommand();
     },
@@ -574,8 +617,9 @@ export function useRundownSync(
     ppPreviewSlide,
     ppOutputEnabled,
     stageMessage,
-    lastError,
-    saving,
+    lastError: transportError ?? lastError,
+    saving: unconfirmedCount > 0,
+    unconfirmedCount,
     hasPendingCommands,
     sendCommand,
     seedState,

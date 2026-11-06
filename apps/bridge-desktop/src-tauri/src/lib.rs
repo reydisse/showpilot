@@ -1,3 +1,6 @@
+mod mtc;
+use mtc::MtcQuarterFrameDecoder;
+
 use midir::{Ignore, MidiInput, MidiInputConnection};
 use serde::Deserialize;
 use serde::Serialize;
@@ -85,64 +88,6 @@ struct MtcStatus {
     connected: bool,
     input_name: Option<String>,
     timecode: Option<String>,
-}
-
-#[derive(Default)]
-struct MtcQuarterFrameDecoder {
-    pieces: [u8; 8],
-    received: u8,
-    last_emit: Option<Instant>,
-}
-
-impl MtcQuarterFrameDecoder {
-    fn feed(&mut self, message: &[u8]) -> Option<serde_json::Value> {
-        if message.len() < 2 || message[0] != 0xF1 {
-            return None;
-        }
-        let piece = (message[1] >> 4) as usize;
-        if piece > 7 {
-            return None;
-        }
-        self.pieces[piece] = message[1] & 0x0F;
-        self.received |= 1 << piece;
-        if self.received != 0xFF
-            || self
-                .last_emit
-                .is_some_and(|last| last.elapsed() < Duration::from_millis(100))
-        {
-            return None;
-        }
-        self.last_emit = Some(Instant::now());
-        let frames = u32::from(self.pieces[0] | ((self.pieces[1] & 0x01) << 4));
-        let seconds = u32::from(self.pieces[2] | ((self.pieces[3] & 0x03) << 4));
-        let minutes = u32::from(self.pieces[4] | ((self.pieces[5] & 0x03) << 4));
-        let hours = u32::from(self.pieces[6] | ((self.pieces[7] & 0x01) << 4));
-        let rate_code = (self.pieces[7] >> 1) & 0x03;
-        let (frame_rate, drop_frame, nominal_fps) = match rate_code {
-            0 => (24.0, "ndf", 24_u32),
-            1 => (25.0, "ndf", 25_u32),
-            2 => (29.97, "df", 30_u32),
-            _ => (30.0, "ndf", 30_u32),
-        };
-        if minutes > 59 || seconds > 59 || frames >= nominal_fps {
-            return None;
-        }
-        let raw = hours * nominal_fps * 3600
-            + minutes * nominal_fps * 60
-            + seconds * nominal_fps
-            + frames;
-        let total_frames = if drop_frame == "df" {
-            raw.saturating_sub(2 * (hours * 60 + minutes - (hours * 60 + minutes) / 10))
-        } else {
-            raw
-        };
-        Some(serde_json::json!({
-            "type": "timecode-feed",
-            "timecode": { "hours": hours, "minutes": minutes, "seconds": seconds, "frames": frames },
-            "format": { "frameRate": frame_rate, "dropFrame": drop_frame },
-            "totalFrames": total_frames,
-        }))
-    }
 }
 
 #[derive(Serialize)]
@@ -609,14 +554,30 @@ fn connect_mtc_input(input_name: &str, runtime: &MtcRuntime) -> Result<(), Strin
     let sink = Arc::clone(&runtime.sidecar_stdin);
     let last_timecode = Arc::clone(&runtime.last_timecode);
     let mut decoder = MtcQuarterFrameDecoder::default();
+    let mut last_emit: Option<Instant> = None;
     let connection = input
         .connect(
             &port,
             "ShowPilot MTC input",
             move |_stamp, message, _| {
-                let Some(payload) = decoder.feed(message) else {
+                let Some(frame) = decoder.feed(message) else {
                     return;
                 };
+                // Throttle completed timestamps only; acquisition must always
+                // consume and reset every coherent eight-piece cycle.
+                if last_emit.is_some_and(|last| last.elapsed() < Duration::from_millis(100)) {
+                    return;
+                }
+                last_emit = Some(Instant::now());
+                let payload = serde_json::json!({
+                    "type": "timecode-feed",
+                    "timecode": {
+                        "hours": frame.hours, "minutes": frame.minutes,
+                        "seconds": frame.seconds, "frames": frame.frames,
+                    },
+                    "format": { "frameRate": frame.frame_rate, "dropFrame": frame.drop_frame },
+                    "totalFrames": frame.total_frames,
+                });
                 let tc = &payload["timecode"];
                 let separator = if payload["format"]["dropFrame"] == "df" {
                     ';'

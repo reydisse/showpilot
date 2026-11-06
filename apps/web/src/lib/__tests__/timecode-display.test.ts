@@ -10,6 +10,7 @@ describe("public timecode display projection", () => {
       source: "mtc",
       format: { frameRate: 29.97, dropFrame: "df" },
       running: true,
+      triggersEnabled: true,
       serverTime: 1,
       totalFrames: 111_222,
       lyrics: null,
@@ -22,6 +23,7 @@ describe("public timecode display projection", () => {
       running: true,
       serverTime: 500,
       lyrics: null,
+      automation: { status: "ok", failedCueCount: 0 },
     });
     expect(result).not.toHaveProperty("source");
     expect(result).not.toHaveProperty("format");

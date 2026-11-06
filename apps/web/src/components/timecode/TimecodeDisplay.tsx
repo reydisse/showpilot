@@ -14,6 +14,7 @@ export function TimecodeDisplay({
 }: TimecodeDisplayProps) {
   const display = state?.display ?? "00:00:00:00";
   const running = state?.running ?? false;
+  const statusLabel = !connected ? "Disconnected" : running ? "Running" : "Stopped";
 
   if (size === "large") {
     return (
@@ -26,7 +27,7 @@ export function TimecodeDisplay({
         >
           {display}
         </div>
-        <div className="flex items-center gap-3 text-xs text-board-muted">
+        <div role="status" aria-label={`Timecode ${statusLabel.toLowerCase()}`} className="flex items-center gap-3 text-xs text-board-muted">
           <span
             className={`w-2 h-2 rounded-full ${
               connected
@@ -40,7 +41,7 @@ export function TimecodeDisplay({
             {!connected
               ? "Disconnected"
               : running
-                ? `${state?.format.frameRate}fps ${state?.format.dropFrame === "df" ? "DF" : "NDF"}`
+                ? `Running · ${state?.format.frameRate}fps ${state?.format.dropFrame === "df" ? "DF" : "NDF"}`
                 : "Stopped"}
           </span>
           {state?.source && (
@@ -59,7 +60,7 @@ export function TimecodeDisplay({
 
   // Compact
   return (
-    <div className="inline-flex items-center gap-2">
+    <div role="status" aria-label={`Timecode ${statusLabel.toLowerCase()}`} className="inline-flex items-center gap-2">
       <span
         className={`w-1.5 h-1.5 rounded-full ${
           connected

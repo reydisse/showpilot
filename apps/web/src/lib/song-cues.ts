@@ -1,4 +1,4 @@
-import { framesToTimecode, timecodeToString } from "@/lib/timecode";
+import { framesToTimecode, timecodeToString, isValidTimecodeFormat } from "@/lib/timecode";
 import type { AutomationEvent, TimecodeFormat } from "@/types/timecode";
 
 export interface SongCueSource {
@@ -6,6 +6,17 @@ export interface SongCueSource {
   triggerFrame: number;
   section: { id: string; label: string; lyrics: string };
   ppSlideIndex: number | null;
+}
+
+/** Do not reinterpret a stored cue map at a different frame rate. */
+export function readSongCueFormat(stored: string, current: TimecodeFormat): { format: TimecodeFormat } | { error: string } {
+  let parsed: unknown;
+  try { parsed = JSON.parse(stored); } catch { parsed = null; }
+  if (!isValidTimecodeFormat(parsed)) return { error: "This cue map has an invalid frame rate. Edit its format in Songs before loading it." };
+  if (parsed.frameRate !== current.frameRate || parsed.dropFrame !== current.dropFrame) {
+    return { error: `Cue map format ${parsed.frameRate}fps ${parsed.dropFrame.toUpperCase()} does not match the timeline (${current.frameRate}fps ${current.dropFrame.toUpperCase()}). Match the formats before loading.` };
+  }
+  return { format: parsed };
 }
 
 export function buildSongAutomationEvents(input: {
@@ -20,7 +31,8 @@ export function buildSongAutomationEvents(input: {
   /** Optional deliberate hold duration. Omitted means hold until the next lyric or a manual clear. */
   clearAfterFrames?: number | null;
 }): AutomationEvent[] {
-  const offset = Math.trunc(input.offsetFrames ?? 0);
+  const offset = input.offsetFrames ?? 0;
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Cue offset must be a whole number of frames, zero or greater.");
   const toleranceFrames = Math.max(0, Math.trunc(input.toleranceFrames ?? 5));
   const sorted = [...input.cues].sort((a, b) => a.triggerFrame - b.triggerFrame);
   const events: AutomationEvent[] = [];
@@ -33,6 +45,7 @@ export function buildSongAutomationEvents(input: {
       triggerTimecode,
       triggerFrame,
       fired: false,
+      enabled: true,
       toleranceFrames,
       category: "lyrics",
       sourceKey,
@@ -74,6 +87,7 @@ export function buildSongAutomationEvents(input: {
       triggerTimecode,
       triggerFrame: clearFrame,
       fired: false,
+      enabled: true,
       toleranceFrames,
       category: "lyrics",
       sourceKey,

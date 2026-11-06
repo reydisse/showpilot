@@ -2,19 +2,12 @@ import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Captions, ChevronLeft, ChevronRight, CircleStop, Clock3, ExternalLink, MonitorOff, MonitorUp, Play, RadioTower, RotateCcw, TimerReset, Wifi, WifiOff } from "lucide-react";
 import { getLiveInputStatus } from "@/lib/stream";
-import { getTmControlState, runTmControl, type TmControlAction } from "@/lib/tm-operations";
+import { getTmControlState, runTmControl, type TmControlAction, type TmControlState } from "@/lib/tm-operations";
 import { useShowEndConfirmation } from "@/hooks/useShowEndConfirmation";
 
 type Input = { id: string; name: string; status: string };
 type Destination = { id: string; name: string; platform: string; enabled: boolean; connected: boolean };
-type ControlState = {
-  timer?: { playback?: string; elapsed?: number };
-  currentItem?: { id?: string; title?: string } | null;
-  nextItem?: { title?: string } | null;
-  lyricsEnabled?: boolean;
-  kioskBlanked?: boolean;
-  stream?: { connected?: number; total?: number };
-};
+type ControlState = Partial<TmControlState>;
 
 export function TmOperations(props: { orgId: string; slug: string; inputs: Input[]; destinations: Destination[] }) {
   const configuredOutputs = props.destinations.filter((destination) => destination.enabled).length;
@@ -111,12 +104,11 @@ function ControlPad({ orgId, wide }: { orgId: string; wide: boolean }) {
   const [busy, setBusy] = useState<TmControlAction | null>(null);
   const [armed, setArmed] = useState<TmControlAction | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const { requestEndShow, endShowDialog } = useShowEndConfirmation(`${orgId}:${state.currentItem?.id}:${state.timer?.playback === "stop"}`);
   const refreshInFlightRef = useRef(false);
   const refresh = useCallback(async () => {
     if (document.visibilityState !== "visible" || refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
-    try { setState(await getTmControlState({ data: { orgId } }) as ControlState); } catch { setMessage("Control feedback is unavailable"); }
+    try { setState(await getTmControlState({ data: { orgId } })); } catch { setMessage("Control feedback is unavailable"); }
     finally { refreshInFlightRef.current = false; }
   }, [orgId]);
   useEffect(() => {
@@ -129,9 +121,26 @@ function ControlPad({ orgId, wide }: { orgId: string; wide: boolean }) {
     };
   }, [refresh]);
   useEffect(() => { if (!armed) return; const timer = window.setTimeout(() => setArmed(null), 4_000); return () => window.clearTimeout(timer); }, [armed]);
-  const run = async (control: (typeof CONTROLS)[number], endConfirmed = false) => {
-    if (!endConfirmed && (control.action === "timer-stop" || (control.action === "rundown-next" && !state.nextItem))) {
-      requestEndShow(() => { void run(control, true); });
+  const stopShow = async () => {
+    if (!state.target || busy) return;
+    setBusy("timer-stop"); setMessage(null);
+    try {
+      await runTmControl({ data: { orgId, action: "timer-stop", target: state.target } });
+      await refresh(); setMessage("Show ended");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not end this show");
+    } finally { setBusy(null); }
+  };
+  const { requestEndShow, endShowDialog } = useShowEndConfirmation(
+    { orgId, showId: state.target?.showId, serviceDate: state.target?.serviceDate ?? "" },
+    () => { void stopShow(); },
+    !state.target ? "Wait for current show feedback before ending it."
+      : busy ? "Wait for the current command to finish."
+      : state.timer?.playback === "stop" ? "This show is already stopped." : undefined,
+  );
+  const run = async (control: (typeof CONTROLS)[number]) => {
+    if (control.action === "timer-stop" || (control.action === "rundown-next" && !state.nextItem)) {
+      requestEndShow();
       return;
     }
     if (control.dangerous && armed !== control.action) { setArmed(control.action); setMessage("Press again within four seconds to confirm"); return; }

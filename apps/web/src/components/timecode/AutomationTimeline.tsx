@@ -13,12 +13,17 @@ import {
 } from "lucide-react";
 import type { AutomationEvent, TimecodeState } from "@/types/timecode";
 import { timecodeToString } from "@/lib/timecode";
+import { useState } from "react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface AutomationTimelineProps {
   events: AutomationEvent[];
   state: TimecodeState | null;
   onRemoveEvent: (id: string) => void;
   onResetEvents: () => void;
+  onRetryEvent: (id: string) => void;
+  onSetEventEnabled: (id: string, enabled: boolean) => void;
+  connected: boolean;
 }
 
 const ACTION_ICONS: Record<string, React.ElementType> = {
@@ -70,10 +75,20 @@ export function AutomationTimeline({
   state,
   onRemoveEvent,
   onResetEvents,
+  onRetryEvent,
+  onSetEventEnabled,
+  connected,
 }: AutomationTimelineProps) {
   const currentFrame = state?.totalFrames ?? 0;
   const isRunning = state?.running ?? false;
   const dropFrame = state?.format.dropFrame === "df";
+  const [confirmation, setConfirmation] = useState<{ kind: "delete" | "refire"; event: AutomationEvent } | { kind: "reset" } | null>(null);
+  const ordered = [...events].sort((a, b) => a.triggerFrame - b.triggerFrame);
+  const missed = (event: AutomationEvent) => event.enabled && !event.fired
+    && event.executionStatus !== "dispatching" && event.executionStatus !== "failed"
+    && event.triggerFrame + event.toleranceFrames < currentFrame;
+  const needsAttention = ordered.filter((event) => event.executionStatus === "failed" || missed(event));
+  const nextId = ordered.find((event) => event.enabled && !event.fired && event.executionStatus !== "failed" && event.triggerFrame >= currentFrame)?.id;
 
   return (
     <div className="rounded-xl border border-board-border bg-board-card">
@@ -90,14 +105,24 @@ export function AutomationTimeline({
         </div>
         {events.length > 0 && (
           <button
-            onClick={onResetEvents}
-            className="flex items-center gap-1.5 text-[10px] text-board-muted hover:text-fire-500 transition-colors"
+            onClick={() => setConfirmation({ kind: "reset" })}
+            disabled={!connected || events.some((event) => event.executionStatus === "dispatching")}
+            className="flex min-h-11 items-center gap-1.5 text-xs text-board-muted hover:text-fire-500 disabled:opacity-50"
           >
             <RotateCcw className="w-3 h-3" />
             Reset All
           </button>
         )}
       </div>
+
+      {needsAttention.length > 0 && (
+        <section aria-label="Missed or failed cues" className="border-b border-red-400/30 bg-red-500/5 p-4">
+          <h4 className="text-sm font-semibold text-red-300">Missed / failed cues ({needsAttention.length})</h4>
+          <ul className="mt-2 space-y-1">
+            {needsAttention.map((event) => <li key={event.id} className="flex items-center justify-between gap-3 text-sm text-board-text"><span>{event.label} · {event.executionStatus === "failed" ? "Failed" : "Missed"}</span><button type="button" disabled={!connected || !event.enabled || state?.triggersEnabled === false} onClick={() => onRetryEvent(event.id)} className="min-h-11 rounded-lg px-3 text-amber-200 disabled:opacity-40" aria-label={`Retry ${event.label}`}>Retry</button></li>)}
+          </ul>
+        </section>
+      )}
 
       {/* Event list */}
       {events.length === 0 ? (
@@ -110,21 +135,15 @@ export function AutomationTimeline({
         </div>
       ) : (
         <div className="divide-y divide-board-border">
-          {events.map((event) => {
+          {ordered.map((event) => {
             const Icon = ACTION_ICONS[event.action] ?? Monitor;
             const colorClass = ACTION_COLORS[event.action] ?? ACTION_COLORS["custom-webhook"];
-            const isNext =
-              isRunning &&
-              !event.fired &&
-              event.triggerFrame > currentFrame &&
-              events.filter(
-                (e) => !e.fired && e.triggerFrame > currentFrame
-              )[0]?.id === event.id;
+            const isNext = nextId === event.id;
 
             return (
               <div
                 key={event.id}
-                className={`flex items-center gap-3 px-4 py-3 transition-colors ${
+                className={`flex flex-wrap items-center gap-3 px-4 py-3 transition-colors ${
                   event.fired && event.executionStatus !== "failed"
                     ? "opacity-40"
                     : isNext
@@ -163,20 +182,28 @@ export function AutomationTimeline({
                 {/* Label */}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-board-text">{event.label}</span>
+                  <span className="block text-xs text-board-muted">{!event.enabled ? "Disabled" : event.executionStatus === "failed" ? "Failed" : event.executionStatus === "dispatching" ? "Awaiting acknowledgement" : event.fired ? "Acknowledged" : missed(event) ? "Missed" : isNext ? (isRunning ? "Next" : "Next when started") : "Scheduled"}</span>
                   {event.executionStatus === "failed" && event.executionError ? (
-                    <span className="mt-0.5 block truncate text-[10px] text-red-400" title={event.executionError}>
+                    <span className="mt-0.5 block text-xs text-red-400">
                       {event.executionError}
                     </span>
                   ) : null}
+                  {event.executionDurationMs !== undefined && <span className="block text-xs text-board-muted">Last attempt: {event.executionDurationMs} ms</span>}
                 </span>
+
+                <label className="flex min-h-11 items-center gap-2 text-xs text-board-muted">
+                  <input type="checkbox" checked={event.enabled} disabled={!connected} onChange={(change) => onSetEventEnabled(event.id, change.target.checked)} aria-label={`Enable ${event.label}`} />Enabled
+                </label>
+                {event.fired && <button type="button" disabled={!connected || !event.enabled || state?.triggersEnabled === false} onClick={() => setConfirmation({ kind: "refire", event })} className="min-h-11 rounded-lg px-3 text-xs text-board-muted disabled:opacity-50">Re-fire</button>}
 
                 {/* Delete */}
                 <button
                   type="button"
-                  onClick={() => onRemoveEvent(event.id)}
+                  onClick={() => setConfirmation({ kind: "delete", event })}
+                  disabled={!connected || event.executionStatus === "dispatching"}
                   aria-label={`Delete ${event.label} automation`}
                   title={`Delete ${event.label} automation`}
-                  className="p-1 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+                  className="min-h-11 min-w-11 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50 flex items-center justify-center"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -185,6 +212,19 @@ export function AutomationTimeline({
           })}
         </div>
       )}
+      <ConfirmDialog
+        open={confirmation !== null}
+        onOpenChange={(open) => { if (!open) setConfirmation(null); }}
+        title={confirmation?.kind === "reset" ? "Reset all automation cues?" : confirmation?.kind === "refire" ? "Fire this cue again?" : "Delete this automation cue?"}
+        description={confirmation?.kind === "reset" ? "This re-arms every cue. Previously fired actions may run again when their timecode is crossed." : confirmation?.kind === "refire" ? `Run ${confirmation.event.label} again now? Check the output before repeating a device action.` : `Remove ${confirmation && "event" in confirmation ? confirmation.event.label : "this cue"} from the timeline?`}
+        confirmLabel={confirmation?.kind === "reset" ? "Reset all" : confirmation?.kind === "refire" ? "Fire again" : "Delete cue"}
+        onConfirm={() => {
+          if (!connected || !confirmation) return;
+          if (confirmation.kind === "reset") onResetEvents();
+          else if (confirmation.kind === "refire") onRetryEvent(confirmation.event.id);
+          else onRemoveEvent(confirmation.event.id);
+        }}
+      />
     </div>
   );
 }
