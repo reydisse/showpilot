@@ -1,0 +1,43 @@
+// Built app, real auth and real relay. Network failures use a stopped disposable Worker.
+import assert from "node:assert/strict";
+import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
+import { poll } from "./real-browser-fixture.mjs";
+await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCookie, operatorEmail, operatorPassword, stopServer, startServer }) => {
+  const endpoint = `${origin}/api/rundown/${orgId}`;
+  const query = `showId=smoke-show&serviceDate=${date}`;
+  const command = async (action, payload) => {
+    const response = await fetch(`${endpoint}/command?${query}`, { method: "POST", headers: { Cookie: operatorCookie, Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ action, payload }) });
+    assert.equal(response.status, 200); assert.equal((await response.json()).ok, true);
+  };
+  const state = async () => (await fetch(`${endpoint}/state?${query}`, { headers: { Cookie: operatorCookie } })).json();
+  const evaluate = async expression => (await browser("eval", expression)).result;
+  const click = name => browser("find", "role", "button", "click", "--name", name, "--exact");
+  await command("add-item", { id: "original", title: "Fixture welcome", type: "segment", duration: 300000, notes: "", assignee: "", cue: "", hardStop: false });
+  await browser("open", `${origin}/login`); await browser("fill", "#email", operatorEmail); await browser("fill", "#password", operatorPassword);
+  await click("Sign in"); await browser("wait", "--url", `**/${orgId}/**`);
+  await browser("open", `${origin}/${orgId}/rundown`); await browser("wait", '[data-rundown-item-id="original"]');
+  await stopServer();
+  await click("Rundown actions");
+  await browser("find", "role", "menuitem", "click", "--name", "Load from date or template", "--exact");
+  await browser("wait", "text=Could not load rundowns.");
+  assert.equal(await evaluate("document.querySelector('[role=dialog]').innerText.includes('No previous rundowns found')"), false);
+  assert.ok(await evaluate("document.querySelector('[role=dialog] [role=alert] time')?.dateTime"));
+  await browser("set", "viewport", "320", "480");
+  const bounds = await evaluate(`(() => { const modal = document.querySelector('[role=dialog]'); const button = [...modal.querySelectorAll('button')].find(button => button.textContent === 'Retry list'); const r = button.getBoundingClientRect(); return { fits: modal.scrollWidth <= modal.clientWidth + 1, width: r.width, height: r.height }; })()`);
+  assert.ok(bounds.fits && bounds.width >= 44 && bounds.height >= 44, JSON.stringify(bounds));
+  await browser("screenshot", "/tmp/showpilot-rundown-list-error-320.png");
+  await startServer(); await click("Retry list");
+  await browser("wait", '[role=dialog] button:has-text("Display test show")');
+  await stopServer(); await browser("click", '[role=dialog] button:has-text("Display test show")');
+  await browser("wait", "text=Could not read the selected rundown.");
+  await startServer(); await click("Retry load");
+  await browser("wait", "text=Replace the current rundown?");
+  assert.deepEqual((await state()).items.map(item => item.id), ["original"]);
+  await click("Cancel");
+  await browser("click", '[role=dialog] button:has-text("Display test show")');
+  await browser("wait", "text=Replace the current rundown?");
+  await click("Replace rundown");
+  await poll(async () => { const current = await state(); return current.items.length === 1 && current.items[0].id !== "original" && current.items[0].title === "Fixture welcome"; }, "confirmed replacement persisted");
+  await browser("wait", "--fn", "document.querySelector('[role=dialog]') === null");
+  console.log(JSON.stringify({ passed: true, listFailureAndRetry: true, selectedReadFailureAndRetry: true, timestampedErrors: true, minimum44pxRetryAt320: true, replacementRequiresConfirmation: true, realRelayReplacement: true }));
+});
