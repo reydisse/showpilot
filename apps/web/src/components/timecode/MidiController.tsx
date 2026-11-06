@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { UseTimecodeReturn } from "@/hooks/useTimecode";
-import { MidiControllerRuntime } from "@/lib/midi-controller-runtime";
+import type { ControllerRuntime } from "@/lib/midi-controller-runtime";
+import { connectMidiController } from "@/lib/connect-midi-controller";
 import { apcMiniMk2CueBindings, apcMiniMk2Led, bindingPadState, controllerCueView, cueBank, isContinuousAction, midiActionSchema, midiControllerSchema, midiInputKey, type MidiAction, type MidiBinding, type MidiControllerConfig, type MidiPortIdentity } from "@/lib/midi-controller";
 import { cueReviewMatches, cueReviewState } from "@/lib/automation-cues";
 import { framesToTimecode, timecodeToFrames } from "@/lib/timecode";
@@ -18,8 +19,8 @@ function mappedCueLabel(action: MidiAction, events: AutomationEvent[]): string {
 type Review = { kind: "rearm"; cue: AutomationEvent } | { kind: "reset" };
 
 function useController(timecode: UseTimecodeReturn, showId: string | null) {
-  const [runtime, setRuntime] = useState<MidiControllerRuntime | null>(null);
-  const [ports, setPorts] = useState<{ inputs: MIDIInput[]; outputs: MIDIOutput[]; inputConnected: boolean; outputConnected: boolean }>({ inputs: [], outputs: [], inputConnected: false, outputConnected: false });
+  const [runtime, setRuntime] = useState<ControllerRuntime | null>(null);
+  const [ports, setPorts] = useState<{ inputs: MidiPortIdentity[]; outputs: MidiPortIdentity[]; inputConnected: boolean; outputConnected: boolean }>({ inputs: [], outputs: [], inputConnected: false, outputConnected: false });
   const [armedSnapshot, setArmedSnapshot] = useState<{ showId: string; revision: number } | null>(null);
   const armed = showId !== null && armedSnapshot?.showId === showId && armedSnapshot.revision === timecode.controller.revision;
   const setArmed = (value: boolean) => setArmedSnapshot(value && showId ? { showId, revision: timecode.controller.revision } : null);
@@ -119,16 +120,22 @@ function useController(timecode: UseTimecodeReturn, showId: string | null) {
     if (connecting || runtime) return;
     const request = ++epoch.current; setConnecting(true); setError(null);
     try {
-      if (!navigator.requestMIDIAccess) throw new Error("MIDI controllers are unavailable in this browser. Use a Web MIDI capable browser.");
-      const access = await navigator.requestMIDIAccess();
-      if (request !== epoch.current) return;
-      setRuntime(new MidiControllerRuntime(access, {
-        message: (...args) => onMessage.current(...args), error: setError,
+      const opened = await connectMidiController({
+        message: (...args) => { if (request === epoch.current) onMessage.current(...args); },
+        error: message => { if (request === epoch.current) setError(message); },
+        closed: () => {
+          if (request !== epoch.current) return;
+          ++epoch.current; latest.current.armed = false; setArmedSnapshot(null); setRuntime(null); setConnecting(false);
+          clearContinuous(); setPorts({ inputs: [], outputs: [], inputConnected: false, outputConnected: false });
+        },
         ports: (inputs, outputs, inputConnected, outputConnected) => {
+          if (request !== epoch.current) return;
           clearContinuous();
           setPorts({ inputs, outputs, inputConnected, outputConnected });
         },
-      }));
+      });
+      if (request !== epoch.current) { opened.stop(); return; }
+      setRuntime(opened);
     } catch (cause) { if (request === epoch.current) setError(cause instanceof Error ? cause.message : "Could not open MIDI controller."); }
     finally { if (request === epoch.current) setConnecting(false); }
   };

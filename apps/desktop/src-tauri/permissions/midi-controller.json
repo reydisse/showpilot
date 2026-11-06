@@ -1,0 +1,7 @@
+{
+  "permission": [{
+    "identifier": "allow-midi-controller",
+    "description": "Use local controller input and note LED feedback in the main workspace.",
+    "commands": { "allow": ["midi_controller_open", "midi_controller_select", "midi_controller_refresh", "midi_controller_feedback", "midi_controller_close"] }
+  }]
+}

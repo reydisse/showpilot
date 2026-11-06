@@ -14,6 +14,8 @@ const PRODUCT_CONTRACTS = {
     entitlementsPath: "apps/desktop/src-tauri/entitlements.plist",
     capabilitiesPath: "apps/desktop/src-tauri/capabilities/default.json",
     permissionsPath: "apps/desktop/src-tauri/permissions/desktop.json",
+    midiCapabilitiesPath: "apps/desktop/src-tauri/capabilities/midi-controller.json",
+    midiPermissionsPath: "apps/desktop/src-tauri/permissions/midi-controller.json",
     tauriPath: "apps/desktop/src-tauri/tauri.conf.json",
     releaseConfigPath: "apps/desktop/ci-release.conf.json",
     workflowPath: ".github/workflows/desktop-release.yml",
@@ -110,6 +112,8 @@ function productSnapshot(root, product) {
     capabilities: contract.capabilitiesPath ? readJson(root, contract.capabilitiesPath) : undefined,
     entitlements: contract.entitlementsPath ? readText(root, contract.entitlementsPath) : undefined,
     permissions: contract.permissionsPath ? readJson(root, contract.permissionsPath) : undefined,
+    midiCapabilities: contract.midiCapabilitiesPath ? readJson(root, contract.midiCapabilitiesPath) : undefined,
+    midiPermissions: contract.midiPermissionsPath ? readJson(root, contract.midiPermissionsPath) : undefined,
   };
 }
 
@@ -262,13 +266,18 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
   );
   const registeredCommands = desktopProduct.source
     ?.match(/tauri::generate_handler!\[([\s\S]*?)\]/)?.[1]
-    .split(",").map((command) => command.trim()).filter(Boolean) ?? [];
-  const allowedCommands = desktopPermission?.commands?.allow ?? [];
+    .split(",").map((command) => command.trim().split("::").at(-1)).filter(Boolean) ?? [];
+  const midiCapability = desktopProduct.midiCapabilities;
+  const midiPermission = desktopProduct.midiPermissions?.permission?.find(permission => permission.identifier === "allow-midi-controller");
+  const midiCommands = midiPermission?.commands?.allow ?? [];
+  const desktopCommands = desktopPermission?.commands?.allow ?? [];
+  const allowedCommands = [...desktopCommands, ...midiCommands];
   add(
     registeredCommands.length > 0
       && registeredCommands.length === allowedCommands.length
       && registeredCommands.every((command) => allowedCommands.includes(command))
-      && desktopCapability?.permissions?.includes("allow-desktop-controls"),
+      && desktopCapability?.permissions?.includes("allow-desktop-controls")
+      && midiCapability?.permissions?.includes("allow-midi-controller"),
     "Desktop must explicitly permit its registered native commands for the hosted workspace.",
   );
   const desktopWindows = ["main", "timer-*", "show-board-*", "check-in-*", "confidence-*"];
@@ -278,6 +287,16 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
     "Desktop capabilities must cover every companion window without a wildcard window grant.",
   );
   const trustedDesktopOrigins = ["https://showpilot.tech/*", "https://app.showpilot.tech/*"];
+  add(
+    midiCapability?.windows?.length === 1 && midiCapability.windows[0] === "main"
+      && midiCapability?.remote?.urls?.length === trustedDesktopOrigins.length
+      && midiCapability.remote.urls.every(url => trustedDesktopOrigins.includes(url))
+      && midiCapability.permissions?.length === 1 && midiCapability.permissions[0] === "allow-midi-controller"
+      && !desktopCapability?.permissions?.includes("allow-midi-controller")
+      && desktopCommands.every(command => !command.startsWith("midi_controller_"))
+      && midiCommands.length === 5 && ["open", "select", "refresh", "feedback", "close"].every(action => midiCommands.includes(`midi_controller_${action}`)),
+    "Desktop MIDI commands must be restricted to the trusted main workspace, never companion windows.",
+  );
   add(
     desktopCapability?.remote?.urls?.includes("https://app.showpilot.tech/*")
       && desktopCapability.remote.urls.every((url) => trustedDesktopOrigins.includes(url)),
