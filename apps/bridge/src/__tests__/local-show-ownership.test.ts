@@ -107,17 +107,19 @@ afterEach(async () => {
 });
 
 it("allows only one engine per directory, including concurrent first startup", async () => {
-  const dir = directory();
-  const a = owner(dir),
-    b = owner(dir);
-  const results = await Promise.all([a.result, b.result]);
-  expect(results.filter((result) => result.acquired)).toHaveLength(1);
-  expect(results.find((result) => !result.acquired)?.error).toMatch(
-    /Another local device engine still owns/,
-  );
+  // Both processes can reach SQLite's first-open initialization together.
+  // Repeat with new files to exercise that race, not just an existing owner.
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const dir = directory();
+    const a = owner(dir), b = owner(dir);
+    const results = await Promise.all([a.result, b.result]);
+    expect(results.filter(result => result.acquired), JSON.stringify(results)).toHaveLength(1);
+    expect(results.find(result => !result.acquired)?.error).toMatch(/Another local device engine still owns/);
+    await Promise.all([kill(a.child), kill(b.child)]);
+  }
   const other = owner(directory());
   expect(await other.result).toMatchObject({ acquired: true });
-});
+}, 15000);
 it("recovers automatically after a forced engine crash without deleting the lock file", async () => {
   const dir = directory();
   const first = owner(dir);
