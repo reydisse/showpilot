@@ -1,5 +1,5 @@
 import { timecodeFixture, startFixtureTimecodeFeed } from "@/test/timecode-fixtures";
-import { openTestBridge } from "@/test/bridge-fixtures";
+import { openTestBridge, approveTestBridgeTarget } from "@/test/bridge-fixtures";
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
@@ -58,6 +58,7 @@ async function seedOrganizationAndDevice(orgId: string) {
     now,
     now,
   ).run();
+  await approveTestBridgeTarget(orgId, "atem", "10.0.0.20:9910");
   return deviceId;
 }
 

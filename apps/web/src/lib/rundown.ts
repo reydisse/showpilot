@@ -346,7 +346,7 @@ async function assertRundownEditAccess(orgId: string) {
 }
 
 async function assertRundownControlAccess(orgId: string) {
-  await assertRundownPermission(orgId, "rundown:control");
+  return await assertRundownPermission(orgId, "rundown:control");
 }
 
 async function readProPresenterTarget(orgId: string) {
@@ -393,6 +393,7 @@ async function readProPresenterTarget(orgId: string) {
 async function connectConfiguredProPresenterBridge(
   orgId: string,
   target: NonNullable<Awaited<ReturnType<typeof readProPresenterTarget>>>,
+  actorUserId: string,
 ) {
   const bindings = env as unknown as RundownRelayEnv;
   if (!bindings.BRIDGE_RELAY) {
@@ -418,7 +419,7 @@ async function connectConfiguredProPresenterBridge(
         apiPort: target.apiPort,
         password: target.password,
       },
-    });
+    }, { source: "operator", actorUserId });
     if (!connection.success) {
       return {
         ok: false as const,
@@ -846,7 +847,7 @@ export const pollProPresenterSlide = createServerFn({ method: "GET" })
     parseOrThrow(proPresenterTargetSchema, data),
   )
   .handler(async ({ data }): Promise<PPSlidePayload | null> => {
-    await assertRundownPermission(data.orgId, [
+    const { user } = await assertRundownPermission(data.orgId, [
       "lowerthird:trigger",
       "rundown:control",
     ]);
@@ -856,6 +857,7 @@ export const pollProPresenterSlide = createServerFn({ method: "GET" })
       const connection = await connectConfiguredProPresenterBridge(
         data.orgId,
         target,
+        user.id,
       );
       if (!connection.ok) return null;
       const status = await connection.relay.getBridgeStatus();
@@ -898,7 +900,7 @@ export const sendProPresenterCommand = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
-    await assertRundownControlAccess(data.orgId);
+    const { user } = await assertRundownControlAccess(data.orgId);
     const target = await readProPresenterTarget(data.orgId);
     if (!target) return { ok: false, error: "Set the ProPresenter host first" };
     if (!target.cuesEnabled) {
@@ -912,6 +914,7 @@ export const sendProPresenterCommand = createServerFn({ method: "POST" })
       const connection = await connectConfiguredProPresenterBridge(
         data.orgId,
         target,
+        user.id,
       );
       if (!connection.ok) return connection;
       const result = await connection.relay.dispatchBridgeMessage({
@@ -920,7 +923,7 @@ export const sendProPresenterCommand = createServerFn({ method: "POST" })
         protocol: "propresenter",
         target: connection.bridgeTarget,
         command: data.command,
-      });
+      }, { source: "operator", actorUserId: user.id });
       return result.success
         ? { ok: true }
         : { ok: false, error: result.error ?? "ProPresenter command failed" };
@@ -938,13 +941,14 @@ export const testProPresenterConnection = createServerFn({ method: "POST" })
     parseOrThrow(proPresenterTargetSchema, data),
   )
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
-    await assertEffectiveOrgPermission(data.orgId, "settings:integrations");
+    const { user } = await assertEffectiveOrgPermission(data.orgId, "settings:integrations");
     const target = await readProPresenterTarget(data.orgId);
     if (!target) return { ok: false, error: "Set the ProPresenter host first" };
     try {
       const connection = await connectConfiguredProPresenterBridge(
         data.orgId,
         target,
+        user.id,
       );
       return connection.ok ? { ok: true } : connection;
     } catch {

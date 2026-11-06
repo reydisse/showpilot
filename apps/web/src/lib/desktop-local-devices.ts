@@ -6,7 +6,6 @@ import {
 } from "@/lib/desktop-runtime";
 import { getOrgRouteContext } from "@/lib/session";
 import { getDesktopBridgeSettings } from "@/lib/settings";
-import { createBridgeInstallation, revokeBridgeInstallationKey } from "@/lib/bridge-installations";
 
 function positivePort(value: string | undefined): number | undefined {
   if (!value) return undefined;
@@ -16,8 +15,8 @@ function positivePort(value: string | undefined): number | undefined {
 
 /**
  * Starts this Desktop's embedded Bridge only after local-device mode has been
- * explicitly enabled. Remote operators must keep venue-Bridge mode selected,
- * otherwise their unreachable local agent would replace the venue agent.
+ * explicitly enabled. Additional installations start on standby; switching
+ * the active venue Bridge requires explicit takeover in settings.
  */
 export async function configureDesktopLocalDevices(
   slug: string,
@@ -45,10 +44,10 @@ export async function configureDesktopLocalDevices(
   const settings = await getDesktopBridgeSettings({ data: { orgId: context.org.id } });
   if (!shouldContinue()) return status;
   const issued = !sameInstallation || status.connection === "unauthorized"
-    ? await createBridgeInstallation({ data: { orgId: context.org.id, label: "ShowPilot Desktop" } })
+    ? await (await import("@/lib/bridge-installations")).createBridgeInstallation({ data: { orgId: context.org.id, label: "ShowPilot Desktop" } })
     : null;
   if (!shouldContinue()) {
-    if (issued) await revokeBridgeInstallationKey({ data: { orgId: context.org.id, installationId: issued.installationId } });
+    if (issued) await (await import("@/lib/bridge-installations")).revokeBridgeInstallationKey({ data: { orgId: context.org.id, installationId: issued.installationId } });
     return status;
   }
 

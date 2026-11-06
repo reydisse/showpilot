@@ -410,7 +410,7 @@ function parsePresentation(response: string | undefined): BridgePresentation {
   return { uuid: item.uuid, name: item.name, slides };
 }
 
-async function queryProPresenter(orgId: string, command: Record<string, unknown>): Promise<ProPresenterQueryResult> {
+async function queryProPresenter(orgId: string, command: Record<string, unknown>, actorUserId: string): Promise<ProPresenterQueryResult> {
   const bridge = (env as Cloudflare.Env).BRIDGE_RELAY.get((env as Cloudflare.Env).BRIDGE_RELAY.idFromName(orgId));
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const status = await bridge.getBridgeStatus();
@@ -427,7 +427,7 @@ async function queryProPresenter(orgId: string, command: Record<string, unknown>
       protocol: "propresenter",
       target,
       command: JSON.stringify(command),
-    });
+    }, { source: "operator", actorUserId });
     if (result.success) return { kind: "success", response: result.response };
     const retryableHandoff = result.error === "Venue Bridge was replaced" || result.error === "Venue Bridge disconnected";
     if (!retryableHandoff || attempt === 1) {
@@ -444,11 +444,11 @@ export const listProPresenterSongs = createServerFn({ method: "GET" })
     libraryIds: z.array(idSchema).max(100).optional(),
   }), data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "songs:manage");
+    const { user } = await assertOrgPermission(data.orgId, "songs:manage");
     const result = await queryProPresenter(data.orgId, {
       action: "query-presentations",
       ...(data.libraryIds?.length ? { libraryIds: data.libraryIds } : {}),
-    });
+    }, user.id);
     if (result.kind === "offline") return {
       connected: false,
       presentations: [] as BridgePresentationSummary[],
@@ -462,11 +462,11 @@ export const listProPresenterSongs = createServerFn({ method: "GET" })
 export const getProPresenterSong = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, presentationUuid: idSchema }), data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "songs:manage");
+    const { user } = await assertOrgPermission(data.orgId, "songs:manage");
     const result = await queryProPresenter(data.orgId, {
       action: "query-presentation",
       presentationUuid: data.presentationUuid,
-    });
+    }, user.id);
     if (result.kind === "offline") throw new Error("Venue Bridge or ProPresenter is offline.");
     const presentation = parsePresentation(result.response);
     if (!presentation.slides.length) {

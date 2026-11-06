@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { openTestBridge, bridgeClientTestRequest } from "@/test/bridge-fixtures";
+import { openTestBridge, approveTestBridgeTarget, bridgeClientTestRequest } from "@/test/bridge-fixtures";
 import { revokeBridgeInstallation } from "../bridge-credentials.server";
 
 afterEach(async () => { vi.restoreAllMocks(); await abortAllDurableObjects(); });
@@ -61,7 +61,7 @@ describe("Bridge installation ownership", () => {
     const orgId = "bridge-selection-duplicate";
     const active = await openTestBridge(orgId);
     const response = await active.stub.fetch(new Request(`https://bridge.test/ws?${new URLSearchParams({ orgId, role: "bridge", authCredentialId: active.credential.credentialId })}`, {
-      headers: { Upgrade: "websocket", "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" },
+      headers: { Upgrade: "websocket", "x-showpilot-bridge-policy": "1", "x-showpilot-internal-secret": "worker-test-secret-for-local-integration-only" },
     }));
     expect(response.status).toBe(101);
     const socket = response.webSocket!;
@@ -139,13 +139,14 @@ describe("Bridge installation ownership", () => {
     const initialStatus = message(client, "bridge-status");
     client.accept();
     await initialStatus;
-    const command = { type: "command" as const, id: "pending", protocol: "obs" as const, target: "venue", command: "fixture" };
+    await approveTestBridgeTarget(orgId, "obs", "venue:4455");
+    const command = { type: "command" as const, id: "pending", protocol: "obs" as const, target: "venue:4455", command: "fixture" };
     const dispatched = message(first.socket, "command");
-    const pending = first.stub.dispatchBridgeMessage(command);
+    const pending = first.stub.dispatchBridgeMessage(command, { source: "operator", actorUserId: "test-operator" });
     await dispatched;
     second.socket.send(JSON.stringify({ type: "command-response", id: "pending", success: true, response: "forged" }));
     second.socket.send(JSON.stringify({ type: "device-status", target: "forged-target", connected: true }));
-    second.socket.send(JSON.stringify({ type: "device-event", target: "venue", eventName: "forged", data: "forged" }));
+    second.socket.send(JSON.stringify({ type: "device-event", target: "venue:4455", eventName: "forged", data: "forged" }));
     const standbyProcessed = message(client, "bridge-status");
     second.socket.send(JSON.stringify({ type: "bridge-status", version: "standby-fixture" }));
     await standbyProcessed; // Same-socket ordering proves the preceding messages were handled.
@@ -156,7 +157,7 @@ describe("Bridge installation ownership", () => {
     expect(status.connectedTargets).toEqual([]);
     expect(status.deviceEvents).toEqual({});
     const nextMessage = message(second.socket, "command");
-    const next = first.stub.dispatchBridgeMessage({ ...command, id: "new-owner-command" });
+    const next = first.stub.dispatchBridgeMessage({ ...command, id: "new-owner-command" }, { source: "operator", actorUserId: "test-operator" });
     await nextMessage;
     first.socket.send(JSON.stringify({ type: "command-response", id: "new-owner-command", success: true, response: "old-owner" }));
     second.socket.send(JSON.stringify({ type: "command-response", id: "new-owner-command", success: true, response: "new-owner" }));

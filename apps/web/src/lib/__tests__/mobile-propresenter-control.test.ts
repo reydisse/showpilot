@@ -124,13 +124,13 @@ describe("mobile ProPresenter control", () => {
         apiPort: 1025,
         password: "venue-password",
       },
-    });
+    }, { source: "operator", actorUserId: "operator-1" });
     expect(dispatchBridgeMessage).toHaveBeenNthCalledWith(2, expect.objectContaining({
       type: "command",
       protocol: "propresenter",
       target: "propresenter:192.168.1.20:50001",
       command: "next",
-    }));
+    }), { source: "operator", actorUserId: "operator-1" });
   });
 
   it("rejects commands outside the remote-control allowlist", async () => {

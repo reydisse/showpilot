@@ -901,7 +901,7 @@ async function controlMobileProPresenter(
         apiPort: settings.apiPort,
         password: settings.password,
       },
-    });
+    }, access.identity.userId);
     if (!connection.success) return json(connection, 502);
   }
   const result = await bridgeDispatch(env, access.orgId, {
@@ -910,7 +910,7 @@ async function controlMobileProPresenter(
     protocol: "propresenter",
     target,
     command,
-  });
+  }, access.identity.userId);
   return json(result, result.success ? 200 : 502);
 }
 
@@ -5498,13 +5498,14 @@ async function bridgeDispatch(
   env: MobileApiEnvironment,
   orgId: string,
   message: BridgeDispatchMessage,
+  actorUserId: string,
 ): Promise<BridgeDispatchResult> {
   if (!env.BRIDGE_RELAY)
     return { success: false, error: "Venue Bridge is unavailable" };
   const id = env.BRIDGE_RELAY.idFromName(orgId);
   const stub = env.BRIDGE_RELAY.get(id);
   try {
-    return await stub.dispatchBridgeMessage(message);
+    return await stub.dispatchBridgeMessage(message, { source: "operator", actorUserId });
   } catch {
     return { success: false, error: "Venue Bridge is unavailable" };
   }
@@ -5525,6 +5526,7 @@ async function refreshRemoteDeviceControl(
   settings: Record<string, unknown>,
   remote: ResolvedRemoteDeviceControl,
   bridge: BridgeRelayStatus,
+  actorUserId: string,
 ) {
   const values: Record<string, unknown> = {};
   let updatedAt: number | null = null;
@@ -5549,7 +5551,7 @@ async function refreshRemoteDeviceControl(
         protocol: remote.definition.protocol,
         target: remote.target,
         command: query.command,
-      });
+      }, actorUserId);
       return { query, result };
     }),
   );
@@ -5606,6 +5608,7 @@ async function deviceControlState(
     settings,
     remote,
     bridge,
+    access.identity.userId,
   );
   return json({
     connected,
@@ -5665,14 +5668,14 @@ async function controlDevice(
       protocol: remote.definition.protocol,
       target: remote.target,
       settings: remote.connectionSettings,
-    });
+    }, access.identity.userId);
     return json(result, result.success ? 200 : 502);
   }
   if (operation === "disconnect") {
     const result = await bridgeDispatch(env, access.orgId, {
       type: "disconnect-device",
       target: remote.target,
-    });
+    }, access.identity.userId);
     return json(result, result.success ? 200 : 502);
   }
 
@@ -5698,7 +5701,7 @@ async function controlDevice(
       protocol: remote.definition.protocol,
       target: remote.target,
       command: "GET /api/states",
-    });
+    }, access.identity.userId);
     const allowed =
       discovery.success && typeof discovery.response === "string"
         ? buildHomeAssistantActions(
@@ -5729,7 +5732,7 @@ async function controlDevice(
     protocol: remote.definition.protocol,
     target: remote.target,
     command,
-  });
+  }, access.identity.userId);
   return json(result, result.success ? 200 : 502);
 }
 
