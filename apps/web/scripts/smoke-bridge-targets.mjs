@@ -1,8 +1,10 @@
+import { createBridgeSettingsRecipient } from "../../../packages/shared/src/bridge-settings.mjs";
 // Rehearse approval management and real browser-to-Bridge enforcement with disposable local data.
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
 const { WebSocket } = createRequire(new URL("../../bridge/package.json", import.meta.url))("ws");
+const recipient = await createBridgeSettingsRecipient();
 await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, operatorPassword, operatorCookie, queryFixture }) => {
   const sockets = [];
   const next = (socket, type) => new Promise((resolve, reject) => {
@@ -43,7 +45,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
     legacy.on("error", reject);
   });
   assert.equal(legacyStatus, 426, "Legacy Bridge was not told to update");
-  const bridge = await open("bridge", { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "2" });
+  const bridge = await open("bridge", { "x-showpilot-api-key": key, "x-showpilot-bridge-policy": "3", "x-showpilot-settings-key": recipient.publicKey });
   const operator = await open("client", { Cookie: operatorCookie, Origin: origin });
   let forwarded = 0;
   bridge.on("message", data => {

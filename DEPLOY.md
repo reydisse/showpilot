@@ -215,7 +215,7 @@ an existing kiosk display and Companion control with the saved device tokens.
 
 ### Bridge connection audit protocol
 
-The Worker and bundled native Bridge require device-policy protocol 2. The
+The Worker and bundled native Bridge require device-policy protocol 3. The
 native Bridge waits for a socket-bound receipt before a command opens or
 reopens TCP, OSC, UDP or direct HTTP control. Wake-on-LAN requests a receipt
 for each transient broadcast socket. The relay records the authenticated
@@ -227,10 +227,26 @@ An audit failure, denial or missing receipt prevents the connection.
 
 Release the Worker and both Desktop/Bridge bundles together during a planned
 maintenance window. Older native agents receive HTTP 426, and restored older
-sockets close with 4406. The policy-2 agent also cannot connect to a policy-1
+sockets close with 4406. The policy-3 agent also cannot connect to a policy-1 or policy-2
 Worker. Do not perform this transition mid-show. Keep a matching Worker/native
 pair for rollback, subject to the storage compatibility restrictions below.
 This protocol adds no signing secret or database migration.
+
+Connection settings now travel only in an encrypted envelope. Each native
+WebSocket connection generates an ephemeral RSA-OAEP/SHA-256 key pair and sends
+its public key in the authenticated upgrade header. The private key stays in
+native memory. The Worker encrypts the entire settings object with a fresh
+AES-256-GCM key, wraps that key for the selected recipient, and authenticates
+the organization, installation, protocol, target, nonce and expiry. The native
+process rejects plaintext settings, altered bindings, expired messages and
+replay. Envelopes expire after 30 seconds; keep the native host clock accurate.
+Only the public key is kept in the relay socket attachment for hibernation.
+Neither plaintext settings nor encrypted envelopes are broadcast to operators.
+This transport uses no new Worker secret and does not replace TLS.
+
+Device JSON encryption and masked device read/add/update responses remain
+pending, as does removing browser-facing ProPresenter credential reads. Do not
+interpret transport encryption alone as completion of the credential rollout.
 
 After building the web application and native sidecar, rehearse the actual
 browser-to-Worker-to-native-to-device path against disposable local data:
@@ -242,7 +258,10 @@ node apps/web/scripts/smoke-bridge-command-connections.mjs apps/bridge-desktop/s
 Use the corresponding compiled executable path on other platforms. The check
 opens a local TCP fixture, verifies operator attribution and connection reuse,
 drops the socket, verifies a second attributed connection, then removes the
-approval and checks that subsequent traffic is blocked.
+approval and checks that subsequent traffic is blocked. It also intercepts
+the real native relay connection, proves an HTTP token is absent from wire
+messages while the device receives the correct Authorization header, and
+checks that replaying the settings envelope is rejected.
 
 ### Organization credential encryption
 

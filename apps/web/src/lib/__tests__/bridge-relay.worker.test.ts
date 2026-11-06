@@ -230,7 +230,7 @@ describe("BridgeRelay device dispatch", () => {
   });
 
   it("correlates connect and command RPCs while retaining live device state", async () => {
-    const { stub, socket } = await openBridge("relay-device-org");
+    const { stub, socket, recipient, credential } = await openBridge("relay-device-org");
     await approveTestBridgeTarget("relay-device-org", "obs", "10.0.0.40:4455");
 
     const connectMessage = nextMessage(socket);
@@ -240,12 +240,9 @@ describe("BridgeRelay device dispatch", () => {
       target: "10.0.0.40:4455",
       settings: { host: "10.0.0.40", port: 4455 },
     }, { source: "operator", actorUserId: "test-operator" });
-    expect(await connectMessage).toEqual({
-      type: "connect-device",
-      protocol: "obs",
-      target: "10.0.0.40:4455",
-      settings: { host: "10.0.0.40", port: 4455 },
-    });
+    const connection = await connectMessage;
+    expect(Object.keys(connection).sort()).toEqual(["protectedSettings", "protocol", "target", "type"]);
+    expect(await recipient.open(connection.protectedSettings, { orgId: "relay-device-org", installationId: credential.installationId, protocol: "obs", target: "10.0.0.40:4455" })).toEqual({ host: "10.0.0.40", port: 4455 });
     socket.send(JSON.stringify({ type: "device-status", target: "10.0.0.40:4455", connected: true }));
     await expect(connectResult).resolves.toEqual({ success: true });
 

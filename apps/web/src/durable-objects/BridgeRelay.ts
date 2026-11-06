@@ -1,4 +1,5 @@
 import { redactCredentialText } from "@/lib/credential-fields";
+import { importBridgeSettingsKey, sealBridgeSettings, type ProtectedBridgeSettings } from "@showpilot/shared/bridge-settings";
 import { approveBridgeTarget, removeBridgeTarget, listBridgeTargets, authorizeBridgeTarget, type BridgeTargetActor } from "@/lib/bridge-targets.server";
 import { BridgeTargetError, type BridgeEndpoint } from "@showpilot/shared/bridge-target";
 import { SerialCommandExecutor } from "@/lib/serial-command-executor";
@@ -49,6 +50,13 @@ export type BridgeDispatchMessage =
       target: string;
     };
 
+type NativeDispatchMessage = Exclude<BridgeDispatchMessage, { type: "connect-device" }> | {
+  type: "connect-device";
+  protocol: string;
+  target: string;
+  protectedSettings: ProtectedBridgeSettings;
+};
+
 type BridgeRelayEnv = Pick<Env, "RUNDOWN_RELAY" | "TIMECODE_RELAY" | "DB">;
 type BridgeRelayRuntimeEnv = BridgeRelayEnv & { BETTER_AUTH_SECRET?: string };
 
@@ -59,7 +67,8 @@ interface SocketAttachment {
   credentialId?: string;
   installationId?: string;
   installationLabel?: string;
-  targetPolicyVersion?: 2;
+  targetPolicyVersion?: 3;
+  settingsPublicKey?: string;
   timecodeTarget?: TimecodeTarget;
   authClaim?: LiveSessionAuthorityClaim;
 }
@@ -173,7 +182,8 @@ function parseSocketAttachment(value: unknown): SocketAttachment | null {
     bridgeInfo: bridgeInfo ?? undefined,
     installationId: typeof value.installationId === "string" ? value.installationId : undefined,
     installationLabel: typeof value.installationLabel === "string" ? value.installationLabel : undefined,
-    targetPolicyVersion: value.targetPolicyVersion === 2 ? 2 : undefined,
+    targetPolicyVersion: value.targetPolicyVersion === 3 ? 3 : undefined,
+    settingsPublicKey: typeof value.settingsPublicKey === "string" ? value.settingsPublicKey : undefined,
     credentialId: typeof value.credentialId === "string" ? value.credentialId : undefined,
     timecodeTarget: isRecord(value.timecodeTarget)
       && value.timecodeTarget.orgId === value.orgId
@@ -237,10 +247,12 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
             ws.close(4403, "Reconnect with installation credentials");
             continue;
           }
-          if (attachment.targetPolicyVersion !== 2) {
-            ws.close(4406, "Update the Bridge to support approved and attributed device connections");
+          if (attachment.targetPolicyVersion !== 3 || !attachment.settingsPublicKey) {
+            ws.close(4406, "Update the Bridge to support protected device settings");
             continue;
           }
+          try { await importBridgeSettingsKey(attachment.settingsPublicKey); }
+          catch { ws.close(4406, "Reconnect with a valid device settings key"); continue; }
           // Re-save only parsed fields so pre-upgrade event snapshots cannot
           // retain credentials in hibernating socket attachments.
           ws.serializeAttachment(attachment);
@@ -315,9 +327,13 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         const role = url.searchParams.get("role") ?? "client";
         const credentialId = url.searchParams.get("authCredentialId");
         const authClaim = this.readAuthorityClaim(url);
+        let settingsPublicKey: string | undefined;
         if (role === "bridge") {
           if (!credentialId || !(await getBridgeCredentialAuthority(this.env.DB, this.orgId, credentialId))) return new Response("Unauthorized", { status: 401 });
-          if (request.headers.get("x-showpilot-bridge-policy") !== "2") return new Response("Update ShowPilot Desktop or Bridge to support approved and attributed device connections.", { status: 426 });
+          if (request.headers.get("x-showpilot-bridge-policy") !== "3") return new Response("Update ShowPilot Desktop or Bridge to support protected device settings.", { status: 426 });
+          settingsPublicKey = request.headers.get("x-showpilot-settings-key") ?? undefined;
+          try { await importBridgeSettingsKey(settingsPublicKey); }
+          catch { return new Response("A valid native device settings key is required.", { status: 426 }); }
         } else if (role !== "client" || !authClaim || !(await hasLivePermissionAuthority(this.env.DB, authClaim, "devices:access"))) {
           return new Response("Unauthorized", { status: 401 });
         }
@@ -329,7 +345,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           role: role === "bridge" ? "bridge" : "client",
           orgId: this.orgId,
           ...(role === "bridge"
-            ? { credentialId: credentialId ?? undefined, targetPolicyVersion: 2 as const }
+            ? { credentialId: credentialId ?? undefined, targetPolicyVersion: 3 as const, settingsPublicKey }
             : {
                 authClaim: authClaim ?? undefined,
               }),
@@ -411,7 +427,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     const installation = this.bridges.get(socket);
     if (!installation) return;
     const approvedTargets = role === "active" ? await listBridgeTargets(this.env.DB, this.orgId) : [];
-    socket.send(JSON.stringify({ type: "bridge-role", role, selectionId, approvedTargets, installationId: installation.installationId, activeInstallation: this.activeInstallation }));
+    socket.send(JSON.stringify({ type: "bridge-role", role, orgId: this.orgId, selectionId, approvedTargets, installationId: installation.installationId, activeInstallation: this.activeInstallation }));
   }
 
   private async sendBridgeRoles(): Promise<void> {
@@ -557,12 +573,28 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           return { result: Promise.resolve({ success: false, error: error instanceof BridgeTargetError ? error.message : "Bridge destination approval could not be verified." }) };
         }
       }
-      return { result: this.beginDispatch(socket, message, actor) };
+      try {
+        const wireMessage = message.type === "connect-device"
+          ? await this.protectDeviceSettings(socket, message.protocol, message.target, message.settings) : message;
+        return { result: this.beginDispatch(socket, wireMessage, actor) };
+      } catch {
+        return { result: Promise.resolve({ success: false, error: "Protected device settings could not be delivered. Reconnect the Bridge." }) };
+      }
     });
     return operation.result;
   }
 
-  private beginDispatch(bridgeSocket: WebSocket, message: BridgeDispatchMessage, actor: BridgeTargetActor): Promise<BridgeDispatchResult> {
+  private async protectDeviceSettings(socket: WebSocket, protocol: string, target: string, settings: Record<string, unknown>): Promise<Extract<NativeDispatchMessage, { type: "connect-device" }>> {
+    const installation = this.bridges.get(socket);
+    const attachment = parseSocketAttachment(socket.deserializeAttachment());
+    if (!installation || !attachment?.settingsPublicKey || attachment.orgId !== this.orgId) throw new Error("Protected Bridge settings unavailable");
+    const protectedSettings = await sealBridgeSettings(attachment.settingsPublicKey, {
+      orgId: this.orgId, installationId: installation.installationId, protocol, target,
+    }, settings);
+    return { type: "connect-device", protocol, target, protectedSettings };
+  }
+
+  private beginDispatch(bridgeSocket: WebSocket, message: NativeDispatchMessage, actor: BridgeTargetActor): Promise<BridgeDispatchResult> {
     if (message.type === "disconnect-device") {
       try {
         bridgeSocket.send(JSON.stringify(message));
@@ -915,11 +947,14 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         break;
       }
       case "connect-device":
-        // Forward to bridge
         try {
-          this.bridgeWs.send(JSON.stringify({ type: "connect-device", protocol: msg.protocol, target: msg.target, settings: msg.settings ?? {} }));
+          if (typeof msg.protocol !== "string" || typeof msg.target !== "string") return;
+          const settings = msg.settings ?? {};
+          if (!isRecord(settings)) return;
+          const protectedMessage = await this.protectDeviceSettings(this.bridgeWs, msg.protocol, msg.target, settings);
+          this.bridgeWs.send(JSON.stringify(protectedMessage));
         } catch {
-          // Bridge disconnected
+          clientWs.send(JSON.stringify({ type: "device-status", target: msg.target, connected: false, error: "Protected device settings could not be delivered. Reconnect the Bridge." }));
         }
         break;
 
@@ -979,7 +1014,8 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       bridgeInfo: this.bridgeInfo,
       installationId: this.activeInstallation?.installationId,
       installationLabel: this.activeInstallation?.label,
-      targetPolicyVersion: 2,
+      targetPolicyVersion: 3,
+      settingsPublicKey: parseSocketAttachment(this.bridgeWs.deserializeAttachment())?.settingsPublicKey,
       timecodeTarget: this.timecodeTarget ?? undefined,
       ...(this.credentialId ? { credentialId: this.credentialId } : {}),
     } satisfies SocketAttachment);
