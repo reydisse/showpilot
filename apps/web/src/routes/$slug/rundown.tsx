@@ -1,3 +1,4 @@
+import { useProPresenterCommands } from "@/hooks/useProPresenterCommands";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -60,8 +61,6 @@ import {
   saveRundownMeta,
   setActiveServiceDate,
   getRundownOpeningDate,
-  setProPresenterStageDisplay,
-  sendProPresenterCommand,
 } from "@/lib/rundown";
 import type {
   PPSlidePayload,
@@ -839,12 +838,6 @@ function RundownPage() {
   const ppPort = parseInt(ppConfiguration.value["propresenter-port"] || "50001", 10);
   const ppApiPort = parseInt(ppConfiguration.value["propresenter-api-port"] || "0", 10);
   const ppCuesEnabled = ppConfiguration.value["propresenter-send-cues"] === "true";
-  const [ppOutputPending, setPpOutputPending] = useState(false);
-  const [ppCmdError, setPpCmdError] = useState("");
-  const [ppCmdPending, setPpCmdPending] = useState<
-    "next" | "previous" | "clear" | null
-  >(null);
-  const [ppCmdNotice, setPpCmdNotice] = useState("");
   const [ppCurrentSlide, setPpCurrentSlide] = useState<PPSlidePayload | null>(
     null,
   );
@@ -894,41 +887,14 @@ function RundownPage() {
     onSlideChange: handlePPSlideChange,
   });
 
-  const handleProPresenterCommand = useCallback(
-    async (command: "next" | "previous" | "clear") => {
-      if (ppCmdPending) return;
-      setPpCmdPending(command);
-      setPpCmdError("");
-      setPpCmdNotice("");
-      try {
-        const result = await sendProPresenterCommand({
-          data: { orgId, command },
-        });
-        if (!result.ok) {
-          setPpCmdError(
-            result.error || "ProPresenter did not accept the command",
-          );
-          return;
-        }
-        setPpCmdNotice(
-          command === "previous"
-            ? "Previous slide sent"
-            : command === "next"
-              ? "Next slide sent"
-              : "Slide layer cleared",
-        );
-      } catch (error) {
-        setPpCmdError(
-          error instanceof Error
-            ? error.message
-            : "ProPresenter command failed",
-        );
-      } finally {
-        setPpCmdPending(null);
-      }
-    },
-    [orgId, ppCmdPending],
-  );
+  const ppCommands = useProPresenterCommands({
+    orgId, scope: JSON.stringify([orgId, serviceDate, showId, ppHost, ppPort, ppApiPort]),
+    canControlSlides: canControlRundown && syncConnected && pp.isStreaming,
+    canChangeOutput: canEditRundown && syncConnected,
+  });
+  const ppOutputPending = ppCommands.pending?.kind === "output";
+  const ppControlsBlocked = ppCommands.pending !== null || ppCommands.failure !== null;
+  const handleProPresenterCommand = (command: "next" | "previous" | "clear") => ppCommands.run({ kind: "slide", command });
 
   // Prefer the freshest confirmed preview from the rundown or the venue feed.
   const bridgeSlideUpdatedAt = syncedPpSlide?.updatedAt ?? 0;
@@ -959,23 +925,7 @@ function RundownPage() {
     }
   }, [canEditRundown, ppEnabled]);
 
-  const togglePPOnKiosk = useCallback(async () => {
-    if (!canEditRundown || ppOutputPending) return;
-    const next = !ppOnKiosk;
-    setPpOutputPending(true);
-    setPpCmdError("");
-    try {
-      await setProPresenterStageDisplay({ data: { orgId, enabled: next } });
-    } catch (error) {
-      setPpCmdError(
-        error instanceof Error
-          ? error.message
-          : "Could not update the kiosk output",
-      );
-    } finally {
-      setPpOutputPending(false);
-    }
-  }, [canEditRundown, orgId, ppOnKiosk, ppOutputPending]);
+  const togglePPOnKiosk = () => ppCommands.run({ kind: "output", enabled: !ppOnKiosk });
 
   // Load rundown for new date
   const loadDate = async (date: string, targetShowId?: string) => {
@@ -2337,7 +2287,7 @@ function RundownPage() {
                         </Button>
                         <Button variant="ghost"
                           onClick={togglePPOnKiosk}
-                          disabled={ppOutputPending}
+                          disabled={ppControlsBlocked || !syncConnected}
                           aria-busy={ppOutputPending}
                           className={`min-h-11 flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium uppercase tracking-wider transition-colors ${
                             ppOnKiosk
@@ -2364,6 +2314,15 @@ function RundownPage() {
                       </>
                     )}
                   </div>
+
+                  {ppCommands.failure && (
+                    <div role="alert" aria-label="ProPresenter command confirmation" className="my-3 space-y-2 text-sm text-amber-200">
+                      <p>{ppCommands.failure.message} <time dateTime={new Date(ppCommands.failure.occurredAt).toISOString()}>{new Date(ppCommands.failure.occurredAt).toLocaleTimeString()}</time></p>
+                      <Button type="button" variant="outline" className="min-h-11 h-auto whitespace-normal" onClick={ppCommands.acknowledgeReview}>I've checked the output</Button>
+                    </div>
+                  )}
+                  {ppCommands.notice && <p role="status" aria-live="polite" className="my-2 text-sm text-green-400">{ppCommands.notice}</p>}
+                  {ppCommands.pending && <p role="status" aria-live="polite" className="my-2 text-sm text-board-muted">Waiting for ProPresenter confirmation…</p>}
 
                   {ppEnabled && (
                     <>
@@ -2403,7 +2362,7 @@ function RundownPage() {
                                 onClick={() =>
                                   void handleProPresenterCommand("previous")
                                 }
-                                disabled={ppCmdPending !== null}
+                                disabled={ppControlsBlocked || !canControlRundown || !syncConnected || !pp.isStreaming}
                                 className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-xs font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors disabled:cursor-wait disabled:opacity-50"
                                 title="Previous slide"
                               >
@@ -2415,7 +2374,7 @@ function RundownPage() {
                                 onClick={() =>
                                   void handleProPresenterCommand("next")
                                 }
-                                disabled={ppCmdPending !== null}
+                                disabled={ppControlsBlocked || !canControlRundown || !syncConnected || !pp.isStreaming}
                                 className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-xs font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors disabled:cursor-wait disabled:opacity-50"
                                 title="Next slide"
                               >
@@ -2427,7 +2386,7 @@ function RundownPage() {
                                 onClick={() =>
                                   void handleProPresenterCommand("clear")
                                 }
-                                disabled={ppCmdPending !== null}
+                                disabled={ppControlsBlocked || !canControlRundown || !syncConnected || !pp.isStreaming}
                                 className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-red-500/30 text-xs font-medium text-red-400 hover:bg-red-500/10 hover:text-red-400 transition-colors ml-auto disabled:cursor-wait disabled:opacity-50"
                                 title="Clear slide layer"
                               >
@@ -2435,24 +2394,6 @@ function RundownPage() {
                                 Clear
                               </Button>
                             </div>
-                            {ppCmdError && (
-                              <p
-                                role="alert"
-                                className="text-xs text-red-400 mt-1 font-mono"
-                                title={ppCmdError}
-                              >
-                                {ppCmdError}
-                              </p>
-                            )}
-                            {ppCmdNotice && !ppCmdError && (
-                              <p
-                                role="status"
-                                aria-live="polite"
-                                className="text-xs text-green-400 mt-1"
-                              >
-                                {ppCmdNotice}
-                              </p>
-                            )}
                           </div>
                         ) : (
                           <p className="text-xs text-board-muted mb-2">
