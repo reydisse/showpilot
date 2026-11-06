@@ -1,3 +1,4 @@
+import { parseNamedTimerDuration } from "@/lib/named-timers";
 import { isTriggerControlAction } from "@/lib/automation-execution";
 import { automationPayloadProblem } from "@/lib/automation-payload";
 import { AutomationTargetPicker, type AutomationTargetOption, type LoadAutomationTargets } from "./AutomationTargetPicker";
@@ -18,6 +19,7 @@ interface AutomationEventEditorProps {
   onAdd: (event: NewAutomationEvent) => Promise<void>;
   connected: boolean;
   loadTargets?: LoadAutomationTargets;
+  timerNames?: string[];
   format: import("@/types/timecode").TimecodeFormat;
 }
 
@@ -39,6 +41,8 @@ const ACTION_OPTIONS: {
   { value: "stage-message", label: "Send Stage Message", category: "Stage Display" },
   { value: "triggers-disable", label: "Pause Automatic Cues", category: "Automation" },
   { value: "triggers-enable", label: "Resume Automatic Cues", category: "Automation" },
+  { value: "timer-start", label: "Start Named Timer", category: "Timers" },
+  { value: "timer-stop", label: "Stop Named Timer", category: "Timers" },
   { value: "crew-message", label: "Post to Production Chat", category: "Crew" },
   { value: "stage-clear", label: "Clear Stage Message", category: "Stage Display" },
   { value: "device-action", label: "Trigger Device Action", category: "Devices" },
@@ -57,7 +61,7 @@ const ACTION_OPTIONS: {
   { value: "custom-webhook", label: "Custom Webhook", category: "Other" },
 ];
 
-export function AutomationEventEditor({ onAdd, format, connected, loadTargets }: AutomationEventEditorProps) {
+export function AutomationEventEditor({ onAdd, format, connected, loadTargets, timerNames = [] }: AutomationEventEditorProps) {
   const workspaceTerms = useWorkspaceTerms();
   const [tcString, setTcString] = useState("");
   const [action, setAction] = useState<AutomationActionType>("lower-third-show");
@@ -67,6 +71,12 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
   const crewMessageId = useId();
   const [targetSelection, setTargetSelection] = useState<AutomationTargetOption | null>(null);
   const usesTargetPicker = action === "rundown-goto-item" || action === "lighting-blackout";
+  const namedTimer = action === "timer-start" || action === "timer-stop";
+  const timerNameId = useId();
+  const timerDurationId = useId();
+  const [timerName, setTimerName] = useState("");
+  const [timerDuration, setTimerDuration] = useState("5:00");
+  const timerDurationMs = parseNamedTimerDuration(timerDuration);
   const controlsTriggers = isTriggerControlAction(action);
   const stepsLyrics = action === "lyrics-next-section" || action === "lyrics-previous-section";
   const propNameId = useId();
@@ -103,7 +113,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
 
     let payload: Record<string, unknown>;
     try {
-      const parsed: unknown = action === "crew-message" ? { message: crewMessage.trim() } : stepsLyrics || controlsTriggers ? {} : usesTargetPicker
+      const parsed: unknown = namedTimer ? { name: timerName.trim(), ...(action === "timer-start" ? { durationMs: timerDurationMs } : {}) } : action === "crew-message" ? { message: crewMessage.trim() } : stepsLyrics || controlsTriggers ? {} : usesTargetPicker
         ? action === "rundown-goto-item" ? { itemId: targetSelection?.id } : { deviceId: targetSelection?.id }
         : structuredProPresenter
         ? { ...(action === "pp-trigger-prop" ? { propName: propName.trim() } : {}), ...(propTarget.trim() ? { target: propTarget.trim() } : {}) }
@@ -123,7 +133,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
       triggerTimecode: tc,
       action,
       payload,
-      label: label || (usesTargetPicker && targetSelection ? `${action === "rundown-goto-item" ? "Jump to" : "Blackout"} ${targetSelection.label}` : "") || ACTION_OPTIONS.find((o) => o.value === action)?.label || action,
+      label: label || (namedTimer ? `${action === "timer-start" ? "Start" : "Stop"} ${timerName.trim()}` : "") || (usesTargetPicker && targetSelection ? `${action === "rundown-goto-item" ? "Jump to" : "Blackout"} ${targetSelection.label}` : "") || ACTION_OPTIONS.find((o) => o.value === action)?.label || action,
       toleranceFrames,
       leadMs,
       category: ACTION_OPTIONS.find((o) => o.value === action)?.category,
@@ -221,7 +231,19 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
         {!toleranceValid && <p role="alert" className="mt-1 text-xs text-red-400">{toleranceError}</p>}
       </div>
 
-      {controlsTriggers ? <p className="text-xs text-board-muted">
+      {namedTimer ? <div className="space-y-3">
+        <div><label htmlFor={timerNameId} className="mb-1 block text-xs text-board-muted">Timer name</label>
+          <input id={timerNameId} list={`${timerNameId}-options`} value={timerName} onChange={event => setTimerName(event.target.value)} maxLength={80} required className={INPUT_CLASS} placeholder="Speaker countdown" />
+          <datalist id={`${timerNameId}-options`}>{timerNames.map(name => <option key={name} value={name} />)}</datalist>
+        </div>
+        {action === "timer-start" && <div><label htmlFor={timerDurationId} className="mb-1 block text-xs text-board-muted">Duration (m:ss)</label>
+          <input id={timerDurationId} value={timerDuration} onChange={event => setTimerDuration(event.target.value)} required aria-invalid={timerDurationMs === null} aria-describedby={`${timerDurationId}-help`} className={INPUT_CLASS} placeholder="5:00" />
+          <p id={`${timerDurationId}-help`} className="mt-1 text-xs text-board-muted">Enter minutes or m:ss, from 0:01 to 1440:00. The timer continues when timecode stops.</p>
+          {timerDurationMs === null && <p role="alert" className="text-xs text-red-400">Enter a duration from 0:01 to 1440:00.</p>}
+        </div>}
+        <p className="text-xs text-board-muted">{action === "timer-start" ? "Show this countdown on the confidence display. Firing Start again restarts the same named timer. A Retry after a lost acknowledgment preserves its countdown."
+          : "Stop and remove this named countdown from the confidence display. Other timers and the rundown keep running."}</p>
+      </div> : controlsTriggers ? <p className="text-xs text-board-muted">
         {action === "triggers-disable" ? "Pause automatic firing while the clock continues. Manual Fire remains available. Add a Resume Automatic Cues event or resume from the operator controls."
           : "Resume automatic firing from the current timecode. Missed cues will not replay. This cannot override the safety kill switch or an unresolved timecode hold."}
         {" "}If pause and resume share a dispatch time, pause wins.
@@ -260,7 +282,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets }:
 
       <button
         type="submit"
-        disabled={!toleranceValid || !leadValid || (usesTargetPicker && !targetSelection)}
+        disabled={!toleranceValid || !leadValid || (namedTimer && (!timerName.trim() || (action === "timer-start" && timerDurationMs === null))) || (usesTargetPicker && !targetSelection)}
         className="flex min-h-11 items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2 text-sm font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
       >
         <Plus className="w-3.5 h-3.5" />

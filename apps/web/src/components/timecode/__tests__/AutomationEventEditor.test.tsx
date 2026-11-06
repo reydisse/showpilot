@@ -168,3 +168,23 @@ it.each(["triggers-disable", "triggers-enable"])("saves %s without stale JSON an
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
   expect(save.mock.calls[0][0]).toMatchObject({ action, payload: {}, enabled: true });
 });
+
+it("saves named Start and Stop with structured fields, inline duration validation and retained drafts", async () => {
+  const save = vi.fn(async (_event: NewAutomationEvent) => { throw new Error("Relay disconnected"); });
+  render(<AutomationEventEditor connected format={format} onAdd={save} timerNames={["Speaker countdown"]} />);
+  fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "timer-start" } });
+  fireEvent.change(screen.getByLabelText("Timer name"), { target: { value: " Speaker countdown " } });
+  fireEvent.change(screen.getByLabelText("Duration (m:ss)"), { target: { value: "5:99" } });
+  expect(screen.getByRole("button", { name: "Add Event" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("alert").textContent).toContain("Enter a duration");
+  fireEvent.change(screen.getByLabelText("Duration (m:ss)"), { target: { value: "5:00" } });
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
+  expect(save.mock.calls[0][0]).toMatchObject({ action: "timer-start", payload: { name: "Speaker countdown", durationMs: 300000 }, label: "Start Speaker countdown" });
+  expect(screen.getByLabelText("Timer name")).toHaveProperty("value", " Speaker countdown ");
+  expect(document.querySelector("textarea")).toBeNull();
+  fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "timer-stop" } });
+  expect(screen.queryByLabelText("Duration (m:ss)")).toBeNull();
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
+  expect(save.mock.calls[1][0]).toMatchObject({ action: "timer-stop", payload: { name: "Speaker countdown" }, label: "Stop Speaker countdown" });
+});
