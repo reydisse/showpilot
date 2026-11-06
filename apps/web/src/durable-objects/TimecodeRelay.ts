@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { displaySocketMayReceive } from "@/lib/display-access.server";
 import { getPrisma } from "@/lib/db";
 import type {
   TimecodeState,
@@ -196,6 +197,7 @@ export class TimecodeRelay extends DurableObject {
         sessionId: crypto.randomUUID(),
         orgId: this.orgId,
         authClaim: this.readAuthorityClaim(url),
+        displayExpiresAt: url.searchParams.has("authDisplayExpiresAt") ? Number(url.searchParams.get("authDisplayExpiresAt")) : undefined,
       });
 
       // Hydrate
@@ -952,6 +954,7 @@ export class TimecodeRelay extends DurableObject {
   private broadcast(data: string): void {
     // getWebSockets() is the authoritative list after hibernation wakes.
     for (const ws of this.ctx.getWebSockets()) {
+      if (!displaySocketMayReceive(ws)) continue;
       try {
         ws.send(data);
       } catch {
@@ -981,6 +984,7 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private send(ws: WebSocket, data: string): void {
+    if (!displaySocketMayReceive(ws)) return;
     try {
       ws.send(data);
     } catch {

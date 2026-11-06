@@ -40,7 +40,7 @@ import {
 import { getProPresenterRuntimeSettings } from "@/lib/settings";
 import { useProPresenter } from "@/hooks/useProPresenter";
 import { getSharedBridgeProxy } from "@/lib/device-modules/bridge-proxy";
-import { useAbsoluteUrl } from "@/hooks/useAbsoluteUrl";
+import { useDisplayLink } from "@/hooks/useDisplayLink";
 
 type GraphicType = "lower-third" | "scripture" | "announcement" | "title";
 
@@ -247,8 +247,7 @@ function GraphicsPage() {
     router.invalidate();
   };
 
-  const overlayUrl = `/overlay/${slug}`;
-  const absoluteOverlayUrl = useAbsoluteUrl(overlayUrl);
+  const overlayLink = useDisplayLink(slug, "overlay");
 
   const generateFromProPresenter = async (kind: "scripture" | "lower-third" | "title") => {
     const slide = currentProPresenterSlide;
@@ -576,13 +575,14 @@ function GraphicsPage() {
           </p>
           <div className="flex items-center gap-2">
             <code className="flex-1 text-xs text-board-muted bg-board-bg px-3 py-2 rounded-lg truncate">
-              {absoluteOverlayUrl}
+              {overlayLink.url || "Creating display link…"}
             </code>
             <button
+              disabled={!overlayLink.url}
               onClick={() => {
-                navigator.clipboard.writeText(absoluteOverlayUrl);
-                setCopiedOverlay(true);
-                setTimeout(() => setCopiedOverlay(false), 2000);
+                void overlayLink.copy().then((copied) => {
+                  if (copied) { setCopiedOverlay(true); setTimeout(() => setCopiedOverlay(false), 2000); }
+                });
               }}
               className="p-2 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
               aria-label="Copy OBS browser source URL"
@@ -596,8 +596,10 @@ function GraphicsPage() {
           </div>
           <p className="text-[10px] text-board-muted/50 mt-2">
             Add this URL as a Browser Source in OBS/vMix to display live
-            graphics on your stream.
+            graphics on your stream. This link expires in 8 hours.
           </p>
+          {overlayLink.error && <p role="alert" className="mt-2 text-sm text-red-300">{overlayLink.error}</p>}
+          <button type="button" onClick={overlayLink.refresh} className="mt-2 min-h-11 text-xs text-board-muted">Create a fresh link</button>
         </div>
 
         {/* ProPresenter slide import */}

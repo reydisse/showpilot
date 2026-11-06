@@ -29,6 +29,7 @@ vi.mock("@/durable-objects/LowerThirdsRelay", () => ({ LowerThirdsRelay: class {
 vi.mock("@/durable-objects/CueSheetRelay", () => ({ CueSheetRelay: class {} }));
 
 import server from "../../server";
+import { issueDisplayPass } from "../display-access.server";
 
 function database(): MobileApiDatabase {
   function statement(sql: string, params: unknown[]): MobileApiStatement {
@@ -157,12 +158,14 @@ describe("rundown PIN boundaries", () => {
     expect(new URL(mocks.relay.mock.calls[0][0].url).searchParams.get("access")).toBe("control");
   });
 
-  it("keeps public displays read-only even with an unlocked TM", async () => {
+  it("keeps authorized displays on the limited projection even with an unlocked TM", async () => {
+    const secret = "rundown-display-fixture-secret";
+    const pass = await issueDisplayPass("org-1", "timer", secret);
     const response = await server.fetch(new Request("https://showpilot.test/api/rundown/org-1/ws?display=1", {
-      headers: { "x-showpilot-rundown-pin": "2468" },
-    }), { DB: database(), RUNDOWN_RELAY: { idFromName: (name: string) => name, get: () => ({ fetch: mocks.relay }) } }, {});
+      headers: { "x-showpilot-rundown-pin": "2468", "x-showpilot-display-pass": pass.token },
+    }), { DB: database(), KIOSK_SECRET: secret, RUNDOWN_RELAY: { idFromName: (name: string) => name, get: () => ({ fetch: mocks.relay }) } }, {});
     expect(response.status).toBe(200);
-    expect(new URL(mocks.relay.mock.calls[0][0].url).searchParams.get("access")).toBe("observe");
+    expect(new URL(mocks.relay.mock.calls[0][0].url).searchParams.get("access")).toBe("read");
   });
 
   it.each(["state", "ws"])("lets a locked TM observe Show through %s without editor access", async (subpath) => {

@@ -1,7 +1,9 @@
 import { CONFIDENCE_LAYOUT_KEY, confidenceLayoutSchema, readConfidenceLayout, DEFAULT_CONFIDENCE_LAYOUT, type ConfidenceLayout } from "@/lib/confidence-layout";
 import { WORKSPACE_SETTING_KEYS } from "@showpilot/shared";
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
+import { getRequest, getRequestHeaders } from "@tanstack/react-start/server";
+import { env } from "cloudflare:workers";
+import { requireDisplayAccess } from "./display-access.server";
 import { getPrisma } from "@/lib/db";
 import {
   hasAnyPermission,
@@ -409,7 +411,7 @@ export interface DisplaySettingsBySlug {
 }
 
 export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgSlug: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgSlug: z.string().min(1).max(128) }), data))
   .handler(async ({ data }): Promise<DisplaySettingsBySlug> => {
     const prisma = getPrisma();
     const org = await prisma.organization.findUnique({ where: { slug: data.orgSlug } });
@@ -428,6 +430,7 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
       };
     }
 
+    await requireDisplayAccess(env.DB, getRequest(), org.id, "timer", env.KIOSK_SECRET);
     const [settings, shows] = await Promise.all([
       prisma.appSetting.findMany({
         where: {

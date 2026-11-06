@@ -1,5 +1,6 @@
 import handler from "@tanstack/react-start/server-entry";
 import { authenticateBridgeRequest, backfillLegacyBridgeInstallations, migrateLegacyBridgeInstallation } from "./lib/bridge-credentials.server";
+import { authenticateDisplayRequest } from "./lib/display-access.server";
 import { getAuth } from "./lib/auth";
 import { resolveEffectiveAccess } from "./lib/effective-access";
 import type { Permission } from "./lib/permissions";
@@ -289,14 +290,18 @@ const appServer = {
       const publicDisplayRead = request.method === "GET"
         && (subpath === "ws" || subpath === "state")
         && url.searchParams.get("display") === "1";
+      const displayAuthority = publicDisplayRead ? await authenticateDisplayRequest(e.DB, request, orgId, "timer", e.KIOSK_SECRET) : null;
+      if (publicDisplayRead && !displayAuthority) return new Response("Display pass required", { status: 401, headers: { "Cache-Control": "no-store" } });
       if (!publicDisplayRead && !canUse(access, "timecode:access")) return new Response("Unauthorized", { status: 401 });
       const id = e.TIMECODE_RELAY.idFromName(orgId);
       const stub = e.TIMECODE_RELAY.get(id);
-      const doUrl = new URL(request.url);
+      const doUrl = publicDisplayRead ? new URL("https://timecode.internal") : new URL(request.url);
       doUrl.pathname = `/${subpath}`;
       doUrl.searchParams.set("orgId", orgId);
       doUrl.searchParams.set("access", publicDisplayRead ? "read" : "write");
-      if (access.identity) {
+      doUrl.searchParams.delete("authDisplayExpiresAt");
+      if (displayAuthority) doUrl.searchParams.set("authDisplayExpiresAt", String(displayAuthority.expiresAt));
+      if (!publicDisplayRead && access.identity) {
         doUrl.searchParams.set("authUserId", access.identity.userId);
         if (access.identity.sessionId) doUrl.searchParams.set("authSessionId", access.identity.sessionId);
       }
@@ -368,6 +373,8 @@ const appServer = {
       const publicDisplayRead = request.method === "GET"
         && (subpath === "ws" || subpath === "state")
         && url.searchParams.get("display") === "1";
+      const displayAuthority = publicDisplayRead ? await authenticateDisplayRequest(e.DB, request, orgId, "timer", e.KIOSK_SECRET) : null;
+      if (publicDisplayRead && !displayAuthority) return new Response("Display pass required", { status: 401, headers: { "Cache-Control": "no-store" } });
       // The Show workspace observes the live state without unlocking the editor.
       // This mode never grants command access, even to an owner or controller.
       const showViewRead = request.method === "GET"
@@ -392,14 +399,18 @@ const appServer = {
         rundownRelayKey(orgId, serviceDate, getTodayDateString(timezone?.value), showId),
       );
       const stub = e.RUNDOWN_RELAY.get(id);
-      const doUrl = new URL(request.url);
+      const doUrl = publicDisplayRead ? new URL("https://rundown.internal") : new URL(request.url);
       doUrl.pathname = `/${subpath}`;
       doUrl.searchParams.set("orgId", orgId);
+      if (serviceDate) doUrl.searchParams.set("serviceDate", serviceDate);
+      if (showId) doUrl.searchParams.set("showId", showId);
+      doUrl.searchParams.delete("authDisplayExpiresAt");
+      if (displayAuthority) doUrl.searchParams.set("authDisplayExpiresAt", String(displayAuthority.expiresAt));
       doUrl.searchParams.set(
         "access",
-        (publicDisplayRead || showViewRead) ? "observe" : isMutation && writeAccess ? writeAccess : canObserveRundown ? "observe" : "read",
+        publicDisplayRead ? "read" : showViewRead ? "observe" : isMutation && writeAccess ? writeAccess : canObserveRundown ? "observe" : "read",
       );
-      if (access.identity) {
+      if (!publicDisplayRead && access.identity) {
         doUrl.searchParams.set("authUserId", access.identity.userId);
         if (access.identity.sessionId) {
           doUrl.searchParams.set("authSessionId", access.identity.sessionId);
@@ -682,12 +693,17 @@ const appServer = {
       if (isMutation && !canControl) {
         return new Response("Unauthorized", { status: 401 });
       }
+      const memberRead = canUse(access, ["lowerthird:view", "lowerthird:trigger"]);
+      const displayAuthority = !isMutation && !memberRead ? await authenticateDisplayRequest(e.DB, request, orgId, "overlay", e.KIOSK_SECRET) : null;
+      if (!isMutation && !memberRead && !displayAuthority) return new Response("Display pass required", { status: 401, headers: { "Cache-Control": "no-store" } });
       const id = e.LOWER_THIRDS_RELAY.idFromName(orgId);
       const stub = e.LOWER_THIRDS_RELAY.get(id);
-      const doUrl = new URL(request.url);
+      const doUrl = displayAuthority ? new URL("https://lowerthirds.internal") : new URL(request.url);
       doUrl.pathname = `/${subpath}`;
       doUrl.searchParams.set("orgId", orgId);
       doUrl.searchParams.set("access", canControl ? "write" : "read");
+      doUrl.searchParams.delete("authDisplayExpiresAt");
+      if (displayAuthority) doUrl.searchParams.set("authDisplayExpiresAt", String(displayAuthority.expiresAt));
       if (access.identity) {
         doUrl.searchParams.set("authUserId", access.identity.userId);
         if (access.identity.sessionId) doUrl.searchParams.set("authSessionId", access.identity.sessionId);

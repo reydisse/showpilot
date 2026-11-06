@@ -169,12 +169,16 @@
       "phase": "0",
       "section": "0.3 Kill the Bridge god credential (audit C1)",
       "line": 46,
-      "status": "implemented",
+      "status": "verified",
       "evidence": [
         "D1 migration 0048 and bridge-credentials.server.ts store SHA-256 hashes with per-installation labels, last-use timestamps, rotation versions, and revocation. Legacy conversion is atomic and idempotent; a bounded scheduled backfill includes offline installations.",
         "BridgeInstallationSettings rendered tests verify one-time display, rotation overlap copy, single-click revoke, and removal of late secrets after workspace changes. bridge-installations.test.ts verifies permission checks before every operation.",
         "Commit 31e32e6 moves Desktop, Bridge Desktop, and standalone Bridge keys into OS credential stores and removes plaintext from JSON, native log output, setup HTML, and setup status. Six shared Rust vault tests and 71 standalone Bridge tests pass using isolated fixture stores.",
-        "Remaining: real OS credential-store round trips and native bundles on every supported platform; deployment migration verification; operator migration of legacy shared keys to separate installation keys. No production data has been changed."
+        "2026-11-04 macOS ARM64: real OS Keychain probe passed native save/read/rotation/deletion/legacy conversion (6 fixture unit tests plus 1 opt-in system test). Standalone Bridge probe passed persistence across a second process, rotation, and cleanup. Random fixture entries only; no existing credentials were read or changed. The manual unsigned build matrix now runs these probes on Windows, Linux Secret Service, Intel Mac, and ARM Mac before bundling.",
+        "2026-11-04: unsigned run 41965318862 completed successfully on Windows, Linux, Intel Mac, and ARM Mac. Each job passed real native and standalone OS credential-store round trips and produced Desktop and Bridge bundles. https://github.com/reydisse/showpilot/actions/runs/41965318862",
+        "2026-11-04: smoke-bridge-credentials.mjs passed against a disposable built Worker, real Chromium settings UI, real D1, and the standalone Bridge WebSocket library. It verifies one-time key creation and SHA-256 storage, attributed writes, live rotation overlap, immediate refusal of revoked socket writes, rejected reconnects with both key versions, transport-only permissions, rejected query keys, independent installations, and secret removal after reload.",
+        "A minimal Worker also reproduces Miniflare delaying the TCP close event after exchanged Close frames. The rehearsal checks immediate write refusal separately and then requires the correct 4403 close event within the standard client close deadline. This is not evidence of instant TCP teardown in production.",
+        "Rollout remains separate: migration 0048 and these app changes have not been deployed. Legacy shared keys become hash-only transport credentials through the migration/backfill path; operators must issue distinct labeled keys for computers that previously shared one key. Phase 0 acceptance is verified against isolated fixtures, not by modifying a real organization."
       ]
     },
     {
@@ -226,24 +230,33 @@
       "phase": "0",
       "section": "0.4 Gate public show state behind a display pass (audit H6)",
       "line": 54,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Timer and overlay pages exchange an eight-hour org/surface-scoped signed pass for an HttpOnly cookie before mounting any display data requests. Existing active kiosk tokens are accepted for their exact view. Member display windows establish and renew their own session; explicit invalid links never fall back to another scope.",
+        "display-access.worker, display-session, display-gateway-security, DisplayAccessGate, and display-relay-expiry.worker tests verify signature, scope, expiry, revocation checks at entry, limited read projections, and no post-expiry broadcasts after Durable Object hibernation.",
+        "2026-11-04: smoke-display-access.mjs ran the production build in local Wrangler with disposable D1 and real Chromium. Signed timer and overlay links rendered, URL passes were removed, HttpOnly cookie access survived reload, and unsigned/wrong-org/wrong-surface/expired links were denied. Full web checks passed: 1248 unit and 115 Worker tests, typecheck, production build."
+      ]
     },
     {
       "id": "497b0a51d43f44f9",
       "phase": "0",
       "section": "0.4 Gate public show state behind a display pass (audit H6)",
       "line": 55,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Overlay responses omit wildcard CORS and use no-store. display-data-security.test.ts covers authenticated and rejected responses; smoke-display-access.mjs verified actual built Worker headers. Display page/API referrer policy is no-referrer."
+      ]
     },
     {
       "id": "ddba66694cf9df2d",
       "phase": "0",
       "section": "0.4 Gate public show state behind a display pass (audit H6)",
       "line": 56,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "The timer fallback server function and display settings require the same timer pass as rundown/timecode display reads. Stage messages remain in the authorized minimal display projection; private notes/scripts and automation timelines are excluded.",
+        "display-data-security and gateway tests prove anonymous requests stop before querying protected show data. The real-browser smoke seeded a live stage message through an authenticated operator API and verified it appears only after a valid display pass."
+      ]
     },
     {
       "id": "0acfbdbf81bac69e",
@@ -262,11 +275,12 @@
       "phase": "0",
       "section": "0.5 Unguarded destructive actions (audit C12, H3; UI review 9 note; UI/L5)",
       "line": 61,
-      "status": "implemented",
+      "status": "verified",
       "evidence": [
         "Timeline reset/delete, rundown item deletion, and saved-template deletion now use ConfirmDialog. Template failure feedback and reset guards have rendered tests; complete page browser verification remains pending.",
         "The Undo toast uses restore-item, which restores the server-owned deleted row within 30s. Actual Worker tests prove atomic current-item deletion, persistence through eviction, D1 restoration, preservation of later edits, no automatic playback restart, no client-forged restore fields, and invalidation after clear-all.",
-        "Shared restoreRundownItem tests cover insertion relative to surviving rows, concurrent edits and duplicate prevention."
+        "Shared restoreRundownItem tests cover insertion relative to surviving rows, concurrent edits and duplicate prevention.",
+        "2026-11-04: smoke-show-day-safety.mjs passed against the built Worker, real D1, real member login, and Chromium. Reset timer opened confirmation and was disabled while playing; item deletion waited for confirmation, Undo restored without playback; saved-template deletion, Reset All, and per-cue deletion all required confirmation."
       ]
     },
     {
@@ -348,12 +362,13 @@
       "phase": "0",
       "section": "0.9 Disconnect honesty on operator screens (UI review 1, 2, 3; live findings)",
       "line": 80,
-      "status": "implemented",
+      "status": "verified",
       "evidence": [
         "Rundown renders a persistent offline/pending count banner and disables transport until matching relay hydration. useRundownSync expires transport after 5 seconds on dispatch and navigation; relay HTTP/WS expiry preserves duplicate acknowledgement and revision arbitration.",
         "Regression tests reproduced the previous eager-connected and stale handoff behavior. Hook and real Worker tests cover stale reconnect, durable edit retention, fresh handoff IDs/deadlines with clock skew, expired HTTP/WS rejection, and applied retry deduplication.",
         "Full web tests passed: 1183 unit and 90 Worker, plus migration/client boundaries. Typecheck and production build passed (174372 gzip bytes). Browser disconnect rehearsal remains pending.",
-        "Follow-up: expired transport notices survive successful queued-edit acknowledgements. Production dashboard transport is also disabled offline, and open end-show confirmations remain visible but disabled during a disconnect. Latest validation: 1185 unit / 91 Worker tests, typecheck and production build passed; browser rehearsal remains pending."
+        "Follow-up: expired transport notices survive successful queued-edit acknowledgements. Production dashboard transport is also disabled offline, and open end-show confirmations remain visible but disabled during a disconnect. Latest validation: 1185 unit / 91 Worker tests, typecheck and production build passed; browser rehearsal remains pending.",
+        "2026-11-04: real-browser rehearsal stopped the local Worker process while rundown and timecode tabs were open. Rundown displayed Offline, 0 changes queued and disabled Start/Next; a disconnected Shift+Space did not start after the Worker restarted from persisted state."
       ]
     },
     {
@@ -398,8 +413,12 @@
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 87,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-04 final Phase 0 web gate: pnpm --filter @showpilot/web test passed migration checks, client-boundary checks, 1248 unit tests across 184 files, and 116 Worker tests across 26 files. pnpm --filter @showpilot/web exec tsc --noEmit and the production build passed. Logs: /tmp/showpilot-phase0-gate-tests.log, /tmp/showpilot-phase0-gate-tsc.log, /tmp/showpilot-phase0-gate-build.log.",
+        "Monorepo CI 41965324691 passed both ci and Native Rust tests: web and Bridge typechecks/tests, native release contracts, macOS packaging tests, Desktop and Bridge Rust tests, Bridge updater tests, mobile verification, and landing verification. The subsequent product change is limited to BridgeRelay close handling and its regression, covered by the final full web run above. https://github.com/reydisse/showpilot/actions/runs/41965324691",
+        "Bridge-initiated close regression fails with the previous cleanup-only handler (5s timeout) and passes with reciprocal close completion. The separate local runtime TCP close delay is documented in the browser credential rehearsal, which still requires immediate write refusal and correct eventual close code."
+      ]
     },
     {
       "id": "9dce8e29fb47ee06",
@@ -445,11 +464,15 @@
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 91,
-      "status": "implemented",
+      "status": "verified",
       "evidence": [
         "2026-11-04: full web suite passed migration/client-boundary checks, 1228 unit tests, and 106 Worker tests; two subsequently added hibernation cases passed in a 13-test BridgeRelay rerun. Web typecheck and production build passed. Main bundle: 560172 raw bytes, 174833 gzip bytes, within existing limits.",
         "Native and standalone credential storage tests pass; ARM64 sidecars built with Bun 1.4.0, passed signature validation, and started from isolated temporary directories. Native tests used fixture vaults rather than the user keychain.",
-        "Gate remains open for real OS vault and cross-platform runtime checks, complete legacy-installation migration, and deployment verification. Nothing from this safety pass is deployed."
+        "2026-11-04 macOS ARM64: real OS Keychain probe passed native save/read/rotation/deletion/legacy conversion (6 fixture unit tests plus 1 opt-in system test). Standalone Bridge probe passed persistence across a second process, rotation, and cleanup. Random fixture entries only; no existing credentials were read or changed. The manual unsigned build matrix now runs these probes on Windows, Linux Secret Service, Intel Mac, and ARM Mac before bundling.",
+        "2026-11-04: unsigned run 41965318862 completed successfully on Windows, Linux, Intel Mac, and ARM Mac. Each job passed real native and standalone OS credential-store round trips and produced Desktop and Bridge bundles. https://github.com/reydisse/showpilot/actions/runs/41965318862",
+        "2026-11-04: smoke-bridge-credentials.mjs passed against a disposable built Worker, real Chromium settings UI, real D1, and the standalone Bridge WebSocket library. It verifies one-time key creation and SHA-256 storage, attributed writes, live rotation overlap, immediate refusal of revoked socket writes, rejected reconnects with both key versions, transport-only permissions, rejected query keys, independent installations, and secret removal after reload.",
+        "A minimal Worker also reproduces Miniflare delaying the TCP close event after exchanged Close frames. The rehearsal checks immediate write refusal separately and then requires the correct 4403 close event within the standard client close deadline. This is not evidence of instant TCP teardown in production.",
+        "Rollout remains separate: migration 0048 and these app changes have not been deployed. Legacy shared keys become hash-only transport credentials through the migration/backfill path; operators must issue distinct labeled keys for computers that previously shared one key. Phase 0 acceptance is verified against isolated fixtures, not by modifying a real organization."
       ]
     },
     {
@@ -457,8 +480,10 @@
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 92,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-04: smoke-show-day-safety.mjs verified all five required confirmations on actual product pages, cancellation without deletion, item deletion Undo, and Reset timer disabled while playing. Bare Space stayed stopped and Shift+Space started the show. Fixtures only."
+      ]
     },
     {
       "id": "6099a3e607860c71",
@@ -503,16 +528,22 @@
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 96,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-04: smoke-show-day-safety.mjs terminated and restarted a real local Worker. Rundown and timecode reported disconnection and disabled transport; the timecode editor kept its draft through the outage, saved it after reconnect, and cleared only after the relay returned the new cue. A disconnected rundown shortcut did not replay. Existing hook and actual Worker tests separately cover stale queued-command expiry, retained nontransport edits, and withheld event echoes."
+      ]
     },
     {
       "id": "d62a431a51e7dd48",
       "phase": "0",
       "section": "Phase 0 gate (all must pass before Phase 1)",
       "line": 97,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-04 Phase 0 gate reported to the user: all acceptance checks pass. Full web suite 1248 unit/116 Worker tests, migration and client boundaries, typecheck, production build, and all three real-browser rehearsals passed. Four-platform unsigned Desktop and Bridge builds plus real OS credential-store probes passed in run 41965318862. The review stack is PRs 73, 74, and 75.",
+        "Final browser evidence: /tmp/showpilot-phase0-browser-display.log, /tmp/showpilot-phase0-browser-operator.log, /tmp/showpilot-phase0-browser-credentials.log. All run against the rebuilt app using disposable local fixtures. Harness fixes isolate the Wrangler inspector port and use a CSP-compatible selector for reconnect readiness.",
+        "Scope reported explicitly: no production deployment or real organization data changes; physical-device/full-show rehearsal remains in the overall final gate. Phases 1, 2, and 3 remain outstanding. Passing Phase 0 does not mark the complete objective achieved."
+      ]
     },
     {
       "id": "196451f9ffcb6b0e",
