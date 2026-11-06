@@ -1,3 +1,5 @@
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { useSettingsReturnTo } from "@/components/layout/AppShell";
 import { CredentialSettingInput } from "@/components/settings/CredentialSettingInput";
 import type { CredentialChange } from "@/lib/credential-fields";
@@ -2062,38 +2064,13 @@ function NotificationPolicyRow({
 // ─── API & WEBHOOKS ─────────────────────────────────────────
 
 function ApiSection({ orgId, role, getSetting, saveCredential }: SectionProps) {
-  const [webhookEvents, setWebhookEvents] = useState<WebhookEventLogItem[]>([]);
-  const [isLoadingEvents, setIsLoadingEvents] = useState(true);
-  const [eventsError, setEventsError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-
-    const loadEvents = async () => {
-      setIsLoadingEvents(true);
-      setEventsError(null);
-
-      try {
-        const events = await getRecentWebhookEvents({ data: { orgId } });
-        if (mounted) setWebhookEvents(events);
-      } catch (error) {
-        if (!mounted) return;
-        setEventsError(
-          error instanceof Error ? error.message : "Unable to load webhook events.",
-        );
-        setWebhookEvents([]);
-      } finally {
-        if (mounted) setIsLoadingEvents(false);
-      }
-    };
-
-    loadEvents();
-
-    return () => {
-      mounted = false;
-    };
-  }, [orgId]);
-
+  const readEvents = useCallback((signal: AbortSignal) => getRecentWebhookEvents({ data: { orgId }, signal }), [orgId]);
+  const eventsRead = useOperatorRead<WebhookEventLogItem[] | null>({
+    key: orgId, initialValue: null, read: readEvents,
+    errorMessage: "Could not read recent webhook events. Any displayed events are the last confirmed result.",
+  });
+  const webhookEvents = eventsRead.value ?? [];
+  const isLoadingEvents = eventsRead.value === null && !eventsRead.error;
 
   return (
     <div>
@@ -2123,16 +2100,13 @@ function ApiSection({ orgId, role, getSetting, saveCredential }: SectionProps) {
           <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50 mb-3">
             Recent Webhook Events
           </p>
+          <ReadFailureNotice error={eventsRead.error} refreshing={eventsRead.refreshing} retry={eventsRead.retry} label="Retry webhook events" />
           {isLoadingEvents ? (
             <div className="flex items-center justify-center gap-2 text-xs text-board-muted py-6">
               <RefreshCw className="w-3 h-3 animate-spin" />
               <span>Loading events...</span>
             </div>
-          ) : eventsError ? (
-            <div className="text-center py-6 text-xs text-red-400">
-              <p>{eventsError}</p>
-            </div>
-          ) : webhookEvents.length === 0 ? (
+          ) : eventsRead.value === null ? null : webhookEvents.length === 0 ? (
             <div className="text-center py-6">
               <Webhook className="w-8 h-8 text-board-muted/30 mx-auto mb-2" />
               <p className="text-xs text-board-muted">No recent events</p>

@@ -644,6 +644,33 @@ Run `node apps/web/scripts/smoke-rundown-handoff.mjs` for the navigation/write
 regression. Both use disposable local accounts and data. No migration or native
 build is required; these changes are not deployed by a feature-branch push.
 
+### Settings list recovery
+
+Companion tokens, recent webhook events, kiosk teams/roles, kiosk tokens and
+roster weeks use eight-second read deadlines with cancellation, timestamped errors
+and read-only Retry. Initial failures do not render a false empty state. Confirmed
+lists remain visible during refresh failures. Kiosk tokens are reachable even
+when the independent organization/roles read is unavailable.
+
+After token creation or revocation is acknowledged, invalidate any pre-write read
+before refreshing the list. A stalled refresh cannot lose a newly issued token or
+repeat the acknowledged write. Roster weeks have separate read/draft lifetimes;
+late replies from another week are ignored and refreshes preserve local edits.
+Companion waits for the browser origin before offering copyable recipes, so direct
+entry on a preview or alternate origin hydrates without a base-URL mismatch.
+
+After building, run `node apps/web/scripts/smoke-settings-list-recovery.mjs` using
+its disposable local fixture. It delays actual responses, creates/revokes a real
+fixture token, changes roster weeks,
+retains a draft and hit-tests Retry at 320/768/1440px. It checks the persisted token
+and revocation in local D1 after stopping the fixture server. No migration or native build
+is needed. A reported Wrangler proxy exit can trigger one fixture restart, but
+only after its process has actually terminated; browser state is preserved and
+read Retry must recover without repeating a write. A failure while the server is
+still running is not retried by the fixture. This does not complete the product-wide loading/mutation audit:
+Checklist, Incidents, remaining Settings reads and write confirmation/recovery
+still require follow-up.
+
 ### Workspace and Settings navigation
 
 Settings keeps the workspace sidebar on desktop and the existing menu drawer on
