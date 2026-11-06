@@ -187,6 +187,7 @@ interface UseRundownSyncReturn {
   scheduledCallTime: string | null | undefined;
   /** False only for a brand-new room that still needs its D1 seed. */
   stateInitialized: boolean;
+  revision: number;
   /** ProPresenter preview slide data from gateway bridge (null = no active preview) */
   ppPreviewSlide: PPSlideState | null;
   /** Canonical org-wide switch that routes venue lyrics to the kiosk. */
@@ -246,6 +247,7 @@ export function useRundownSync(
   const wsRef = useRef<WebSocket | null>(null);
   const socketHydratedRef = useRef(false);
   const revisionRef = useRef(0);
+  const [revision, setRevision] = useState(0);
   const commandQueue = useRef<QueuedCommand[]>([]);
   const pendingCommandRef = useRef<QueuedCommand | null>(null);
   const pendingTimerRef = useRef<number | null>(null);
@@ -324,6 +326,7 @@ export function useRundownSync(
     serverClockOffsetRef.current = null;
     socketHydratedRef.current = false;
     revisionRef.current = 0;
+    setRevision(0);
     commandQueue.current = [];
     pendingCommandRef.current = null;
     unconfirmedCommandIdsRef.current.clear();
@@ -409,6 +412,7 @@ export function useRundownSync(
               clearPendingTimer();
               if (typeof msg.revision === "number" && Number.isFinite(msg.revision)) {
                 revisionRef.current = msg.revision;
+                setRevision(msg.revision);
               }
               pendingCommandRef.current = null;
               confirmCommand(pending.id);
@@ -432,6 +436,7 @@ export function useRundownSync(
 
           if (typeof state.revision === "number" && Number.isFinite(state.revision)) {
             revisionRef.current = Math.max(revisionRef.current, state.revision);
+            setRevision(revisionRef.current);
           }
           if ("items" in state) setItems(normalizeRundownItems(state.items));
           if ("serviceDate" in state) {
@@ -614,6 +619,7 @@ export function useRundownSync(
     scheduledStartTime,
     scheduledCallTime,
     stateInitialized,
+    revision,
     ppPreviewSlide,
     ppOutputEnabled,
     stageMessage,

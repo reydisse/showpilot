@@ -10,7 +10,7 @@ import { useShowEndConfirmation } from "@/hooks/useShowEndConfirmation";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { nextPlayableItem } from "@/lib/rundown-transport";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from "react";
 import {
   Play,
   Pause,
@@ -320,6 +320,8 @@ export const Route = createFileRoute("/$slug/rundown")({
   component: RundownPage,
 });
 
+const DesktopLocalShowPanel = lazy(() => import("@/components/rundown/DesktopLocalShowPanel").then((module) => ({ default: module.DesktopLocalShowPanel })));
+
 function RundownPage() {
   const workspaceTerms = useWorkspaceTerms();
   const {
@@ -424,6 +426,7 @@ function RundownPage() {
     scheduledStartTime: syncedScheduledStartTime,
     scheduledCallTime: syncedScheduledCallTime,
     stateInitialized: syncedInitialized,
+    revision: cloudRevision,
     ppPreviewSlide: syncedPpSlide,
     ppOutputEnabled: ppOnKiosk,
     stageMessage: syncedStageMessage,
@@ -1961,6 +1964,13 @@ function RundownPage() {
           </p>
         </div>
       </div>
+
+      {isDesktopRuntime() && showId && <Suspense fallback={null}>
+        <DesktopLocalShowPanel key={`${orgId}:${showId}:${serviceDate}`} orgId={orgId} slug={slug} showId={showId} serviceDate={serviceDate}
+          cloudRevision={cloudRevision} canControl={canControlRundown}
+          canPrepare={canControlRundown && hasEffectivePermission(role, grantedPermissions, "devices:access") && hasEffectivePermission(role, grantedPermissions, "timecode:access")}
+          cloudReady={syncConnected && syncHydrated && syncedInitialized && relayMatchesTarget && !syncSaving && !metaSavePending && !hasPendingCommands && !saveError && !syncError} />
+      </Suspense>}
 
       {(selectionError || saveError || syncError) && (
         <div

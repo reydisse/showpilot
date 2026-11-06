@@ -214,6 +214,18 @@ export async function cacheDesktopService(payload: unknown): Promise<string | nu
   });
 }
 
+export async function invokeDesktopLocalShow(request: unknown): Promise<unknown> {
+  const core = getTauriCore();
+  if (!core) throw new Error("Local show control requires ShowPilot Desktop.");
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      core.invoke<unknown>("local_show_command", { request }),
+      new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("The local engine did not reply. Refresh its saved state before retrying.")), 18000); }),
+    ]);
+  } finally { clearTimeout(timeout); }
+}
+
 export async function openDesktopLocalShow(): Promise<void> {
   const core = getTauriCore();
   if (!core) throw new Error("Local show control requires ShowPilot Desktop.");

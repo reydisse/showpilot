@@ -73,7 +73,16 @@ rendered offline controls against its actual local-show manager. It covers timer
 advance, confirmations, a lost device reply, pending equipment, unknown outcomes,
 restart recovery, saved review journals, status retry and keyboard focus.
 
-Local-mode rollout is still in progress. The authenticated preparation service and
-offline controls are implemented; the hosted preparation and revision-conflict
-review UI, complete product rehearsal and native ownership audit remain required
-before release. See the Phase 2.3 entries in `docs/safety-pass-status.json`.
+Desktop's rundown page offers **Prepare this show** after the cloud state is
+saved. It requires current rundown control, device and timecode access, plus this
+computer's active Bridge installation. **Local show** opens the bundled controls.
+After **Finish local control**, return to the saved show's rundown to review the
+local timer and device receipts, download a public record, or sync timer progress.
+Sync always uses the original cloud revision. A conflict preserves both versions;
+a retry can confirm an earlier successful sync and never replays device cues.
+Discarding or replacing a saved record requires confirmation.
+
+Local-mode rollout is still in progress. Hosted preparation/review and offline
+controls have been exercised together with disposable equipment fixtures. Full
+native/cloud product rehearsal, current all-platform bundles, and the native
+ownership audit remain required before release. See the Phase 2.3 entries in `docs/safety-pass-status.json`.

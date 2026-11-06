@@ -75,6 +75,23 @@ describe("useRundownSync command confirmation", () => {
     globalThis.fetch = OriginalFetch;
   });
 
+  it("exposes the confirmed revision and resets it when changing shows", async () => {
+    const { result, rerender, unmount } = renderHook(({ show }) => useRundownSync("org-1", "2026-09-06", show), { initialProps: { show: "show-1" } });
+    const socket = await waitForSocket();
+    expect(result.current.revision).toBe(0);
+    act(() => { socket.open(); hydrate(socket); });
+    expect(result.current.revision).toBe(4);
+    act(() => result.current.sendCommand("timer-next"));
+    const command = JSON.parse(socket.sent[0]);
+    act(() => socket.receive({ type: "command-result", id: command.id, accepted: true, revision: 5 }));
+    expect(result.current.revision).toBe(5);
+    rerender({ show: "show-2" });
+    expect(result.current.revision).toBe(0);
+    act(() => hydrate(socket));
+    expect(result.current.revision).toBe(0);
+    unmount();
+  });
+
   it("waits for matching state before reporting connected", async () => {
     const { result, unmount } = renderHook(() => useRundownSync("org-1", "2026-09-06", "show-1"));
     const socket = await waitForSocket();

@@ -42,6 +42,7 @@ vi.mock("@tauri-apps/plugin-updater", () => ({
 }));
 import {
   cacheDesktopService,
+  invokeDesktopLocalShow,
   checkDesktopUpdate,
   focusDesktopMainWindow,
   getDesktopBridgeStatus,
@@ -80,6 +81,19 @@ afterEach(() => {
 });
 
 describe("desktop runtime boundary", () => {
+  it("bounds local-show IPC without retrying the native command", async () => {
+    vi.useFakeTimers();
+    try {
+      const invoke = vi.fn(() => new Promise<never>(() => {}));
+      window.__TAURI__ = { core: { invoke } };
+      const result = expect(invokeDesktopLocalShow({ operation: "status" })).rejects.toThrow("did not reply");
+      await vi.advanceTimersByTimeAsync(18000);
+      await result;
+      expect(invoke).toHaveBeenCalledExactlyOnceWith("local_show_command", { request: { operation: "status" } });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
   it("recognizes local-device mode reported by current and legacy Desktop engines", () => {
     const base = {
       configured: true,

@@ -21,6 +21,8 @@ import {
 
 const ConfidenceToolbar = lazy(() => import("@/components/confidence/ConfidenceToolbar").then((module) => ({ default: module.ConfidenceToolbar })));
 
+const DesktopLocalShowNotice = lazy(() => import("./DesktopLocalShowNotice").then((module) => ({ default: module.DesktopLocalShowNotice })));
+
 const WINDOW_ACTIONS: Array<{
   kind: DesktopWindowKind;
   label: string;
@@ -277,6 +279,7 @@ export function DesktopStatusBar({ orgId }: { orgId?: string } = {}) {
           {bridgeError}
         </span>
       ) : null}
+      <Suspense fallback={null}><DesktopLocalShowNotice orgId={orgId} slug={slug} /></Suspense>
       <div className="ml-auto flex max-w-full flex-wrap items-center gap-1 [&>button]:whitespace-nowrap">
         <button
           type="button"
