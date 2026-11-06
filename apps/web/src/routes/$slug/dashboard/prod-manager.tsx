@@ -78,10 +78,10 @@ function ProdManagerPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const headerScroll = useEdgeScroll();
   const [planOpen, setPlanOpen] = useState(false);
-  const { syncError, retrySync } = useCueSheetSync({
+  const { syncError, syncErrorAt, status: syncStatus, retrySync } = useCueSheetSync({
     orgId,
+    scope: showId ?? "",
     onNote: () => {},
-    onColumns: () => {},
     onRefresh: async () => { await router.invalidate(); },
     onIncident: () => void router.invalidate(),
   });
@@ -111,7 +111,7 @@ function ProdManagerPage() {
 
   return (
     <div className="h-full overflow-auto overscroll-y-none bg-board-bg">
-      <RelaySyncNotice error={syncError} onRetry={retrySync} />
+      <RelaySyncNotice error={syncError} occurredAt={syncErrorAt} status={syncStatus} onRetry={retrySync} />
       {/* One toolbar row. Identity and context on the left, live numbers
           right-aligned against the edge so the eye always lands in the
           same place regardless of how wide the window is. */}

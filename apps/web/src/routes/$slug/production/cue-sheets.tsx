@@ -17,6 +17,7 @@ import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 import { getCueSheet, type CueSheetModel } from "@/lib/cue-sheet";
+import { withOperationTimeout } from "@/lib/operation-timeout";
 import { CueTable, TOGGLEABLE_COLUMNS } from "@/components/cue-sheet/cue-table";
 import { useRundownSync } from "@/hooks/useRundownSync";
 import { toCueRows } from "@/lib/cue-sheet-derive";
@@ -88,7 +89,10 @@ function CueSheetsPage() {
   );
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadErrorAt, setLoadErrorAt] = useState<number | null>(null);
   const loadVersion = useRef(0);
+  const loadController = useRef<AbortController | null>(null);
+  useEffect(() => () => { loadVersion.current++; loadController.current?.abort(); }, [orgId]);
   const selectedShow = useRef(showId);
   selectedShow.current = showId;
   const noteVersion = useRef(0);
@@ -131,13 +135,25 @@ function CueSheetsPage() {
   );
 
   const load = useCallback(
-    async (nextShowId: string) => {
+    async (nextShowId: string, signal?: AbortSignal) => {
+      loadController.current?.abort();
+      const controller = new AbortController();
+      loadController.current = controller;
+      const cancel = () => controller.abort();
+      signal?.addEventListener("abort", cancel, { once: true });
+      if (signal?.aborted) cancel();
       const version = ++loadVersion.current;
       const startedNotes = noteVersion.current;
-      setLoading(true); setLoadError(null);
+      setLoading(true);
       try {
-        const next = await getCueSheet({ data: { orgId, showId: nextShowId, today } });
-        if (version !== loadVersion.current || selectedShow.current !== nextShowId) return;
+        const next = await withOperationTimeout(
+          getCueSheet({ data: { orgId, showId: nextShowId, today }, signal: controller.signal }),
+          8000, "Cue sheet refresh timed out. Your current sheet is kept. Try again.",
+        );
+        if (controller.signal.aborted || version !== loadVersion.current || selectedShow.current !== nextShowId) {
+          throw new Error("Cue sheet changed during refresh. Refresh again to confirm live changes.");
+        }
+        setLoadError(null); setLoadErrorAt(null);
         setModel(next);
         setShowId(next.showId);
         setServiceDate(next.serviceDate);
@@ -149,9 +165,14 @@ function CueSheetsPage() {
         }
         setNotes(nextNotes);
       } catch (cause) {
-        if (version === loadVersion.current) setLoadError(cause instanceof Error ? cause.message : "Could not load the cue sheet.");
+        if (controller.signal.aborted || version !== loadVersion.current) throw cause;
+        setLoadError(cause instanceof Error ? cause.message : "Could not load the cue sheet.");
+        setLoadErrorAt(Date.now());
         throw cause;
       } finally {
+        signal?.removeEventListener("abort", cancel);
+        controller.abort();
+        if (loadController.current === controller) loadController.current = null;
         if (version === loadVersion.current) setLoading(false);
       }
     },
@@ -180,11 +201,11 @@ function CueSheetsPage() {
     [showId],
   );
 
-  const { connected, publish, syncError, retrySync } = useCueSheetSync({
+  const { connected, status: syncStatus, publish, syncError, syncErrorAt, retrySync } = useCueSheetSync({
     orgId,
+    scope: showId ?? "",
     onNote: applyRemoteNote,
-    onColumns: () => { if (showId) void load(showId).catch(() => {}); },
-    onRefresh: async () => { if (showId) await load(showId); },
+    onRefresh: async (signal) => { if (showId) await load(showId, signal); },
   });
 
   // ── Continuity with the rundown ───────────────────────────
@@ -373,7 +394,7 @@ function CueSheetsPage() {
             }}
           />
 
-          <RelaySyncNotice error={loadError ?? syncError} onRetry={retrySync} />
+          <RelaySyncNotice error={loadError ?? syncError} occurredAt={loadError ? loadErrorAt : syncErrorAt} status={syncStatus} onRetry={retrySync} />
           {noteErrors.size > 0 && <div role="alert" className="flex items-center gap-3 text-sm text-amber-300">
             <p>{noteErrors.size} cue note(s) have not saved. Your edits are kept.</p>
             <button type="button" className="min-h-11 px-3 font-semibold underline" onClick={() => {
@@ -396,11 +417,11 @@ function CueSheetsPage() {
               title={
                 connected
                   ? "Other people's notes appear here as they type"
-                  : "Reconnecting. Your edits are still saving; you just won't see other people's until this clears."
+                  : "Refreshing live changes. The last confirmed sheet and your edits are kept; check any save errors before leaving."
               }
             >
               {connected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-              {connected ? "Synced" : "Not syncing"}
+              {connected ? "Synced" : syncStatus === "connecting" ? "Connecting…" : syncStatus === "refreshing" ? "Refreshing…" : "Reconnecting…"}
             </span>
             {canManageColumns && (
               <button
