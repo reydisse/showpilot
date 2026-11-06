@@ -164,12 +164,12 @@ class OSCMixerModule extends BaseDeviceModule {
           unsubscribe();
           reject(new Error("Mixer connection timed out"));
         }, 5_000);
-        const unsubscribe = this.proxy!.onDeviceStatus((target, connected) => {
+        const unsubscribe = this.proxy!.onDeviceStatus((target, connected, error) => {
           if (target !== this.target) return;
           window.clearTimeout(timeout);
           unsubscribe();
           if (connected) resolve();
-          else reject(new Error("Local device engine could not prepare the mixer connection"));
+          else reject(new Error(error ?? "Local device engine could not prepare the mixer connection"));
         });
         this.proxy!.connectDevice("osc", this.target, this.settings);
       });

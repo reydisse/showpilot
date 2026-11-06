@@ -597,6 +597,26 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Device connection failures
+
+Bridge relay requests now return an explicit failure to the requesting browser
+when a connect or ping cannot reach the selected installation, including offline
+and revoked installations. Connection failures retain their reason through the
+browser proxy and protocol modules into the device panel. Failed connections
+show Retry connection; a successful retry clears the error.
+
+Blank optional numeric settings are omitted by the device form. In particular,
+leaving Port blank uses the adapter default instead of storing port zero, which
+the destination guard correctly rejects. Existing invalid settings are not
+silently changed; clear an invalid optional port and save its configuration.
+
+After building, run `node apps/web/scripts/smoke-device-connection-errors.mjs`.
+It creates a disposable ATEM configuration and protocol-compatible fixture Bridge,
+checks the stored optional port, rejects a connection with a specific reason,
+and then accepts a retry. It uses no physical device. Worker tests separately
+cover offline/revoked installations, injected socket-send failures, response
+ownership and retention of destination approval and credential boundaries.
+
 ### Operator text readability
 
 Dark muted text now uses `#A3A3A3`. Rundown and timecode operational labels and

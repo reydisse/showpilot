@@ -1052,24 +1052,14 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   }
 
   private async handleClientMessage(msg: BridgeMessage, clientWs: WebSocket, actorUserId: string): Promise<void> {
+    if (msg.type !== "command" && msg.type !== "connect-device" && msg.type !== "ping") return;
     if (!this.bridgeWs || !this.bridgeOnline) {
-      // No bridge connected — can't forward
-      if (msg.type === "command" && msg.id) {
-        clientWs.send(JSON.stringify({
-          type: "command-response",
-          id: msg.id,
-          success: false,
-          error: "Bridge is offline",
-        }));
-      }
+      this.rejectClientMessage(clientWs, msg, "Bridge is offline");
       return;
     }
 
-    if (msg.type !== "command" && msg.type !== "connect-device" && msg.type !== "ping") return;
     if (!(await this.authorizeBridgeWrite(this.bridgeWs, msg.type, "to-bridge", actorUserId))) {
-      if (msg.type === "command" && typeof msg.id === "string") clientWs.send(JSON.stringify({
-        type: "command-response", id: msg.id, success: false, error: "Venue Bridge credential expired or was revoked",
-      }));
+      this.rejectClientMessage(clientWs, msg, "Venue Bridge credential expired or was revoked");
       return;
     }
 
@@ -1077,9 +1067,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       try { await authorizeBridgeTarget(this.env.DB, this.orgId, msg, { source: "operator", actorUserId }); }
       catch (error) {
         const detail = error instanceof BridgeTargetError ? error.message : "Bridge destination approval could not be verified.";
-        clientWs.send(JSON.stringify(msg.type === "command"
-          ? { type: "command-response", id: msg.id, success: false, error: detail }
-          : { type: "device-status", target: msg.target, connected: false, error: detail }));
+        this.rejectClientMessage(clientWs, msg, detail);
         return;
       }
     }
@@ -1119,16 +1107,26 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           const protectedMessage = await this.protectDeviceSettings(this.bridgeWs, msg.protocol, msg.target, settings);
           this.bridgeWs.send(JSON.stringify(protectedMessage));
         } catch {
-          clientWs.send(JSON.stringify({ type: "device-status", target: msg.target, connected: false, error: "Protected device settings could not be delivered. Reconnect the Bridge." }));
+          this.rejectClientMessage(clientWs, msg, "Protected device settings could not be delivered. Reconnect the Bridge.");
         }
         break;
 
       case "ping":
         try {
           this.bridgeWs.send(JSON.stringify({ type: "ping" }));
-        } catch {}
+        } catch {
+          this.rejectClientMessage(clientWs, msg, "Venue Bridge disconnected");
+        }
         break;
     }
+  }
+
+  private rejectClientMessage(clientWs: WebSocket, msg: BridgeMessage, error: string): void {
+    const response = msg.type === "connect-device"
+      ? { type: "device-status", target: msg.target, connected: false, success: false, error }
+      : { type: msg.type === "ping" ? "ping-response" : "command-response", id: msg.id, success: false, error };
+    try { clientWs.send(JSON.stringify(response)); }
+    catch { this.clientSessions.delete(clientWs); }
   }
 
   // ─── Helpers ────────────────────────────────────────────
