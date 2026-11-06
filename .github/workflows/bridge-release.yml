@@ -111,17 +111,24 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: node -e "if (!process.env.TAURI_SIGNING_PRIVATE_KEY) { console.error('Missing TAURI_SIGNING_PRIVATE_KEY'); process.exit(1) }"
 
-      - name: Import Windows signing certificate
+      - name: Decide Windows signing mode
+        id: windows-signing
         if: runner.os == 'Windows'
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+        run: node scripts/native-release-secrets.mjs --windows-mode
+
+      - name: Import Windows signing certificate
+        if: runner.os == 'Windows' && steps.windows-signing.outputs.mode == 'signed'
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
           WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE)) { throw 'Missing WINDOWS_CERTIFICATE' }
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_PASSWORD)) { throw 'Missing WINDOWS_CERTIFICATE_PASSWORD' }
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_TIMESTAMP_URL)) { throw 'Missing WINDOWS_TIMESTAMP_URL' }
+          if ($env:WINDOWS_SIGNING_MODE -ne 'signed') { throw 'partial or invalid Windows signing configuration was not treated as signed or unsigned.' }
           $timestamp = [Uri]$env:WINDOWS_TIMESTAMP_URL
           if ($timestamp.Scheme -notin @('http', 'https')) { throw 'WINDOWS_TIMESTAMP_URL must use HTTP or HTTPS' }
           $certificatePath = Join-Path $env:RUNNER_TEMP 'showpilot-windows-signing.pfx'
@@ -151,6 +158,8 @@ jobs:
           # linuxdeploy's bundled strip cannot handle newer ELF sections in
           # runner libraries and aborts AppImage packaging after deb/rpm have
           # already succeeded. Cargo strips our release binaries separately.
+          # The Bun engine itself is a shell wrapper in usr/bin; the real
+          # binary is under usr/share so the GTK plugin does not ldd it.
           NO_STRIP: ${{ runner.os == 'Linux' && 'true' || '' }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -198,14 +207,47 @@ jobs:
       - name: Verify Windows Authenticode signatures
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          $bundle = Get-ChildItem 'apps/bridge-desktop/src-tauri/target/release/bundle' -Recurse -File | Where-Object { $_.Extension -in @('.exe', '.msi') }
+          if ($env:WINDOWS_SIGNING_MODE -eq 'signed') {
+            $expected = 'Valid'
+            $notice = @"
+Windows signing credentials are complete. Authenticode signatures were required and verified.
+"@
+          } elseif ($env:WINDOWS_SIGNING_MODE -eq 'unsigned') {
+            $expected = 'NotSigned'
+            $notice = @"
+UNSIGNED Windows build: Windows signing credentials are entirely absent.
+None of WINDOWS_CERTIFICATE, WINDOWS_CERTIFICATE_PASSWORD, or WINDOWS_TIMESTAMP_URL is set.
+These installers are not Authenticode signed. Windows Defender SmartScreen may warn before installation.
+Do not describe this Windows build as signed.
+"@
+          } else {
+            throw 'partial or invalid Windows signing configuration was not treated as signed or unsigned.'
+          }
+          Write-Host $notice
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $notice
+          $bundleRoot = Resolve-Path 'apps/bridge-desktop/src-tauri/target/release/bundle'
+          $bundle = @(Get-ChildItem $bundleRoot -Recurse -File | Where-Object { $_.Extension -in @('.exe', '.msi') })
           $application = Get-Item 'apps/bridge-desktop/src-tauri/target/release/showpilot-bridge-desktop.exe'
-          $artifacts = @($bundle) + @($application)
           if ($bundle.Count -eq 0) { throw 'No Windows installers were produced' }
-          foreach ($artifact in $artifacts) {
+          foreach ($artifact in @($bundle) + @($application)) {
             $signature = Get-AuthenticodeSignature -FilePath $artifact.FullName
-            if ($signature.Status -ne 'Valid') {
-              throw "Invalid Authenticode signature on $($artifact.FullName): $($signature.Status)"
+            if ($signature.Status -ne $expected) {
+              throw "Windows artifact $($artifact.Name) is $($signature.Status); expected $expected for the $env:WINDOWS_SIGNING_MODE signing mode. A partial or invalid Windows signing configuration was not treated as signed or unsigned."
             }
           }
+          $disclosure = Join-Path $bundleRoot 'WINDOWS-SIGNING.txt'
+          [IO.File]::WriteAllText($disclosure, $notice.Trim() + "`n", [Text.UTF8Encoding]::new($false))
+          gh release upload $env:RELEASE_TAG $disclosure --clobber
+
+      - name: Upload Windows signing disclosure
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-signing-disclosure-bridge
+          retention-days: 14
+          if-no-files-found: error
+          path: apps/bridge-desktop/src-tauri/target/release/bundle/WINDOWS-SIGNING.txt

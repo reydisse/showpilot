@@ -69,8 +69,15 @@ The workflow refuses to publish macOS artifacts when Apple signing or
 notarization credentials are missing. Never publish an unsigned macOS DMG or ask
 operators to bypass Gatekeeper. Before publishing, install both Mac builds on
 fresh machines and verify them with `spctl --assess --type execute --verbose`.
-The Windows job likewise refuses to build without its signing certificate and
-verifies Authenticode on the application, EXE, and MSI before completion.
+
+The Windows job Authenticode-signs the application, EXE, and MSI when
+`WINDOWS_CERTIFICATE`, `WINDOWS_CERTIFICATE_PASSWORD`, and
+`WINDOWS_TIMESTAMP_URL` are all present and valid. When all three are absent,
+it builds an explicitly unsigned Windows installer and uploads
+`WINDOWS-SIGNING.txt` stating `UNSIGNED Windows build: Windows signing
+credentials are entirely absent.` Do not describe that build as signed. A
+partial or invalid Windows signing configuration fails the job instead of
+falling back to unsigned or being reported as signed.
 
 ## Operator behavior
 
