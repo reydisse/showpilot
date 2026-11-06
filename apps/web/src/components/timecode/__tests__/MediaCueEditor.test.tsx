@@ -43,7 +43,7 @@ it("saves the selected file version and volume, and retains them after a failed 
   fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), {
     target: { value: "00:00:10:00" },
   });
-  fireEvent.change(screen.getByRole("combobox"), {
+  fireEvent.change(screen.getByLabelText("Action"), {
     target: { value: "media-play" },
   });
   expect(screen.getByRole("button", { name: "Add Event" })).toHaveProperty(
@@ -107,7 +107,7 @@ it("offers retry after a media list failure and removes stale asset selection on
       onAdd={async () => {}}
     />,
   );
-  fireEvent.change(screen.getByRole("combobox"), {
+  fireEvent.change(screen.getByLabelText("Action"), {
     target: { value: "media-play" },
   });
   await screen.findByRole("alert");
@@ -125,13 +125,13 @@ it("offers retry after a media list failure and removes stale asset selection on
   );
 });
 
-it("saves Stop without carrying stale action JSON or requiring a file", async () => {
+it("saves Stop without carrying stale action details or requiring a file", async () => {
   const save = vi.fn(async (_event: NewAutomationEvent) => {});
   render(<AutomationEventEditor connected format={format} onAdd={save} />);
   fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), {
     target: { value: "00:00:10:00" },
   });
-  fireEvent.change(screen.getByRole("combobox"), {
+  fireEvent.change(screen.getByLabelText("Action"), {
     target: { value: "media-stop" },
   });
   expect(screen.queryByLabelText("Media clip")).toBeNull();

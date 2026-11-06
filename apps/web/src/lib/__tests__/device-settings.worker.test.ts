@@ -18,7 +18,7 @@ vi.mock("@tanstack/react-start", () => {
 import { addDevice, getDevice, getDevices, updateDevice } from "../data";
 import { handleMobileApi } from "../mobile-api.server";
 import { resolveTimecodeDeviceAction } from "../timecode-device-actions";
-import { getBlackoutTargets } from "../automation-targets";
+import { getBlackoutTargets, getAutomationDeviceTargets } from "../automation-targets";
 const binding = env.CREDENTIAL_ENCRYPTION_KEYS;
 afterEach(() => { env.CREDENTIAL_ENCRYPTION_KEYS = binding; });
 async function fixture() {
@@ -184,4 +184,20 @@ it("backfills bounded batches with CAS, revisits concurrent edits, and reports c
   await env.DB.prepare("UPDATE device SET settings='broken' WHERE id=? AND orgId=?").bind(device.id, device.orgId).run();
   await env.DB.prepare("UPDATE credential_backfill_cursor SET lastRowId=? WHERE name='devices'").bind(row! - 1).run();
   expect(await backfillDeviceCredentials(env.DB, binding, 1)).toMatchObject({ invalid: 1, migrated: 0, scanned: 1 });
+});
+
+
+it("returns only scoped enabled action catalogs without device configuration or credentials", async () => {
+  const mine = await fixture(); const other = await fixture();
+  for (const [id, orgId, enabled] of [["mine", mine.orgId, 1], ["off", mine.orgId, 0], ["foreign", other.orgId, 1]] as const) {
+    await env.DB.prepare("INSERT INTO device (id,orgId,name,adapterType,category,settings,enabled,createdAt,updatedAt) VALUES (?,?,?,'atem','video',?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
+      .bind(`${mine.orgId}-${id}`, orgId, id, JSON.stringify({ host: "10.0.0.99", password: "fixture-private-password" }), enabled).run();
+  }
+  auth.userId = mine.userId;
+  const catalog = await getAutomationDeviceTargets({ data: { orgId: mine.orgId } });
+  expect(catalog).toHaveLength(1);
+  expect(catalog[0]).toMatchObject({ id: `${mine.orgId}-mine`, label: "mine", category: "video", actions: expect.arrayContaining([expect.objectContaining({ id: "set_program_input", params: [expect.objectContaining({ id: "input", type: "number", min: 1, max: 20 })] })]) });
+  const serialized = JSON.stringify(catalog);
+  for (const hidden of ["settings", "password", "10.0.0.99", "fixture-private-password"]) expect(serialized).not.toContain(hidden);
+  await expect(getAutomationDeviceTargets({ data: { orgId: other.orgId } })).rejects.toThrow("Forbidden");
 });

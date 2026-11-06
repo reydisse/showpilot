@@ -55,7 +55,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, pass, operatorEmail
     ["lyrics-previous-section", "Previous Lyrics Section", "Verse line one\nVerse line two"],
   ]) {
     await browser("fill", `${form} input[placeholder="00:05:00:00"]`, "00:01:00:00");
-    await browser("select", `${form} select`, action);
+    await browser("select", `${form} select >> nth=0`, action);
     assert.equal((await browser("eval", `document.querySelector(${JSON.stringify(form)}).querySelector('textarea') === null`)).result, true);
     await browser("set", "viewport", "320", "780");
     await browser("scrollintoview", `${form} button[type=submit]`);
