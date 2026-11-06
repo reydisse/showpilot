@@ -347,7 +347,7 @@ export class TimecodeRelay extends DurableObject {
     for (const ws of this.ctx.getWebSockets()) {
       const attachment = ws.deserializeAttachment?.() as { sessionId?: string } | null;
       if (attachment?.sessionId === sessionId) {
-        ws.send(JSON.stringify({ type: "master-status", granted } satisfies TimecodeWsMessage));
+        ws.send(JSON.stringify({ type: "master-status", granted, ...this.resolvedTarget() } satisfies TimecodeWsMessage));
         return;
       }
     }
@@ -373,7 +373,7 @@ export class TimecodeRelay extends DurableObject {
     for (const socket of this.ctx.getWebSockets()) {
       const attachment = socket.deserializeAttachment() as TimecodeSocketAttachment | null;
       if (!attachment?.canWrite || socket.readyState !== WebSocket.OPEN || !socketReadLeaseAllows(socket, true)) continue;
-      try { socket.send(JSON.stringify({ type: "control-status", control: this.controlStatus(socket) } satisfies TimecodeWsMessage)); }
+      try { socket.send(JSON.stringify({ type: "control-status", control: this.controlStatus(socket), ...this.resolvedTarget() } satisfies TimecodeWsMessage)); }
       catch { socket.close(1011, "Control status unavailable"); }
     }
   }
@@ -414,6 +414,20 @@ export class TimecodeRelay extends DurableObject {
     }
   }
 
+  private resolvedTarget() {
+    return { showId: this.target?.showId ?? null, serviceDate: this.target?.serviceDate ?? null };
+  }
+
+  private targetJson(data: object, init?: ResponseInit): Response {
+    const target = this.resolvedTarget();
+    // Preserve the v1 events-array contract. Its target travels in the same
+    // response headers; object responses also carry it in their JSON body.
+    const response = Response.json(Array.isArray(data) ? data : { ...data, ...target }, init);
+    response.headers.set("X-ShowPilot-Show-Id", target.showId ?? "");
+    response.headers.set("X-ShowPilot-Service-Date", target.serviceDate ?? "");
+    return response;
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
@@ -450,13 +464,13 @@ export class TimecodeRelay extends DurableObject {
       this.target = null;
       this.legacyExport = null;
       this.hasSnapshot = false;
-      return Response.json({ ok: true });
+      return this.targetJson({ ok: true });
     }
 
-    if (this.retired) return Response.json({ error: "This show's timecode has been retired" }, { status: 410 });
-    if (!this.target || this.legacyExport) return Response.json({ error: "Choose a show for timecode." }, { status: 409 });
+    if (this.retired) return this.targetJson({ error: "This show's timecode has been retired" }, { status: 410 });
+    if (!this.target || this.legacyExport) return this.targetJson({ error: "Choose a show for timecode." }, { status: 409 });
     if (this.target && (url.searchParams.get("orgId") !== this.target.orgId || url.searchParams.get("showId") !== this.target.showId)) {
-      return Response.json({ error: "Timecode show mismatch" }, { status: 409 });
+      return this.targetJson({ error: "Timecode show mismatch" }, { status: 409 });
     }
     this.orgId = this.target?.orgId ?? url.searchParams.get("orgId") ?? this.orgId;
 
@@ -473,7 +487,7 @@ export class TimecodeRelay extends DurableObject {
         const format = body.payload?.format;
         const tc = eventUpdateSchema.shape.triggerTimecode.safeParse(body.payload?.timecode);
         if (!isValidTimecodeFormat(format) || !tc.success || !tc.data || !isValidTimecode(tc.data, format)) {
-          return Response.json({ error: "Invalid Bridge timecode" }, { status: 400 });
+          return this.targetJson({ error: "Invalid Bridge timecode" }, { status: 400 });
         }
         this.bridgeFeed = { timecode: tc.data, format, receivedAt: Date.now() };
         if (this.masterSessionId) await this.persistClock();
@@ -482,7 +496,7 @@ export class TimecodeRelay extends DurableObject {
           await this.handleCommand("feed-tc", body.payload);
         }
       }
-      return Response.json({ ok: true, showId: this.target.showId, serviceDate: this.target.serviceDate });
+      return this.targetJson({ ok: true, showId: this.target.showId, serviceDate: this.target.serviceDate });
     }
 
     const authClaim = this.readAuthorityClaim(url);
@@ -513,7 +527,7 @@ export class TimecodeRelay extends DurableObject {
     }
 
     if (url.pathname === "/state") {
-      return Response.json(
+      return this.targetJson(
         canWrite ? this.state : this.getDisplayState(),
       );
     }
@@ -522,7 +536,7 @@ export class TimecodeRelay extends DurableObject {
       if (!canWrite) {
         return new Response("Unauthorized", { status: 401 });
       }
-      return Response.json(this.events);
+      return this.targetJson(this.events);
     }
 
     if (url.pathname === "/command" && request.method === "POST") {
@@ -530,21 +544,21 @@ export class TimecodeRelay extends DurableObject {
         return new Response("Unauthorized", { status: 401 });
       }
       const body = commandSchema.safeParse(await request.json().catch(() => null));
-      if (!body.success) return Response.json({ error: "Invalid timecode command" }, { status: 400 });
+      if (!body.success) return this.targetJson({ error: "Invalid timecode command" }, { status: 400 });
       const owner = this.controlOwner();
       if (!owner || owner.attachment.authClaim?.sessionId !== authClaim?.sessionId
         || owner.attachment.authClaim?.userId !== authClaim?.userId) {
-        return Response.json({ ok: false, error: "Claim timecode control in a connected operator window first." }, { status: 409 });
+        return this.targetJson({ ok: false, error: "Claim timecode control in a connected operator window first." }, { status: 409 });
       }
       if (["claim-control", "release-control", "bridge-disconnected"].includes(body.data.action)) {
-        return Response.json({ error: "This command requires its dedicated connection." }, { status: 400 });
+        return this.targetJson({ error: "This command requires its dedicated connection." }, { status: 400 });
       }
       try { await this.handleCommand(body.data.action, body.data.payload, owner.attachment.sessionId); }
       catch (error) {
-        if (error instanceof TimecodeCommandRejection) return Response.json({ ok: false, error: error.message }, { status: 400 });
+        if (error instanceof TimecodeCommandRejection) return this.targetJson({ ok: false, error: error.message }, { status: 400 });
         throw error;
       }
-      return Response.json({ ok: true });
+      return this.targetJson({ ok: true });
     }
 
     return new Response("Not found", { status: 404 });
@@ -580,7 +594,7 @@ export class TimecodeRelay extends DurableObject {
         }
         catch (error) {
           if (!(error instanceof TimecodeCommandRejection)) throw error;
-          ws.send(JSON.stringify({ type: "command-rejected", action: msg.action, error: error.message } satisfies TimecodeWsMessage));
+          ws.send(JSON.stringify({ type: "command-rejected", action: msg.action, error: error.message, ...this.resolvedTarget() } satisfies TimecodeWsMessage));
         }
       }
     } catch {
@@ -1436,7 +1450,7 @@ export class TimecodeRelay extends DurableObject {
   private send(ws: WebSocket, data: TimecodeWsMessage, sequence: number): void {
     if (!displaySocketMayReceive(ws) || !socketReadLeaseAllows(ws, this.socketNeedsReadLease(ws))) return;
     try {
-      ws.send(JSON.stringify({ ...data, ...this.revisions.envelope(ws, sequence) }));
+      ws.send(JSON.stringify({ ...data, ...this.resolvedTarget(), ...this.revisions.envelope(ws, sequence) }));
     } catch {
       try { ws.close(1011, "Broadcast failed"); } catch {}
     }

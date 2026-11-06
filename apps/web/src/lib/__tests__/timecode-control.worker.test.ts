@@ -44,7 +44,7 @@ it("requires an existing socket owner for HTTP, including a valid member with no
   expect((await first.command("claim-control")).status).toBe(409);
   first.send("add-event", cue); // First explicit edit atomically takes free control.
   await expect.poll(async () => (await contents(test)).events).toEqual([expect.objectContaining({ id: cue.id })]);
-  expect(first.messages).toContainEqual({ type: "control-status", control: "yours" });
+  expect(first.messages).toContainEqual({ type: "control-status", control: "yours", showId: test.target.showId, serviceDate: test.target.serviceDate });
   expect((await first.command("set-triggers-enabled", { enabled: false })).status).toBe(200);
   expect((await first.command("bridge-disconnected")).status).toBe(400);
   first.send("bridge-disconnected");

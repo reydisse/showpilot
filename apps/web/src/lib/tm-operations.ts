@@ -69,11 +69,11 @@ export const runTmControl = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const viewer = await assertControlAccess(data.orgId, data.action);
     const [api, control] = await Promise.all([import("@/lib/companion-api"), import("@/lib/companion-control")]);
-    const target = data.action === "timer-stop" ? await getActiveRundownRelayTarget(env.DB, data.orgId) : null;
+    const target = await getActiveRundownRelayTarget(env.DB, data.orgId);
     if (data.action === "timer-stop" && target && (
       target.showId !== data.target.showId || target.serviceDate !== data.target.serviceDate
     )) throw new Error("Active show changed, confirmation cancelled. Review the current show before ending it.");
-    const deps = api.buildCompanionDeps(target ? { orgId: data.orgId, target } : undefined);
+    const deps = api.buildCompanionDeps({ orgId: data.orgId, target });
     const handlers: Record<TmControlAction, () => Promise<{ status: number; body: Record<string, unknown> }>> = {
       "timer-start": () => control.timerStart(deps, data.orgId),
       "timer-stop": () => control.timerStop(deps, data.orgId),
@@ -101,5 +101,5 @@ export const runTmControl = createServerFn({ method: "POST" })
         } });
       } catch { /* The control succeeded; audit delivery recovers independently. */ }
     }
-    return { ok: true as const, action: data.action };
+    return { ok: true as const, action: data.action, showId: target.showId, serviceDate: target.serviceDate };
   });
