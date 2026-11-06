@@ -55,7 +55,7 @@ Monorepo layout (`pnpm` workspaces):
 
 - `apps/web`     — the product (everything above)
 - `apps/bridge`  — local Node bridge for ProPresenter/devices
-- `apps/gateway` — edge gateway worker
+- `apps/bridge-desktop` — native desktop Bridge supervisor
 - `apps/landing` — marketing site
 
 ─────────────────────────────────────────

@@ -711,16 +711,26 @@
       "phase": "1",
       "section": "1.8 Release pipeline honesty without secrets (audit C10, constrained)",
       "line": 145,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "784398b: native-release-preflight.yml runs a names-only signing-value check on release-workflow PRs or manual dispatch, and is called by both signed release workflows. Their platform matrices have needs: signing-preflight, so a missing value stops the release before setup/build/sign/upload jobs.",
+        "2026-11-05: actual Actions run https://github.com/reydisse/showpilot/actions/runs/41973005856 completed the report job and failed exactly for WINDOWS_CERTIFICATE, WINDOWS_CERTIFICATE_PASSWORD, and WINDOWS_TIMESTAMP_URL. No platform build or release upload was started by this report. No certificates were provisioned.",
+        "native-release-secrets.test.mjs exercises the actual CLI with missing and supplied disposable values, verifies exit codes and job-summary contents, forbids credential value disclosure, and checks required-secret coverage against both release workflows. native-release-readiness.test.mjs rejects removal of the platform-job dependency. All 19 native contract tests pass without signing secrets.",
+        "The unsigned Windows workflow no longer has publish inputs, contents:write permission, release tags, or gh release creation. Both unsigned workflows upload artifacts with retention-days:14 and contain no secrets.* references. Their installer builds remain available independently of the signing report.",
+        "The dedicated readiness job intentionally remains red until the missing Windows values exist. Ordinary CI tests the checker with fixtures and does not require signing values; run 41973005508 is tracked separately. This does not claim certificates are valid or a signed release is available."
+      ]
     },
     {
       "id": "16d0a6c151073104",
       "phase": "1",
       "section": "1.9 Delete or quarantine the dead gateway (audit H16)",
       "line": 149,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-05: removed all nine tracked files under apps/gateway, including the runnable ShowPilot Bridge entrypoint, cloud link, config, web dashboard, device driver, package manifests and tsconfig. Updated CLAUDE.md to point to apps/bridge-desktop. No runtime/config references to apps/gateway or @showpilot/gateway remain outside the specification and this historical evidence.",
+        "Removed only apps/gateway from the pnpm lockfile importers, preserving dependency versions. pnpm install --frozen-lockfile --offline --ignore-scripts passed; pnpm list -r --depth -1 contains the supported bridge and bridge-desktop packages and no gateway. The local directory is also absent after deleting inventoried orphan dependency links/wrappers.",
+        "2026-11-05: supported Bridge TypeScript build passed; full web tests passed (1272 unit, 132 Worker, migration/client-boundary checks); web tsc --noEmit passed; all 19 native release contract tests passed. No organization data or production deployment changed."
+      ]
     },
     {
       "id": "ed2e1d8d3766d0de",
