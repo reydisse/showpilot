@@ -6,6 +6,33 @@ import type { NewAutomationEvent } from "@/hooks/useTimecode";
 afterEach(cleanup);
 const format = { frameRate: 30, dropFrame: "ndf" } as const;
 
+it("offers a named prop cue and preserves its fields when saving fails", async () => {
+  const save = vi.fn(async (_event: NewAutomationEvent) => { throw new Error("Relay disconnected"); });
+  render(<AutomationEventEditor connected format={format} onAdd={save} />);
+  fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "pp-trigger-prop" } });
+  fireEvent.change(screen.getByLabelText("Prop name"), { target: { value: " Standby " } });
+  fireEvent.change(screen.getByLabelText("ProPresenter target (optional)"), { target: { value: "propresenter:venue.local:50001" } });
+  expect(screen.queryByRole("textbox", { name: "Action details (JSON)" })).toBeNull();
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
+  expect(save.mock.calls[0][0]).toMatchObject({ action: "pp-trigger-prop", payload: { propName: "Standby", target: "propresenter:venue.local:50001" } });
+  expect(screen.getByRole("alert").textContent).toBe("Relay disconnected");
+  expect(screen.getByLabelText("Prop name")).toHaveProperty("value", " Standby ");
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
+  expect(save.mock.calls[1][0].id).toBe(save.mock.calls[0][0].id);
+});
+
+it.each(["pp-trigger-previous", "pp-clear-props"])("saves %s without carrying stale JSON or prop details", async action => {
+  const save = vi.fn(async (_event: NewAutomationEvent) => {});
+  render(<AutomationEventEditor connected format={format} onAdd={save} />);
+  fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
+  fireEvent.change(document.querySelector("textarea")!, { target: { value: '{"action":"clear-all"}' } });
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: action } });
+  expect(screen.queryByLabelText("Prop name")).toBeNull();
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
+  expect(save.mock.calls[0][0]).toMatchObject({ action, payload: {} });
+});
+
 it("keeps the draft through a failed save and reuses its id until relay confirmation", async () => {
   let confirm: () => void = () => {};
   let fail: (error: Error) => void = () => {};
