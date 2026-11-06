@@ -144,6 +144,7 @@ model Organization {
   dashboardLayouts       DashboardLayout[]
   kioskTokens            KioskToken[]
   companionTokens        CompanionToken[]
+  operationalErrors      OperationalError[]
   bridgeInstallations    BridgeInstallation[]
   showInventory          ShowInventoryItem[]
   memberPermissionGrants MemberPermissionGrant[]
@@ -1007,4 +1008,21 @@ model BridgeCredentialAudit {
   @@index([orgId, createdAt], map: "bridge_credential_audit_org_time")
   @@index([credentialId, createdAt], map: "bridge_credential_audit_key_time")
   @@map("bridge_credential_audit")
+}
+
+model OperationalError {
+  id           String @id
+  orgId        String
+  source       String
+  code         String
+  errorName    String
+  asset        String?
+  line         Int?
+  column       Int?
+  createdAt    BigInt
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt], map: "operational_error_org_time")
+  @@index([createdAt], map: "operational_error_time")
+  @@map("operational_error")
 }
