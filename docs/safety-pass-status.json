@@ -1509,8 +1509,12 @@
       "phase": "2",
       "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
       "line": 238,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "Dark board-muted is #a3a3a3. Rundown/timecode operational labels, hints, status messages and form labels have a 12px floor. Removed muted/color text alpha reductions, retained readable stopped clocks and completed/fired rows, and changed yellow-button/current-item text to black. Disabled controls retain their disabled treatment.",
+        "2026-11-06: operator-readability-audit.mjs measures real rendered direct text, inherited styles, opacity and background compositing. The built rundown browser rehearsal passed the 12px floor and 4.5:1 enabled muted-text contrast at five widths (320\u20132560px) and in six narrow dialogs. The built timecode rehearsal passed these checks at 320/1440px and after stopped, failed and successful fired cues. Existing layout, keyboard, drag, live-control, retry and reconnect checks passed.",
+        "2026-11-06: 1668 unit and 614 Worker tests, web tsc --noEmit and production build passed. Final rundown and failed-timeline screenshots inspected. This closes the operator UI text audit; the broader product-wide UX gate and deployment remain pending."
+      ]
     },
     {
       "id": "c24354934db31ecd",

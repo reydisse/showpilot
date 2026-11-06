@@ -1,3 +1,4 @@
+import { assertOperatorReadability } from "./operator-readability-audit.mjs";
 // Built app and disposable relay/D1: no Bridge or physical equipment is connected.
 import assert from "node:assert/strict";
 import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
@@ -62,6 +63,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
         startVisible: box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight && start.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)) };
     })()`);
     assert.ok(layout.rowsFit, JSON.stringify(layout)); assert.ok(layout.actionsFit, JSON.stringify(layout)); assert.ok(layout.startVisible, JSON.stringify(layout));
+    await assertOperatorReadability(browser, "[data-timecode-page]");
     await browser("screenshot", `/tmp/showpilot-timeline-${width}.png`);
   }
   await click("Start Internal Generator");
@@ -73,6 +75,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await browser("wait", "text=Pause clock");
   await click("Stop Generator");
   await browser("wait", "text=Resume Internal Generator");
+  await assertOperatorReadability(browser, "[data-timecode-page]");
   await browser("set", "viewport", "1440", "900");
   await click("Fire Device cue");
   const failure = await poll(async () => (await events()).find(event => event.id === "Device cue" && event.executionStatus === "failed"), "disconnected device failure");
@@ -82,10 +85,13 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await browser("set", "viewport", "320", "480");
   await browser("scrollintoview", '[data-automation-event="Device cue"]');
   await browser("screenshot", "/tmp/showpilot-timeline-failed-320.png");
+  await click("Fire Earlier nominal cue");
+  await poll(async () => (await events()).some(event => event.id === "Earlier nominal cue" && event.fired), "successful fired row");
+  await assertOperatorReadability(browser, "[data-timecode-page]");
   await stopServer();
   await browser("wait", "--fn", "document.querySelector('[data-timecode-header] [role=status]').textContent.includes('Disconnected')");
   assert.equal(await evaluate("[...document.querySelectorAll('[data-timecode-header] button')].every(button => button.disabled)"), true);
   await startServer();
   await browser("wait", "--fn", "[...document.querySelectorAll('[data-timecode-header] button')].some(button => !button.disabled)");
-  console.log(JSON.stringify({ passed: true, nominalOrder: true, compensatedNextWhileStopped: true, deviceNamesAndSummaries: true, webhookOriginOnly: true, stickyTransport1440And320: true, minimum44pxActions: true, startPauseResumeStop: true, failedRowRetry: true, disconnectHonesty: true, physicalEquipmentConnected: false }));
+  console.log(JSON.stringify({ passed: true, nominalOrder: true, compensatedNextWhileStopped: true, deviceNamesAndSummaries: true, webhookOriginOnly: true, stickyTransport1440And320: true, minimum44pxActions: true, startPauseResumeStop: true, failedRowRetry: true, disconnectHonesty: true, physicalEquipmentConnected: false, operationalTextFloorAndMutedContrast: true }));
 }, { paidPlan: true });

@@ -119,7 +119,7 @@ export function NewShowModal({
               onChange={(event) => setCallTime(event.target.value)}
               className={FORM_CONTROL}
             />
-            <span className="mt-1 block text-[11px]">Leave blank to use the organization default.</span>
+            <span className="mt-1 block text-xs">Leave blank to use the organization default.</span>
           </label>
 
           <div className="grid gap-3 sm:grid-cols-2">
