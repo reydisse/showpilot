@@ -658,8 +658,20 @@ remain until recovery or an explicit operator action.
 Hook tests cover stalled/lost/superseded publication responses. Real D1 tests
 reproduce the delayed-duplicate publication race, preserve old markers, verify
 atomic failure rollback and exercise scene retry, deletion and organization
-isolation. Saved-scene malformed-content recovery and the broader operator-path
-and product-wide UX audits remain separate work. Nothing here deploys the app.
+isolation. Saved scenes now validate every layer's controls and unique key before
+saving or replacing Preview. Unreadable stored rows remain visible with a timestamp
+and read-only refresh; an unavailable renderer leaves the entire current preview
+unchanged. Refresh never loads a scene automatically. Confirmed deletion addresses
+the stored scene key, even when the embedded ID is damaged. New draft keys are
+unique, including when editing an older saved scene containing `__draft__`.
+
+Run `node apps/web/scripts/smoke-saved-scene-recovery.mjs` after building. It seeds
+bad JSON, invalid controls, an unavailable renderer and a mismatched scene ID in
+local D1 only, then verifies retained drafts, repair/retry, safe deletion, unchanged
+Program and 320x480 recovery controls. The scene-list response now distinguishes
+readable and unreadable entries; deploy browser and Worker together and reload
+cached clients. No migration is needed. The broader operator-path and product-wide
+UX audits remain in progress. Nothing here deploys the app.
 
 ### Graphics library confirmation
 

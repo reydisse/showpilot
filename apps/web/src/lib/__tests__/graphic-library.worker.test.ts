@@ -12,7 +12,8 @@ vi.mock("@tanstack/react-start", () => {
   };
   return { createServerFn: builder, createMiddleware: builder, createServerOnlyFn: <T>(fn: T): T => fn };
 });
-import { mutateGraphicLibrary } from "../graphics";
+import { DEFAULT_CONTROLS } from "../graphic-controls";
+import { getGraphicScenes, mutateGraphicLibrary } from "../graphics";
 import { applyGraphicLibraryOperation } from "../graphic-library.server";
 const content = { name: "Original", title: "Original", subtitle: "", style: "{}" };
 async function fixture() {
@@ -76,7 +77,7 @@ it("rolls the receipt back if the library write fails and succeeds on the same r
   expect(await mutateGraphicLibrary({data})).toEqual({requestId:id,id});
 });
 
-const sceneItems = [{ key:"layer", name:"Scene layer", title:"Scene layer", subtitle:"", style:"{}" }];
+const sceneItems = [{ key:"layer", name:"Scene layer", title:"Scene layer", subtitle:"", style:JSON.stringify({templateId:"classic",controls:DEFAULT_CONTROLS}) }];
 const sceneOf = async (orgId: string, id: string) => {
   const row = await env.DB.prepare("SELECT value FROM app_setting WHERE orgId=? AND key=?").bind(orgId,`graphic-scene:${id}`).first<{value:string}>();
   return row ? JSON.parse(row.value) as {id:string;name:string;createdAt:string;items:typeof sceneItems} : null;
@@ -119,4 +120,35 @@ it("isolates scene IDs by organization and rejects an update to a missing scene"
   await mutateGraphicLibrary({data:{orgId:other.orgId,requestId:crypto.randomUUID(),operation:{kind:"delete-scene",id}}});
   await expect(mutateGraphicLibrary({data:{orgId:other.orgId,requestId:crypto.randomUUID(),operation:{kind:"update-scene",id,name:"Changed",items:sceneItems}}})).rejects.toThrow("no longer exists");
   expect(await sceneOf(own.orgId,id)).toMatchObject({name:"Private"});
+});
+
+it("lists damaged scene rows without hiding healthy scenes or leaking another organization", async () => {
+  const f=await fixture(), other=await fixture(); auth.userId=f.userId;
+  const id=crypto.randomUUID();
+  await mutateGraphicLibrary({data:{orgId:f.orgId,requestId:crypto.randomUUID(),operation:{kind:"create-scene",id,name:"Healthy",items:sceneItems}}});
+  const healthy=await sceneOf(f.orgId,id);
+  for (const [orgId,key,value] of [[f.orgId,"broken","{"],[f.orgId,"mismatch",JSON.stringify(healthy)],[other.orgId,"private","{"]]) {
+    await env.DB.prepare("INSERT INTO app_setting(id,orgId,key,value) VALUES (?,?,?,?)").bind(crypto.randomUUID(),orgId,`graphic-scene:${key}`,value).run();
+  }
+  const rows=await getGraphicScenes({data:{orgId:f.orgId}});
+  expect(rows).toHaveLength(3);
+  expect(rows).toEqual(expect.arrayContaining([
+    expect.objectContaining({status:"ready",scene:healthy}),
+    expect.objectContaining({status:"unreadable",id:"broken"}),
+    expect.objectContaining({status:"unreadable",id:"mismatch"}),
+  ]));
+  await mutateGraphicLibrary({data:{orgId:f.orgId,requestId:crypto.randomUUID(),operation:{kind:"delete-scene",id:"mismatch"}}});
+  expect(await sceneOf(f.orgId,id)).toEqual(healthy);
+  expect(await env.DB.prepare("SELECT id FROM app_setting WHERE orgId=? AND key='graphic-scene:mismatch'").bind(f.orgId).first()).toBeNull();
+});
+it("rejects invalid scene writes before recording a receipt or changing the previous scene", async () => {
+  const f=await fixture(), id=crypto.randomUUID();
+  await mutateGraphicLibrary({data:{orgId:f.orgId,requestId:crypto.randomUUID(),operation:{kind:"create-scene",id,name:"Healthy",items:sceneItems}}});
+  const before=await sceneOf(f.orgId,id);
+  for (const items of [[{...sceneItems[0],style:"{}"}],[sceneItems[0],sceneItems[0]]]) {
+    const requestId=crypto.randomUUID();
+    await expect(async () => mutateGraphicLibrary({data:{orgId:f.orgId,requestId,operation:{kind:"update-scene",id,name:"Invalid",items}}})).rejects.toThrow();
+    expect(await sceneOf(f.orgId,id)).toEqual(before);
+    expect(await env.DB.prepare("SELECT id FROM app_setting WHERE orgId=? AND key=?").bind(f.orgId,`graphic-library:${requestId}`).first()).toBeNull();
+  }
 });
