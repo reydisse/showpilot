@@ -52,6 +52,42 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("timecode connection honesty", () => {
+  it("rejects a running echo at the wrong start position without feeding any local frames", () => {
+    const start = vi.spyOn(InternalTimecodeSource.prototype, "startAtFrame");
+    const { result } = hook(); const socket = Socket.instances[0];
+    act(() => hydrate(socket));
+    const position = { timecode: framesToTimecode(150, state.format), expectedShowId: "test-show", expectedFormat: state.format, expectedFrame: 0, confirmed: true } as const;
+    act(() => result.current.startFreerun(position));
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ action: "start", payload: { startPosition: position } });
+    act(() => { socket.receive({ type: "master-status", granted: true }); socket.receive({ type: "tc-update", state: { ...state, running: true } }); });
+    expect(start).not.toHaveBeenCalled();
+    expect(result.current.lastError).toContain("did not confirm");
+    expect(result.current.isMaster).toBe(false);
+    expect(JSON.parse(socket.sent.at(-1)!)).toMatchObject({ action: "stop" });
+    act(() => socket.receive({ type: "tc-update", state: { ...state, running: true, totalFrames: 150 } }));
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it("starts at the exact confirmed drop-frame position without a millisecond conversion", () => {
+    const { result } = hook(); const socket = Socket.instances[0];
+    const format = { frameRate: 29.97, dropFrame: "df" } as const;
+    act(() => { socket.open(); socket.receive({ type: "hydrate", state: { ...state, format }, events: [] }); });
+    const tc = { hours: 0, minutes: 1, seconds: 0, frames: 2 };
+    act(() => result.current.startFreerun({ timecode: tc, expectedShowId: "test-show", expectedFormat: format, expectedFrame: 0, confirmed: true }));
+    act(() => { socket.receive({ type: "master-status", granted: true }); socket.receive({ type: "tc-update", state: { ...state, format, running: true, totalFrames: 1800, timecode: tc } }); });
+    const firstFeed = socket.sent.map(message => JSON.parse(message)).find(message => message.action === "feed-tc");
+    expect(firstFeed.payload).toEqual({ timecode: tc, totalFrames: 1800, format });
+    expect(result.current.isMaster).toBe(true);
+  });
+
+  it("requires stopping a paused generator before an explicit start-position change", () => {
+    const { result } = hook(); const socket = Socket.instances[0];
+    act(() => { socket.open(); socket.receive({ type: "hydrate", state: { ...state, signal: { status: "paused", lastFeedAt: 1 } }, events: [] }); });
+    act(() => result.current.startFreerun({ timecode: framesToTimecode(150, state.format), expectedShowId: "test-show", expectedFormat: state.format, expectedFrame: 0, confirmed: true }));
+    expect(result.current.lastError).toContain("Stop the current source");
+    expect(socket.sent).toEqual([]);
+  });
+
   it("does not claim a running generator when its first feed fails to send", () => {
     const { result } = hook(); const socket = Socket.instances[0];
     act(() => { hydrate(socket); result.current.startFreerun(); });
@@ -277,7 +313,7 @@ describe("timecode connection honesty", () => {
   });
 
   it("shows source rejection and cancels the pending local generator", () => {
-    const start = vi.spyOn(InternalTimecodeSource.prototype, "start");
+    const start = vi.spyOn(InternalTimecodeSource.prototype, "startAtFrame");
     const { result } = hook();
     const socket = Socket.instances[0];
     act(() => { hydrate(socket); result.current.startFreerun(); });
@@ -298,7 +334,7 @@ describe("timecode connection honesty", () => {
       return <>
         <TimecodeDisplay state={clock.state} connected={clock.connected} size="large" />
         <TimecodeDisplay state={clock.state} connected={clock.connected} />
-        <TimecodeSourceSelector isMaster={clock.isMaster} running={clock.state?.running ?? false}
+        <TimecodeSourceSelector showId="test-show" isMaster={clock.isMaster} running={clock.state?.running ?? false}
           connected={clock.connected} pending={clock.generatorPending} format={state.format} mtcSupported={false}
           onStartFreerun={clock.startFreerun} onStopGenerator={clock.stopGenerator}
           onStartMtc={clock.startMtc} onSetFormat={clock.setFormat} />
@@ -376,7 +412,7 @@ describe("timecode connection honesty", () => {
     render(<>
       <TimecodeDisplay state={lost} connected size="large" />
       <TimecodeDisplay state={lost} connected />
-      <TimecodeSourceSelector isMaster connected pending={null} running={false} signal={lost.signal} source="mtc"
+      <TimecodeSourceSelector showId="test-show" isMaster connected pending={null} running={false} signal={lost.signal} source="mtc"
         format={state.format} mtcSupported={false} onStartFreerun={() => {}} onStopGenerator={() => {}}
         onStartMtc={async () => {}} onSetFormat={() => {}} />
     </>);
@@ -413,7 +449,7 @@ describe("timecode connection honesty", () => {
   });
 
   it("does not run a rejected or unconfirmed generator start", () => {
-    const start = vi.spyOn(InternalTimecodeSource.prototype, "start");
+    const start = vi.spyOn(InternalTimecodeSource.prototype, "startAtFrame");
     const { result } = hook();
     const socket = Socket.instances[0];
     act(() => { hydrate(socket); result.current.startFreerun(); });
@@ -471,7 +507,7 @@ describe("timecode connection honesty", () => {
   });
 
   it("cannot start a local clock while disconnected or before relay state arrives", () => {
-    const start = vi.spyOn(InternalTimecodeSource.prototype, "start");
+    const start = vi.spyOn(InternalTimecodeSource.prototype, "startAtFrame");
     const { result } = hook();
     act(() => result.current.startFreerun());
     expect(start).not.toHaveBeenCalled();
@@ -484,17 +520,17 @@ describe("timecode connection honesty", () => {
   });
 
   it("starts only after the lease grant and running-state echo, and stops on disconnect", () => {
-    const start = vi.spyOn(InternalTimecodeSource.prototype, "start");
+    const start = vi.spyOn(InternalTimecodeSource.prototype, "startAtFrame");
     const stop = vi.spyOn(InternalTimecodeSource.prototype, "stop");
     const { result } = hook();
     const socket = Socket.instances[0];
     act(() => hydrate(socket));
-    act(() => result.current.startFreerun(5_000));
+    act(() => result.current.startFreerun({ timecode: framesToTimecode(150, state.format), expectedShowId: "test-show", expectedFormat: state.format, expectedFrame: 0, confirmed: true }));
     expect(start).not.toHaveBeenCalled();
     act(() => socket.receive({ type: "master-status", granted: true }));
     expect(start).not.toHaveBeenCalled();
-    act(() => socket.receive({ type: "tc-update", state: { ...state, running: true } }));
-    expect(start).toHaveBeenCalledExactlyOnceWith(5_000);
+    act(() => socket.receive({ type: "tc-update", state: { ...state, running: true, totalFrames: 150, timecode: framesToTimecode(150, state.format) } }));
+    expect(start).toHaveBeenCalledExactlyOnceWith(150);
     expect(result.current.isMaster).toBe(true);
     expect(result.current.state?.running).toBe(true);
     act(() => socket.close());

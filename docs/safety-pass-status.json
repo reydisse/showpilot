@@ -1251,8 +1251,13 @@
       "phase": "2",
       "section": "2.4 Offset, latency, and clock drive (audit H20, H22)",
       "line": 205,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06: InternalGeneratorStart exposes an optional SMPTE start position, defaults to held-frame resume, validates every supported frame rate and drop-frame labels, and confirms position changes. The review is scoped to the exact show, format and held frame. Pending/offline/running/stale reviews cannot start; the form retains the draft on Cancel and resets to normal resume after a successful start. Another operator ownership disables source controls.",
+        "The relay start command accepts a validated startPosition and checks its preconditions before and after device timing preparation. Stop, seek and reformat during preparation cancel the request. The relay assigns the exact requested frame, preserves fired cues, and retains jump-review holds for large moves. The hook starts its Worker only after master grant and an exact matching running-state echo; a wrong-position echo stops the request without sending a feed. The obsolete browser-only millisecond start method and its callers were removed.",
+        "Validation: full web suite passed with 1520 unit and 456 Worker tests, tsc --noEmit passed, production build passed. Tests cover five format combinations, invalid and stale reviews, dropped frame labels, paused/running guards, no cue catch-up or re-arm, concurrent cancellation, default held-frame resume and exact drop-frame first feed. Existing cancellation/read-cache and source-watchdog regressions remain green.",
+        "Built-app smoke scripts/smoke-timecode-start-position.mjs passed real login, confirmation/Cancel, first feed at frame 300 for 00:00:10:00 at 30fps, first feed at frame 1800 for 00:01:00;02 at 29.97DF, invalid DF label rejection, exact Pause and Stop resume, retained jump review, and the 320px input layout. Logs: /tmp/showpilot-start-position-{web-tests,tsc,build,browser}.log. Screenshot: /tmp/showpilot-start-position-320.png. Disposable local data only, no equipment commands. Production deployment remains pending."
+      ]
     },
     {
       "id": "6949ddb4d7300f07",

@@ -9,7 +9,7 @@ export interface InternalSourceCallback {
 /**
  * Internal timecode generator, sampled independently of rendering.
  * Two modes:
- * - Freerun: counts from a start offset using performance.now()
+ * - Freerun: counts from the relay's exact start frame using performance.now()
  * - Rundown: takes elapsed ms from external source (rundown timer)
  */
 export class InternalTimecodeSource {
@@ -24,10 +24,6 @@ export class InternalTimecodeSource {
   constructor(format: TimecodeFormat, callback: InternalSourceCallback) {
     this.format = format;
     this.onTimecode = callback;
-  }
-
-  start(startOffsetMs = 0): void {
-    this.startAtFrame(Math.floor(Math.max(0, startOffsetMs) * this.format.frameRate / 1000));
   }
 
   /** Resume the relay's exact held frame, including drop-frame boundaries. */

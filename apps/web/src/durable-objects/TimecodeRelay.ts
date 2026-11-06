@@ -29,6 +29,7 @@ import {
 } from "@/lib/live-rundown-authority.server";
 import { resolveTimecodeDeviceAction } from "@/lib/timecode-device-actions";
 import { automationDispatchFrame, deviceTimingForEvent, MAX_AUTOMATION_LEAD_MS, MAX_DEVICE_LATENCY_MS, type DeviceTiming } from "@/lib/automation-timing";
+import { startPositionProblem, timecodeStartPositionSchema } from "@/lib/timecode-start";
 import { z } from "zod";
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMECODE_COMMANDS, TIMECODE_FEED_STALL_MS as FEED_STALL_MS } from "@/types/timecode";
 import { AutomationExecutor, automationOutput } from "@/lib/automation-execution";
@@ -772,6 +773,15 @@ export class TimecodeRelay extends DurableObject {
         break;
       }
       case "start": {
+        const parsed = payload?.startPosition === undefined ? null : timecodeStartPositionSchema.safeParse(payload.startPosition);
+        if (parsed && !parsed.success) throw new TimecodeCommandRejection("Review a valid start position before starting the generator.");
+        const position = parsed?.success ? parsed.data : null;
+        const checkPosition = () => {
+          if (!position) return;
+          const problem = startPositionProblem(position, this.state, this.masterSessionId !== null);
+          if (problem) throw new TimecodeCommandRejection(problem);
+        };
+        checkPosition();
         if (sessionId && this.masterSessionId && this.masterSessionId !== sessionId) {
           this.sendMasterStatus(sessionId, false);
           break;
@@ -782,6 +792,19 @@ export class TimecodeRelay extends DurableObject {
         }
         if (sessionId && (this.controlOwner()?.attachment.sessionId !== sessionId || (this.masterSessionId && this.masterSessionId !== sessionId))) {
           throw new TimecodeCommandRejection("Timecode control changed while starting the source.");
+        }
+        // Preparation can yield to Stop, another start, a seek or a reformat.
+        checkPosition();
+        if (position) {
+          const frame = timecodeToFrames(position.timecode, this.state.format);
+          this.holdForJump(this.state.totalFrames, frame);
+          this.automationGeneration++;
+          this.state.timecode = position.timecode;
+          this.state.totalFrames = frame;
+          this.state.display = timecodeToString(position.timecode, this.state.format.dropFrame === "df");
+          this.state.source = "internal-freerun";
+          this.state.serverTime = Date.now();
+          this.previousFeedFrame = null;
         }
         if (sessionId) this.masterSessionId = sessionId;
         this.sendMasterStatus(sessionId, true);
