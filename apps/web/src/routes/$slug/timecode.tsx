@@ -60,7 +60,7 @@ function TimecodePage() {
     events,
     isMaster,
     generatorPending,
-    lastError,
+    lastError, lastErrorAt, retryConnection,
     startFreerun,
     stopGenerator,
     pauseGenerator,
@@ -135,8 +135,13 @@ function TimecodePage() {
         <Button type="button" variant="outline" disabled={!connected || state?.running || generatorPending !== null} onClick={() => setSongLoaderOpen(true)} className="min-h-11 text-xs"><Music2 />Load song cues</Button>
         <TimecodeShowPicker />
         <TimecodeControlNotice />
-        {!connected && <p role="status" className="rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">Timecode disconnected. Controls will be available after reconnecting.</p>}
-        {lastError && <p role="alert" className="rounded-xl border border-red-500/40 p-4 text-sm text-red-300">{lastError}</p>}
+        {!connected && <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">
+          <p>{state ? "Reconnecting, showing last known timecode state." : lastError ? "Reconnecting to timecode." : "Connecting to timecode…"} Controls will be available after the show state is confirmed.</p>
+          {lastError && <Button type="button" variant="outline" className="min-h-11" onClick={retryConnection}>Reconnect timecode</Button>}
+        </div>}
+        {lastError && <p role="alert" data-timecode-error className="rounded-xl border border-red-500/40 p-4 text-sm text-red-300">
+          Last error: {lastError} {lastErrorAt !== null && <time dateTime={new Date(lastErrorAt).toISOString()}>{new Date(lastErrorAt).toLocaleTimeString()}</time>}
+        </p>}
         <TimecodeAutomationControl state={state} connected={connected} canControl={control !== "other"} onSetEnabled={setTriggersEnabled} onResumeAutomaticCues={resumeAutomaticCues} />
         <NamedTimers sample={state?.namedTimers ?? null} connected={connected} outputTarget={timecode.showId ? { orgSlug: slug, showId: timecode.showId } : undefined} />
         <MediaOutputPanel orgSlug={slug} showId={timecode.showId} connected={connected} outputs={state?.mediaOutputs ?? []} />
