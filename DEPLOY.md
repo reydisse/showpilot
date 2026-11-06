@@ -621,6 +621,32 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Live rundown bar
+
+The shared bar stays visible while the active show is loading, idle or ended.
+A newly opened stopped show says No live rundown; when a running show stops in
+the current session, it says Show ended. A missing current item is reported
+explicitly. The rundown route keeps its own transport and continues to omit the
+shared bar.
+
+Disconnected state says Reconnecting, showing last known state in a polite live
+region. The displayed timer holds, and transport stays disabled until the relay
+hydrates again and the active target is confirmed. Command errors are visible
+in the bar. A failed target refresh preserves the last target and offers Retry;
+requests time out after ten seconds. Polling skips an awaited request, and late
+results cannot apply after a timeout or workspace change. Switching workspace or active show
+remounts its session, clearing the old timer and any end-show confirmation.
+
+Previous, Pause/Resume and Next use shared 44px buttons with focus indicators.
+They wrap below the title on small screens. Advancing past the final item still
+requires End show confirmation; loss of connectivity or a stopped show disables
+that confirmation.
+
+After building, run `node apps/web/scripts/smoke-live-rundown-bar.mjs`. It uses
+real login and a disposable relay to check idle/end states, transport commands,
+final-item confirmation, 320px and desktop hit areas, target lookup failure,
+disconnected clock hold and recovery. It does not modify production data.
+
 ### Timecode transport and timeline
 
 Start, Stop, Pause and Resume stay beside the clock in the sticky timecode
