@@ -9,11 +9,12 @@ interface ReadOptions<T> {
   errorMessage: string;
   intervalMs?: number;
   enabled?: boolean;
+  pauseWhenHidden?: boolean;
 }
 
-/** Bounded operator reads: retain confirmed data, cancel stale work, pause hidden polling. */
-export function useOperatorRead<T>({ key, initialValue, read, errorMessage, intervalMs, enabled = true }: ReadOptions<T>) {
-  const [state, setState] = useState<{ key: string; value: T; error: OperatorReadFailure | null; refreshing: boolean }>({ key, value: initialValue, error: null, refreshing: false });
+/** Bounded reads retain confirmed data and cancel stale work. Output feeds can opt into background polling. */
+export function useOperatorRead<T>({ key, initialValue, read, errorMessage, intervalMs, enabled = true, pauseWhenHidden = true }: ReadOptions<T>) {
+  const [state, setState] = useState<{ key: string; value: T; error: OperatorReadFailure | null; refreshing: boolean; confirmedAt: number | null }>({ key, value: initialValue, error: null, refreshing: false, confirmedAt: null });
   const initialRef = useRef(initialValue);
   initialRef.current = initialValue;
   const retryRef = useRef<() => void>(() => {});
@@ -23,10 +24,11 @@ export function useOperatorRead<T>({ key, initialValue, read, errorMessage, inte
     let disposed = false;
     let value = initialRef.current;
     let failures = 0;
+    let confirmedAt: number | null = null;
     let scheduled: ReturnType<typeof setTimeout> | undefined;
     let request: PendingRead | null = null;
-    setState({ key, value, error: null, refreshing: false });
-    const visible = () => document.visibilityState !== "hidden";
+    setState({ key, value, error: null, refreshing: false, confirmedAt });
+    const visible = () => !pauseWhenHidden || document.visibilityState !== "hidden";
     const clearScheduled = () => { if (scheduled !== undefined) clearTimeout(scheduled); scheduled = undefined; };
     const cancel = () => {
       const current = request; request = null;
@@ -47,12 +49,12 @@ export function useOperatorRead<T>({ key, initialValue, read, errorMessage, inte
           }),
         ]);
         if (disposed || request !== current) return;
-        value = next; failures = 0;
-        setState({ key, value, error: null, refreshing: false });
+        value = next; failures = 0; confirmedAt = Date.now();
+        setState({ key, value, error: null, refreshing: false, confirmedAt });
       } catch {
         if (disposed || request !== current) return;
         failures++;
-        setState({ key, value, error: { message: errorMessage, occurredAt: Date.now() }, refreshing: false });
+        setState({ key, value, error: { message: errorMessage, occurredAt: Date.now() }, refreshing: false, confirmedAt });
       } finally {
         if (current.deadline !== undefined) clearTimeout(current.deadline);
         if (request === current) {
@@ -71,15 +73,15 @@ export function useOperatorRead<T>({ key, initialValue, read, errorMessage, inte
     retryRef.current = () => { void refresh(); };
     if (enabled) {
       void refresh();
-      document.addEventListener("visibilitychange", visibilityChanged);
+      if (pauseWhenHidden) document.addEventListener("visibilitychange", visibilityChanged);
     }
     return () => {
       disposed = true; retryRef.current = () => {};
       clearScheduled(); cancel();
       document.removeEventListener("visibilitychange", visibilityChanged);
     };
-  }, [key, read, errorMessage, intervalMs, enabled]);
+  }, [key, read, errorMessage, intervalMs, enabled, pauseWhenHidden]);
 
-  const current = enabled && state.key === key ? state : { value: initialValue, error: null, refreshing: false };
-  return { value: current.value, error: current.error, refreshing: current.refreshing, retry };
+  const current = enabled && state.key === key ? state : { value: initialValue, error: null, refreshing: false, confirmedAt: null };
+  return { value: current.value, error: current.error, refreshing: current.refreshing, confirmedAt: current.confirmedAt, retry };
 }

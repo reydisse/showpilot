@@ -620,6 +620,41 @@ Run `node apps/web/scripts/smoke-rundown-handoff.mjs` for the navigation/write
 regression. Both use disposable local accounts and data. No migration or native
 build is required; these changes are not deployed by a feature-branch push.
 
+### Overlay feed and display-link recovery
+
+Overlay reads have an eight-second deadline, one active request, cancellation and
+capped retry backoff. Expired replies cannot replace newer output. Network or
+unreadable-composition failures retain the last confirmed graphic while its display
+pass remains valid. Access rejection removes protected content and requires a new
+access check. Output polling continues while hidden; ordinary operator reads still
+pause in hidden tabs.
+
+Graphics keep their DOM identity when text changes. Entry and exit frames/timers
+belong to each layer and are cancelled on removal or reactivation. The renderer
+uses the server's layer order and validates a complete composition before applying
+it, so one unreadable layer cannot publish a partial replacement.
+
+Settings and the Graphics library offer **Open overlay monitor**, which adds
+`monitor=1` to a protected display link. That view shows connection state, failure
+time and read-only Retry. The copied URL and QR code remain clean broadcast output;
+that view exposes connection state in the browser title without adding diagnostic
+text to the video. Do not use the monitor link as an OBS/vMix source.
+
+Creating a display link also has a bounded read and Retry. Failed refreshes retain
+an existing unexpired link, expired links cannot be copied/opened, and late results
+cannot replace a newer link or cross organizations. The link field stops saying
+Creating after a failure. Settings explains the QR code and both pages use 44px
+copy and monitor controls.
+
+After building, run `node apps/web/scripts/smoke-overlay-recovery.mjs`,
+`node apps/web/scripts/smoke-graphics-output-recovery.mjs`, and
+`node apps/web/scripts/smoke-display-deadlines.mjs`. They use disposable local data
+and real Worker responses, operator edits, output hides, server outages and Chrome.
+The overlay rehearsal checks the published Settings monitor link and failure/retry
+at 320/768/1440px. No migration or native build is required; reload open outputs
+after deploying. Kiosk-link reachability and the remaining product-wide UX audit
+are still outstanding.
+
 ### Device detail and legacy overlay navigation
 
 The Devices parent now renders a route outlet, with its library in an index route.
