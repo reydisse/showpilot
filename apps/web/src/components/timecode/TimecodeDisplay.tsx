@@ -1,4 +1,13 @@
 import type { TimecodeState } from "@/types/timecode";
+import { useTimecodePresentation } from "@/hooks/useTimecodePresentation";
+import type { TimecodePresentationSample } from "@/lib/timecode-presentation";
+
+/** Text-only clock for song previews and public confidence output. */
+export function TimecodeText({ state, connected }: { state: TimecodePresentationSample | null; connected: boolean }) {
+  const { display, stale } = useTimecodePresentation(state, connected);
+  const held = !connected || stale || state?.signal?.status === "timecode-stalled" || state?.signal?.status === "timecode-lost";
+  return <span data-timecode-display="text" title={held ? "Timecode held" : undefined}>{display}</span>;
+}
 
 interface TimecodeDisplayProps {
   state: TimecodeState | null;
@@ -12,9 +21,9 @@ export function TimecodeDisplay({
   connected,
   size = "compact",
 }: TimecodeDisplayProps) {
-  const display = state?.display ?? "00:00:00:00";
-  const running = state?.running ?? false;
-  const lost = state?.signal?.status === "timecode-stalled" || state?.signal?.status === "timecode-lost";
+  const { display, stale } = useTimecodePresentation(state, connected);
+  const running = connected && !stale && (state?.running ?? false);
+  const lost = stale || state?.signal?.status === "timecode-stalled" || state?.signal?.status === "timecode-lost";
   const mismatch = state?.signal?.status === "format-mismatch";
   const paused = state?.signal?.status === "paused";
   const statusLabel = !connected ? "Disconnected" : mismatch ? "Format mismatch" : lost ? "Signal lost" : paused ? "Paused" : running ? "Running" : "Stopped";
@@ -23,14 +32,15 @@ export function TimecodeDisplay({
     return (
       <div className="flex flex-col items-center gap-2 overflow-hidden w-full">
         <div
-          className={`font-mono tabular-nums tracking-wider text-center w-full ${
+          data-timecode-display="large"
+          className={`font-mono tabular-nums sm:tracking-wider text-center w-full ${
             running ? "text-fire-500" : "text-board-muted/50"
           }`}
-          style={{ fontSize: "clamp(2rem, 8vw, 5rem)" }}
+          style={{ fontSize: "clamp(1.2rem, 6vw, 5rem)" }}
         >
           {display}
         </div>
-        <div role="status" aria-label={`Timecode ${statusLabel.toLowerCase()}`} className="flex items-center gap-3 text-xs text-board-muted">
+        <div role="status" aria-label={`Timecode ${statusLabel.toLowerCase()}`} className="flex flex-wrap justify-center items-center gap-3 text-xs text-board-muted">
           <span
             className={`w-2 h-2 rounded-full ${
               connected
@@ -74,6 +84,7 @@ export function TimecodeDisplay({
         }`}
       />
       <span
+        data-timecode-display="compact"
         className={`font-mono text-sm tabular-nums tracking-wide ${
           running ? "text-fire-500" : "text-board-muted/50"
         }`}

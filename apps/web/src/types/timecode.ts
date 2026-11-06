@@ -73,7 +73,7 @@ export interface TimecodeState {
 /** Display clients receive output and a failure count, never event payloads. */
 export type TimecodeDisplayState = Pick<
   TimecodeState,
-  "display" | "running" | "serverTime" | "lyrics" | "showId" | "serviceDate" | "signal"
+  "display" | "running" | "serverTime" | "lyrics" | "showId" | "serviceDate" | "signal" | "format" | "totalFrames"
 > & {
   automation: { status: "ok" | "failed"; failedCueCount: number };
 };

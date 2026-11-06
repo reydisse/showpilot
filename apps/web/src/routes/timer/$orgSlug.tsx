@@ -15,6 +15,8 @@ import { elapsedAt, nextPlayableItem } from "@/lib/rundown-transport";
 import { rebaseTimerToLocalClock } from "@/lib/rundown-clock";
 import { useDisplayFullscreen } from "@/hooks/useDisplayFullscreen";
 import type { LyricsDisplayState, TimecodeWsMessage } from "@/types/timecode";
+import type { TimecodePresentationSample } from "@/lib/timecode-presentation";
+import { TimecodeText } from "@/components/timecode/TimecodeDisplay";
 import { decodeStageMessage } from "@/lib/stage-message";
 import {
   type RundownDisplayItem as KioskRundownItem,
@@ -238,7 +240,8 @@ function TimerKioskPage() {
   useEffect(() => { setCleanOutput(new URLSearchParams(window.location.search).get("output") === "clean"); }, []);
   const [ppSlide, setPpSlide] = useState<PPSlidePayload | null>(null);
   const [lyrics, setLyrics] = useState<LyricsDisplayState | null>(null);
-  const [lyricsTimecode, setLyricsTimecode] = useState<string | null>(null);
+  const [lyricsTimecode, setLyricsTimecode] = useState<TimecodePresentationSample | null>(null);
+  const [timecodeConnected, setTimecodeConnected] = useState(false);
   const [connected, setConnected] = useState(true);
   const [now, setNow] = useState(Date.now());
   const [clockFormat, setClockFormat] = useState<ClockFormat>("12hr");
@@ -449,7 +452,7 @@ function TimerKioskPage() {
   }, [applyStageMessage, orgSlug, relayServiceDate, relayShowId]);
 
   useEffect(() => {
-    setLyrics(null); setLyricsTimecode(null);
+    setLyrics(null); setLyricsTimecode(null); setTimecodeConnected(false);
     if (!relayShowId) return;
     let disposed = false;
     const sequence = new RelaySequenceTracker();
@@ -470,12 +473,14 @@ function TimerKioskPage() {
           if (message.type === "hydrate") { clearTimeout(hydrateTimeout); sequence.snapshot(message); }
           else {
             const decision = sequence.delta(message);
-            if (decision === "refresh") { awaitHydrate(); current.send(JSON.stringify({ type: "sync", lastSeenSequence: sequence.lastSeenSequence } satisfies TimecodeWsMessage)); }
+            if (decision === "refresh") { setTimecodeConnected(false); awaitHydrate(); current.send(JSON.stringify({ type: "sync", lastSeenSequence: sequence.lastSeenSequence } satisfies TimecodeWsMessage)); }
             if (decision !== "apply") return;
           }
           if (message.type === "hydrate" || message.type === "tc-update") {
+            if (message.state.showId !== relayShowId) { current.close(); return; }
+            if (message.type === "hydrate") setTimecodeConnected(true);
             setLyrics(message.state.lyrics ?? null);
-            setLyricsTimecode(message.state.display);
+            setLyricsTimecode(message.state);
           }
           else if (message.type === "lyrics-update") setLyrics(message.lyrics);
           else if (message.type === "lyrics-clear") setLyrics(null);
@@ -483,7 +488,7 @@ function TimerKioskPage() {
       };
       socket.onclose = () => {
         clearTimeout(hydrateTimeout);
-        if (!disposed && socket === current) { sequence.disconnect(); reconnect = setTimeout(connect, 2_000); }
+        if (!disposed && socket === current) { setTimecodeConnected(false); sequence.disconnect(); reconnect = setTimeout(connect, 2_000); }
       };
       socket.onerror = () => current.close();
     };
@@ -625,7 +630,7 @@ function TimerKioskPage() {
   // ── Render by view mode ──
 
   if (lyrics) {
-    return <ConfidenceScreen layout={confidenceLayout} clean={cleanOutput}><LyricsKiosk lyrics={lyrics} timecode={lyricsTimecode ?? undefined} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} /></ConfidenceScreen>;
+    return <ConfidenceScreen layout={confidenceLayout} clean={cleanOutput}><LyricsKiosk lyrics={lyrics} timecode={lyricsTimecode} connected={timecodeConnected} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} /></ConfidenceScreen>;
   }
 
   if (viewMode === "minimal") {
@@ -674,7 +679,7 @@ function TimerKioskPage() {
   );
 }
 
-function LyricsKiosk({ lyrics, timecode, isFullscreen, toggleFullscreen }: { lyrics: LyricsDisplayState; timecode?: string; isFullscreen: boolean; toggleFullscreen: () => void }) {
+function LyricsKiosk({ lyrics, timecode, connected, isFullscreen, toggleFullscreen }: { lyrics: LyricsDisplayState; timecode: TimecodePresentationSample | null; connected: boolean; isFullscreen: boolean; toggleFullscreen: () => void }) {
   const lyricAreaRef = useRef<HTMLDivElement>(null);
   const lyricTextRef = useRef<HTMLParagraphElement>(null);
   useLayoutEffect(() => {
@@ -706,7 +711,7 @@ function LyricsKiosk({ lyrics, timecode, isFullscreen, toggleFullscreen }: { lyr
     <style>{TIMER_CSS}</style>
     <header className="flex items-start justify-between gap-4"><div><p className="text-[clamp(.7rem,1.4vw,1.25rem)] font-bold uppercase tracking-[.18em] text-amber-400">{lyrics.sectionLabel}</p><h1 className="mt-1 text-[clamp(1rem,2vw,2rem)] font-semibold text-white/70">{lyrics.songTitle}</h1></div><button type="button" aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} onClick={toggleFullscreen} className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/50">{isFullscreen ? "Exit" : "Fullscreen"}</button></header>
     <div ref={lyricAreaRef} className="flex min-h-0 flex-1 items-center justify-center text-center"><p ref={lyricTextRef} className="w-full whitespace-pre-line text-balance font-bold leading-[1.08] tracking-[-.025em]" style={{ overflowWrap: "anywhere" }}>{lyrics.lyrics}</p></div>
-    <footer className="flex items-end justify-between gap-4 text-[clamp(.7rem,1.2vw,1.1rem)] text-white/40"><span>{lyrics.nextLabel ? `NEXT · ${lyrics.nextLabel}` : "END OF SONG"}</span>{timecode ? <span className="font-mono">{timecode}</span> : null}</footer>
+    <footer className="flex items-end justify-between gap-4 text-[clamp(.7rem,1.2vw,1.1rem)] text-white/40"><span>{lyrics.nextLabel ? `NEXT · ${lyrics.nextLabel}` : "END OF SONG"}</span>{timecode ? <span className="font-mono"><TimecodeText state={timecode} connected={connected} /></span> : null}</footer>
   </main>;
 }
 

@@ -85,7 +85,7 @@ function TimecodePage() {
   return (
     <div className="h-full overflow-auto">
       <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-6 py-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
               SMPTE Timecode
@@ -94,8 +94,8 @@ function TimecodePage() {
               Show automation sequencer
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <button disabled={!connected || state?.running || generatorPending !== null} onClick={() => setSongLoaderOpen(true)} className="flex items-center gap-1.5 rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-text hover:border-fire-500/30"><Music2 className="h-3.5 w-3.5" />Load song cues</button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button disabled={!connected || state?.running || generatorPending !== null} onClick={() => setSongLoaderOpen(true)} className="flex min-h-11 items-center gap-1.5 rounded-lg border border-board-border bg-board-card px-3 py-1.5 text-xs font-medium text-board-text hover:border-fire-500/30"><Music2 className="h-3.5 w-3.5 shrink-0" />Load song cues</button>
             <TimecodeDisplay state={state} connected={connected} size="compact" />
           </div>
         </div>
@@ -108,7 +108,7 @@ function TimecodePage() {
         {lastError && <p role="alert" className="rounded-xl border border-red-500/40 p-4 text-sm text-red-300">{lastError}</p>}
         <TimecodeAutomationControl state={state} connected={connected} canControl={control !== "other"} onSetEnabled={setTriggersEnabled} />
         {/* Large TC display */}
-        <div className="rounded-xl border border-board-border bg-board-card p-8">
+        <div className="rounded-xl border border-board-border bg-board-card p-4 sm:p-8">
           <TimecodeDisplay state={state} connected={connected} size="large" />
         </div>
 

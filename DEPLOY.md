@@ -204,6 +204,18 @@ The timeline keeps the nominal cue time and shows the compensated dispatch time.
 Use `node apps/web/scripts/smoke-timecode-latency.mjs` after building to check the
 device editor, D1 value, relay timing, and narrow layouts with disposable data.
 
+Operator, song-preview, and confidence clocks interpolate only between frames
+already reported by the relay, with at most 100 ms of display buffering. Cue
+capture and automation continue to use the authoritative frame. Disconnects,
+stops, seeks, and format changes snap to that frame; an expired feed cannot keep
+the display advancing. Public clock snapshots include frame count and format,
+but no cue payloads or control fields. `signal.lastFeedAt` identifies the sample;
+later lyrics/status broadcasts must not refresh it.
+Run `node apps/web/scripts/smoke-timecode-presentation.mjs` to verify operator and
+confidence rendering against a real 10 Hz local relay. Its foreground-emulation
+mode isolates rendering from OS focus changes; `smoke-timecode-clock.mjs` checks
+the source in a genuinely hidden tab separately.
+
 ### Kiosk and Companion token storage
 
 The token digest release keeps the existing `token` columns and stores a

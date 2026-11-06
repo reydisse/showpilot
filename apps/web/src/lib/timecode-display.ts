@@ -10,7 +10,11 @@ export function projectTimecodeDisplayState(
   return {
     ...(state.showId ? { showId: state.showId, serviceDate: state.serviceDate } : {}),
     display: state.display,
+    format: state.format,
+    totalFrames: state.totalFrames,
     running: state.running,
+    // lastFeedAt identifies the observed frame. A later lyrics/status broadcast
+    // must not freshen it just because this message has a newer serverTime.
     ...(state.signal ? { signal: state.signal } : {}),
     serverTime,
     lyrics: state.lyrics,

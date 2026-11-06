@@ -13,6 +13,7 @@ describe("public timecode display projection", () => {
       triggersEnabled: true,
       serverTime: 1,
       totalFrames: 111_222,
+      signal: { status: "live", lastFeedAt: 1 },
       lyrics: null,
     };
 
@@ -22,11 +23,14 @@ describe("public timecode display projection", () => {
       display: "01:02:03:04",
       running: true,
       serverTime: 500,
+      format: state.format,
+      totalFrames: state.totalFrames,
+      signal: { status: "live", lastFeedAt: 1 },
       lyrics: null,
       automation: { status: "ok", failedCueCount: 0 },
     });
     expect(result).not.toHaveProperty("source");
-    expect(result).not.toHaveProperty("format");
-    expect(result).not.toHaveProperty("totalFrames");
+    expect(result).not.toHaveProperty("triggersEnabled");
+    expect(result).not.toHaveProperty("events");
   });
 });
