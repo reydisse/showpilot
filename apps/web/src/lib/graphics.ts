@@ -9,6 +9,9 @@ import { getD1 } from "@/lib/d1";
 import { setGraphicPresenceForOrg } from "@/lib/active-graphics";
 import { publishGraphicCompositionForOrg } from "@/lib/graphic-composition";
 
+import { graphicSceneItemsSchema, readGraphicSceneRecord, type GraphicSceneEntry } from "./graphic-scenes";
+export type { SavedGraphicScene } from "./graphic-scenes";
+
 export { setGraphicPresenceForOrg } from "@/lib/active-graphics";
 export type { GraphicCompositionItem } from "@/lib/graphic-composition";
 
@@ -23,16 +26,6 @@ const compositionItemSchema = z.object({
   subtitle: graphicTextSchema,
   style: styleSchema,
 });
-const savedSceneSchema = z.object({
-  id: idSchema,
-  name: labelSchema,
-  items: z.array(compositionItemSchema).min(1).max(50),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-});
-
-export type SavedGraphicScene = z.infer<typeof savedSceneSchema>;
-
 async function assertGraphicPermission(orgId: string, permission: Permission) {
   await assertOrgPermission(orgId, permission);
 
@@ -70,8 +63,8 @@ const libraryOperationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("create"), content: graphicContentSchema }),
   z.object({ kind: z.literal("update"), id: idSchema, content: graphicContentSchema }),
   z.object({ kind: z.literal("delete"), id: idSchema }),
-  z.object({ kind: z.literal("create-scene"), id: z.string().uuid(), name: labelSchema, items: z.array(compositionItemSchema).min(1).max(50) }),
-  z.object({ kind: z.literal("update-scene"), id: idSchema, name: labelSchema, items: z.array(compositionItemSchema).min(1).max(50) }),
+  z.object({ kind: z.literal("create-scene"), id: z.string().uuid(), name: labelSchema, items: graphicSceneItemsSchema }),
+  z.object({ kind: z.literal("update-scene"), id: idSchema, name: labelSchema, items: graphicSceneItemsSchema }),
   z.object({ kind: z.literal("delete-scene"), id: idSchema }),
 ]);
 export type GraphicLibraryOperation = z.infer<typeof libraryOperationSchema>;
@@ -90,20 +83,17 @@ const SCENE_KEY_PREFIX = "graphic-scene:";
 
 export const getGraphicScenes = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
-  .handler(async ({ data }): Promise<SavedGraphicScene[]> => withPrimaryDatabase(async () => {
+  .handler(async ({ data }): Promise<GraphicSceneEntry[]> => withPrimaryDatabase(async () => {
     await assertGraphicPermission(data.orgId, "lowerthird:view");
     const rows = await getPrisma().appSetting.findMany({
       where: { orgId: data.orgId, key: { startsWith: SCENE_KEY_PREFIX } },
       orderBy: { key: "asc" },
     });
-    return rows.flatMap((row) => {
-      try {
-        const scene = savedSceneSchema.safeParse(JSON.parse(row.value));
-        return scene.success ? [scene.data] : [];
-      } catch {
-        return [];
-      }
-    }).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    return rows.map(readGraphicSceneRecord).sort((left, right) => {
+      if (left.status === "unreadable") return right.status === "unreadable" ? 0 : -1;
+      if (right.status === "unreadable") return 1;
+      return right.scene.updatedAt.localeCompare(left.scene.updatedAt);
+    });
   }));
 
 // ─── Active Graphics (via AppSetting) ───────────────────────

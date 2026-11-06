@@ -1,4 +1,6 @@
 import { useCallback, useRef, useState } from "react";
+import { type Controls } from "./graphic-controls";
+export { DEFAULT_CONTROLS, PRIMARY_SIZE_RANGE, SECONDARY_SIZE_RANGE, type Controls } from "./graphic-controls";
 
 // ─────────────────────────────────────────────────────────────
 // Lower Third Templates — single source of truth
@@ -14,29 +16,6 @@ import { useCallback, useRef, useState } from "react";
 
 export const STAGE_W = 1920;
 export const STAGE_H = 1080;
-
-export interface Controls {
-  accentColor: string;
-  bgOpacity: number; // 30–100
-  primarySize: number; // px on the 1920 stage
-  secondarySize: number; // px on the 1920 stage
-  posX: number; // 0–100 percentage from left
-  posY: number; // 0–100 percentage from top
-  animSpeed: "fast" | "normal" | "slow";
-}
-
-export const DEFAULT_CONTROLS: Controls = {
-  accentColor: "#f59e0b",
-  bgOpacity: 85,
-  primarySize: 46,
-  secondarySize: 26,
-  posX: 5,
-  posY: 82,
-  animSpeed: "normal",
-};
-
-export const PRIMARY_SIZE_RANGE = { min: 24, max: 96 } as const;
-export const SECONDARY_SIZE_RANGE = { min: 14, max: 56 } as const;
 
 export const ACCENT_PRESETS = [
   { label: "Amber", value: "#f59e0b" },

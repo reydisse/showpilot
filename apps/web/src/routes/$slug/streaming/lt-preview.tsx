@@ -1,5 +1,6 @@
 import { useGraphicsOutput } from "@/hooks/useGraphicsOutput";
-import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { restoreGraphicScene, type PreviewSceneLayer } from "@/lib/graphic-scenes";
+import { useOperatorRead, type OperatorReadFailure } from "@/hooks/useOperatorRead";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useGraphicLibraryMutation } from "@/hooks/useGraphicLibraryMutation";
@@ -71,13 +72,8 @@ export const Route = createFileRoute("/$slug/streaming/lt-preview")({
 // A "scene" is a set of lower thirds composed together and pushed at once,
 // so you can place two panelists side by side before going live.
 
-interface SceneItem {
-  key: string;
-  templateId: string;
-  primary: string;
-  secondary: string;
-  controls: Controls;
-}
+type SceneItem = PreviewSceneLayer;
+const TEMPLATE_IDS = new Set(TEMPLATES.map(template => template.id));
 
 // Corners to drop successive LTs into so they don't stack on top of each other.
 const CORNERS = [
@@ -87,7 +83,7 @@ const CORNERS = [
   { x: 95, y: 8 },
 ];
 
-const uid = () => Math.random().toString(36).slice(2, 9);
+const uid = () => crypto.randomUUID();
 
 function posLabel(c: Controls) {
   const m = POSITION_PRESETS.find(
@@ -330,7 +326,14 @@ function TemplatePreviewPage() {
   const savingScene = sceneMutation.pending;
   const pushing = output.pending?.kind === "publish";
   const [savedMsg, setSavedMsg] = useState("");
-  const [operationError, setOperationError] = useState("");
+  const [sceneLoadFailure, setSceneLoadFailure] = useState<OperatorReadFailure | null>(null);
+  const [sceneDataFailure, setSceneDataFailure] = useState<OperatorReadFailure | null>(null);
+  useEffect(() => {
+    const unreadable = savedScenes.some(entry => entry.status === "unreadable");
+    setSceneDataFailure(previous => unreadable ? previous ?? {
+      message: "Some saved scenes could not be read. They remain listed below. Preview and Program were kept.", occurredAt: Date.now(),
+    } : null);
+  }, [savedScenes]);
   useEffect(() => {
     if (!savedMsg) return;
     const timer = setTimeout(() => setSavedMsg(""), 4000);
@@ -425,7 +428,7 @@ function TemplatePreviewPage() {
     if (draftHasText && visible) {
       const text = getCurrentText();
       items.push({
-        key: "__draft__",
+        key: uid(),
         templateId: template.id,
         primary: text.primary.trim(),
         secondary: text.secondary?.trim() ?? "",
@@ -445,26 +448,19 @@ function TemplatePreviewPage() {
 
   const loadScene = async (savedScene: SavedGraphicScene) => {
     if (!await confirm({ title: "Replace Preview?", description: "This replaces the current preview with the saved scene. Unsaved preview changes are discarded; Program stays unchanged.", confirmLabel: "Load scene", variant: "warning" })) return;
-    const restored = savedScene.items.flatMap((item) => {
-      try {
-        const style = JSON.parse(item.style) as {
-          templateId?: unknown;
-          controls?: unknown;
-        };
-        if (typeof style.templateId !== "string" || !style.controls || typeof style.controls !== "object") return [];
-        return [{ key: item.key, templateId: style.templateId, primary: item.title, secondary: item.subtitle, controls: style.controls as Controls }];
-      } catch {
-        return [];
-      }
-    });
-    setScene(restored);
+    const restored = restoreGraphicScene(savedScene, TEMPLATE_IDS);
+    if (!restored.ok) {
+      setSceneLoadFailure({ message: restored.message, occurredAt: Date.now() });
+      return;
+    }
+    setSceneLoadFailure(null);
+    setScene(restored.layers);
     setSceneId(savedScene.id);
     setSceneName(savedScene.name);
     setSampleKey("custom");
     setCustomPrimary("");
     setCustomSecondary("");
     setVisible(false);
-    setOperationError(restored.length === savedScene.items.length ? "" : "Some saved layers could not be restored.");
   };
 
   const sceneConfirmed = (operation: GraphicLibraryOperation | undefined) => {
@@ -485,7 +481,7 @@ function TemplatePreviewPage() {
     const operation: GraphicLibraryOperation = { kind: sceneId ? "update-scene" : "create-scene", id: sceneId ?? crypto.randomUUID(), name: sceneName.trim(), items };
     if (await sceneMutation.run(operation)) sceneConfirmed(operation);
   };
-  const handleDeleteScene = async (savedScene: SavedGraphicScene) => {
+  const handleDeleteScene = async (savedScene: Pick<SavedGraphicScene, "id" | "name">) => {
     if (!canConfigureGraphics || sceneMutation.locked) return;
     if (!await confirm({ title: "Delete saved scene?", description: `Delete “${savedScene.name}” from the library? Program stays unchanged.`, confirmLabel: "Delete scene" })) return;
     setSavedMsg("");
@@ -564,7 +560,8 @@ function TemplatePreviewPage() {
           </aside>
           {/* Main content */}
           <div className="min-w-0 flex-1 space-y-3">
-            <ReadFailureNotice error={sceneRead.error} refreshing={sceneRead.refreshing} retry={sceneRead.retry} label="Refresh saved scenes" />
+            <ReadFailureNotice error={sceneRead.error ?? sceneDataFailure} refreshing={sceneRead.refreshing} retry={sceneRead.retry} label="Refresh saved scenes" />
+            <ReadFailureNotice error={sceneLoadFailure} refreshing={sceneRead.refreshing} retry={sceneRead.retry} label="Refresh scene library" />
             <LibraryMutationNotice label="Scene library confirmation" retryLabel="Retry scene change" mutation={sceneMutation} onConfirmed={() => sceneConfirmed(sceneMutation.attempt?.operation)} />
             <ReadFailureNotice error={output.readFailure} refreshing={output.refreshing} retry={output.retry} label="Refresh Program" />
             {output.failure && <div role="alert" aria-label="Program confirmation" className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm text-amber-200">{output.failure.message} <time dateTime={new Date(output.failure.occurredAt).toISOString()}>{new Date(output.failure.occurredAt).toLocaleTimeString()}</time></div>}
@@ -573,14 +570,15 @@ function TemplatePreviewPage() {
               <section className="rounded-xl border border-board-border bg-board-card/55 p-2.5" aria-label="Saved scenes">
                 <div className="mb-2 flex items-center gap-2"><Layers className="h-3.5 w-3.5 text-fire-400" /><span className="text-[10px] font-semibold uppercase tracking-widest text-board-muted">Saved scenes</span></div>
                 <div className="flex gap-2 overflow-x-auto pb-1">
-                  {savedScenes.map((savedScene) => (
-                    <div key={savedScene.id} className="min-h-11 flex shrink-0 items-center rounded-lg border border-board-border bg-board-bg">
-                      <button type="button" disabled={sceneMutation.locked} aria-label={`Load scene ${savedScene.name}`} onClick={() => void loadScene(savedScene)} className="min-h-11 px-3 py-2 text-left"><span className="block max-w-48 truncate text-xs font-semibold text-board-text">{savedScene.name}</span><span className="block text-[9px] text-board-muted">{savedScene.items.length} {savedScene.items.length === 1 ? "layer" : "layers"}</span></button>
-                      {canConfigureGraphics && (
-                        <button type="button" disabled={sceneMutation.locked} aria-label={`Delete scene ${savedScene.name}`} onClick={() => void handleDeleteScene(savedScene)} className="min-w-11 min-h-11 flex items-center justify-center text-board-muted hover:text-red-400"><X className="h-3.5 w-3.5" /></button>
+                  {savedScenes.map((entry) => {
+                    const savedScene = entry.status === "ready" ? entry.scene : entry;
+                    return <div key={entry.recordId} className="min-h-11 flex shrink-0 items-center rounded-lg border border-board-border bg-board-bg">
+                      <button type="button" disabled={sceneMutation.locked || entry.status === "unreadable"} aria-label={`Load scene ${savedScene.name}`} onClick={() => { if (entry.status === "ready") void loadScene(entry.scene); }} className="min-h-11 px-3 py-2 text-left disabled:opacity-60"><span className="block max-w-48 truncate text-xs font-semibold text-board-text">{savedScene.name}</span><span className="block text-xs text-board-muted">{entry.status === "ready" ? `${entry.scene.items.length} ${entry.scene.items.length === 1 ? "layer" : "layers"}` : "Unreadable scene — refresh or delete"}</span></button>
+                      {canConfigureGraphics && savedScene.id !== null && (
+                        <button type="button" disabled={sceneMutation.locked} aria-label={`Delete scene ${savedScene.name}`} onClick={() => { if (savedScene.id !== null) void handleDeleteScene({ id: savedScene.id, name: savedScene.name }); }} className="min-h-11 min-w-11 text-board-muted hover:text-red-400"><X className="mx-auto h-4 w-4" /></button>
                       )}
-                    </div>
-                  ))}
+                    </div>;
+                  })}
                 </div>
               </section>
             )}
@@ -733,9 +731,7 @@ function TemplatePreviewPage() {
               </div>
             </div>
             <LibraryMutationNotice mutation={libraryMutation} onConfirmed={() => setSavedMsg("Graphic saved to library")} />
-            {operationError && (
-              <div role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">{operationError}</div>
-            )}
+
 
             {/* Accent Color */}
             {scene.length > 0 && (
