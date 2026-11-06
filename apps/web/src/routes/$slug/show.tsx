@@ -1,8 +1,11 @@
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import {
   useState,
+  useCallback,
   useEffect,
   useRef,
   type ReactNode,
@@ -352,38 +355,13 @@ function ShowPage() {
     userRole,
   } = Route.useLoaderData();
   const timeZone = useDeviceTimeZone();
-  const [members, setMembers] = useState(initialMembers);
-
-  useEffect(() => {
-    let cancelled = false;
-    let refreshing = false;
-
-    const refreshMembers = async () => {
-      if (document.visibilityState !== "visible" || refreshing) return;
-      refreshing = true;
-      try {
-        const latest = await getCrewMembers({ data: { orgId } });
-        if (!cancelled) {
-          setMembers(latest);
-        }
-      } catch {
-        // Keep last known state.
-      } finally {
-        refreshing = false;
-      }
-    };
-
-    const interval = setInterval(refreshMembers, 3000);
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void refreshMembers();
-    };
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
-  }, [orgId]);
+  const crewRead = useOperatorRead({
+    key: orgId, initialValue: initialMembers, intervalMs: 3000,
+    read: useCallback(signal => getCrewMembers({ data: { orgId }, signal }), [orgId]),
+    errorMessage: "Crew status could not refresh. Showing the last confirmed presence.",
+  });
+  const members = crewRead.value;
+  const crewNotice = <ReadFailureNotice {...crewRead} label="Retry crew status" />;
 
   const activeMembers = members.filter((m) => m.isOnline);
 
@@ -392,6 +370,8 @@ function ShowPage() {
     return (
       <>
         <ShowPageWithOntime
+          key={orgId}
+          crewNotice={crewNotice}
           ontimeState={ontimeState}
           activeMembers={activeMembers}
           orgId={orgId}
@@ -412,6 +392,8 @@ function ShowPage() {
   return (
     <>
       <ShowPageWithNative
+        key={orgId}
+        crewNotice={crewNotice}
         initialRundown={nativeRundown}
         activeMembers={activeMembers}
         orgId={orgId}
@@ -443,6 +425,7 @@ function ShowPageLayout({
   chatPanel,
   rundownPanel,
   crewPanel,
+  notices,
 }: {
   activeTab: ShowTab;
   onTabChange: (tab: ShowTab) => void;
@@ -452,6 +435,7 @@ function ShowPageLayout({
   chatPanel: ReactNode;
   rundownPanel: ReactNode;
   crewPanel?: ReactNode;
+  notices?: ReactNode;
 }) {
   const STORAGE_LEFT_WIDTH = "show-page-left-width";
   const STORAGE_TOP_HEIGHT = "show-page-top-height";
@@ -682,8 +666,9 @@ function ShowPageLayout({
   }, []);
 
   return (
-    <div className="h-full min-h-0 overflow-hidden">
-      <div className="show-page-root" data-show-tab={activeTab}>
+    <div className="flex h-full min-h-0 flex-col overflow-x-hidden overflow-y-auto">
+      <div className="max-h-[40dvh] shrink-0 overflow-y-auto">{notices}</div>
+      <div className="show-page-root flex-1" style={{ height: "auto", minHeight: "min(24rem, 60dvh)" }} data-show-tab={activeTab}>
         <div className="show-page-shell">
           <header className="show-page-header">
             <h1 className="text-sm font-medium text-board-text/70">
@@ -802,6 +787,7 @@ function ShowPageLayout({
 
 function ShowPageWithNative({
   initialRundown,
+  crewNotice,
   activeMembers,
   orgId,
   serviceDate,
@@ -817,6 +803,7 @@ function ShowPageWithNative({
   chatMembers,
 }: {
   initialRundown: RundownState | null;
+  crewNotice: ReactNode;
   activeMembers: Awaited<ReturnType<typeof getCrewMembers>>;
   orgId: string;
   serviceDate: string;
@@ -833,63 +820,17 @@ function ShowPageWithNative({
 }) {
   const statusNow = useLiveNow(initialNow);
   const [activeTab, setActiveTab] = useState<ShowTab>("show");
-  const [syncTarget, setSyncTarget] = useState({
-    serviceDate,
-    showId,
-    rundown: initialRundown,
+  const targetRead = useOperatorRead({
+    key: `${orgId}:${today}`, initialValue: { serviceDate, showId, rundown: initialRundown }, intervalMs: 2000,
+    read: useCallback(async (signal: AbortSignal, previous: { serviceDate: string; showId?: string; rundown: RundownState | null }) => {
+      const opening = await getRundownOpeningDate({ data: { orgId, today }, signal });
+      if (opening.serviceDate === previous.serviceDate && opening.showId === previous.showId) return previous;
+      const rundown = await getShowRundownState({ data: { orgId, serviceDate: opening.serviceDate, showId: opening.showId }, signal });
+      return { serviceDate: opening.serviceDate, showId: opening.showId, rundown };
+    }, [orgId, today]),
+    errorMessage: "The active show could not be confirmed. Showing the last confirmed rundown.",
   });
-
-  // Rundown selection is operational state. Follow it while this page is
-  // open so Show Flow cannot remain subscribed to a previous show room.
-  useEffect(() => {
-    let cancelled = false;
-    let refreshing = false;
-
-    const refreshTarget = async () => {
-      if (document.visibilityState !== "visible" || refreshing) return;
-      refreshing = true;
-      try {
-        const opening = await getRundownOpeningDate({ data: { orgId, today } });
-        if (cancelled) return;
-        if (
-          opening.serviceDate === syncTarget.serviceDate &&
-          opening.showId === syncTarget.showId
-        )
-          return;
-
-        const rundown = await getShowRundownState({
-          data: {
-            orgId,
-            serviceDate: opening.serviceDate,
-            showId: opening.showId,
-          },
-        });
-        if (!cancelled) {
-          setSyncTarget({
-            serviceDate: opening.serviceDate,
-            showId: opening.showId,
-            rundown,
-          });
-        }
-      } catch {
-        // Keep displaying the last confirmed show during a transient failure.
-      } finally {
-        refreshing = false;
-      }
-    };
-
-    void refreshTarget();
-    const interval = window.setInterval(refreshTarget, 2_000);
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void refreshTarget();
-    };
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
-  }, [orgId, syncTarget.serviceDate, syncTarget.showId, today]);
+  const syncTarget = targetRead.value;
 
   // Real-time sync via RundownRelay Durable Object (replaces DB polling)
   const {
@@ -899,6 +840,10 @@ function ShowPageWithNative({
     stateInitialized: syncedInitialized,
     stateServiceDate: syncedServiceDate,
     stateShowId: syncedShowId,
+    connected: syncConnected,
+    lastError: syncError,
+    lastErrorAt: syncErrorAt,
+    retryConnection,
   } = useRundownSync(orgId, syncTarget.serviceDate, syncTarget.showId, "show");
 
   const relayMatchesTarget =
@@ -933,12 +878,14 @@ function ShowPageWithNative({
       });
 
   const [displayTime, setDisplayTime] = useState(0);
+  const liveRundown = syncConnected && relayMatchesTarget && !targetRead.error;
   const isPlaying = timer.playback === "play";
   const isPaused = timer.playback === "pause";
 
   // Timer text is second-granular. A 10 Hz sample stays responsive while
   // avoiding a full show-page React render on every animation frame.
   useEffect(() => {
+    if (!liveRundown) return;
     const tick = () => {
       if (timer.mode === "clock") {
         setDisplayTime(Date.now());
@@ -951,7 +898,7 @@ function ShowPageWithNative({
     tick();
     const timerId = window.setInterval(tick, 100);
     return () => window.clearInterval(timerId);
-  }, [timer.playback, timer.startedAt, timer.elapsed, timer.mode]);
+  }, [liveRundown, timer.playback, timer.startedAt, timer.elapsed, timer.mode]);
 
   const currentItem = items.find((i) => i.id === timer.currentItemId);
   const nextItem = nextPlayableItem(items, timer.currentItemId);
@@ -997,6 +944,7 @@ function ShowPageWithNative({
           <Square className="w-3.5 h-3.5 text-board-muted" />
         )}
         <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
+          {!liveRundown && "Last confirmed: "}
           {timer.playback === "stop"
             ? "Stopped"
             : isPlaying
@@ -1011,6 +959,7 @@ function ShowPageWithNative({
       </div>
 
       <p
+        aria-label="Show timer"
         className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : isPlaying ? "text-board-text" : "text-board-muted"}`}
       >
         {timerDisplay}
@@ -1156,16 +1105,20 @@ function ShowPageWithNative({
     <>
       {showFlash && <LiveFlash onDone={() => setShowFlash(false)} />}
       <ShowPageLayout
+        notices={<>{crewNotice}<ReadFailureNotice {...targetRead} label="Retry show selection" />
+          <ReadFailureNotice error={syncError && syncErrorAt !== null ? { message: syncError, occurredAt: syncErrorAt } : null} refreshing={false} retry={retryConnection} label="Reconnect show" />
+          {!liveRundown && <p role="status" aria-live="polite" className="px-4 py-2 text-sm text-amber-200">{syncHydrated ? "Reconnecting, showing last known rundown state." : "Connecting to the live rundown…"}</p>}
+        </>}
         activeTab={activeTab}
         onTabChange={setActiveTab}
         statusClock={formatTime(new Date(statusNow), clockFormat, timeZone)}
         statusNode={
           <div className="flex items-center gap-1.5">
             <span
-              className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-green-500 animate-pulse" : "bg-green-500"}`}
+              className={`w-1.5 h-1.5 rounded-full ${!liveRundown ? "bg-amber-400" : isPlaying ? "bg-green-500 animate-pulse" : "bg-green-500"}`}
             />
             <span className="text-xs text-board-muted">
-              {isPlaying ? "Live" : "Native"}
+              {!liveRundown ? syncHydrated ? "Reconnecting" : "Connecting" : isPlaying ? "Live" : "Ready"}
             </span>
           </div>
         }
@@ -1186,6 +1139,7 @@ function ShowPageWithNative({
 
 function ShowPageWithOntime({
   ontimeState: initialOntime,
+  crewNotice,
   activeMembers,
   orgId,
   clockFormat,
@@ -1197,6 +1151,7 @@ function ShowPageWithOntime({
   chatMembers,
 }: {
   ontimeState: OntimeRuntimeState;
+  crewNotice: ReactNode;
   activeMembers: Awaited<ReturnType<typeof getCrewMembers>>;
   orgId: string;
   clockFormat: ClockFormat;
@@ -1208,36 +1163,21 @@ function ShowPageWithOntime({
   chatMembers: ChatMemberSummary[];
 }) {
   const statusNow = useLiveNow(initialNow);
-  const [ontime, setOntime] = useState<OntimeRuntimeState>(initialOntime);
+  const timerRead = useOperatorRead({
+    key: orgId, initialValue: initialOntime, intervalMs: 1500,
+    read: useCallback(async (signal: AbortSignal) => {
+      const result = await getOntimeState({ data: { orgId }, signal });
+      if (!result.connected) throw new Error("Timer feed unavailable");
+      return result;
+    }, [orgId]),
+    errorMessage: "Timer feed could not refresh. Showing the last confirmed timer.",
+  });
+  const ontime = timerRead.value;
   const [activeTab, setActiveTab] = useState<ShowTab>("show");
   const currentId = ontime.eventNow?.id;
   const isPlaying = ontime.timer.playback === "play";
   const isPaused = ontime.timer.playback === "pause";
   const isOvertime = ontime.timer.current !== null && ontime.timer.current < 0;
-
-  // Poll OnTime
-  useEffect(() => {
-    let polling = false;
-    const poll = async () => {
-      if (document.visibilityState !== "visible" || polling) return;
-      polling = true;
-      try {
-        setOntime(await getOntimeState({ data: { orgId } }));
-      } catch {
-      } finally {
-        polling = false;
-      }
-    };
-    const interval = setInterval(poll, 1500);
-    const pollWhenVisible = () => {
-      if (document.visibilityState === "visible") void poll();
-    };
-    document.addEventListener("visibilitychange", pollWhenVisible);
-    return () => {
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", pollWhenVisible);
-    };
-  }, [orgId]);
 
   // Live flash
   const [showFlash, setShowFlash] = useState(false);
@@ -1261,6 +1201,7 @@ function ShowPageWithOntime({
           <Square className="w-3.5 h-3.5 text-board-muted" />
         )}
         <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
+          {timerRead.error && "Last confirmed: "}
           {ontime.timer.playback === "stop"
             ? "Stopped"
             : ontime.timer.playback === "armed"
@@ -1279,6 +1220,7 @@ function ShowPageWithOntime({
       </div>
 
       <p
+        aria-label="Show timer"
         className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : "text-board-text"}`}
       >
         {formatOntimeDuration(ontime.timer.current)}
@@ -1383,18 +1325,19 @@ function ShowPageWithOntime({
     <>
       {showFlash && <LiveFlash onDone={() => setShowFlash(false)} />}
       <ShowPageLayout
+        notices={<>{crewNotice}<ReadFailureNotice {...timerRead} label="Retry timer feed" /></>}
         activeTab={activeTab}
         onTabChange={setActiveTab}
         statusClock={formatTime(new Date(statusNow), clockFormat, timeZone)}
         statusNode={
           <div className="flex items-center gap-1.5">
-            {ontime.connected ? (
+            {!timerRead.error ? (
               <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
             ) : (
               <WifiOff className="w-3.5 h-3.5 text-red-400" />
             )}
             <span className="text-xs text-board-muted">
-              {ontime.connected ? (isPlaying ? "Live" : "OnTime") : "Offline"}
+              {timerRead.error ? "Reconnecting" : isPlaying ? "Live" : "Ready"}
             </span>
           </div>
         }

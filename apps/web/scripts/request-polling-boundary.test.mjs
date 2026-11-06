@@ -25,7 +25,8 @@ test("screen-bound web polling pauses while hidden and cannot overlap", () => {
     ["apps/web/src/routes/$slug/schedule.tsx", ["document.visibilityState", "refreshing"]],
     ["apps/web/src/routes/$slug/streaming/health.tsx", ["document.visibilityState", "polling"]],
     ["apps/web/src/routes/$slug/streaming/platforms.tsx", ["document.visibilityState", "polling"]],
-    ["apps/web/src/routes/$slug/show.tsx", ["document.visibilityState", "refreshing"]],
+    ["apps/web/src/routes/$slug/show.tsx", ["useOperatorRead", "signal", "key: `${orgId}:${today}`"]],
+    ["apps/web/src/hooks/useOperatorRead.ts", ["document.visibilityState", "request !== current", "controller.abort()"]],
     ["apps/web/src/routes/$slug/board.tsx", ["document.visibilityState", "refreshing"]],
     ["apps/web/src/routes/timer/$orgSlug.tsx", ["document.visibilityState", "wsConnectedRef.current"]],
   ];

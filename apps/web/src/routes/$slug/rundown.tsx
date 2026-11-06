@@ -1,3 +1,5 @@
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ResetRundownDialog } from "@/components/rundown/ResetRundownDialog";
@@ -828,10 +830,15 @@ function RundownPage() {
   const [customAdjust, setCustomAdjust] = useState("1:00");
   const [progressReset, setProgressReset] = useState(false);
   const [ppEnabled, setPpEnabled] = useState(false);
-  const [ppHost, setPpHost] = useState("");
-  const [ppPort, setPpPort] = useState(50001);
-  const [ppApiPort, setPpApiPort] = useState(0);
-  const [ppCuesEnabled, setPpCuesEnabled] = useState(false);
+  const ppConfiguration = useOperatorRead<Record<string, string>>({
+    key: orgId, initialValue: {}, enabled: canControlRundown,
+    read: useCallback(signal => getProPresenterConfiguration({ data: { orgId }, signal }), [orgId]),
+    errorMessage: "ProPresenter configuration could not be loaded. Retry before using its controls.",
+  });
+  const ppHost = ppConfiguration.value["propresenter-host"] || "";
+  const ppPort = parseInt(ppConfiguration.value["propresenter-port"] || "50001", 10);
+  const ppApiPort = parseInt(ppConfiguration.value["propresenter-api-port"] || "0", 10);
+  const ppCuesEnabled = ppConfiguration.value["propresenter-send-cues"] === "true";
   const [ppOutputPending, setPpOutputPending] = useState(false);
   const [ppCmdError, setPpCmdError] = useState("");
   const [ppCmdPending, setPpCmdPending] = useState<
@@ -851,23 +858,6 @@ function RundownPage() {
     !syncedInitialized &&
     syncedServiceDate === serviceDate &&
     (!showId || syncedShowId === showId);
-
-  // Load PP settings from org config
-  useEffect(() => {
-    if (!canControlRundown) return;
-    getProPresenterConfiguration({ data: { orgId } })
-      .then((settings) => {
-        const host = settings["propresenter-host"] || "";
-        const port = parseInt(settings["propresenter-port"] || "50001", 10);
-        const apiPort = parseInt(settings["propresenter-api-port"] || "0", 10);
-        const cues = settings["propresenter-send-cues"] === "true";
-        setPpHost(host);
-        setPpPort(port);
-        setPpApiPort(apiPort);
-        setPpCuesEnabled(cues);
-      })
-      .catch(() => {});
-  }, [canControlRundown, orgId]);
 
   // The authenticated venue feed updates the local preview.
   const handlePPSlideChange = useCallback(
@@ -1981,6 +1971,7 @@ function RundownPage() {
         </div>
       )}
 
+      <ReadFailureNotice {...ppConfiguration} label="Retry ProPresenter configuration" />
       {canControlRundown && <RundownShortcutBanner />}
       {(!syncConnected || unconfirmedCount > 0) && (
         <div role="status" aria-live="polite" className="shrink-0 flex flex-wrap items-center gap-3 border-b border-amber-500/25 bg-amber-500/10 px-4 py-2 text-sm text-amber-200">
