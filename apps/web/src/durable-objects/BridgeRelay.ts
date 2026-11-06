@@ -1,3 +1,4 @@
+import { getBridgeCredentialAuthority, recordBridgeWrite, type BridgeAuditAction } from "@/lib/bridge-credentials.server";
 import { parseRelayPPSlide } from "../lib/rundown-relay-payload";
 import { DurableObject } from "cloudflare:workers";
 import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
@@ -48,7 +49,7 @@ interface SocketAttachment {
   role: "bridge" | "client";
   orgId: string;
   bridgeInfo?: BridgeRelayStatusInfo;
-  bridgeKey?: string;
+  credentialId?: string;
   authClaim?: LiveSessionAuthorityClaim;
 }
 
@@ -130,7 +131,7 @@ function parseSocketAttachment(value: unknown): SocketAttachment | null {
     role: value.role,
     orgId: value.orgId,
     bridgeInfo: bridgeInfo ?? undefined,
-    bridgeKey: typeof value.bridgeKey === "string" ? value.bridgeKey : undefined,
+    credentialId: typeof value.credentialId === "string" ? value.credentialId : undefined,
     authClaim: isRecord(value.authClaim)
       && typeof value.authClaim.userId === "string"
       && typeof value.authClaim.sessionId === "string"
@@ -144,13 +145,21 @@ function parseSocketAttachment(value: unknown): SocketAttachment | null {
   };
 }
 
+function bridgeAuditAction(type: string): BridgeAuditAction | null {
+  switch (type) {
+    case "bridge-status": case "command-response": case "device-event":
+    case "device-status": case "pong": case "timecode-feed": return type;
+    default: return null;
+  }
+}
+
 export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   private bridgeWs: WebSocket | null = null;
   private previewWrite: Promise<void> = Promise.resolve();
   private clientSessions: Set<WebSocket> = new Set();
   private bridgeOnline = false;
   private bridgeInfo: BridgeRelayStatusInfo = { connectedTargets: [], deviceEvents: {} };
-  private bridgeKey: string | null = null;
+  private credentialId: string | null = null;
   private orgId = "";
   private pendingCommands = new Map<string, PendingDispatch>();
   private pendingConnections = new Map<string, PendingDispatch>();
@@ -168,11 +177,17 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       }
 
       if (attachment.role === "bridge") {
+        if (!attachment.credentialId) {
+          ws.serializeAttachment?.({ role: "bridge", orgId: attachment.orgId });
+          ws.close(4403, "Reconnect with installation credentials");
+          continue;
+        }
         this.bridgeWs = ws;
-        this.bridgeKey = attachment.bridgeKey ?? null;
+        this.credentialId = attachment.credentialId ?? null;
         this.bridgeOnline = true;
         if (attachment.bridgeInfo) this.bridgeInfo = attachment.bridgeInfo;
       } else {
+        if (!attachment.authClaim) { ws.close(4403, "Device access required"); continue; }
         this.clientSessions.add(ws);
       }
     }
@@ -193,7 +208,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       this.bridgeWs = null;
       this.clientSessions.clear();
       this.bridgeOnline = false;
-      this.bridgeKey = null;
+      this.credentialId = null;
       this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
       return Response.json({ ok: true });
     }
@@ -210,18 +225,30 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         return new Response("Method not allowed", { status: 405 });
       }
 
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      let upgradingSocket: WebSocket | null = null;
       try {
         const role = url.searchParams.get("role") ?? "client";
+        const credentialId = url.searchParams.get("authCredentialId");
+        const authClaim = this.readAuthorityClaim(url);
+        if (role === "bridge") {
+          if (!credentialId || !(await getBridgeCredentialAuthority(this.env.DB, this.orgId, credentialId))) return new Response("Unauthorized", { status: 401 });
+        } else if (role !== "client" || !authClaim || !(await hasLivePermissionAuthority(this.env.DB, authClaim, "devices:access"))) {
+          return new Response("Unauthorized", { status: 401 });
+        }
         const pair = new WebSocketPair();
         const client = pair[0];
         const server = pair[1];
+        upgradingSocket = server;
         const attachment: SocketAttachment = {
           role: role === "bridge" ? "bridge" : "client",
           orgId: this.orgId,
           ...(role === "bridge"
-            ? { bridgeKey: url.searchParams.get("authBridgeKey") ?? url.searchParams.get("key") ?? undefined }
+            ? { credentialId: credentialId ?? undefined }
             : {
-                authClaim: this.readAuthorityClaim(url) ?? undefined,
+                authClaim: authClaim ?? undefined,
               }),
         };
 
@@ -240,8 +267,10 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
             } catch {}
           }
           this.bridgeWs = server;
-          this.bridgeKey = attachment.bridgeKey ?? null;
+          this.credentialId = attachment.credentialId ?? null;
           this.bridgeOnline = true;
+          if (!(await this.authorizeBridgeWrite(server, "connected", "from-bridge"))) return new Response("Unauthorized", { status: 401 });
+          await this.refreshCredentialAuthority();
           this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
           // Notify all clients bridge is online
           await this.broadcastToClients(
@@ -266,19 +295,21 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
 
         return new Response(null, { status: 101, webSocket: client });
       } catch (err) {
+        if (upgradingSocket) { upgradingSocket.close(1011, "Bridge authorization unavailable"); this.disconnectSocket(upgradingSocket); }
         console.error("[BridgeRelay] websocket setup failed", err);
         return new Response("Bridge websocket failed", { status: 500 });
       }
     }
 
     if (url.pathname === "/status") {
-      return Response.json(this.getBridgeStatus());
+      return Response.json(await this.getBridgeStatus());
     }
 
     return new Response("Not found", { status: 404 });
   }
 
-  getBridgeStatus(): BridgeRelayStatus {
+  async getBridgeStatus(): Promise<BridgeRelayStatus> {
+    await this.refreshCredentialAuthority();
     return {
       bridgeOnline: this.bridgeOnline,
       clientCount: this.clientSessions.size,
@@ -290,6 +321,8 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   async dispatchBridgeMessage(message: BridgeDispatchMessage): Promise<BridgeDispatchResult> {
     const bridgeSocket = this.bridgeWs;
     if (!bridgeSocket || !this.bridgeOnline) return { success: false, error: "Venue Bridge is offline" };
+
+    if (!(await this.authorizeBridgeWrite(bridgeSocket, message.type, "to-bridge"))) return { success: false, error: "Venue Bridge credential is unavailable" };
 
     if (message.type === "disconnect-device") {
       try {
@@ -330,35 +363,40 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       const msg: BridgeMessage = { ...parsed, type: parsed.type };
 
       if (ws === this.bridgeWs) {
-        if (this.bridgeKey && !(await this.bridgeKeyIsCurrent())) {
-          ws.close(4403, "Venue Bridge key changed");
-          this.webSocketClose(ws);
-          return;
-        }
+        const action = bridgeAuditAction(msg.type);
+        if (!action || !(await this.authorizeBridgeWrite(ws, action, "from-bridge"))) return;
         // Message from bridge → forward to clients
         await this.handleBridgeMessage(msg);
       } else {
         const attachment = parseSocketAttachment(ws.deserializeAttachment?.());
         if (
-          attachment?.authClaim
-          && !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "devices:access"))
+          !attachment?.authClaim
+          || !(await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "devices:access"))
         ) {
           ws.close(4403, "Device access changed");
           this.clientSessions.delete(ws);
           return;
         }
         // Message from browser client → forward to bridge
-        this.handleClientMessage(msg, ws);
+        await this.handleClientMessage(msg, ws, attachment.authClaim.userId);
       }
     } catch {
       // Ignore
     }
   }
 
-  webSocketClose(ws: WebSocket) {
+  webSocketClose(ws: WebSocket, code: number, reason: string) {
+    // Our compatibility date predates automatic close replies. Reciprocate
+    // peer-initiated closure before dropping the transport's local state.
+    const replyCode = code === 1005 || code === 1006 || code === 1015 ? 1000 : code;
+    try { ws.close(replyCode, reason); }
+    finally { this.disconnectSocket(ws); }
+  }
+
+  private disconnectSocket(ws: WebSocket) {
     if (ws === this.bridgeWs) {
       this.bridgeWs = null;
-      this.bridgeKey = null;
+      this.credentialId = null;
       this.bridgeOnline = false;
       this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
       this.failPendingDispatches("Venue Bridge disconnected");
@@ -379,7 +417,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   }
 
   webSocketError(ws: WebSocket) {
-    this.webSocketClose(ws);
+    this.disconnectSocket(ws);
   }
 
   // ─── Message Routing ────────────────────────────────────
@@ -492,7 +530,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     }
   }
 
-  private handleClientMessage(msg: BridgeMessage, clientWs: WebSocket): void {
+  private async handleClientMessage(msg: BridgeMessage, clientWs: WebSocket, actorUserId: string): Promise<void> {
     if (!this.bridgeWs || !this.bridgeOnline) {
       // No bridge connected — can't forward
       if (msg.type === "command" && msg.id) {
@@ -503,6 +541,14 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           error: "Bridge is offline",
         }));
       }
+      return;
+    }
+
+    if (msg.type !== "command" && msg.type !== "connect-device" && msg.type !== "ping") return;
+    if (!(await this.authorizeBridgeWrite(this.bridgeWs, msg.type, "to-bridge", actorUserId))) {
+      if (msg.type === "command" && typeof msg.id === "string") clientWs.send(JSON.stringify({
+        type: "command-response", id: msg.id, success: false, error: "Venue Bridge credential expired or was revoked",
+      }));
       return;
     }
 
@@ -533,13 +579,6 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         } catch {
           // Bridge disconnected
         }
-        break;
-
-      case "disconnect-device":
-        // Closing a control panel detaches that browser only. Physical venue
-        // connections remain owned by the Bridge so another operator is not
-        // disconnected mid-show. Deliberate venue-wide disconnects use the
-        // internal dispatch API.
         break;
 
       case "ping":
@@ -606,27 +645,48 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       role: "bridge",
       orgId: this.orgId,
       bridgeInfo: this.bridgeInfo,
-      ...(this.bridgeKey ? { bridgeKey: this.bridgeKey } : {}),
+      ...(this.credentialId ? { credentialId: this.credentialId } : {}),
     } satisfies SocketAttachment);
   }
 
-  private async bridgeKeyIsCurrent(): Promise<boolean> {
-    if (!this.bridgeKey || !this.orgId) return false;
-    const setting = await this.env.DB.prepare(
-      "SELECT value FROM app_setting WHERE orgId = ? AND key = 'api-key' LIMIT 1",
-    ).bind(this.orgId).first<{ value: string | null }>();
-    const expected = setting?.value ?? "";
-    if (!expected) return false;
-    const encoder = new TextEncoder();
-    const [leftBuffer, rightBuffer] = await Promise.all([
-      crypto.subtle.digest("SHA-256", encoder.encode(this.bridgeKey)),
-      crypto.subtle.digest("SHA-256", encoder.encode(expected)),
-    ]);
-    const left = new Uint8Array(leftBuffer);
-    const right = new Uint8Array(rightBuffer);
-    let mismatch = left.length ^ right.length;
-    for (let index = 0; index < left.length; index += 1) mismatch |= left[index] ^ right[index];
-    return mismatch === 0;
+  /** Called by settings after rotation/revocation and by the expiry alarm. */
+  async refreshCredentialAuthority(): Promise<void> {
+    const socket = this.bridgeWs;
+    const credentialId = this.credentialId;
+    if (!socket || !credentialId) return;
+    const authority = await getBridgeCredentialAuthority(this.env.DB, this.orgId, credentialId);
+    if (socket !== this.bridgeWs || credentialId !== this.credentialId) return;
+    if (!authority) {
+      socket.close(4403, "Venue Bridge credential expired or revoked");
+      this.disconnectSocket(socket);
+      await this.ctx.storage.deleteAlarm();
+    } else if (authority.expiresAt !== null) {
+      await this.ctx.storage.setAlarm(authority.expiresAt);
+    } else {
+      await this.ctx.storage.deleteAlarm();
+    }
+  }
+
+  async alarm(): Promise<void> { await this.refreshCredentialAuthority(); }
+
+  private async authorizeBridgeWrite(socket: WebSocket, action: BridgeAuditAction, direction: "from-bridge" | "to-bridge", actorUserId?: string): Promise<boolean> {
+    const credentialId = this.credentialId;
+    if (socket !== this.bridgeWs || !credentialId) return false;
+    let allowed = false;
+    try {
+      const authority = await getBridgeCredentialAuthority(this.env.DB, this.orgId, credentialId);
+      allowed = Boolean(authority && await recordBridgeWrite(this.env.DB, authority, { action, direction, actorUserId }));
+    } catch {
+      if (socket === this.bridgeWs) { socket.close(1011, "Bridge authorization unavailable"); this.disconnectSocket(socket); }
+      return false;
+    }
+    if (socket !== this.bridgeWs || credentialId !== this.credentialId) return false;
+    if (!allowed) {
+      socket.close(4403, "Venue Bridge credential expired or revoked");
+      this.disconnectSocket(socket);
+      return false;
+    }
+    return true;
   }
 
   private async pushPreviewSlide(data: string): Promise<void> {

@@ -6,6 +6,7 @@ import {
 } from "@/lib/desktop-runtime";
 import { getOrgRouteContext } from "@/lib/session";
 import { getDesktopBridgeSettings } from "@/lib/settings";
+import { createBridgeInstallation, revokeBridgeInstallationKey } from "@/lib/bridge-installations";
 
 function positivePort(value: string | undefined): number | undefined {
   if (!value) return undefined;
@@ -26,20 +27,36 @@ export async function configureDesktopLocalDevices(
   const status = await getDesktopBridgeStatus();
   if (!status) throw new Error("ShowPilot Desktop is not available");
   if (!forceEnable && !isDesktopLocalDeviceMode(status)) return status;
+  if (!status.secureCredentials) {
+    throw new Error("Update ShowPilot Desktop to enable secure local-device credentials.");
+  }
+
+  const sameInstallation = status.configured
+    && status.configuredSite?.replace(/\/+$/, "") === window.location.origin
+    && status.configuredOrg === slug;
+  // Opening another workspace must not replace a running venue Bridge.
+  if (!sameInstallation && !forceEnable) return status;
+  if (status.connection === "unauthorized" && !forceEnable) {
+    throw new Error("This computer's Bridge key is no longer authorized. Choose Use this computer to reconnect with a new installation key.");
+  }
 
   const context = await getOrgRouteContext({ data: slug });
   if (!context) throw new Error("Sign in before enabling local devices");
   const settings = await getDesktopBridgeSettings({ data: { orgId: context.org.id } });
   if (!shouldContinue()) return status;
-  const key = settings["api-key"]?.trim();
-  if (!key) {
-    throw new Error("Ask an owner or admin to create the Bridge API key in Settings first");
+  const issued = !sameInstallation || status.connection === "unauthorized"
+    ? await createBridgeInstallation({ data: { orgId: context.org.id, label: "ShowPilot Desktop" } })
+    : null;
+  if (!shouldContinue()) {
+    if (issued) await revokeBridgeInstallationKey({ data: { orgId: context.org.id, installationId: issued.installationId } });
+    return status;
   }
 
   return startDesktopBridge({
     site: window.location.origin,
     org: slug,
-    key,
+    // Blank asks the native engine to reuse its saved key for this exact site/org.
+    key: issued?.key ?? "",
     propresenterHost: settings["propresenter-host"] || undefined,
     propresenterPort: positivePort(settings["propresenter-port"]),
     propresenterApiPort: positivePort(settings["propresenter-api-port"]),

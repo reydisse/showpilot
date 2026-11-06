@@ -20,3 +20,4 @@ apps/desktop/src-tauri/binaries/
 apps/bridge-desktop/src-tauri/target/
 apps/bridge-desktop/src-tauri/binaries/showpilot-bridge*
 apps/bridge-desktop/src-tauri/gen/
+packages/native-credentials/target/

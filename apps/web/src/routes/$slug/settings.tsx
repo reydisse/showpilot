@@ -1,3 +1,4 @@
+import { BridgeInstallationSettings } from "@/components/settings/BridgeInstallationSettings";
 import { ConfidenceSection } from "@/components/settings/ConfidenceSection";
 import { CONFIDENCE_LAYOUT_KEY } from "@/lib/confidence-layout";
 import { WorkspaceSettings } from "@/components/workspace/WorkspaceSettings";
@@ -23,8 +24,6 @@ import {
   Clock,
   Shield,
   UserPlus,
-  Eye,
-  EyeOff,
   ChevronRight,
   ArrowLeft,
   Tv,
@@ -51,7 +50,6 @@ import {
   updateOrgSetting,
   updateRundownPinProtection,
   getOrgMembers,
-  regenerateApiKey,
   getRecentWebhookEvents,
   setCloudEnabled,
   type WebhookEventLogItem,
@@ -2042,9 +2040,6 @@ function NotificationPolicyRow({
 // ─── API & WEBHOOKS ─────────────────────────────────────────
 
 function ApiSection({ orgId, getSetting, saveSetting }: SectionProps) {
-  const [apiKey, setApiKey] = useState(getSetting("api-key", ""));
-  const [showKey, setShowKey] = useState(false);
-  const [regenerating, setRegenerating] = useState(false);
   const [webhookEvents, setWebhookEvents] = useState<WebhookEventLogItem[]>([]);
   const [isLoadingEvents, setIsLoadingEvents] = useState(true);
   const [eventsError, setEventsError] = useState<string | null>(null);
@@ -2077,16 +2072,6 @@ function ApiSection({ orgId, getSetting, saveSetting }: SectionProps) {
     };
   }, [orgId]);
 
-  const handleRegenerate = async () => {
-    setRegenerating(true);
-    try {
-      const newKey = await regenerateApiKey({ data: { orgId } });
-      setApiKey(newKey);
-      setShowKey(true);
-    } finally {
-      setRegenerating(false);
-    }
-  };
 
   return (
     <div>
@@ -2095,46 +2080,7 @@ function ApiSection({ orgId, getSetting, saveSetting }: SectionProps) {
         description="Manage API keys and webhook endpoints for external integrations"
       />
       <div className="space-y-5">
-        {/* API Key */}
-        <div className="rounded-xl border border-board-border bg-board-card p-4">
-          <p className="text-xs font-medium text-board-muted mb-3">API Key</p>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-3">
-            <code className="flex-1 text-xs text-board-muted bg-board-bg px-3 py-2 rounded-lg font-mono break-all sm:truncate overflow-x-auto">
-              {apiKey
-                ? showKey
-                  ? apiKey
-                  : apiKey.slice(0, 6) + "..." + apiKey.slice(-4)
-                : "No API key generated"}
-            </code>
-            {apiKey && (
-              <button
-                type="button"
-                onClick={() => setShowKey(!showKey)}
-                aria-label={showKey ? "Hide API key" : "Show API key"}
-                className="p-2 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
-              >
-                {showKey ? (
-                  <EyeOff className="w-4 h-4" />
-                ) : (
-                  <Eye className="w-4 h-4" />
-                )}
-              </button>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={handleRegenerate}
-            disabled={regenerating}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors disabled:opacity-50"
-          >
-            {regenerating ? (
-              <RefreshCw className="w-3 h-3 animate-spin" />
-            ) : (
-              <RefreshCw className="w-3 h-3" />
-            )}
-            {apiKey ? "Regenerate" : "Generate"} API Key
-          </button>
-        </div>
+        <BridgeInstallationSettings orgId={orgId} />
 
         {/* Webhook URL */}
         <FieldGroup

@@ -18,7 +18,11 @@ const desktopMode = args.includes("--desktop");
 // The native desktop app passes configuration through the supervised process
 // environment. Never let a stale standalone config file in the working
 // directory override those values.
-const config = desktopMode ? null : loadConfigFile();
+let config: BridgeConfig | null = null;
+if (!desktopMode) {
+  try { config = loadConfigFile(); }
+  catch { console.error("[bridge] Secure credential storage is unavailable. Unlock your system keychain before starting the Bridge."); }
+}
 const site = getArg("site") ?? process.env.SHOWPILOT_SITE_URL ?? config?.site;
 const org = getArg("org") ?? process.env.SHOWPILOT_ORG ?? config?.org;
 const key = getArg("key") ?? process.env.SHOWPILOT_BRIDGE_KEY ?? config?.key;

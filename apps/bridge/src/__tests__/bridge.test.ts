@@ -22,9 +22,9 @@ describe("bridge WebSocket authentication", () => {
     expect(connection.url).not.toContain("sp_test_secret");
   });
 
-  it("removes stale query-string keys", () => {
+  it.each(["key", "apiKey", "api-key", "api_key", "authBridgeKey"])("removes stale %s query-string credentials", (parameter) => {
     const connection = bridgeWebSocketOptions(
-      "wss://showpilot.tech/api/bridge/org/ws?key=old&role=client",
+      `wss://showpilot.tech/api/bridge/org/ws?${parameter}=old&role=client`,
     );
 
     expect(connection.url).toBe(

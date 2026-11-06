@@ -1,16 +1,26 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const vault = vi.hoisted(() => ({ entries: new Map<string, string>(), fail: false }));
+vi.mock("@napi-rs/keyring", () => ({ Entry: class {
+  constructor(_service: string, private reference: string) {}
+  getPassword() { if (vault.fail) throw new Error("fixture failure"); return vault.entries.get(this.reference) ?? null; }
+  setPassword(secret: string) { if (vault.fail) throw new Error("fixture failure"); vault.entries.set(this.reference, secret); }
+  deleteCredential() { vault.entries.delete(this.reference); }
+} }));
 import {
   isTrustedSetupOrigin,
   loadConfigFile,
   saveConfigFile,
   validateBridgeConfig,
+  publicBridgeConfig,
+  startSetupServer,
   type BridgeConfig,
 } from "../setup-server.js";
 
 const temporaryDirectories: string[] = [];
+beforeEach(() => { vault.entries.clear(); vault.fail = false; });
 
 function validConfig(): BridgeConfig {
   return {
@@ -59,6 +69,13 @@ describe("Bridge setup boundary", () => {
     saveConfigFile(validConfig(), directory);
 
     expect(loadConfigFile(directory)).toEqual(validConfig());
+    const stored = fs.readFileSync(path.join(directory, "showpilot-bridge.config.json"), "utf8");
+    expect(stored).not.toContain("sp_test_secret");
+    expect(stored).not.toContain('"key"');
+    expect(vault.entries.size).toBe(1);
+    saveConfigFile({ ...validConfig(), key: "sp_replacement" }, directory);
+    expect(vault.entries.size).toBe(1);
+    expect(loadConfigFile(directory)?.key).toBe("sp_replacement");
     if (process.platform !== "win32") {
       const mode = fs.statSync(path.join(directory, "showpilot-bridge.config.json")).mode & 0o777;
       expect(mode).toBe(0o600);
@@ -83,5 +100,57 @@ describe("Bridge setup boundary", () => {
 
     expect(loadConfigFile(directory)).toEqual(validConfig());
     expect(fs.statSync(configPath).mode & 0o777).toBe(0o600);
+    expect(fs.readFileSync(configPath, "utf8")).not.toContain("sp_test_secret");
+  });
+
+  it("preserves a legacy config when secure storage fails instead of silently saving plaintext", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "showpilot-bridge-config-"));
+    temporaryDirectories.push(directory);
+    const configPath = path.join(directory, "showpilot-bridge.config.json");
+    const original = JSON.stringify(validConfig()); fs.writeFileSync(configPath, original);
+    vault.fail = true;
+    expect(() => loadConfigFile(directory)).toThrow("Secure credential storage");
+    expect(() => saveConfigFile(validConfig(), directory)).toThrow("Secure credential storage");
+    expect(fs.readFileSync(configPath, "utf8")).toBe(original);
+    expect(fs.readdirSync(directory)).toEqual(["showpilot-bridge.config.json"]);
+  });
+
+  it("migrates both supported legacy files even when the primary file is already valid", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "showpilot-bridge-config-"));
+    temporaryDirectories.push(directory);
+    for (const name of ["showpilot-bridge.config.json", "bridge.config.json"]) fs.writeFileSync(path.join(directory, name), JSON.stringify(validConfig()));
+    expect(loadConfigFile(directory)).toEqual(validConfig());
+    for (const name of fs.readdirSync(directory)) expect(fs.readFileSync(path.join(directory, name), "utf8")).not.toContain("sp_test_secret");
+    expect(vault.entries.size).toBe(2);
+    loadConfigFile(directory);
+    expect(vault.entries.size).toBe(2);
+  });
+
+  it("removes old credential-bearing URLs from stored config and setup responses", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "showpilot-bridge-config-"));
+    temporaryDirectories.push(directory);
+    const config = { ...validConfig(), url: "wss://app.example/api/bridge/org/ws?key=sp_test_secret&authBridgeKey=sp_test_secret" };
+    saveConfigFile(config, directory);
+    expect(fs.readFileSync(path.join(directory, "showpilot-bridge.config.json"), "utf8")).not.toContain("sp_test_secret");
+    expect(publicBridgeConfig(config)?.url).toBe("wss://app.example/api/bridge/org/ws");
+    expect(loadConfigFile(directory)?.url).toBe("wss://app.example/api/bridge/org/ws");
+  });
+
+  it("never returns the saved credential through the local setup HTML or status API", async () => {
+    const config = { ...validConfig(), propresenterPassword: "stage-fixture-secret" };
+    expect(publicBridgeConfig(config)).not.toHaveProperty("key");
+    const server = startSetupServer(0, () => ({ config, bridgeRunning: true, bridgeStatus: "running" }), () => {});
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing test server address");
+    try {
+      for (const suffix of ["/", "/status"]) {
+        const response = await fetch(`http://127.0.0.1:${address.port}${suffix}`);
+        expect(response.status).toBe(200);
+        const content = await response.text();
+        expect(content).not.toContain(config.key);
+        expect(content).not.toContain(config.propresenterPassword);
+      }
+    } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
   });
 });

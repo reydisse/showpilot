@@ -8,6 +8,12 @@ vi.mock("@tanstack/react-start", () => ({ createServerFn: () => {
 } }));
 vi.mock("../db", () => ({ getPrisma: mocks.prisma }));
 import { updateOrgSetting, bulkUpdateOrgSettings } from "../settings";
+it("cannot recreate the old plaintext Bridge key through generic settings", async () => {
+ const entry = { key: "api-key", value: "sp_plaintext" };
+ await expect(updateOrgSetting({ data: { orgId: "workspace-org", ...entry } })).rejects.toThrow("Use Bridge installation credentials");
+ await expect(bulkUpdateOrgSettings({ data: { orgId: "workspace-org", settings: [entry] } })).rejects.toThrow("Use Bridge installation credentials");
+ expect(mocks.prisma).not.toHaveBeenCalled();
+});
 it.each(WORKSPACE_SETTING_KEYS)("cannot bypass the workspace command contract through generic setting %s", async key => {
  const entry = { key, value: "unvalidated" };
  await expect(updateOrgSetting({ data: { orgId: "workspace-org", ...entry } })).rejects.toThrow("Use Workspace settings");

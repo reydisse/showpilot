@@ -1,4 +1,5 @@
 import WebSocket, { type ClientOptions } from "ws";
+import { credentialFreeUrl } from "./transport-url.js";
 import { Atem, type AtemState } from "atem-connection";
 import { TcpConnection } from "./protocols/tcp.js";
 import { UdpConnection } from "./protocols/udp.js";
@@ -116,7 +117,7 @@ export function bridgeWebSocketOptions(
   url: string,
   key?: string,
 ): { url: string; options?: ClientOptions } {
-  const wsUrlObject = new URL(url);
+  const wsUrlObject = credentialFreeUrl(url);
   wsUrlObject.searchParams.set("role", "bridge");
   wsUrlObject.searchParams.delete("key");
   return {
@@ -221,7 +222,7 @@ export class Bridge {
 
   private connect(): void {
     const connection = bridgeWebSocketOptions(this.url, this.key);
-    console.log(`[bridge] Connecting to ${this.url}...`);
+    console.log(`[bridge] Connecting to ${connection.url}...`);
 
     this.ws = new WebSocket(connection.url, connection.options);
 

@@ -36,7 +36,7 @@ const settingValueSchema = z.string().max(200_000);
 const genericSettingKeySchema = settingKeySchema.refine(
   (key) => key !== RUNDOWN_PIN_SETTING_KEY,
   "Use the dedicated rundown PIN control.",
-).refine(key => !WORKSPACE_SETTING_KEYS.includes(key), "Use Workspace settings to change names and features.");
+).refine(key => key !== "api-key", "Use Bridge installation credentials.").refine(key => !WORKSPACE_SETTING_KEYS.includes(key), "Use Workspace settings to change names and features.");
 const rundownPinSchema = z.string().regex(/^\d{4,8}$/u, "PIN must contain 4 to 8 digits.");
 const rundownPinUpdateSchema = z.discriminatedUnion("action", [
   z.object({ orgId: idSchema, action: z.literal("set"), pin: rundownPinSchema }),
@@ -143,7 +143,7 @@ export const getManageableOrgSettings = createServerFn({ method: "GET" })
     });
     return Object.fromEntries(
       settings
-        .filter((setting) => setting.key !== RUNDOWN_PIN_SETTING_KEY)
+        .filter((setting) => setting.key !== RUNDOWN_PIN_SETTING_KEY && setting.key !== "api-key")
         .filter((setting) => hasPermission(role, permissionForSettingKey(setting.key)))
         .map((setting) => [setting.key, setting.value]),
     );
@@ -180,7 +180,6 @@ const PROPRESENTER_RUNTIME_SETTING_KEYS = [
 ] as const;
 
 const DESKTOP_BRIDGE_SETTING_KEYS = [
-  "api-key",
   ...PROPRESENTER_RUNTIME_SETTING_KEYS,
 ] as const;
 
@@ -330,27 +329,6 @@ export const getOrgMembers = createServerFn({ method: "GET" })
       where: { organizationId: data.orgId },
       include: { user: true },
     });
-  });
-
-// ─── API Key ────────────────────────────────────────────────
-
-export const regenerateApiKey = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "settings:api_keys");
-    const prisma = getPrisma();
-    const chars =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    const random = new Uint8Array(40);
-    crypto.getRandomValues(random);
-    const key =
-      "sp_" + Array.from(random, (value) => chars[value % chars.length]).join("");
-    await prisma.appSetting.upsert({
-      where: { orgId_key: { orgId: data.orgId, key: "api-key" } },
-      update: { value: key },
-      create: { orgId: data.orgId, key: "api-key", value: key },
-    });
-    return key;
   });
 
 // ─── Active Adapters ────────────────────────────────────────

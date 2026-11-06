@@ -1,3 +1,4 @@
+import { openTestBridge } from "@/test/bridge-fixtures";
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
@@ -18,17 +19,7 @@ function nextMessage(socket: WebSocket): Promise<Record<string, unknown>> {
   });
 }
 
-async function openBridge(orgId: string): Promise<WebSocket> {
-  const response = await env.BRIDGE_RELAY.getByName(orgId).fetch(
-    new Request(`https://bridge.test/ws?orgId=${orgId}&role=bridge`, {
-      headers: { Upgrade: "websocket" },
-    }),
-  );
-  expect(response.status).toBe(101);
-  if (!response.webSocket) throw new Error("Bridge upgrade did not return a WebSocket");
-  response.webSocket.accept();
-  return response.webSocket;
-}
+async function openBridge(orgId: string): Promise<WebSocket> { return (await openTestBridge(orgId)).socket; }
 
 async function command(orgId: string, action: string, payload?: Record<string, unknown>) {
   return env.TIMECODE_RELAY.getByName(orgId).fetch(new Request(
