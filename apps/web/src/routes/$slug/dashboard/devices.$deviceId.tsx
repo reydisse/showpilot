@@ -19,7 +19,7 @@ function DeviceDetailPage() {
   const { device } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const context = Route.useRouteContext() as { orgId?: string };
-  const { module, status, feedbacks, definition, error, connect, disconnect } =
+  const { module, status, feedbacks, definition, error, errorAt, connect, disconnect } =
     useDeviceModule(device, context.orgId);
 
   return (
@@ -57,6 +57,7 @@ function DeviceDetailPage() {
           ) : status === "disconnected" || status === "error" ? (
             <button
               onClick={connect}
+              disabled={!module}
               className="min-h-[44px] rounded-lg bg-fire-500/10 border border-fire-500/20 px-3 py-1.5 text-xs font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
             >
               {error ? "Retry connection" : "Connect"}
@@ -65,7 +66,7 @@ function DeviceDetailPage() {
         </div>
       </div>
 
-      {error ? <p role="alert" className="mb-4 rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-300">{error}</p> : null}
+      {error ? <p role="alert" className="mb-4 rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-300">{error} {errorAt !== null && <time dateTime={new Date(errorAt).toISOString()}>{new Date(errorAt).toLocaleTimeString()}</time>}</p> : null}
 
       {/* Control Panel */}
       <DeviceControlPanel

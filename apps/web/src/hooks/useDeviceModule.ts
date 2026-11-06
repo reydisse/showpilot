@@ -23,6 +23,7 @@ interface UseDeviceModuleReturn {
   definition: ReturnType<typeof moduleRegistry.get>;
   bridgeOnline: boolean;
   error: string | null;
+  errorAt: number | null;
   connect: () => Promise<void>;
   disconnect: () => void;
 }
@@ -33,11 +34,18 @@ export function useDeviceModule(
 ): UseDeviceModuleReturn {
   const [status, setStatus] = useState<DeviceConnectionStatus>("disconnected");
   const [feedbacks, setFeedbacks] = useState<Map<string, unknown>>(new Map());
-  const [bridgeOnline, setBridgeOnline] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [bridgeState, setBridgeState] = useState<{ orgId: string; online: boolean } | null>(null);
+  const bridgeOnline = bridgeState?.orgId === orgId && bridgeState?.online === true;
+  const scope = `${orgId ?? ""}:${device?.id ?? ""}`;
+  const currentScope = useRef(scope);
+  currentScope.current = scope;
+  const [failure, setFailure] = useState<{ scope: string; message: string; occurredAt: number } | null>(null);
+  const setError = useCallback((message: string | null) => setFailure(message ? { scope: currentScope.current, message, occurredAt: Date.now() } : null), []);
+  const visibleFailure = failure?.scope === scope ? failure : null;
+  const error = visibleFailure?.message ?? null;
   const moduleRef = useRef<DeviceModule | null>(null);
   const [module, setModule] = useState<DeviceModule | null>(null);
-  const moduleDeviceIdRef = useRef<string | null>(null);
+  const moduleScopeRef = useRef<string | null>(null);
   const definition = device ? moduleRegistry.get(device.adapterType) : undefined;
   const storedCredential = Boolean(device?.settings.includes(CREDENTIAL_MASK));
   const requiresBridge = storedCredential || definition?.connectivity === "bridge-required";
@@ -46,7 +54,7 @@ export function useDeviceModule(
     setError(null);
     setFeedbacks(new Map());
     setStatus("disconnected");
-  }, [device?.id]);
+  }, [device?.id, orgId]);
 
   // Track bridge status for bridge-required devices
   useEffect(() => {
@@ -54,10 +62,12 @@ export function useDeviceModule(
     if (!requiresBridge) return;
 
     const proxy = getSharedBridgeProxy(orgId);
-    setBridgeOnline(proxy.isBridgeOnline());
+    setBridgeState({ orgId, online: proxy.isBridgeOnline() });
+    if (proxy.getLastError()) setError(proxy.getLastError());
 
     const unsub = proxy.onBridgeStatus((online, reason) => {
-      setBridgeOnline(online);
+      if (currentScope.current !== scope) return;
+      setBridgeState({ orgId, online });
       // Bridge availability and device connectivity are separate states. A
       // bridge-status heartbeat can arrive immediately after device-status.
       // Resetting the device here made a successful connection look
@@ -69,35 +79,33 @@ export function useDeviceModule(
     });
 
     return unsub;
-  }, [definition, orgId, requiresBridge]);
+  }, [definition, orgId, requiresBridge, scope]);
 
   // Create module instance and manage lifecycle
   useEffect(() => {
+    moduleRef.current = null;
+    moduleScopeRef.current = null;
+    setModule(null);
     if (!device || !definition) {
-      moduleRef.current = null;
-      setModule(null);
-      moduleDeviceIdRef.current = null;
-      setStatus("disconnected");
-      return;
-    }
-
-    // Bridge-required and no bridge → show banner
-    if (
-      requiresBridge &&
-      !bridgeOnline
-    ) {
-      setStatus("bridge-required");
-      moduleRef.current = null;
-      setModule(null);
-      moduleDeviceIdRef.current = null;
+      setStatus(device ? "error" : "disconnected");
+      if (device) setError("This device type is not supported. Edit the configuration before connecting.");
       return;
     }
 
     let settings: Record<string, unknown>;
     try {
-      settings = JSON.parse(device.settings || "{}");
+      const parsed: unknown = JSON.parse(device.settings || "{}");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid device settings");
+      settings = Object.fromEntries(Object.entries(parsed));
     } catch {
-      settings = {};
+      setStatus("error");
+      setError("Device settings could not be read. Edit the configuration and save it before connecting.");
+      return;
+    }
+
+    if (requiresBridge && !bridgeOnline) {
+      setStatus("bridge-required");
+      return;
     }
 
     if (storedCredential && (!orgId || !definition.remoteControl)) {
@@ -105,22 +113,32 @@ export function useDeviceModule(
       setError("This device needs a supported venue Bridge control configuration.");
       return;
     }
-    const mod = storedCredential && orgId && definition.remoteControl
-      ? new StoredDeviceModule(orgId, device.id, definition.remoteControl, settings)
-      : definition.createInstance({ ...settings, orgId });
+    let mod: DeviceModule;
+    try {
+      mod = storedCredential && orgId && definition.remoteControl
+        ? new StoredDeviceModule(orgId, device.id, definition.remoteControl, settings)
+        : definition.createInstance({ ...settings, orgId });
+    } catch {
+      setStatus("error");
+      setError("Device controls could not start. Check the configuration and save it again.");
+      return;
+    }
     moduleRef.current = mod;
     setModule(mod);
-    moduleDeviceIdRef.current = device.id;
+    moduleScopeRef.current = scope;
+    setError(null);
     setStatus(mod.connectionStatus());
     setFeedbacks(new Map());
 
     // Wire listeners
     const unsubStatus = mod.onStatusChange((s, message) => {
+      if (moduleRef.current !== mod || currentScope.current !== scope) return;
       setStatus(s);
       setError(s === "error" ? message ?? "Connection failed" : null);
     });
 
     const unsubFeedback = mod.onFeedbackChange((id, value) => {
+      if (moduleRef.current !== mod || currentScope.current !== scope) return;
       setFeedbacks((prev) => {
         const next = new Map(prev);
         next.set(id, value);
@@ -131,7 +149,7 @@ export function useDeviceModule(
     // Auto-connect if enabled
     if (device.enabled) {
       void mod.connect().catch((cause: unknown) => {
-        if (moduleRef.current !== mod) return;
+        if (moduleRef.current !== mod || currentScope.current !== scope) return;
         setStatus("error");
         setError(cause instanceof Error ? cause.message : "Connection failed");
       });
@@ -140,16 +158,20 @@ export function useDeviceModule(
     return () => {
       unsubStatus();
       unsubFeedback();
-      mod.disconnect();
-      moduleRef.current = null;
-      moduleDeviceIdRef.current = null;
-      setStatus("disconnected");
+      try { mod.disconnect(); }
+      catch {
+        if (currentScope.current === scope) setError("The previous device connection could not be closed. Review the venue connection before retrying.");
+      } finally {
+        if (moduleRef.current === mod) { moduleRef.current = null; moduleScopeRef.current = null; }
+      }
     };
-  }, [bridgeOnline, definition, device?.enabled, device?.id, device?.settings, orgId, requiresBridge, storedCredential]);
+  }, [bridgeOnline, definition, device?.enabled, device?.id, device?.settings, orgId, requiresBridge, storedCredential, scope]);
 
   const connect = useCallback(async () => {
+    if (currentScope.current !== scope) return;
     const mod = moduleRef.current;
     if (!mod) {
+      if (error) return;
       const bridgeRequired = requiresBridge;
       const message = bridgeRequired && !bridgeOnline
         ? "Venue Bridge is offline. Start it on the venue network before connecting this device."
@@ -163,30 +185,35 @@ export function useDeviceModule(
     try {
       await mod.connect();
     } catch (cause) {
-      if (moduleRef.current !== mod) return;
+      if (moduleRef.current !== mod || currentScope.current !== scope) return;
       setStatus("error");
       setError(cause instanceof Error ? cause.message : "Connection failed");
     }
-  }, [bridgeOnline, requiresBridge]);
+  }, [bridgeOnline, requiresBridge, error, scope]);
 
   const disconnect = useCallback(() => {
+    if (currentScope.current !== scope) return;
     const mod = moduleRef.current;
     if (mod instanceof StoredDeviceModule) {
       void mod.disconnectDevice().catch(cause => {
-        if (moduleRef.current !== mod) return;
+        if (moduleRef.current !== mod || currentScope.current !== scope) return;
         setStatus("error");
         setError(cause instanceof Error ? cause.message : "Could not disconnect device.");
       });
-    } else mod?.disconnect();
-  }, []);
+    } else {
+      try { mod?.disconnect(); }
+      catch { setStatus("error"); setError("Device disconnect could not be confirmed. Review the connection before retrying."); }
+    }
+  }, [scope]);
 
   return {
-    module: moduleDeviceIdRef.current === device?.id ? module : null,
+    module: moduleScopeRef.current === scope ? module : null,
     status,
     feedbacks,
     definition,
     bridgeOnline,
     error,
+    errorAt: visibleFailure?.occurredAt ?? null,
     connect,
     disconnect,
   };
