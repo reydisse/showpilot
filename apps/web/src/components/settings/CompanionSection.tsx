@@ -1,7 +1,8 @@
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CreatedTokenNotice } from "./CreatedTokenNotice";
 import { useState, useEffect, useCallback } from "react";
-import { APP_ORIGIN } from "@/lib/domain-routing";
 import { Plus, Trash2, KeyRound, Copy, Check, Gamepad2 } from "lucide-react";
 import {
   createCompanionToken,
@@ -89,9 +90,7 @@ export function CompanionSection(props: { orgId: string; slug: string }) {
   return <CompanionSettings key={props.orgId} {...props} />;
 }
 function CompanionSettings({ orgId, slug }: { orgId: string; slug: string }) {
-  const [tokens, setTokens] = useState<CompanionTokenRow[]>([]);
   const [label, setLabel] = useState("");
-  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [issuedToken, setIssuedToken] = useState<{ id: string; label: string; token: string } | null>(null);
   const [removal, setRemoval] = useState<CompanionTokenRow | null>(null);
@@ -99,18 +98,17 @@ function CompanionSettings({ orgId, slug }: { orgId: string; slug: string }) {
   const [copiedRecipe, setCopiedRecipe] = useState<string | null>(null);
   const [activeTokenId, setActiveTokenId] = useState<string | null>(null);
 
-  const baseUrl = typeof window !== "undefined" ? window.location.origin : APP_ORIGIN;
+  const [baseUrl, setBaseUrl] = useState<string | null>(null);
+  useEffect(() => { setBaseUrl(window.location.origin); }, []);
 
-  const reload = useCallback(async () => {
-    const rows = await listCompanionTokens({ data: { orgId } });
-    setTokens(rows);
-    setActiveTokenId((prev) => prev ?? rows[0]?.id ?? null);
-    setLoading(false);
-  }, [orgId]);
-
-  useEffect(() => {
-    void reload().catch(cause => { setLoading(false); setError(cause instanceof Error ? cause.message : "Could not load tokens."); });
-  }, [reload]);
+  const readTokens = useCallback((signal: AbortSignal) => listCompanionTokens({ data: { orgId }, signal }), [orgId]);
+  const tokenRead = useOperatorRead<CompanionTokenRow[] | null>({
+    key: orgId, initialValue: null, read: readTokens,
+    errorMessage: "Could not read Companion tokens. Any displayed list is the last confirmed result.",
+  });
+  const tokens = tokenRead.value ?? [];
+  const loading = tokenRead.value === null && !tokenRead.error;
+  const selectedTokenId = activeTokenId ?? tokens[0]?.id ?? null;
 
   const generate = async () => {
     if (!label.trim() || busy || issuedToken) return;
@@ -122,7 +120,7 @@ function CompanionSettings({ orgId, slug }: { orgId: string; slug: string }) {
       setLabel("");
       setIssuedToken(created);
       setActiveTokenId(created.id);
-      await reload();
+      tokenRead.invalidate();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create token."); }
     finally { setBusy(false); }
   };
@@ -133,7 +131,7 @@ function CompanionSettings({ orgId, slug }: { orgId: string; slug: string }) {
     try {
       await revokeCompanionToken({ data: { tokenId: removal.id } });
       if (issuedToken?.id === removal.id) setIssuedToken(null);
-      await reload();
+      tokenRead.invalidate();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not revoke token."); }
     finally { setBusy(false); setRemoval(null); }
   };
@@ -145,8 +143,8 @@ function CompanionSettings({ orgId, slug }: { orgId: string; slug: string }) {
       setTimeout(() => setCopiedRecipe(current => current === key ? null : current), 1500);
     } catch { setError("Could not copy the recipe. Select and copy its text instead."); }
   };
-  const activeToken = tokens.find(token => token.id === activeTokenId);
-  const tokenForExamples = issuedToken?.id === activeTokenId ? issuedToken.token : "<your-token>";
+  const activeToken = tokens.find(token => token.id === selectedTokenId);
+  const tokenForExamples = issuedToken?.id === selectedTokenId ? issuedToken.token : "<your-token>";
 
   return (
     <div>
@@ -167,7 +165,7 @@ function CompanionSettings({ orgId, slug }: { orgId: string; slug: string }) {
         <div className="text-[10px] font-semibold uppercase tracking-widest text-board-muted mb-1">
           Base URL
         </div>
-        <code className="text-sm text-board-text font-mono break-all">{baseUrl}</code>
+        <code className="text-sm text-board-text font-mono break-all">{baseUrl ?? "Preparing connection URL…"}</code>
         <p className="mt-2 text-[11px] text-board-muted/70">
           Every request authenticates with{" "}
           <code className="text-board-muted">Authorization: Bearer &lt;cmp_token&gt;</code>. The org
@@ -198,16 +196,17 @@ function CompanionSettings({ orgId, slug }: { orgId: string; slug: string }) {
           Shown once — copy it now and store it safely. Revoke any time.
         </p>
 
+        <ReadFailureNotice error={tokenRead.error} refreshing={tokenRead.refreshing} retry={tokenRead.retry} label="Retry Companion tokens" />
         {loading ? (
           <div className="py-6 text-center text-sm text-board-muted">Loading…</div>
-        ) : tokens.length === 0 ? (
+        ) : tokenRead.value === null ? null : tokens.length === 0 ? (
           <div className="text-center py-6 text-sm text-board-muted">
             No tokens yet — generate one above for your Stream Deck.
           </div>
         ) : (
           <div className="space-y-2 mt-3">
             {tokens.map((row) => {
-              const isActive = row.id === activeTokenId;
+              const isActive = row.id === selectedTokenId;
               return (
                 <div
                   key={row.id}
@@ -265,7 +264,7 @@ function CompanionSettings({ orgId, slug }: { orgId: string; slug: string }) {
             </div>
             <div className="space-y-2">
               {g.actions.map((a, i) => {
-                const url = `${baseUrl}${a.path}`;
+                const url = `${baseUrl ?? ""}${a.path}`;
                 const recipeKey = `${g.group}-${i}`;
                 const curl = [
                   `curl -X ${a.method} '${url}'`,
@@ -287,7 +286,8 @@ function CompanionSettings({ orgId, slug }: { orgId: string; slug: string }) {
                         {a.method}
                       </span>
                       <button
-                        onClick={() => copy(curl, recipeKey)}
+                        disabled={baseUrl === null}
+                        onClick={() => { if (baseUrl) void copy(curl, recipeKey); }}
                         title="Copy as curl"
                         className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors shrink-0"
                       >

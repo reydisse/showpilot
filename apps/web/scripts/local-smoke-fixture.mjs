@@ -173,7 +173,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
       }).join("\n");
       await wrangler("d1","execute","showpilot-db","--local","--config",configPath,"--persist-to",state,"--command",repair);
     };
-    await check({ origin, orgId, date, browser, pass, crewChatPass, stopServer, startServer, queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
+    await check({ origin, orgId, date, browser, pass, crewChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
   } catch (error) {
     // Configuration contains only disposable fixture secrets; redact them anyway.
     console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]").replaceAll(companionSecret, "[fixture secret]").replaceAll(encryptionSecret, "[fixture secret]"));
