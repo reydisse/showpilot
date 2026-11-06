@@ -33,6 +33,7 @@ function validConfig(): BridgeConfig {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const directory of temporaryDirectories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -89,6 +90,73 @@ describe("Bridge setup boundary", () => {
 
     expect(() => saveConfigFile({ ...validConfig(), key: "wrong" }, directory)).toThrow(/API key/);
     expect(fs.readdirSync(directory)).toEqual([]);
+  });
+
+  it("keeps ProPresenter passwords in the vault through restart, replacement and clearing", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "showpilot-bridge-config-"));
+    temporaryDirectories.push(directory);
+    const configPath = path.join(directory, "showpilot-bridge.config.json");
+    for (const password of ['stage-秘密\nquoted"', "replacement", "", undefined]) {
+      const config = { ...validConfig(), propresenterPassword: password };
+      saveConfigFile(config, directory);
+      const disk = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      expect(disk).not.toHaveProperty("key");
+      expect(disk).not.toHaveProperty("propresenterPassword");
+      expect(disk.credentialFormat).toBe("showpilot-bridge-v1");
+      expect(loadConfigFile(directory)).toEqual(config);
+      expect(vault.entries.size).toBe(1);
+      expect(JSON.parse(vault.entries.get(disk.credentialReference)!)).toEqual({ key: config.key, ...(password === undefined ? {} : { propresenterPassword: password }) });
+    }
+  });
+
+  it("migrates a key-only vault and plaintext password once, preserving unrelated configuration", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "showpilot-bridge-config-"));
+    temporaryDirectories.push(directory);
+    const configPath = path.join(directory, "showpilot-bridge.config.json");
+    const { key, ...publicConfig } = validConfig();
+    vault.entries.set("legacy-key", key!);
+    fs.writeFileSync(configPath, JSON.stringify({ ...publicConfig, credentialReference: "legacy-key", propresenterPassword: "stage-legacy" }));
+    expect(loadConfigFile(directory)).toEqual({ ...validConfig(), propresenterPassword: "stage-legacy" });
+    const disk = fs.readFileSync(configPath, "utf8");
+    expect(disk).not.toContain("stage-legacy");
+    expect(vault.entries.has("legacy-key")).toBe(false);
+    expect(loadConfigFile(directory)?.propresenterPassword).toBe("stage-legacy");
+    expect(fs.readFileSync(configPath, "utf8")).toBe(disk);
+    expect(vault.entries.size).toBe(1);
+  });
+
+  it("preserves the old config and both secrets when atomic file replacement fails", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "showpilot-bridge-config-"));
+    temporaryDirectories.push(directory);
+    const configPath = path.join(directory, "showpilot-bridge.config.json");
+    const { key, ...publicConfig } = validConfig();
+    vault.entries.set("legacy-key", key!);
+    const original = JSON.stringify({ ...publicConfig, credentialReference: "legacy-key", propresenterPassword: "stage-legacy" });
+    fs.writeFileSync(configPath, original);
+    const rename = vi.spyOn(fs, "renameSync").mockImplementation(() => { throw new Error("fixture rename failure"); });
+    expect(() => loadConfigFile(directory)).toThrow("fixture rename failure");
+    expect(fs.readFileSync(configPath, "utf8")).toBe(original);
+    expect([...vault.entries]).toEqual([["legacy-key", key]]);
+    expect(fs.readdirSync(directory)).toEqual(["showpilot-bridge.config.json"]);
+    rename.mockRestore();
+    expect(loadConfigFile(directory)?.propresenterPassword).toBe("stage-legacy");
+  });
+
+  it("rejects corrupt, unknown or downgraded modern vault data and plaintext overrides", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "showpilot-bridge-config-"));
+    temporaryDirectories.push(directory);
+    const configPath = path.join(directory, "showpilot-bridge.config.json");
+    saveConfigFile(validConfig(), directory);
+    const disk = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    for (const payload of ["sp_legacy", "{bad", '{"key":"invalid"}', '{"key":"sp_valid","propresenterPassword":42}', '{"key":"sp_valid","extra":"unknown"}']) {
+      vault.entries.set(disk.credentialReference, payload);
+      expect(() => loadConfigFile(directory)).toThrow("Unable to read or save Bridge configuration");
+    }
+    vault.entries.set(disk.credentialReference, '{"key":"sp_valid","propresenterPassword":"protected"}');
+    for (const override of [{ propresenterPassword: "plaintext" }, { key: "sp_injected" }, { credentialFormat: "unknown" }]) {
+      fs.writeFileSync(configPath, JSON.stringify({ ...disk, ...override }));
+      expect(() => loadConfigFile(directory)).toThrow("Unable to read or save Bridge configuration");
+    }
   });
 
   it("repairs permissions on a valid legacy config when it is loaded", () => {

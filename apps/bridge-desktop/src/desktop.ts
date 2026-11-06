@@ -8,6 +8,8 @@ export type BridgeConfig = {
   propresenterPort?: number;
   propresenterApiPort?: number;
   propresenterPassword?: string;
+  propresenterPasswordConfigured?: boolean;
+  clearPropresenterPassword?: boolean;
   midiInputName?: string;
 };
 

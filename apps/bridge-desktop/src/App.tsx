@@ -40,7 +40,10 @@ export function App() {
     setError("");
     try {
       setStatus(await startBridge(config));
-      setConfig((current) => ({ ...current, key: "" }));
+      setConfig((current) => ({ ...current, key: "", propresenterPassword: undefined, clearPropresenterPassword: false,
+        propresenterPasswordConfigured: !current.clearPropresenterPassword && Boolean(current.propresenterPassword || current.propresenterPasswordConfigured) }));
+      const saved = await getBridgeConfig();
+      if (saved) setConfig(saved);
       try {
         await enable();
       } catch {
@@ -145,7 +148,8 @@ export function App() {
         <div className="card-title"><Activity /><div><h1>ProPresenter</h1><p>Optional local connection for slides, scriptures, and control.</p></div></div>
         <label>Computer address<input value={config.propresenterHost ?? ""} onChange={(event) => update({ propresenterHost: event.target.value || undefined })} placeholder="192.168.1.50" /></label>
         <div className="two-fields"><label>Stage port<input inputMode="numeric" value={config.propresenterPort ?? ""} onChange={(event) => update({ propresenterPort: event.target.value ? Number(event.target.value) : undefined })} placeholder="50001" /></label><label>API port<input inputMode="numeric" value={config.propresenterApiPort ?? ""} onChange={(event) => update({ propresenterApiPort: event.target.value ? Number(event.target.value) : undefined })} placeholder="1025" /></label></div>
-        <label>Stage app password<input type="password" value={config.propresenterPassword ?? ""} onChange={(event) => update({ propresenterPassword: event.target.value || undefined })} /></label>
+        <label>Stage app password<input type="password" autoComplete="new-password" disabled={config.clearPropresenterPassword} value={config.propresenterPassword ?? ""} placeholder={config.propresenterPasswordConfigured ? "Leave blank to keep the saved password" : "Stage Display password"} onChange={(event) => update({ propresenterPassword: event.target.value || undefined })} /><small>{config.propresenterPasswordConfigured ? "A password is stored securely on this computer." : "Passwords are stored securely on this computer."}</small></label>
+        {config.propresenterPasswordConfigured && <label className="credential-clear"><input type="checkbox" checked={config.clearPropresenterPassword ?? false} onChange={(event) => update({ clearPropresenterPassword: event.target.checked })} />Remove the saved password when I save</label>}
       </section>
 
       {error && <div className="error">{error}</div>}

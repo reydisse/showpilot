@@ -24,6 +24,30 @@ export interface SetupState {
 }
 
 const CONFIG_FILES = ["showpilot-bridge.config.json", "bridge.config.json"];
+const CREDENTIAL_FORMAT = "showpilot-bridge-v1";
+const CONFIG_ERROR = "Unable to read or save Bridge configuration.";
+
+function savedCredentials(value: Record<string, unknown>): Pick<BridgeConfig, "key" | "propresenterPassword"> {
+  if (value.credentialFormat !== undefined) {
+    if (value.credentialFormat !== CREDENTIAL_FORMAT || typeof value.credentialReference !== "string"
+      || "key" in value || "propresenterPassword" in value) throw new Error(CONFIG_ERROR);
+    const payload = readCredential(value.credentialReference);
+    let stored: unknown;
+    try { stored = JSON.parse(payload); }
+    catch { throw new Error(CONFIG_ERROR); }
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)
+      || !("key" in stored) || typeof stored.key !== "string" || !stored.key.startsWith("sp_") || stored.key.length > 256
+      || Object.keys(stored).some(key => key !== "key" && key !== "propresenterPassword")) throw new Error(CONFIG_ERROR);
+    const password = "propresenterPassword" in stored ? stored.propresenterPassword : undefined;
+    if (password !== undefined && password !== null && typeof password !== "string") throw new Error(CONFIG_ERROR);
+    return { key: stored.key, propresenterPassword: password ?? undefined };
+  }
+  const key = typeof value.key === "string" && value.key
+    ? value.key : typeof value.credentialReference === "string" ? readCredential(value.credentialReference) : undefined;
+  const password = value.propresenterPassword;
+  if (password !== undefined && password !== null && typeof password !== "string") throw new Error(CONFIG_ERROR);
+  return { key, propresenterPassword: password ?? undefined };
+}
 
 export function validateBridgeConfig(config: BridgeConfig): string | null {
   const normalizedSite = config.site.startsWith("http://") || config.site.startsWith("https://")
@@ -75,20 +99,17 @@ export function loadConfigFile(directory = process.cwd()): BridgeConfig | null {
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
       const value: Record<string, unknown> = { ...parsed };
       if (typeof value.site === "string" && typeof value.org === "string") {
-        const legacyKey = typeof value.key === "string" ? value.key : undefined;
-        const reference = typeof value.credentialReference === "string" ? value.credentialReference : undefined;
         const config = {
           site: value.site,
           org: value.org,
-          key: legacyKey || (reference ? readCredential(reference) : undefined),
+          ...savedCredentials(value),
           url: typeof value.url === "string" ? credentialFreeUrl(value.url).toString() : undefined,
           propresenterHost: typeof value.propresenterHost === "string" ? value.propresenterHost : undefined,
           propresenterPort: typeof value.propresenterPort === "number" ? value.propresenterPort : undefined,
-          propresenterPassword: typeof value.propresenterPassword === "string" ? value.propresenterPassword : undefined,
           propresenterApiPort: typeof value.propresenterApiPort === "number" ? value.propresenterApiPort : undefined,
         };
         if (!validateBridgeConfig(config)) {
-          if (legacyKey) saveConfigAtPath(config, fullPath);
+          if (value.credentialFormat === undefined) saveConfigAtPath(config, fullPath);
           if (process.platform !== "win32") fs.chmodSync(fullPath, 0o600);
           selected ??= config;
         }
@@ -112,13 +133,13 @@ function saveConfigAtPath(config: BridgeConfig, fullPath: string): void {
     if (previous && typeof previous === "object" && "credentialReference" in previous && typeof previous.credentialReference === "string") oldReference = previous.credentialReference;
   } catch { /* A new or malformed config has no credential to retire. */ }
   const credentialReference = randomUUID();
-  writeCredential(credentialReference, config.key);
-  const { key: _key, ...publicConfig } = config;
+  writeCredential(credentialReference, JSON.stringify({ key: config.key, propresenterPassword: config.propresenterPassword }));
+  const { key: _key, propresenterPassword: _password, ...publicConfig } = config;
   if (publicConfig.url) publicConfig.url = credentialFreeUrl(publicConfig.url).toString();
   const temporaryPath = `${fullPath}.${process.pid}.${randomUUID()}.tmp`;
   let committed = false;
   try {
-    fs.writeFileSync(temporaryPath, `${JSON.stringify({ ...publicConfig, credentialReference }, null, 2)}\n`, {
+    fs.writeFileSync(temporaryPath, `${JSON.stringify({ ...publicConfig, credentialReference, credentialFormat: CREDENTIAL_FORMAT }, null, 2)}\n`, {
       encoding: "utf8",
       mode: 0o600,
     });
