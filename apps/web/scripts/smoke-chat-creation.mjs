@@ -72,7 +72,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
     await check("!document.querySelector('[role=dialog]')","Escape closes share");
     await click("Invite crew"); await text("Crew pass is ready");
     assert.equal(await evaluate("document.querySelector('[role=dialog] textarea').value"),crewLink);
-    await click("Close"); await click("Planning Room7 days"); await text("Seven-day planning history"); await click("Share with members");
+    await click("Close"); await click("Planning Room"); await text("Plan together before the show"); await click("Share with members");
     await text("Choose up to 50 members");
     await click("Second fixture operator owner");
     await geometry("Create Planning link","planning-form");

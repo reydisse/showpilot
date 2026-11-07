@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createBrowserId } from "@/lib/browser-id";
 import type { ChatAdapter, ChatAttachment, ChatGatewayStatus, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
 import { NativeChatAdapter } from "@/lib/adapters/native-chat-adapter";
@@ -49,166 +49,128 @@ function createAdapter(orgId: string, guest: ConstructorParameters<typeof Native
   return new NativeChatAdapter(orgId, guest, roomId, identity, currentUserId);
 }
 
-/**
- * useChat — React hook for the ShowPilot chat system.
- *
- * Every client connects to the ShowPilot chat relay. The relay owns any
- * configured external-platform gateway so web, Desktop, and mobile always
- * share one ordered conversation.
- */
-export function useChat({ orgId, isVisible = false, senderName: userName, senderRole: userRole, guestToken, roomId = "production", currentUserId }: UseChatOptions): UseChatReturn {
-  const [guestAccessRevoked, setGuestAccessRevoked] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [typingUsers, setTypingUsers] = useState<ChatTypingState[]>([]);
-  const [readReceipts, setReadReceipts] = useState<Record<string, number>>({});
-  const [hydrated, setHydrated] = useState(false);
-  const [openingReadThrough, setOpeningReadThrough] = useState<number | null>(null);
-  const [gatewayStatus, setGatewayStatus] = useState<ChatGatewayStatus>({ platform: null, status: "disabled" });
-  const [hasOlderMessages, setHasOlderMessages] = useState(false);
-  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
-  const [olderMessagesError, setOlderMessagesError] = useState<string | null>(null);
-  const adapterRef = useRef<ChatAdapter | null>(null);
-  const isVisibleRef = useRef(isVisible);
-  const typingTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+type ChatView = Pick<UseChatReturn,
+  "guestAccessRevoked" | "messages" | "connectionStatus" | "unreadCount" |
+  "typingUsers" | "readReceipts" | "hydrated" | "openingReadThrough" |
+  "gatewayStatus" | "hasOlderMessages" | "loadingOlderMessages" | "olderMessagesError">;
 
-  // Keep the ref in sync
+function emptyView(enabled: boolean): ChatView {
+  return {
+    guestAccessRevoked: false, messages: [], connectionStatus: enabled ? "connecting" : "disconnected",
+    unreadCount: 0, typingUsers: [], readReceipts: {}, hydrated: false, openingReadThrough: null,
+    gatewayStatus: { platform: null, status: enabled ? "connecting" : "disabled" },
+    hasOlderMessages: false, loadingOlderMessages: false, olderMessagesError: null,
+  };
+}
+
+/** Each connection owns its view, including asynchronous history and callbacks. */
+export function useChat({ orgId, isVisible = false, senderName: userName, senderRole: userRole, guestToken, roomId = "production", currentUserId }: UseChatOptions): UseChatReturn {
+  const scope = JSON.stringify([orgId, roomId, currentUserId, guestToken, userName]);
+  const owner = useMemo(() => ({ scope }), [scope]);
+  const [stored, setStored] = useState(() => ({ owner, view: emptyView(Boolean(orgId)) }));
+  // A room change must not render even one frame of the previous conversation.
+  const view = stored.owner === owner ? stored.view : emptyView(Boolean(orgId));
+  const { messages, hasOlderMessages, loadingOlderMessages } = view;
+  const adapterRef = useRef<{ owner: typeof owner; adapter: ChatAdapter } | null>(null);
+  const isVisibleRef = useRef(isVisible);
   isVisibleRef.current = isVisible;
 
-  // Reset unread when panel becomes visible
-  useEffect(() => {
-    if (isVisible) {
-      setUnreadCount(0);
-    }
-  }, [isVisible]);
+  const getAdapter = useCallback(() => adapterRef.current?.owner === owner ? adapterRef.current.adapter : null, [owner]);
+  const update = useCallback((adapter: ChatAdapter, change: (current: ChatView) => ChatView) => {
+    setStored(current => adapterRef.current?.adapter === adapter && current.owner === owner
+      ? { owner, view: change(current.view) } : current);
+  }, [owner]);
 
-  // Create adapter and manage lifecycle
   useEffect(() => {
+    setStored({ owner, view: emptyView(Boolean(orgId)) });
     if (!orgId) return;
-
-    // Clear state when the organization, room, or guest identity changes.
-    setMessages([]);
-    setGuestAccessRevoked(false);
-    setTypingUsers([]);
-    setReadReceipts({});
-    setHydrated(false);
-    setOpeningReadThrough(null);
-    setGatewayStatus({ platform: null, status: "connecting" });
-    setConnectionStatus("disconnected");
-    setHasOlderMessages(false);
-    setOlderMessagesError(null);
-
-    const adapter = createAdapter(orgId, guestToken && userName ? { token: guestToken, name: userName, onRevoked: () => setGuestAccessRevoked(true) } : undefined, roomId, chatOutboxIdentity(currentUserId, guestToken), currentUserId);
-    adapterRef.current = adapter;
-
-    // Subscribe to messages
-    const unsubMessage = adapter.onMessage((message: ChatMessage) => {
-      setMessages((prev) => {
-        // Deduplicate by id
-        const existingIndex = prev.findIndex((m) => m.id === message.id);
-        if (existingIndex >= 0) {
-          const next = [...prev];
-          next[existingIndex] = message;
-          return next;
-        }
-        return [...prev, message].sort((left, right) => left.timestamp - right.timestamp || left.id.localeCompare(right.id));
-      });
-
-      // Increment unread if panel is not visible
-      if (!isVisibleRef.current) {
-        setUnreadCount((c) => c + 1);
-      }
-    });
-    // Subscribe to status changes
-    const unsubStatus = adapter.onStatusChange?.((status: ConnectionStatus) => {
-      setConnectionStatus(status);
-    });
-
-    const handleTyping = (state: ChatTypingState) => {
+    const adapter = createAdapter(orgId, guestToken && userName ? {
+      token: guestToken, name: userName,
+      onRevoked: () => update(adapter, current => ({ ...current, guestAccessRevoked: true })),
+    } : undefined, roomId, chatOutboxIdentity(currentUserId, guestToken), currentUserId);
+    adapterRef.current = { owner, adapter };
+    const typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const unsubMessage = adapter.onMessage(message => update(adapter, current => {
+      const byId = new Map(current.messages.map(item => [item.id, item]));
+      byId.set(message.id, message);
+      return { ...current,
+        messages: [...byId.values()].sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id)),
+        unreadCount: isVisibleRef.current ? 0 : current.unreadCount + 1,
+      };
+    }));
+    const unsubStatus = adapter.onStatusChange?.(connectionStatus => update(adapter, current => ({ ...current, connectionStatus })));
+    const unsubTyping = adapter.onTyping?.(state => {
       const key = state.userId || `name:${state.name}`;
-      const currentTimer = typingTimersRef.current.get(key);
-      if (currentTimer) clearTimeout(currentTimer);
-      setTypingUsers((current) => state.typing
-        ? [...current.filter((item) => (item.userId || `name:${item.name}`) !== key), state]
-        : current.filter((item) => (item.userId || `name:${item.name}`) !== key));
+      clearTimeout(typingTimers.get(key));
+      const remove = (current: ChatTypingState[]) => current.filter(item => (item.userId || `name:${item.name}`) !== key);
+      update(adapter, current => ({ ...current, typingUsers: state.typing ? [...remove(current.typingUsers), state] : remove(current.typingUsers) }));
       if (state.typing) {
-        typingTimersRef.current.set(key, setTimeout(() => {
-          setTypingUsers((current) => current.filter((item) => (item.userId || `name:${item.name}`) !== key));
-          typingTimersRef.current.delete(key);
+        typingTimers.set(key, setTimeout(() => {
+          update(adapter, current => ({ ...current, typingUsers: remove(current.typingUsers) }));
+          typingTimers.delete(key);
         }, 3500));
-      } else {
-        typingTimersRef.current.delete(key);
-      }
-    };
-    const unsubTyping = adapter.onTyping?.(handleTyping);
-
-    const unsubReadReceipt = adapter.onReadReceipt?.(({ userId, readAt }) => {
-      setReadReceipts((current) => ({ ...current, [userId]: Math.max(current[userId] || 0, readAt) }));
+      } else typingTimers.delete(key);
     });
-    const unsubHydrated = adapter.onHydrated?.(({ readReceipts: initialReceipts }) => {
-      setOpeningReadThrough(currentUserId ? initialReceipts[currentUserId] ?? null : null);
-      setHydrated(true);
-      setHasOlderMessages(true);
-    });
-    const unsubGatewayStatus = adapter.onGatewayStatus?.(setGatewayStatus);
-    const unsubOutbox = adapter.onOutboxChange?.((pending) => {
-      setMessages((current) => [...current.filter((message) => !message.delivery), ...pending]
-        .sort((left, right) => left.timestamp - right.timestamp || left.id.localeCompare(right.id)));
-    });
-
-    // Connect
-    adapter.connect().catch(() => {
-      // Adapter handles reconnection/error internally
-    });
-
+    const unsubReadReceipt = adapter.onReadReceipt?.(({ userId, readAt }) => update(adapter, current => ({
+      ...current, readReceipts: { ...current.readReceipts, [userId]: Math.max(current.readReceipts[userId] || 0, readAt) },
+    })));
+    const unsubHydrated = adapter.onHydrated?.(({ readReceipts }) => update(adapter, current => ({
+      ...current, openingReadThrough: currentUserId ? readReceipts[currentUserId] ?? null : null,
+      hydrated: true, hasOlderMessages: true,
+    })));
+    const unsubGatewayStatus = adapter.onGatewayStatus?.(gatewayStatus => update(adapter, current => ({ ...current, gatewayStatus })));
+    const unsubOutbox = adapter.onOutboxChange?.(pending => update(adapter, current => ({
+      ...current, messages: [...current.messages.filter(message => !message.delivery), ...pending]
+        .sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id)),
+    })));
+    void adapter.connect().catch(() => { /* Adapter reports errors and manages reconnects. */ });
     return () => {
-      unsubMessage();
-      unsubStatus?.();
-      unsubTyping?.();
-      unsubReadReceipt?.();
-      unsubHydrated?.();
-      unsubGatewayStatus?.();
-      unsubOutbox?.();
-      for (const timer of typingTimersRef.current.values()) clearTimeout(timer);
-      typingTimersRef.current.clear();
-      adapter.disconnect();
       adapterRef.current = null;
+      unsubMessage(); unsubStatus?.(); unsubTyping?.(); unsubReadReceipt?.();
+      unsubHydrated?.(); unsubGatewayStatus?.(); unsubOutbox?.();
+      for (const timer of typingTimers.values()) clearTimeout(timer);
+      adapter.disconnect();
     };
-  }, [currentUserId, guestToken, orgId, roomId, userName]);
+  }, [currentUserId, guestToken, orgId, roomId, owner, update, userName]);
+
+  useEffect(() => {
+    const adapter = getAdapter();
+    if (isVisible && adapter) update(adapter, current => ({ ...current, unreadCount: 0 }));
+  }, [getAdapter, isVisible, update]);
 
   const sendMessage = useCallback(
     (text: string, type: MessageType = "text", options?: ChatMessageOptions) => {
-      if (!adapterRef.current || (!text.trim() && !options?.attachments?.length && !options?.poll)) return;
+      const adapter = getAdapter();
+      if (!adapter || (!text.trim() && !options?.attachments?.length && !options?.poll)) return;
 
       const name = userName || "Operator";
       const role = userRole || "Operator";
       const clientMessageId = createBrowserId();
       const messageOptions = { ...options, clientMessageId };
-      void adapterRef.current.sendMessage(text.trim(), type, name, role, messageOptions);
+      void adapter.sendMessage(text.trim(), type, name, role, messageOptions);
       if (!guestToken) {
         void import("@/lib/chat-collaboration").then(({ notifyChatMessage }) => notifyChatMessage({
           data: { orgId, roomId, text: text.trim() || messageOptions?.poll?.question || "", mentionedUserIds: messageOptions?.mentionedUserIds, messageId: clientMessageId },
         })).catch(() => undefined);
       }
     },
-    [guestToken, orgId, roomId, userName, userRole],
+    [getAdapter, guestToken, orgId, roomId, userName, userRole],
   );
 
   const editMessage = useCallback(async (messageId: string, text: string) => {
-    await adapterRef.current?.editMessage?.(messageId, text);
-  }, []);
+    await getAdapter()?.editMessage?.(messageId, text);
+  }, [getAdapter]);
 
   const deleteMessage = useCallback(async (messageId: string) => {
-    await adapterRef.current?.deleteMessage?.(messageId);
-  }, []);
+    await getAdapter()?.deleteMessage?.(messageId);
+  }, [getAdapter]);
 
   const votePoll = useCallback(async (messageId: string, optionId: string) => {
-    await adapterRef.current?.votePoll?.(messageId, optionId);
-  }, []);
+    await getAdapter()?.votePoll?.(messageId, optionId);
+  }, [getAdapter]);
 
   const toggleReaction = useCallback(async (messageId: string, emoji: string) => {
-    const adapter = adapterRef.current;
+    const adapter = getAdapter();
     if (!adapter?.toggleReaction) throw new Error("Reactions are available in ShowPilot chat");
     await adapter.toggleReaction(messageId, emoji);
     const target = messages.find((message) => message.id === messageId);
@@ -216,7 +178,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
       const { notifyChatReaction } = await import("@/lib/chat-collaboration");
       await notifyChatReaction({ data: { orgId, roomId, messageId, targetUserId: target.senderId, emoji } });
     }
-  }, [messages, orgId, roomId]);
+  }, [getAdapter, messages, orgId, roomId]);
 
   const uploadAttachment = useCallback(async (file: File): Promise<ChatAttachment> => {
     const formData = new FormData();
@@ -245,66 +207,36 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
   }, [guestToken]);
 
   const resetUnread = useCallback(() => {
-    setUnreadCount(0);
-  }, []);
-
-  const setTyping = useCallback((typing: boolean) => {
-    adapterRef.current?.setTyping?.(typing);
-  }, []);
-
-  const markRead = useCallback((readAt: number) => {
-    adapterRef.current?.markRead?.(readAt);
-  }, []);
-
+    const adapter = getAdapter();
+    if (adapter) update(adapter, current => ({ ...current, unreadCount: 0 }));
+  }, [getAdapter, update]);
+  const setTyping = useCallback((typing: boolean) => { getAdapter()?.setTyping?.(typing); }, [getAdapter]);
+  const markRead = useCallback((readAt: number) => { getAdapter()?.markRead?.(readAt); }, [getAdapter]);
   const loadOlderMessages = useCallback(async () => {
-    const adapter = adapterRef.current;
+    const adapter = getAdapter();
     if (!adapter?.loadOlder || loadingOlderMessages || !hasOlderMessages) return;
-    setLoadingOlderMessages(true);
-    setOlderMessagesError(null);
+    update(adapter, current => ({ ...current, loadingOlderMessages: true, olderMessagesError: null }));
     try {
       const page = await adapter.loadOlder(100);
-      setMessages((current) => {
-        const pending = current.filter((message) => message.delivery);
-        const settled = current.filter((message) => !message.delivery);
-        const byId = new Map([...page.messages, ...settled].map((message) => [message.id, message]));
-        return [...byId.values(), ...pending].sort((left, right) => left.timestamp - right.timestamp || left.id.localeCompare(right.id));
+      update(adapter, current => {
+        const pending = current.messages.filter(message => message.delivery);
+        const settled = current.messages.filter(message => !message.delivery);
+        const byId = new Map([...page.messages, ...settled].map(message => [message.id, message]));
+        return { ...current, hasOlderMessages: page.nextCursor !== null,
+          messages: [...byId.values(), ...pending].sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id)),
+        };
       });
-      setHasOlderMessages(page.nextCursor !== null);
     } catch (error) {
-      setOlderMessagesError(error instanceof Error ? error.message : "Older messages could not be loaded.");
+      update(adapter, current => ({ ...current, olderMessagesError: error instanceof Error ? error.message : "Older messages could not be loaded." }));
     } finally {
-      setLoadingOlderMessages(false);
+      update(adapter, current => ({ ...current, loadingOlderMessages: false }));
     }
-  }, [hasOlderMessages, loadingOlderMessages]);
-
-  const retryQueuedMessage = useCallback((messageId: string) => adapterRef.current?.retryOutbox?.(messageId), []);
-  const cancelQueuedMessage = useCallback((messageId: string) => adapterRef.current?.cancelOutbox?.(messageId), []);
+  }, [getAdapter, hasOlderMessages, loadingOlderMessages, update]);
+  const retryQueuedMessage = useCallback((messageId: string) => getAdapter()?.retryOutbox?.(messageId), [getAdapter]);
+  const cancelQueuedMessage = useCallback((messageId: string) => getAdapter()?.cancelOutbox?.(messageId), [getAdapter]);
 
   return {
-    guestAccessRevoked,
-    messages,
-    sendMessage,
-    uploadAttachment,
-    discardAttachment,
-    editMessage,
-    deleteMessage,
-    votePoll,
-    toggleReaction,
-    connectionStatus,
-    unreadCount,
-    resetUnread,
-    typingUsers,
-    setTyping,
-    readReceipts,
-    hydrated,
-    openingReadThrough,
-    markRead,
-    gatewayStatus,
-    hasOlderMessages,
-    loadingOlderMessages,
-    olderMessagesError,
-    loadOlderMessages,
-    retryQueuedMessage,
-    cancelQueuedMessage,
+    ...view, sendMessage, uploadAttachment, discardAttachment, editMessage, deleteMessage, votePoll,
+    toggleReaction, resetUnread, setTyping, markRead, loadOlderMessages, retryQueuedMessage, cancelQueuedMessage,
   };
 }

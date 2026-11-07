@@ -928,7 +928,7 @@ export function ChatPanel({
         <div ref={messagesContentRef}>
           {(hasOlderMessages || loadingOlderMessages || olderMessagesError) && (
             <div className="flex flex-col items-center gap-1 px-4 py-2">
-              {(hasOlderMessages || loadingOlderMessages) && <button type="button" onClick={() => void loadOlder()} disabled={loadingOlderMessages} className="rounded-full border border-board-border bg-board-card px-3 py-1 text-[10px] font-semibold text-board-muted hover:text-board-text disabled:opacity-50">{loadingOlderMessages ? "Loading older messages…" : "Load older messages"}</button>}
+              {(hasOlderMessages || loadingOlderMessages) && <button type="button" onClick={() => void loadOlder()} disabled={loadingOlderMessages} className="min-h-11 rounded-full border border-board-border bg-board-card px-3 py-1 text-xs font-semibold text-board-muted hover:text-board-text disabled:opacity-50">{loadingOlderMessages ? "Loading older messages…" : olderMessagesError ? "Retry older messages" : "Load older messages"}</button>}
               {olderMessagesError && <p role="alert" className="text-[10px] text-red-300">{olderMessagesError}</p>}
             </div>
           )}

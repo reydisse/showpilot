@@ -58,7 +58,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
     await evaluate(`document.querySelector('aside a[title="Chat"]').click(); true`);
     await poll(() => evaluate(`!!document.querySelector('select[aria-label="Switch chat room"]')`), 'Chat loaded');
     await evaluate(`const select = document.querySelector('select[aria-label="Switch chat room"]'); select.value = 'planning'; select.dispatchEvent(new Event('change', { bubbles:true })); true`);
-    await poll(() => evaluate(`location.search.includes('room=planning') && document.querySelector('select[aria-label="Switch chat room"]').value === 'planning' && document.querySelector('main').textContent.includes('Seven-day planning history')`), 'Planning Room changes with the URL');
+    await poll(() => evaluate(`location.search.includes('room=planning') && document.querySelector('select[aria-label="Switch chat room"]').value === 'planning' && document.querySelector('main').textContent.includes('Plan together before the show')`), 'Planning Room changes with the URL');
     const previous = await evaluate('location.pathname + location.search + location.hash');
     await enterSettings();
     await evaluate(`(${button('Integrations')}).click(); true`);

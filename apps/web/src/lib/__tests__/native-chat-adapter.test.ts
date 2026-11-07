@@ -28,6 +28,50 @@ describe("NativeChatAdapter recovery and history", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
+  it("bounds stalled history, aborts it, and retries without advancing the cursor", async () => {
+    vi.useFakeTimers();
+    const adapter = new NativeChatAdapter("org-1", undefined, "planning");
+    const connected = adapter.connect();
+    const socket = FakeWebSocket.instances.at(-1)!;
+    socket.open(); await connected;
+    socket.receive({ type: "hydrate", messages: [{ id: "new", orgId: "org-1", senderName: "Ada", text: "New", type: "text", timestamp: 200 }], readReceipts: {} });
+    let finish!: (response: Response) => void;
+    const fetcher = vi.fn().mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }))
+      .mockResolvedValueOnce(Response.json({ messages: [], nextCursor: null }));
+    vi.stubGlobal("fetch", fetcher);
+    try {
+      const first = adapter.loadOlder();
+      const outcome = expect(first).rejects.toThrow("timed out");
+      await vi.advanceTimersByTimeAsync(8001);
+      await outcome;
+      expect(fetcher.mock.calls[0][1].signal.aborted).toBe(true);
+      finish(Response.json({ messages: [{ id: "late", timestamp: 100 }], nextCursor: { id: "late", timestamp: 100 } }));
+      await Promise.resolve(); await Promise.resolve();
+      await adapter.loadOlder();
+      expect(fetcher.mock.calls[1][0]).toContain("beforeId=new");
+      expect((await adapter.getHistory()).map(message => message.id)).toEqual(["new"]);
+    } finally { adapter.disconnect(); vi.useRealTimers(); }
+  });
+
+  it("coalesces older history and cancels it on disconnect even if fetch ignores abort", async () => {
+    const adapter = new NativeChatAdapter("org-1");
+    const connected = adapter.connect();
+    const socket = FakeWebSocket.instances.at(-1)!;
+    socket.open(); await connected;
+    socket.receive({ type: "hydrate", messages: [{ id: "new", orgId: "org-1", senderName: "Ada", text: "New", type: "text", timestamp: 200 }], readReceipts: {} });
+    let finish!: (response: Response) => void;
+    const fetcher = vi.fn(() => new Promise<Response>(resolve => { finish = resolve; }));
+    vi.stubGlobal("fetch", fetcher);
+    const first = adapter.loadOlder(); const second = adapter.loadOlder();
+    const outcomes = Promise.allSettled([first, second]);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    adapter.disconnect();
+    expect((await outcomes).map(result => result.status)).toEqual(["rejected", "rejected"]);
+    finish(Response.json({ messages: [{ id: "late", timestamp: 100 }], nextCursor: null }));
+    await Promise.resolve(); await Promise.resolve();
+    expect((await adapter.getHistory()).map(message => message.id)).toEqual(["new"]);
+  });
+
   it("restores a scoped offline outbox in a replacement adapter and clears it only after relay acknowledgement", async () => {
     const messageId = "11111111-1111-4111-8111-111111111111";
     const first = new NativeChatAdapter("org-1", undefined, "production", "user-user-1", "user-1");
