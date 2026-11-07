@@ -819,6 +819,22 @@ passed against this build with real crew/invitation saves and local email captur
 Nothing is deployed. Setup Back/exit, role/workspace checkpoints, organization
 creation recovery and the wider Phase 2 gate remain open.
 
+The first CI run, 42346617800, failed the continuous-feed ProPresenter prop test.
+Its fixture treated the initial HTTP feed response as cue completion. If a
+WebSocket frame reserved the cue first, HTTP returned while Clear Props was
+still awaiting acknowledgement. The fixture could then stop its feed too early.
+A deterministic test holds the HTTP frame until Clear Props is pending and
+reproduced that premature completion. The fixture now waits for the relay's
+actual cue-result broadcast before stopping its feed, for success and failure.
+Production timing, stall detection and assertions are unchanged. Failure
+assertions include the cue result and received commands to expose any remaining
+cause rather than hiding it behind a partial object comparison.
+
+The regression failed before the fix and all 17 ProPresenter tests passed with
+coverage afterward. Full coverage passed 2,064 unit and 758 Worker tests and
+the existing coverage thresholds. The final ES2022-compatible helper also passed
+the full plain web suite and typecheck. This correction requires no deployment.
+
 ### Timecode label validation
 
 `parseTimecodeString` now requires the selected format. It rejects frame numbers

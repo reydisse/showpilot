@@ -5,7 +5,7 @@ import {
   approveTestBridgeTarget,
   openTestBridge,
 } from "@/test/bridge-fixtures";
-import type { AutomationActionType, AutomationEvent } from "@/types/timecode";
+import type { AutomationActionType, AutomationEvent, TimecodeWsMessage } from "@/types/timecode";
 import { TIMECODE_FEED_STALL_MS } from "@/types/timecode";
 import { framesToTimecode } from "@/lib/timecode";
 
@@ -96,8 +96,16 @@ async function feedClock(
   await test.command("start");
   const format = { frameRate: 30, dropFrame: "ndf" } as const;
   let frame = 0;
-  // The first feed waits for the cue. Continue sending frames independently,
-  // as a real source does while ProPresenter acknowledges its commands.
+  let finish: () => void;
+  const completion = new Promise<void>(resolve => { finish = resolve; });
+  const receive = (message: MessageEvent) => {
+    const data: TimecodeWsMessage = JSON.parse(String(message.data));
+    if (data.type === "event-fired" && data.event.id === cue.id) finish();
+  };
+  socket.addEventListener("message", receive);
+  // A socket frame can reach the relay before the HTTP frame and reserve the
+  // cue. That makes the HTTP request return before the cue completes. Keep
+  // feeding until the relay broadcasts its actual result, including failure.
   const interval = continuous
     ? setInterval(() => {
         socket.send(JSON.stringify({
@@ -108,10 +116,48 @@ async function feedClock(
       }, 50)
     : undefined;
   return {
-    finished: test.command("feed-tc", { timecode: atZero, format }),
-    stop: () => clearInterval(interval),
+    finished: Promise.all([
+      test.command("feed-tc", { timecode: atZero, format }),
+      completion,
+    ]),
+    stop: () => {
+      clearInterval(interval);
+      socket.removeEventListener("message", receive);
+    },
   };
 }
+
+it("keeps the fixture clock running until the cue completes when a socket feed overtakes HTTP", async () => {
+  const test = await setup();
+  test.pause("clear-props");
+  await test.command("add-event", cue);
+  let initialRequestReturned = false;
+  const feed = await feedClock({
+    ...test,
+    async command(action, payload, status) {
+      if (action === "feed-tc") {
+        await expect.poll(() => test.received.at(-1)?.action).toBe("clear-props");
+      }
+      await test.command(action, payload, status);
+      if (action === "feed-tc") initialRequestReturned = true;
+    },
+  });
+  let finished = false;
+  void feed.finished.then(() => { finished = true; });
+  try {
+    await expect.poll(() => initialRequestReturned).toBe(true);
+    expect(finished).toBe(false);
+  } finally {
+    const clear = test.received.find(row => row.action === "clear-props");
+    if (clear) test.acknowledge(clear.id, clear.action);
+    try {
+      await feed.finished;
+      expect((await test.events())[0]).toMatchObject({ fired: true, executionStatus: "acknowledged" });
+    } finally {
+      feed.stop();
+    }
+  }
+});
 
 it("resolves the exact prop before clearing only props, waits, then triggers with unique receipts", async () => {
   const test = await setup();
@@ -156,7 +202,8 @@ it.each([true, false])(
         feed.stop();
       }
     }
-    expect((await test.events())[0]).toMatchObject({
+    const result = (await test.events())[0];
+    expect(result, JSON.stringify({ result, received: test.received })).toMatchObject({
       fired: continuous,
       executionStatus: continuous ? "acknowledged" : "failed",
     });
