@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { runAudioWrite } from "./audio-write.server";
 import { maskDeviceSettings, writeDeviceSettings } from "./device-settings.server";
 import { MAX_DEVICE_LATENCY_MS } from "./automation-timing";
 import { createServerFn } from "@tanstack/react-start";
@@ -289,6 +290,8 @@ export const getMicAssignments = createServerFn({ method: "GET" })
     });
   });
 
+const audioRequestIdSchema = z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/).optional();
+
 const micAssignmentFieldsSchema = z.object({
   channel: z.number().int().min(0).max(10_000),
   label: z.string().max(200),
@@ -305,85 +308,59 @@ const micAssignmentFieldsSchema = z.object({
 });
 
 export const addMicAssignment = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      micAssignmentFieldsSchema.partial().extend({
-        orgId: idSchema,
-        channel: z.number().int().min(0).max(10_000),
-        label: z.string().max(200),
-        micType: z.string().max(100),
-        serviceDate: serviceDateSchema,
-        showId: idSchema,
-      }),
-      data,
-    ),
-  )
+  .inputValidator((data: unknown) => parseOrThrow(
+    micAssignmentFieldsSchema.partial().extend({
+      orgId: idSchema, requestId: audioRequestIdSchema,
+      channel: z.number().int().min(0).max(10_000), label: z.string().max(200),
+      micType: z.string().max(100), serviceDate: serviceDateSchema, showId: idSchema,
+    }), data,
+  ))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "dashboard:tm");
-    const prisma = getPrisma();
-    const show = await prisma.rundown.findFirst({
-      where: {
-        id: data.showId,
-        orgId: data.orgId,
-        serviceDate: data.serviceDate,
-      },
-      select: { id: true },
+    const { user } = await assertEffectiveOrgPermission(data.orgId, "dashboard:tm");
+    const { requestId, ...payload } = data;
+    const id = await runAudioWrite({ orgId: data.orgId, actorId: user.id, requestId, kind: "create", payload }, () => {
+      const assignmentId = crypto.randomUUID();
+      return { assignmentId,
+        guard: "EXISTS(SELECT 1 FROM rundown WHERE id=? AND orgId=? AND serviceDate=?)",
+        guardValues: [data.showId, data.orgId, data.serviceDate],
+        statement: getD1().prepare(`INSERT INTO mic_assignment(id,orgId,showId,channel,label,micType,micModel,notes,gainDb,phantom,muted,"group",mixerConsole,mixerChannel,mixerChannelType,serviceDate,updatedAt)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(assignmentId,data.orgId,data.showId,data.channel,data.label,data.micType,data.micModel??"",data.notes??"",data.gainDb??null,data.phantom?1:0,data.muted?1:0,data.group??"other",data.mixerConsole??"",data.mixerChannel??null,data.mixerChannelType??"",data.serviceDate,new Date().toISOString()),
+      };
     });
-    if (!show) throw new Error("Show not found");
-    return await prisma.micAssignment.create({
-      data: {
-        orgId: data.orgId,
-        showId: data.showId,
-        channel: data.channel,
-        label: data.label,
-        micType: data.micType,
-        micModel: data.micModel ?? "",
-        notes: data.notes ?? "",
-        gainDb: data.gainDb ?? null,
-        phantom: data.phantom ?? false,
-        muted: data.muted ?? false,
-        group: data.group ?? "other",
-        mixerConsole: data.mixerConsole ?? "",
-        mixerChannel: data.mixerChannel ?? null,
-        mixerChannelType: data.mixerChannelType ?? "",
-        serviceDate: data.serviceDate,
-      },
-    });
+    const assignment = await getPrisma().micAssignment.findFirst({ where: { id, orgId: data.orgId } });
+    if (!assignment) throw new Error("The saved channel was removed. Retrying will not recreate it.");
+    return assignment;
   });
 
 export const updateMicAssignment = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        id: idSchema,
-        updates: micAssignmentFieldsSchema.partial(),
-      }),
-      data,
-    ),
-  )
+  .inputValidator((data: unknown) => parseOrThrow(z.object({
+    orgId: idSchema, id: idSchema, requestId: audioRequestIdSchema, updates: micAssignmentFieldsSchema.partial(),
+  }), data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "dashboard:tm");
-    const prisma = getPrisma();
-    const result = await prisma.micAssignment.updateMany({
-      where: { id: data.id, orgId: data.orgId },
-      data: data.updates,
+    const { user } = await assertEffectiveOrgPermission(data.orgId, "dashboard:tm");
+    const { requestId, ...payload } = data;
+    await runAudioWrite({ orgId: data.orgId, actorId: user.id, requestId, kind: "update", payload }, () => {
+      // Zod strips unknown fields. Only parsed assignment columns enter this SQL.
+      const fields = Object.entries(data.updates).filter((entry): entry is [string, string | number | boolean | null] => entry[1] !== undefined);
+      return { assignmentId: data.id,
+        guard: "EXISTS(SELECT 1 FROM mic_assignment WHERE id=? AND orgId=?)", guardValues: [data.id, data.orgId],
+        statement: getD1().prepare(`UPDATE mic_assignment SET ${fields.map(([key]) => `"${key}"=?`).concat("updatedAt=?").join(",")} WHERE id=? AND orgId=?`)
+          .bind(...fields.map(([, value]) => typeof value === "boolean" ? Number(value) : value),new Date().toISOString(),data.id,data.orgId),
+      };
     });
-    if (result.count === 0) throw new Error("Mic assignment not found");
-    return result;
+    return { count: 1 };
   });
 
 export const deleteMicAssignment = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
-  )
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, id: idSchema, requestId: audioRequestIdSchema }), data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "dashboard:tm");
-    const prisma = getPrisma();
-    const result = await prisma.micAssignment.deleteMany({
-      where: { id: data.id, orgId: data.orgId },
-    });
-    if (result.count === 0) throw new Error("Mic assignment not found");
+    const { user } = await assertEffectiveOrgPermission(data.orgId, "dashboard:tm");
+    const { requestId, ...payload } = data;
+    await runAudioWrite({ orgId: data.orgId, actorId: user.id, requestId, kind: "delete", payload }, () => ({
+      assignmentId: data.id,
+      guard: "EXISTS(SELECT 1 FROM mic_assignment WHERE id=? AND orgId=?)", guardValues: [data.id, data.orgId],
+      statement: getD1().prepare("DELETE FROM mic_assignment WHERE id=? AND orgId=?").bind(data.id,data.orgId),
+    }));
   });
 
 // ─── Equipment ──────────────────────────────────────────────

@@ -2,7 +2,7 @@ import { createFileRoute, Link, Outlet, useParams, useRouter } from "@tanstack/r
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, LibraryBig, Plus, RefreshCw, Search, Upload, X } from "lucide-react";
 import { hasEffectivePermission } from "@/lib/app-permissions";
-import { useSongWrite } from "@/hooks/useSongWrite";
+import { useConfirmedWrite } from "@/hooks/useConfirmedWrite";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { SongLibraryRefresh, useSongLibraryRefresh } from "@/components/SongLibraryRefresh";
@@ -49,7 +49,7 @@ function SongsLibraryPage({ songs }: { songs: SongLibrary }) {
   const [presentations, setPresentations] = useState<Awaited<ReturnType<typeof listProPresenterSongs>>["presentations"]>([]);
   const [importQuery, setImportQuery] = useState("");
   const [selectedPresentationId, setSelectedPresentationId] = useState<string | null>(null);
-  const importWrite = useSongWrite(`${orgId}/import-song`);
+  const importWrite = useConfirmedWrite(`${orgId}/import-song`);
   const importingPresentationId = importWrite.state.status === "saving" ? selectedPresentationId : null;
   const libraryRead = useRef<AbortController | null>(null);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();

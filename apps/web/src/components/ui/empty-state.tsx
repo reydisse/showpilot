@@ -33,14 +33,18 @@ export function EmptyState({ icon: Icon, title, description, action, className }
 export function EmptyStateButton({
   onClick,
   children,
+  disabled = false,
 }: {
   onClick: () => void;
+  disabled?: boolean;
   children: ReactNode;
 }) {
   return (
     <button
+      type="button"
+      disabled={disabled}
       onClick={onClick}
-      className="min-h-11 px-4 py-2 rounded-lg text-sm font-medium bg-fire-500 text-white hover:bg-fire-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500 focus-visible:ring-offset-2 focus-visible:ring-offset-board-bg"
+      className="disabled:opacity-40 min-h-11 px-4 py-2 rounded-lg text-sm font-medium bg-fire-500 text-white hover:bg-fire-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500 focus-visible:ring-offset-2 focus-visible:ring-offset-board-bg"
     >
       {children}
     </button>
