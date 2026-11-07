@@ -1197,6 +1197,62 @@ authority, actor/workspace isolation, partial notifications and web/mobile
 parity. Organization invitation recovery, remaining auth/landing work and the
 wider Phase 2 gate remain open.
 
+### Workspace invitation responses
+
+Apply `0056_invitation_responses.sql` after migration 0055 before deploying
+matching web and Worker assets. The remote manifest remains unchanged. This
+change has not been deployed or released.
+
+Accept and Decline now save a recipient-bound decision receipt in the same D1
+transaction as the invitation status, membership and first active-workspace
+selection. Acceptance releases the pending invitation's reserved capacity before
+inserting membership, so a valid invitation works at the plan limit. Any later
+statement failure rolls back the entire transaction. Concurrent opposite
+responses have one winner; retries recover it without creating another member,
+changing a later role, switching the session again or restoring removed access.
+The receipt retains the original membership ID. Existing accepted invitations
+without receipts can recover only while the recipient still has membership.
+
+The Better Auth endpoints retain their schema, middleware, origin protection and
+response shape. Writes recheck the current session, verified recipient and plan
+capacity. The app's invitation-details RPC requires the current recipient before
+returning workspace details; anonymous, unverified and unrelated accounts receive
+only the appropriate sign-in or account guidance. Invitation reads are private
+and non-cacheable. This does not claim a complete audit of every upstream Better
+Auth invitation endpoint.
+
+Both web invitation pages share one response card. Decline requires confirmation
+and remains on screen until saved. Requests have ten-second deadlines, persistent
+errors and explicit Retry or read-only status recovery. Late replies and unmounted
+components cannot navigate or replace the outcome. Accepted invitations offer an
+explicit Open workspace action with current-access checking and Retry. Sign-in,
+signup and verification use the main auth flow with the invitation return path.
+Expiry, cancellation, decline and removed membership have distinct messages.
+Expiry timestamps use the existing hydration-safe device-timezone hook.
+
+After building, run:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-invitation-responses.mjs
+```
+
+The compiled Worker/Chrome rehearsal uses real auth and disposable D1. It
+withholds committed acceptance and decline replies, releases late responses,
+recovers the saved decisions without another write, checks the invitations-list
+path and reload, and verifies sign-in return and removed access. It also exercises
+failed workspace opening and a stalled route read. Confirmation focus containment
+and control bounds/hit targets pass at 320/768/1440px; phone screenshots were
+inspected. No browser errors, production data changes or external email occurred.
+
+Full validation passed 2,156 unit tests, 829 Worker tests, four coverage-gate
+tests, typecheck and production build. Fourteen real Worker regressions cover
+atomic rollback, concurrent decisions, reserved capacity, lost committed replies,
+current recipient/session checks, response compatibility and membership removal.
+Thirteen UI tests cover confirmation, timeout/retry, late replies, unmount,
+workspace opening, expiry and server/client timezone differences. The capacity
+and hydration regressions failed before their fixes. The broader Phase 2 gate
+remains open.
+
 ### Timecode label validation
 
 `parseTimecodeString` now requires the selected format. It rejects frame numbers
