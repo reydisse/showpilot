@@ -412,6 +412,35 @@ build and the anonymous browser rehearsal. No browser errors occurred. Recovery
 controls passed at 320/768/1440px, and the actual 320px error and success screenshots
 were inspected. Deployment and production verification remain pending.
 
+### Automation and updater test coverage
+
+The CI web-build and shared/mobile typecheck steps passed on GitHub run
+[42332695395](https://github.com/reydisse/showpilot/actions/runs/42332695395).
+Desktop offline and Bridge updater checks remain enabled. The parser follow-up
+also passed both CI jobs on run
+[42333037314](https://github.com/reydisse/showpilot/actions/runs/42333037314).
+
+`timecode-device-command-contracts.test.ts` runs literal wire-command goldens
+through `resolveTimecodeDeviceAction` with a fake D1. It covers ATEM, both DMX
+transports, PJLink, VISCA, TCP and a registered test-only WoL profile, including
+legacy payloads, scoped bindings and rejected parameters. It does not claim a
+built-in WoL product profile. Home Assistant remains a known automation gap:
+mobile discovers available actions through the Bridge, but timecode uses an empty
+static action list and rejects a valid scene action. Trusted discovery in target
+selection and dispatch, plus its passing resolver golden, remain required.
+
+Internal clock tests cover both ticker and elapsed-sample deduplication. Reconnect
+tests require an explicit new Start, fresh master permission and confirmed relay
+state before starting the local source. Desktop updater tests live with the
+hosted desktop runtime in the web suite; they cover check-only, no-update,
+explicit install, failure cleanup and restart behavior alongside Bridge's updater
+suite. Tauri is mocked, so these are not certificate or installation tests.
+
+Final local verification passed 1,956 unit tests, 718 Worker tests, nine Bridge
+desktop tests and web typecheck. These changes add tests only; production code is
+unchanged from the parser build. Hardware, remaining command coverage and the
+broader Phase 2 gate remain open. No deployment was performed.
+
 ### Timecode label validation
 
 `parseTimecodeString` now requires the selected format. It rejects frame numbers
