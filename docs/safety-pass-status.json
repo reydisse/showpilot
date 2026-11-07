@@ -1642,8 +1642,11 @@
       "phase": "2",
       "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
       "line": 253,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06 vitest.worker.config.ts now binds TestLowerThirdsRelay and TestCueSheetRelay, both isolated in src/test/worker-entry.ts. Successful operations retain real production authorization, socket delivery and persistence. Lower-thirds already supported status/delay injection; timecode-execution.worker.test.ts exercises actual show/clear dispatch, injected 503 failures, fired=false, failed execution status and redacted read-only display failure projection.",
+        "Added a real Worker cue-sheet outage/recovery regression: injected broadcast failure survives relay eviction, returns 503, delivers no note and advances no revision; resetting the fault resumes actual delivery with exactly one revision increment, and subsequent membership revocation rejects publishing. Full web suite passed 1961 unit and 729 Worker tests; web typecheck passed. Test entrypoint/configuration only, with no production code change or deployment."
+      ]
     },
     {
       "id": "d6a003d798ec9482",
