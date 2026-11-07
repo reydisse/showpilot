@@ -1,3 +1,4 @@
+import { TimezoneSetting } from "@/components/settings/TimezoneSetting";
 import { SettingsTeamInvitations } from "@/components/admin/SettingsTeamInvitations";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
@@ -12,7 +13,7 @@ import { WorkspaceSettings } from "@/components/workspace/WorkspaceSettings";
 import { createFileRoute, useRouter, useBlocker } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { formatServicePickerLabel } from "@/lib/service-picker";
-import { lazy, Suspense, useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import {
   Building2,
   Users,
@@ -35,10 +36,7 @@ import {
   ArrowLeft,
   Tv,
   CreditCard,
-  FlaskConical,
-  ExternalLink,
   Gamepad2,
-  LoaderCircle,
   Mail,
   MonitorSmartphone,
   X,
@@ -67,11 +65,8 @@ import {
 import { getRundownPinRequirement } from "@/lib/rbac";
 import {
   getOrgBilling,
-  createCheckoutSession,
-  createPortalSession,
-  type OrgBillingInfo,
 } from "@/lib/billing";
-import { getStripePublishableKey, resolveCheckoutUiMode } from "@/lib/checkout";
+import { BillingSection } from "@/components/settings/BillingSection";
 import { clearChatHistory } from "@/lib/chat";
 import { testChatConnection } from "@/lib/chat-proxy";
 import { listRundownDates, testProPresenterConnection } from "@/lib/rundown";
@@ -97,8 +92,6 @@ import {
   type ReportExportSection,
 } from "@/lib/settings-export";
 
-const loadEmbeddedCheckoutModal = () => import("@/components/settings/EmbeddedCheckoutModal");
-const EmbeddedCheckoutModal = lazy(loadEmbeddedCheckoutModal);
 
 // ─── Route ──────────────────────────────────────────────────
 
@@ -384,7 +377,7 @@ function OrganizationSettingsPage({
             <CsvImportSection orgId={orgId} openBilling={openBilling} />
           )}
             {resolvedSection === "billing" && (
-            <BillingSection {...sectionProps} billing={billing} />
+            <div><SectionHeader title="Billing" description="Plans and payment for this organization" /><BillingSection orgId={orgId} billing={billing} /></div>
           )}
             {resolvedSection === "integrations" && (
             <IntegrationsSection {...sectionProps} />
@@ -662,26 +655,7 @@ function OrganizationSection({
         </FieldGroup>
 
         <FieldGroup label="Timezone">
-          <SettingSelect
-            settingKey="org-timezone"
-            getSetting={getSetting}
-            saveSetting={saveSetting}
-            options={[
-              { value: "America/New_York", label: "Eastern Time (ET)" },
-              { value: "America/Chicago", label: "Central Time (CT)" },
-              { value: "America/Denver", label: "Mountain Time (MT)" },
-              { value: "America/Los_Angeles", label: "Pacific Time (PT)" },
-              { value: "America/Anchorage", label: "Alaska Time (AKT)" },
-              { value: "Pacific/Honolulu", label: "Hawaii Time (HT)" },
-              { value: "Europe/London", label: "GMT / UTC" },
-              { value: "Europe/Berlin", label: "Central European (CET)" },
-              { value: "Africa/Accra", label: "Ghana (GMT)" },
-              { value: "Africa/Lagos", label: "West Africa (WAT)" },
-              { value: "Africa/Nairobi", label: "East Africa (EAT)" },
-              { value: "Asia/Tokyo", label: "Japan (JST)" },
-              { value: "Australia/Sydney", label: "Australia Eastern (AEST)" },
-            ]}
-          />
+          <TimezoneSetting value={getSetting("org-timezone")} onChange={value => void saveSetting("org-timezone", value)} />
         </FieldGroup>
 
         <FieldGroup label="Created" description="Date in UTC.">
@@ -939,311 +913,6 @@ function TeamSection({ members, orgId, onInvitationDirty }: SectionProps & { onI
 }
 
 // ─── BILLING ────────────────────────────────────────────────
-
-const PLAN_CARDS: Array<{
-  plan: "starter" | "pro" | "founding";
-  name: string;
-  price: number;
-  tagline: string;
-  features: string[];
-}> = [
-  {
-    plan: "starter",
-    name: "Starter",
-    price: 39,
-    tagline: "For small teams running weekly shows",
-    features: ["25 team members", "10 devices", "50 shows", "Integrations", "Kiosk displays"],
-  },
-  {
-    plan: "pro",
-    name: "Pro",
-    price: 79,
-    tagline: "Full production power, no ceilings",
-    features: ["100 team members", "Unlimited devices", "Unlimited shows", "Integrations", "Kiosk displays"],
-  },
-  {
-    plan: "founding",
-    name: "Founding",
-    price: 25,
-    tagline: "Everything in Pro, locked in for early teams",
-    features: ["All Pro features", "$25/mo locked in", "Founding member badge"],
-  },
-];
-
-const BILLING_PLAN_BADGES: Record<string, string> = {
-  free: "bg-board-border/40 text-board-muted border-board-border",
-  starter: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  pro: "bg-fire-500/10 text-fire-500 border-fire-500/20",
-};
-
-function billingBannerFromUrl(): "success" | "cancelled" | null {
-  if (typeof window === "undefined") return null;
-  const value = new URLSearchParams(window.location.search).get("billing");
-  return value === "success" || value === "cancelled" ? value : null;
-}
-
-function BillingSection({ org, billing }: SectionProps & { billing: OrgBillingInfo | null }) {
-  const [banner] = useState<"success" | "cancelled" | null>(billingBannerFromUrl);
-  const [checkingOut, setCheckingOut] = useState<string | null>(null);
-  const [openingPortal, setOpeningPortal] = useState(false);
-  const [billingError, setBillingError] = useState<string | null>(null);
-  const [embeddedCheckout, setEmbeddedCheckout] = useState<{
-    clientSecret: string;
-    planName: string;
-  } | null>(null);
-
-  // Drop the ?billing= param so refreshes don't re-show the banner.
-  useEffect(() => {
-    if (banner) {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("billing");
-      window.history.replaceState({}, "", url);
-    }
-  }, [banner]);
-
-  if (!billing) {
-    return (
-      <div>
-        <SectionHeader title="Billing" description="Plans and payment" />
-        <p className="text-sm text-board-muted">Billing is only visible to owners and admins.</p>
-      </div>
-    );
-  }
-
-  const now = new Date();
-  const trialEndsAt = billing.trialEndsAt ? new Date(billing.trialEndsAt) : null;
-  const trialActive = trialEndsAt !== null && trialEndsAt > now;
-  const trialDaysLeft = trialActive
-    ? Math.max(1, Math.ceil((trialEndsAt.getTime() - now.getTime()) / 86_400_000))
-    : 0;
-  const launchDate = billing.publicLaunchDate ? new Date(billing.publicLaunchDate) : null;
-  const betaActive = billing.betaTester && (!launchDate || now < launchDate);
-
-  const handleCheckout = async (plan: "starter" | "pro" | "founding") => {
-    setCheckingOut(plan);
-    setBillingError(null);
-    try {
-      // Embedded keeps payment on showpilot.tech; without the publishable
-      // key the flow degrades to the original hosted redirect.
-      const uiMode = resolveCheckoutUiMode(getStripePublishableKey());
-      if (uiMode === "embedded") void loadEmbeddedCheckoutModal();
-      const result = await createCheckoutSession({
-        data: { orgId: org.id, plan, uiMode },
-      });
-      if (result.mode === "embedded") {
-        setEmbeddedCheckout({
-          clientSecret: result.clientSecret,
-          planName: plan === "founding" ? "Founding" : plan === "pro" ? "Pro" : "Starter",
-        });
-        setCheckingOut(null);
-      } else {
-        window.location.href = result.url;
-      }
-    } catch (err) {
-      setBillingError(err instanceof Error ? err.message : "Failed to start checkout");
-      setCheckingOut(null);
-    }
-  };
-
-  const handlePortal = async () => {
-    setOpeningPortal(true);
-    setBillingError(null);
-    try {
-      const { url } = await createPortalSession({ data: { orgId: org.id } });
-      window.location.href = url;
-    } catch (err) {
-      setBillingError(err instanceof Error ? err.message : "Failed to open billing portal");
-      setOpeningPortal(false);
-    }
-  };
-
-  const visibleCards = PLAN_CARDS.filter(
-    (card) => card.plan !== "founding" || billing.foundingEligible,
-  );
-
-  return (
-    <div>
-      <SectionHeader title="Billing" description="Plans and payment for this organization" />
-
-      {banner === "success" && (
-        <div className="mb-5 px-4 py-3 rounded-xl border border-green-500/20 bg-green-500/10 flex items-center gap-2">
-          <Check className="w-4 h-4 text-green-400 shrink-0" />
-          <p className="text-sm text-green-400">
-            Payment successful — your plan will update within a few seconds.
-          </p>
-        </div>
-      )}
-      {banner === "cancelled" && (
-        <div className="mb-5 px-4 py-3 rounded-xl border border-board-border bg-board-card flex items-center gap-2">
-          <p className="text-sm text-board-muted">Checkout cancelled — no changes were made.</p>
-        </div>
-      )}
-      {billingError && (
-        <div className="mb-5 px-4 py-3 rounded-xl border border-red-500/20 bg-red-500/10">
-          <p className="text-sm text-red-400">{billingError}</p>
-        </div>
-      )}
-
-      {/* Current plan */}
-      <div className="rounded-xl border border-board-border bg-board-card p-4 mb-5">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-medium text-board-text">Current plan</p>
-          <span
-            className={`text-[10px] font-medium uppercase px-2 py-0.5 rounded border ${
-              BILLING_PLAN_BADGES[billing.effectivePlan] ?? BILLING_PLAN_BADGES.free
-            }`}
-          >
-            {billing.effectivePlan}
-          </span>
-          {betaActive && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
-              <FlaskConical className="w-2.5 h-2.5" />
-              Beta — free until launch
-            </span>
-          )}
-          {billing.foundingMember && (
-            <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20">
-              Founding member
-            </span>
-          )}
-          {trialActive && !betaActive && (
-            <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
-              Trial — {trialDaysLeft} day{trialDaysLeft !== 1 ? "s" : ""} left
-            </span>
-          )}
-        </div>
-        {trialActive && !betaActive && billing.plan === "free" && (
-          <p className="text-xs text-board-muted mt-2">
-            You have full Pro access during your trial. Pick a plan below to keep it.
-          </p>
-        )}
-        {billing.hasStripeCustomer && (
-          <button
-            onClick={handlePortal}
-            disabled={openingPortal}
-            className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg text-board-text border border-board-border hover:bg-board-border/50 transition-colors disabled:opacity-50"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-            {openingPortal ? "Opening..." : "Manage billing"}
-          </button>
-        )}
-      </div>
-
-      {betaActive ? (
-        <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-5">
-          <div className="flex items-center gap-2 mb-1">
-            <FlaskConical className="w-4 h-4 text-purple-400" />
-            <p className="text-sm font-medium text-board-text">Beta access</p>
-          </div>
-          {launchDate ? (
-            <>
-              <p className="text-xs text-board-muted mb-4">
-                Your team has full Pro access free until public launch on{" "}
-                <span className="text-board-text font-medium">
-                  {launchDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
-                </span>
-                . Lock in the founding rate now and nothing changes at launch.
-              </p>
-              <button
-                onClick={() => handleCheckout("founding")}
-                disabled={checkingOut !== null}
-                className="px-4 py-2.5 rounded-xl bg-fire-500 text-white text-sm font-medium hover:bg-fire-600 transition-colors disabled:opacity-50"
-              >
-                {checkingOut === "founding" ? "Redirecting..." : "Lock in founding rate — $25/mo"}
-              </button>
-            </>
-          ) : (
-            <p className="text-xs text-board-muted">
-              Your team has full Pro access free until public launch. We&apos;ll let you know
-              before anything changes.
-            </p>
-          )}
-        </div>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {visibleCards.map((card) => {
-            const isCurrent =
-              billing.plan === card.plan ||
-              (card.plan === "founding" && billing.foundingMember && billing.plan === "pro");
-            return (
-              <div
-                key={card.plan}
-                className={`rounded-xl border p-4 flex flex-col ${
-                  card.plan === "founding"
-                    ? "border-fire-500/30 bg-fire-500/5"
-                    : "border-board-border bg-board-card"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm font-semibold text-board-text">{card.name}</p>
-                  {card.plan === "founding" && (
-                    <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded bg-fire-500/10 text-fire-500 border border-fire-500/20">
-                      Limited
-                    </span>
-                  )}
-                </div>
-                <p className="text-2xl font-bold text-board-text">
-                  ${card.price}
-                  <span className="text-xs font-normal text-board-muted">/mo</span>
-                </p>
-                <p className="text-[11px] text-board-muted mt-1 mb-3">{card.tagline}</p>
-                <ul className="space-y-1.5 mb-4 flex-1">
-                  {card.features.map((feature) => (
-                    <li key={feature} className="flex items-center gap-1.5 text-xs text-board-muted">
-                      <Check className="w-3 h-3 text-fire-500 shrink-0" />
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-                {isCurrent ? (
-                  <span className="text-center text-xs font-medium px-3 py-2.5 rounded-xl border border-board-border text-board-muted">
-                    Current plan
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => handleCheckout(card.plan)}
-                    disabled={checkingOut !== null}
-                    className={`text-sm font-medium px-3 py-2.5 rounded-xl transition-colors disabled:opacity-50 ${
-                      card.plan === "founding"
-                        ? "bg-fire-500 text-white hover:bg-fire-600"
-                        : "border border-fire-500/30 text-fire-500 hover:bg-fire-500/10"
-                    }`}
-                  >
-                    {checkingOut === card.plan ? "Redirecting..." : `Choose ${card.name}`}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <p className="text-[10px] text-board-muted/60 mt-4">
-        Subscriptions are handled securely by Stripe. Downgrades keep your data — limits
-        apply to new items only.
-      </p>
-
-      {embeddedCheckout && (
-        <Suspense
-          fallback={
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-              <div role="status" className="flex items-center gap-3 rounded-xl border border-board-border bg-board-card px-5 py-4 text-sm text-board-text shadow-2xl">
-                <LoaderCircle className="size-4 animate-spin text-fire-500" />
-                Preparing secure checkout...
-              </div>
-            </div>
-          }
-        >
-          <EmbeddedCheckoutModal
-            clientSecret={embeddedCheckout.clientSecret}
-            planName={embeddedCheckout.planName}
-            onClose={() => setEmbeddedCheckout(null)}
-          />
-        </Suspense>
-      )}
-    </div>
-  );
-}
 
 // ─── INTEGRATIONS ───────────────────────────────────────────
 

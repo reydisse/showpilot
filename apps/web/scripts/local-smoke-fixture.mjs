@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false } = {}) {
   if (streamOutputs) {
     assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Stream status requires the isolated outbound handler");
     assert.equal(captureEmail, false, "Use separate fixtures for email and Stream status");
@@ -149,6 +149,20 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
   INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-operator','Fixture operator','operator@display-smoke.invalid',1,CURRENT_TIMESTAMP);
   INSERT INTO account (id,accountId,providerId,userId,password,issuer,updatedAt) VALUES ('smoke-account','smoke-operator','credential','smoke-operator','${passwordHash}','local:credential',CURRENT_TIMESTAMP);
   INSERT INTO member (id,organizationId,userId,role,createdAt) VALUES ('smoke-member','display-smoke','smoke-operator','owner',CURRENT_TIMESTAMP);
+  ${settingsBilling ? [
+    ["trial", "free", "2099-01-01T00:00:00.000Z", 0, 0, null],
+    ["starter", "starter", null, 0, 0, "active"],
+    ["pro", "pro", null, 0, 0, "active"],
+    ["founding", "pro", null, 1, 0, "active"],
+    ["unpaid", "pro", null, 0, 0, "unpaid"],
+    ["beta", "free", null, 0, 1, null],
+    ["expired", "free", "2000-01-01T00:00:00.000Z", 0, 0, null],
+  ].map(([name, plan, trial, founding, beta, status]) => `
+    INSERT INTO organization(id,name,slug,createdAt,plan,trialEndsAt,foundingMember,betaTester,subscriptionStatus)
+      VALUES ('billing-${name}','Billing ${name}','billing-${name}',CURRENT_TIMESTAMP,'${plan}',${trial ? "'"+trial+"'" : "NULL"},${founding},${beta},${status ? "'"+status+"'" : "NULL"});
+    INSERT INTO member(id,organizationId,userId,role,createdAt)
+      VALUES ('billing-member-${name}','billing-${name}','smoke-operator','owner',CURRENT_TIMESTAMP);
+  `).join("\n") : ""}
   ${secondOperator ? `
   INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-second-operator','Second fixture operator','second@display-smoke.invalid',1,CURRENT_TIMESTAMP);
   INSERT INTO account (id,accountId,providerId,userId,password,issuer,updatedAt) VALUES ('smoke-second-account','smoke-second-operator','credential','smoke-second-operator','${passwordHash}','local:credential',CURRENT_TIMESTAMP);
