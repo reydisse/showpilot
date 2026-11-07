@@ -48,6 +48,7 @@ import { addCrewMember } from "@/lib/data";
 import { inviteMember } from "@/lib/session";
 import { generateMemberId } from "@/lib/import-members-csv";
 import { ASSIGNABLE_ROLES, ROLE_META } from "@/lib/permissions";
+import { validateSetupTeam, type SetupCrewRow, type SetupInviteRow } from "@/lib/setup-team";
 import { DEPARTMENTS, getDepartment } from "@/types/index";
 import {
   templateBadge,
@@ -147,7 +148,7 @@ const WIZARD_CSS = `
 function Timecode() {
   // Keep the server and first client render identical. The live clock starts
   // after hydration, so locale and render timing cannot produce mismatched HTML.
-  const [now, setNow] = useState(() => new Date(0));
+  const [now, setNow] = useState<Date | null>(null);
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     setNow(new Date());
@@ -167,7 +168,7 @@ function Timecode() {
         className="h-[7px] w-[7px] rounded-full"
         style={{ background: T.amber, boxShadow: `0 0 8px ${T.amber}` }}
       />
-      {p(now.getHours())}:{p(now.getMinutes())}:{p(now.getSeconds())}:{p(frame)}
+      {now ? `${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}:${p(frame)}` : "--:--:--:--"}
     </div>
   );
 }
@@ -178,7 +179,7 @@ function Slate({ scene }: { scene: SceneNumber }) {
       className="font-mono text-[11px] uppercase tracking-[0.22em]"
       style={{ color: T.faint }}
     >
-      Setup · Scene {scene}/5 —{" "}
+      Setup · Step {[1, "1b", 2, 3, 4, 5].indexOf(scene) + 1} of 6 ·{" "}
       {scene === "1b" ? "Workspace" : SCENE_TITLES[scene - 1]}
     </div>
   );
@@ -279,7 +280,7 @@ function SetupWizard() {
         <style>{WIZARD_CSS}</style>
 
         {/* Persistent header */}
-        <div className="absolute inset-x-0 top-0 z-[5] flex items-center justify-between px-6 py-[18px]">
+        <div className="absolute inset-x-0 top-0 z-[5] flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-6 py-[18px]">
         <Timecode />
         <Slate scene={scene} />
       </div>
@@ -483,18 +484,6 @@ function SceneRole({
 //   Crew (operators)   → CrewMember records: show board only, no account.
 //   App members (leads) → Better Auth invitations with real RBAC roles.
 
-interface CrewRow {
-  name: string;
-  pos: string;
-}
-
-interface InviteRow {
-  email: string;
-  role: string;
-}
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 const inputStyle = {
   background: T.stage,
   borderColor: T.border,
@@ -504,191 +493,121 @@ const inputStyle = {
 function SceneTeam({
   onGoLive,
 }: {
-  onGoLive: (team: { crew: CrewRow[]; invites: InviteRow[] }) => Promise<void>;
+  onGoLive: (team: { crew: SetupCrewRow[]; invites: SetupInviteRow[] }) => Promise<void>;
 }) {
   const workspaceTerms = useWorkspaceTerms();
-  const [crew, setCrew] = useState<CrewRow[]>([{ name: "", pos: "" }]);
-  const [invites, setInvites] = useState<InviteRow[]>([{ email: "", role: "member" }]);
+  const [crew, setCrew] = useState<SetupCrewRow[]>([{ name: "", pos: "" }]);
+  const [invites, setInvites] = useState<SetupInviteRow[]>([{ email: "", role: "member" }]);
   const [taking, setTaking] = useState(false);
-
+  const [submitted, setSubmitted] = useState(false);
+  const validation = validateSetupTeam(crew, invites);
+  const issueFor = (field: string) => submitted ? validation.issues.find(issue => issue.field === field) : undefined;
+  const fieldProps = (field: string) => ({
+    id: field, disabled: taking,
+    "aria-invalid": Boolean(issueFor(field)),
+    "aria-describedby": issueFor(field) ? `${field}-error` : undefined,
+  });
+  const fieldError = (field: string) => issueFor(field) && (
+    <p id={`${field}-error`} className="mt-1 text-sm text-red-300">{issueFor(field)?.message}</p>
+  );
+  const inputClass = "min-h-11 w-full min-w-0 rounded-lg border px-3 py-2.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 disabled:opacity-60";
+  const rowActionClass = "mt-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm text-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 disabled:opacity-60";
   const handleGoLive = () => {
     if (taking) return;
+    setSubmitted(true);
+    if (validation.issues.length) {
+      document.getElementById(validation.issues[0].field)?.focus();
+      return;
+    }
     setTaking(true);
-    void onGoLive({
-      crew: crew.filter((row) => row.name.trim() && row.pos.trim()),
-      invites: invites.filter((row) => EMAIL_RE.test(row.email.trim())),
-    });
+    void onGoLive({ crew: validation.crew, invites: validation.invites });
   };
 
   return (
-    <div className="rise">
+    <form className="rise" noValidate onSubmit={event => { event.preventDefault(); handleGoLive(); }}>
       <h1 className="mb-1.5 mt-9 text-[30px] font-extrabold">Build your team.</h1>
       <p className="mb-[26px]" style={{ color: T.muted }}>
-        Two kinds of people run a show — both optional for now.
+        Crew appear on your status board. Invited members can sign in. Both are optional for now.
       </p>
-      <div className="grid gap-3.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
-        {/* Persistent header */}
-        <div className="rounded-[14px] border p-[22px]" style={{ background: T.panel, borderColor: T.border }}>
-          <div className="mb-1 font-mono text-[10px] tracking-[0.2em]" style={{ color: T.amber }}>
-            SHOW BOARD
-          </div>
-          <div className="text-base font-bold">Add your crew</div>
+      {submitted && validation.invalidRows > 0 && (
+        <div role="alert" className="mb-5 rounded-xl border border-red-400/40 bg-red-400/10 p-4 text-sm text-red-200">
+          <p className="font-semibold">{validation.invalidRows} {validation.invalidRows === 1 ? "row needs" : "rows need"} attention.</p>
+          <p>Nothing has been sent. Complete or clear the marked rows before finishing setup.</p>
+        </div>
+      )}
+      <div className="grid min-w-0 gap-3.5 sm:grid-cols-2">
+        <section aria-labelledby="setup-crew-title" className="min-w-0 rounded-[14px] border p-4 sm:p-[22px]" style={{ background: T.panel, borderColor: T.border }}>
+          <h2 id="setup-crew-title" className="text-base font-bold">Add your crew</h2>
           <p className="mb-3.5 mt-1 text-[13px]" style={{ color: T.muted }}>
-            Operators who appear on the board and check in on show day — no account, no login.
+            People who appear on the board and check in on show day. No account or login is created.
           </p>
           {crew.map((row, i) => {
             const dept = row.pos.trim() ? getDepartment(row.pos) : null;
             const deptConfig = dept ? DEPARTMENTS[dept] : null;
             return (
-              <div key={i} className="mb-2.5">
-                <div className="flex gap-2">
-                  <input
-                    value={row.name}
-                    onChange={(e) =>
-                      setCrew(
-                        crew.map((v, j) =>
-                          j === i ? { ...v, name: e.target.value } : v,
-                        ),
-                      )
-                    }
-                    placeholder="Name"
-                    className="min-w-0 flex-[1.2] rounded-lg border px-3 py-2.5 text-sm outline-none"
-                    style={inputStyle}
-                  />
-                  <input
-                    value={row.pos}
-                    onChange={(e) =>
-                      setCrew(
-                        crew.map((v, j) =>
-                          j === i ? { ...v, pos: e.target.value } : v,
-                        ),
-                      )
-                    }
-                    placeholder="Position (e.g. Camera 2, A1)"
-                    className="min-w-0 flex-[1.4] rounded-lg border px-3 py-2.5 text-sm outline-none"
-                    style={inputStyle}
-                  />
-                </div>
-                {/* Persistent header */}
-                {deptConfig && (
-                  <div
-                    key={dept}
-                    className={`lt mt-1.5 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-[3px] font-mono text-[10px] uppercase tracking-[0.14em] ${deptConfig.color}`}
-                  >
-                    <span className="h-[5px] w-[5px] rounded-full bg-current" />
-                    {deptConfig.label}
-                  </div>
-                )}
-              </div>
+              <fieldset key={i} disabled={taking} className="mb-4 min-w-0 border-b pb-3" style={{ borderColor: T.border }}>
+                <legend className="mb-2 text-sm font-semibold">Crew {i + 1}</legend>
+                <label htmlFor={`crew-${i}-name`} className="mb-1 block text-sm">Crew {i + 1} name</label>
+                <input {...fieldProps(`crew-${i}-name`)} value={row.name}
+                  onChange={e => setCrew(crew.map((v, j) => j === i ? { ...v, name: e.target.value } : v))}
+                  placeholder="Name" autoComplete="off" className={inputClass} style={inputStyle} />
+                {fieldError(`crew-${i}-name`)}
+                <label htmlFor={`crew-${i}-pos`} className="mb-1 mt-3 block text-sm">Crew {i + 1} position</label>
+                <input {...fieldProps(`crew-${i}-pos`)} value={row.pos}
+                  onChange={e => setCrew(crew.map((v, j) => j === i ? { ...v, pos: e.target.value } : v))}
+                  placeholder="Position (e.g. Camera 2, A1)" autoComplete="off" className={inputClass} style={inputStyle} />
+                {fieldError(`crew-${i}-pos`)}
+                {deptConfig && <div className={`mt-2 text-xs ${deptConfig.color}`}>{deptConfig.label}</div>}
+                <button type="button" className={rowActionClass} aria-label={`Clear crew row ${i + 1}`}
+                  onClick={() => setCrew(crew.map((v, j) => j === i ? { name: "", pos: "" } : v))}>Clear row</button>
+              </fieldset>
             );
           })}
-          {crew.length < 4 && (
-            <button
-              type="button"
-              onClick={() => setCrew([...crew, { name: "", pos: "" }])}
-              className="flex items-center gap-1.5 text-[13px]"
-              style={{ color: T.faint }}
-            >
-              <Plus size={14} /> Add another
-            </button>
-          )}
-          <div
-            className="mt-3.5 flex items-center gap-2 border-t pt-3 text-xs"
-            style={{ borderColor: T.border, color: T.faint }}
-          >
+          {crew.length < 4 && <button type="button" disabled={taking} className={rowActionClass}
+            onClick={() => setCrew([...crew, { name: "", pos: "" }])}><Plus size={14} /> Add another crew member</button>}
+          <div className="mt-3.5 flex items-center gap-2 border-t pt-3 text-xs" style={{ borderColor: T.border, color: T.muted }}>
             <QrCode size={14} className="shrink-0" style={{ color: T.amber }} />
-            {workspaceCopy(
-              '\n            On show day, your board shows a "Scan to Serve" code — crew check in from their phones.\n          ',
-              workspaceTerms,
-            )}
+            {workspaceCopy('On show day, your board shows a "Scan to Serve" code. Crew check in from their phones.', workspaceTerms)}
           </div>
-        </div>
-
-        {/* Persistent header */}
-        <div className="rounded-[14px] border p-[22px]" style={{ background: T.panel, borderColor: T.border }}>
-          <div className="mb-1 font-mono text-[10px] tracking-[0.2em]" style={{ color: T.green }}>
-            APP ACCESS
-          </div>
-          <div className="text-base font-bold">Invite your leads</div>
-          <p className="mb-3.5 mt-1 text-[13px]" style={{ color: T.muted }}>
-            People who log in to run rundowns, devices, and dashboards.
-          </p>
+        </section>
+        <section aria-labelledby="setup-invites-title" className="min-w-0 rounded-[14px] border p-4 sm:p-[22px]" style={{ background: T.panel, borderColor: T.border }}>
+          <h2 id="setup-invites-title" className="text-base font-bold">Invite your leads</h2>
+          <p className="mb-3.5 mt-1 text-[13px]" style={{ color: T.muted }}>People who log in to run rundowns, devices, and dashboards.</p>
           {invites.map((row, i) => (
-            <div key={i} className="mb-2.5">
-              <div className="flex gap-2">
-                <input
-                  value={row.email}
-                  onChange={(e) =>
-                    setInvites(
-                      invites.map((v, j) =>
-                        j === i ? { ...v, email: e.target.value } : v,
-                      ),
-                    )
-                  }
-                  placeholder="name@example.com"
-                  type="email"
-                  className="min-w-0 flex-1 rounded-lg border px-3 py-2.5 text-sm outline-none"
-                  style={inputStyle}
-                />
-                {/* Persistent header */}
-                <select
-                  value={row.role}
-                  onChange={(e) =>
-                    setInvites(
-                      invites.map((v, j) =>
-                        j === i ? { ...v, role: e.target.value } : v,
-                      ),
-                    )
-                  }
-                  className="rounded-lg border px-2 text-[13px] outline-none"
-                  style={{ background: T.stage, borderColor: T.border, color: T.muted }}
-                >
-                  {ASSIGNABLE_ROLES.map((role) => (
-                    <option key={role} value={role}>
-                      {ROLE_META[role].label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="mt-1 text-[11px]" style={{ color: T.faint }}>
-                {ROLE_META[row.role as (typeof ASSIGNABLE_ROLES)[number]]?.description}
-              </div>
-            </div>
+            <fieldset key={i} disabled={taking} className="mb-4 min-w-0 border-b pb-3" style={{ borderColor: T.border }}>
+              <legend className="mb-2 text-sm font-semibold">Invitation {i + 1}</legend>
+              <label htmlFor={`invite-${i}-email`} className="mb-1 block text-sm">Invitation {i + 1} email</label>
+              <input {...fieldProps(`invite-${i}-email`)} value={row.email}
+                onChange={e => setInvites(invites.map((v, j) => j === i ? { ...v, email: e.target.value } : v))}
+                placeholder="name@example.com" type="email" autoComplete="off" className={inputClass} style={inputStyle} />
+              {fieldError(`invite-${i}-email`)}
+              <label htmlFor={`invite-${i}-role`} className="mb-1 mt-3 block text-sm">Invitation {i + 1} role</label>
+              <select {...fieldProps(`invite-${i}-role`)} value={row.role}
+                onChange={e => {
+                  const role = ASSIGNABLE_ROLES.find(role => role === e.target.value);
+                  if (role) setInvites(invites.map((v, j) => j === i ? { ...v, role } : v));
+                }} className={inputClass} style={inputStyle}>
+                {ASSIGNABLE_ROLES.map(role => <option key={role} value={role}>{ROLE_META[role].label}</option>)}
+              </select>
+              {fieldError(`invite-${i}-role`)}
+              <p className="mt-1 text-xs" style={{ color: T.muted }}>{ROLE_META[row.role].description}</p>
+              <button type="button" className={rowActionClass} aria-label={`Clear invitation row ${i + 1}`}
+                onClick={() => setInvites(invites.map((v, j) => j === i ? { email: "", role: "member" } : v))}>Clear row</button>
+            </fieldset>
           ))}
-          {invites.length < 3 && (
-            <button
-              type="button"
-              onClick={() => setInvites([...invites, { email: "", role: "member" }])}
-              className="flex items-center gap-1.5 text-[13px]"
-              style={{ color: T.faint }}
-            >
-              <Plus size={14} /> Add another
-            </button>
-          )}
-        </div>
+          {invites.length < 3 && <button type="button" disabled={taking} className={rowActionClass}
+            onClick={() => setInvites([...invites, { email: "", role: "member" }])}><Plus size={14} /> Add another invitation</button>}
+        </section>
       </div>
-
-      {/* The finale */}
-      <div className="mt-11 grid place-items-center">
-        <button
-          type="button"
-          onClick={handleGoLive}
-          disabled={taking}
-          className="pulse3 h-[130px] w-[130px] rounded-full border font-mono text-[17px] font-semibold leading-snug tracking-[0.18em] text-white"
-          style={{
-            background: `radial-gradient(circle at 35% 30%, #FF6A6E, ${T.red} 65%)`,
-            borderColor: "#FF7A7E",
-          }}
-        >
-          GO
-          <br />
-          LIVE
-        </button>
-        <div className="mt-3.5 font-mono text-[11px] tracking-[0.2em]" style={{ color: T.faint }}>
-          TAKE YOUR SHOW TO AIR
-        </div>
+      <div className="mt-8 space-y-3">
+        <p role="status" className="text-sm" style={{ color: T.muted }}>
+          {validation.crew.length} complete crew {validation.crew.length === 1 ? "row" : "rows"} and {validation.invites.length} complete invitation {validation.invites.length === 1 ? "row" : "rows"}.
+        </p>
+        <p className="text-sm" style={{ color: T.muted }}>Finish setup saves these people and opens your workspace. It does not start a show or turn on outputs.</p>
+        <button type="submit" disabled={taking} className="inline-flex min-h-11 items-center gap-2 rounded-xl px-5 py-3 font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-400 disabled:opacity-60"
+          style={{ background: T.amber, color: T.stage }}>{taking ? "Finishing setup…" : "Finish setup"}<ArrowRight size={17} /></button>
       </div>
-    </div>
+    </form>
   );
 }
 
