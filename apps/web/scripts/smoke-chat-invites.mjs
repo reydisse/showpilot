@@ -22,6 +22,8 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, operatorEmai
   assert.equal(new URL(response.headers.get("Location"), origin).searchParams.get("room"), "planning");
   assert.equal((await response.text()).includes("This invite is for another member"), false);
   await withRealBrowser({ origin, cookie: operatorCookie }, async ({ page, evaluate }) => {
+    // Foreground invite controls; keep macOS occlusion from suspending paint.
+    await page("Emulation.setFocusEmulationEnabled", { enabled: true });
     await page("Page.enable");
     await page("Page.addScriptToEvaluateOnNewDocument", { source: `
       window.inviteErrors=[];window.inviteSockets=[];window.wrongMemberSeen=false;window.inviteFault=false;
