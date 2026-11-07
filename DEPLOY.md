@@ -18,6 +18,11 @@ path (login → org page).
 
 ## How deploys happen
 
+CI includes web and Bridge tests, Desktop offline controls, shared/mobile
+TypeScript checks, and the web production build with client-boundary and bundle
+budgets. Prisma generation runs before typechecks. These checks require no
+deployment credentials. The retired gateway has no remaining CI target.
+
 **Automatic (the normal path).** Push to `main` → the CI workflow
 (`.github/workflows/ci.yml`) runs typechecks, tests, builds, and Worker dry-runs
 → on success, the Deploy workflow (`.github/workflows/deploy.yml`) checks for

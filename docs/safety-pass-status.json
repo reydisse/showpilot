@@ -1619,8 +1619,10 @@
       "phase": "2",
       "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
       "line": 251,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "2026-11-06 CI now includes the web production build and shared/mobile tsc --noEmit, alongside its existing Desktop offline test. Local build and all three typechecks passed; Desktop offline suite passed 11 tests. YAML parsing verified commands, Prisma ordering and the existing successful-CI gate before exact-commit main deployment. apps/gateway is absent following Phase 1 removal. Actual GitHub execution of the newly added steps remains to be verified before marking this requirement complete."
+      ]
     },
     {
       "id": "dea246478d6ef5c5",
