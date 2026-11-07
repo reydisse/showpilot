@@ -1,368 +1,146 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, useBlocker } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, KeyRound, LoaderCircle } from "lucide-react";
 import { BoardSkeleton } from "@/components/ui/Skeleton";
-import { useState, useRef, useEffect, useCallback } from "react";
-import {
-  Flame,
-  KeyRound,
-  CheckCircle2,
-  XCircle,
-  LogIn,
-  LogOut,
-  X,
-} from "lucide-react";
-import { useRouter } from "@tanstack/react-router";
-import {
-  getPublicCheckInOrg,
-  publicCheckInByMemberId,
-  getPublicCrewMemberByMemberId,
-} from "@/lib/data";
-
-type CheckInResult = {
-  memberId: string;
-  name: string;
-  photoUrl: string;
-  role: string;
-  isOnline: boolean;
-};
-
-const rememberedMemberKey = (slug: string) => `showpilot-checkin:${slug}:memberId`;
+import { ConfirmDialog, useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { getPublicCheckInOrg, publicCheckInByMemberId, getPublicCrewMemberByMemberId } from "@/lib/data";
+import { publicCheckInOrgSchema, type PublicAttendanceResult, type PublicAttendanceWrite, type PublicCrewMember } from "@/lib/public-checkin";
 
 export const Route = createFileRoute("/checkin/$slug")({
   pendingComponent: () => <BoardSkeleton />,
-  loader: async ({ params }) => {
-    const org = await getPublicCheckInOrg({ data: { slug: params.slug } });
-    if (!org) {
-      throw redirect({ to: "/" });
-    }
-    return { slug: params.slug, orgName: org.name };
+  loader: async ({ params, abortController }) => {
+    if (!publicCheckInOrgSchema.safeParse({ slug: params.slug }).success) return { slug: params.slug, orgName: null };
+    const org = await getPublicCheckInOrg({ data: { slug: params.slug }, signal: abortController.signal });
+    return { slug: params.slug, orgName: org?.name ?? null };
   },
   component: PublicCheckInPage,
 });
-
 function PublicCheckInPage() {
   const { slug, orgName } = Route.useLoaderData();
-  const router = useRouter();
+  return orgName === null ? <main className="min-h-screen bg-board-bg p-6 text-board-text">
+    <div className="mx-auto max-w-lg space-y-4"><h1 className="text-xl font-semibold">Organization not found</h1>
+      <p>Check the check-in link or ask your team for the correct QR code.</p>
+      <a href="/" className="inline-flex min-h-11 items-center underline">Go to ShowPilot</a></div>
+  </main> : <CheckInKiosk key={slug} slug={slug} orgName={orgName} />;
+}
+
+type Failure = { message: string; occurredAt: number };
+type State =
+  | { kind: "entry" }
+  | { kind: "lookup"; memberId: string }
+  | { kind: "lookup-error"; memberId: string; failure: Failure }
+  | { kind: "confirm"; member: PublicCrewMember }
+  | { kind: "write"; attempt: PublicAttendanceWrite }
+  | { kind: "write-error"; attempt: PublicAttendanceWrite; failure: Failure }
+  | { kind: "done"; attempt: PublicAttendanceWrite; result: PublicAttendanceResult };
+interface Flight { controller: AbortController; timer?: ReturnType<typeof setTimeout> }
+const buttonClass = "min-h-11 rounded-xl border border-board-border px-4 py-3 font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fire-500 disabled:opacity-50";
+
+export function CheckInKiosk({ slug, orgName }: { slug: string; orgName: string }) {
   const [code, setCode] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<CheckInResult | null>(null);
-  const [error, setError] = useState("");
-  const [rememberedMember, setRememberedMember] = useState<CheckInResult | null>(null);
-  const [restoringMember, setRestoringMember] = useState(true);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const resetState = useCallback(() => {
-    setResult(null);
-    setError("");
-    setCode("");
-    inputRef.current?.focus();
-  }, []);
-
+  const [state, setState] = useState<State>({ kind: "entry" });
+  const flight = useRef<Flight | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
+  const uncertain = state.kind === "write" || state.kind === "write-error";
+  const blocker = useBlocker({ shouldBlockFn: () => uncertain, enableBeforeUnload: uncertain, withResolver: true });
+  const cancel = () => { clearTimeout(flight.current?.timer); flight.current?.controller.abort(); flight.current = null; };
+  const reset = () => { cancel(); setCode(""); setState({ kind: "entry" }); };
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const restoreRememberedMember = async () => {
-      if (typeof window === "undefined") return;
-      const memberId = window.localStorage.getItem(rememberedMemberKey(slug));
-      if (!memberId) {
-        if (!cancelled) setRestoringMember(false);
-        return;
-      }
-
-      try {
-        const member = await getPublicCrewMemberByMemberId({ data: { slug, memberId } });
-        if (!cancelled) {
-          setRememberedMember(member ? { ...member } : null);
-        }
-        if (!member) {
-          window.localStorage.removeItem(rememberedMemberKey(slug));
-        }
-      } catch {
-        if (!cancelled) {
-          setRememberedMember(null);
-        }
-      } finally {
-        if (!cancelled) setRestoringMember(false);
-      }
-    };
-
-    void restoreRememberedMember();
-
-    return () => {
-      cancelled = true;
-    };
+    // Legacy IDs are hints, never identity proof. Do not read or restore them.
+    try { localStorage.removeItem(`showpilot-checkin:${slug}:memberId`); } catch { /* Storage is optional; no identity is restored. */ }
+    return cancel;
   }, [slug]);
-
+  useEffect(() => { if (state.kind === "entry") input.current?.focus(); }, [state.kind]);
   useEffect(() => {
-    if (!error) return;
-    timerRef.current = setTimeout(() => {
-      resetState();
-      router.invalidate();
-    }, 4000);
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [error, resetState, router]);
+    // A shared station should not retain a completed or abandoned identity.
+    // Failures stay visible until the user chooses Retry or Start over.
+    if (state.kind !== "confirm" && state.kind !== "done") return;
+    const timer = setTimeout(reset, state.kind === "done" ? 15_000 : 60_000);
+    return () => clearTimeout(timer);
+  }, [state]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = code.trim();
-    if (!trimmed || loading) return;
-
-    setLoading(true);
-    setError("");
-    setResult(null);
-
+  async function run<T>(operation: (signal: AbortSignal) => Promise<T>, success: (result: T) => void, failure: (error: Failure) => void) {
+    if (flight.current) return;
+    const current: Flight = { controller: new AbortController() }; flight.current = current;
     try {
-      const res = await publicCheckInByMemberId({ data: { slug, memberId: trimmed, intent: "check-in" } });
-      if (!res) {
-        setError("Member not found");
-        setCode("");
-      } else {
-        if (typeof window !== "undefined") {
-          window.localStorage.setItem(rememberedMemberKey(slug), res.memberId);
-        }
-        setResult(res);
-        setRememberedMember(res);
-        setCode("");
-      }
-    } catch {
-      // The write may have succeeded even when its response was lost. Read
-      // the acknowledged state before offering a retry of the same intent.
-      try {
-        const reconciled = await getPublicCrewMemberByMemberId({ data: { slug, memberId: trimmed } });
-        if (reconciled?.isOnline) {
-          setResult(reconciled);
-          setRememberedMember(reconciled);
-          if (typeof window !== "undefined") window.localStorage.setItem(rememberedMemberKey(slug), reconciled.memberId);
-        } else {
-          setError("Unable to confirm check-in right now");
-        }
-      } catch {
-        setError("Unable to confirm check-in right now");
-      }
-      setCode("");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleQuickToggle = async () => {
-    if (!rememberedMember || loading) return;
-
-    setLoading(true);
-    setError("");
-    setResult(null);
-    const intent = rememberedMember.isOnline ? "check-out" : "check-in";
-    const desiredOnline = intent === "check-in";
-
-    try {
-      const res = await publicCheckInByMemberId({ data: { slug, memberId: rememberedMember.memberId, intent } });
-      if (!res) {
-        setError("Member not found");
-        setRememberedMember(null);
-        if (typeof window !== "undefined") {
-          window.localStorage.removeItem(rememberedMemberKey(slug));
-        }
-      } else {
-        if (typeof window !== "undefined") {
-          window.localStorage.setItem(rememberedMemberKey(slug), res.memberId);
-        }
-        setResult(res);
-        setRememberedMember(res);
-      }
-    } catch {
-      try {
-        const reconciled = await getPublicCrewMemberByMemberId({ data: { slug, memberId: rememberedMember.memberId } });
-        if (reconciled && reconciled.isOnline === desiredOnline) {
-          setResult(reconciled);
-          setRememberedMember(reconciled);
-        } else {
-          setError("Unable to confirm attendance right now");
-        }
-      } catch {
-        setError("Unable to confirm attendance right now");
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const clearRememberedMember = () => {
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(rememberedMemberKey(slug));
-    }
-    setRememberedMember(null);
-    setResult(null);
-    setCode("");
-    setError("");
-    inputRef.current?.focus();
-  };
-
-  return (
-    <div className="min-h-screen bg-board-bg text-board-text">
-      <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-5 py-4">
-        <div className="max-w-lg mx-auto">
-          <h1 className="text-lg font-bold">
-            <span className="text-fire-500">Check-In</span>
-          </h1>
-          <p className="text-xs text-board-muted mt-1">{orgName}</p>
-          <p className="text-xs text-board-muted">Enter your member ID</p>
-        </div>
-      </div>
-
-      <main className="px-5 py-4 pb-8 max-w-lg mx-auto">
-        <div className="flex flex-col items-center pt-8">
-          {!result && !error && !restoringMember && rememberedMember && (
-            <div className="w-full mb-6 rounded-2xl bg-board-card border border-board-border p-4 text-center space-y-4">
-              <div className="mx-auto w-20 h-20 rounded-full bg-board-bg border border-board-border overflow-hidden">
-                {rememberedMember.photoUrl ? (
-                  <img
-                    src={rememberedMember.photoUrl}
-                    alt={rememberedMember.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-board-border text-board-muted text-xs">
-                    {rememberedMember.name.charAt(0)}
-                  </div>
-                )}
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-board-muted mb-2">Welcome back</p>
-                <h2 className="text-xl font-bold text-board-text">{rememberedMember.name}</h2>
-                <p className="text-sm text-board-muted mt-1">{rememberedMember.role}</p>
-              </div>
-              <button
-                onClick={handleQuickToggle}
-                disabled={loading}
-                className={`w-full px-5 py-4 rounded-2xl font-semibold text-lg transition-colors ${
-                  rememberedMember.isOnline
-                    ? "bg-orange-500 text-white hover:bg-orange-600"
-                    : "bg-fire-500 text-white hover:bg-fire-600"
-                } disabled:opacity-40 disabled:cursor-not-allowed`}
-              >
-                {loading
-                  ? "Working..."
-                  : rememberedMember.isOnline
-                    ? "Check Out"
-                    : "Check In Again"}
-              </button>
-              <button
-                onClick={clearRememberedMember}
-                className="text-xs text-board-muted hover:text-board-text transition-colors"
-              >
-                Use a different ID
-              </button>
-            </div>
-          )}
-
-          {!result && !error && (
-            <div className="w-full space-y-4 animate-in fade-in duration-200">
-              <div className="text-center mb-6">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-fire-500/10 border border-fire-500/20 mb-4">
-                  <KeyRound className="w-8 h-8 text-fire-500" />
-                </div>
-                <p className="text-board-muted text-sm">
-                  {rememberedMember
-                    ? "Or enter a different member ID"
-                    : "Enter your member ID to check in"}
-                </p>
-              </div>
-
-              <form onSubmit={handleSubmit} className="space-y-3">
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. TD3917"
-                  autoComplete="off"
-                  autoFocus
-                  className="w-full px-5 py-4 rounded-2xl bg-board-card border border-board-border text-board-text text-center text-2xl font-mono tracking-[0.2em] uppercase placeholder:text-board-muted/30 placeholder:tracking-[0.2em] focus:outline-none focus:border-fire-500 focus:ring-1 focus:ring-fire-500/30 transition-all"
-                />
-                <button
-                  type="submit"
-                  disabled={!code.trim() || loading}
-                  aria-label={loading ? "Checking in" : "Check in"}
-                  aria-busy={loading}
-                  className="w-full px-5 py-4 rounded-2xl bg-fire-500 text-white font-semibold text-lg hover:bg-fire-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  {loading ? <Flame className="w-5 h-5 animate-pulse mx-auto" /> : "Check In"}
-                </button>
-              </form>
-            </div>
-          )}
-
-          {result && (
-            <div className="w-full text-center space-y-5 animate-float-in">
-              <div
-                className={`inline-flex items-center justify-center w-20 h-20 rounded-full ${
-                  result.isOnline
-                    ? "bg-green-500/15 border-2 border-green-500/30"
-                    : "bg-orange-500/15 border-2 border-orange-500/30"
-                }`}
-              >
-                {result.photoUrl ? (
-                  <img
-                    src={result.photoUrl}
-                    alt={result.name}
-                    className="w-full h-full rounded-full object-cover"
-                  />
-                ) : result.isOnline ? (
-                  <LogIn className="w-9 h-9 text-green-400" />
-                ) : (
-                  <LogOut className="w-9 h-9 text-orange-400" />
-                )}
-              </div>
-
-              <div>
-                <h2 className="text-2xl font-bold text-board-text">{result.name}</h2>
-                <p className="text-sm text-board-muted mt-1">{result.role}</p>
-              </div>
-
-              <div
-                className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-base font-semibold ${
-                  result.isOnline
-                    ? "bg-green-500/15 text-green-400 border border-green-500/25"
-                    : "bg-orange-500/15 text-orange-400 border border-orange-500/25"
-                }`}
-              >
-                <CheckCircle2 className="w-5 h-5" />
-                {result.isOnline ? "Checked In" : "Checked Out"}
-              </div>
-
-              <button
-                onClick={() => {
-                  resetState();
-                  router.invalidate();
-                }}
-                className="inline-flex items-center gap-1.5 text-xs text-board-muted/60 hover:text-board-muted transition-colors pt-1"
-              >
-                <X className="w-3 h-3" />
-                Done
-              </button>
-            </div>
-          )}
-
-          {error && (
-            <div className="w-full text-center space-y-5 animate-float-in">
-              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-red-500/15 border-2 border-red-500/30">
-                <XCircle className="w-9 h-9 text-red-400" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold text-red-400">{error}</h2>
-                <p className="text-sm text-board-muted mt-1">Check your ID and try again</p>
-              </div>
-              <p className="text-xs text-board-muted/60 pt-2">Returning to entry screen...</p>
-            </div>
-          )}
-        </div>
-      </main>
-    </div>
-  );
+      const result = await Promise.race([
+        Promise.resolve().then(() => { current.controller.signal.throwIfAborted(); return operation(current.controller.signal); }),
+        new Promise<never>((_, reject) => { current.timer = setTimeout(() => { reject(new Error("Confirmation timed out. Check the connection and retry.")); current.controller.abort(); }, 10_000); }),
+      ]);
+      if (flight.current === current) success(result);
+    } catch (error) {
+      if (flight.current === current) failure({ message: error instanceof Error ? error.message : "Unable to confirm attendance. Please retry.", occurredAt: Date.now() });
+    } finally { clearTimeout(current.timer); if (flight.current === current) flight.current = null; }
+  }
+  function lookup(memberId: string) {
+    if (flight.current) return;
+    setState({ kind: "lookup", memberId });
+    void run(signal => getPublicCrewMemberByMemberId({ data: { slug, memberId }, signal }), member => {
+      if (member) setState({ kind: "confirm", member });
+      else setState({ kind: "lookup-error", memberId, failure: { message: "Member not found. Check your ID or ask your team.", occurredAt: Date.now() } });
+    }, failure => setState({ kind: "lookup-error", memberId, failure }));
+  }
+  function write(attempt: PublicAttendanceWrite) {
+    if (flight.current) return;
+    setState({ kind: "write", attempt });
+    void run(async signal => {
+      const result = await publicCheckInByMemberId({ data: attempt, signal });
+      if (result.requestId !== attempt.requestId || (result.outcome !== "applied" && result.outcome !== "conflict")) throw new Error("Attendance was not confirmed. Retry the same change.");
+      return result;
+    }, result => setState({ kind: "done", attempt, result }), failure => setState({ kind: "write-error", attempt, failure }));
+  }
+  async function startOver() {
+    if (uncertain && !await confirm({ title: "Start over?", description: "The attendance change may still complete. Starting over removes this retry. Enter your ID again to check the latest attendance.", confirmLabel: "Start over", variant: "warning" })) return;
+    reset();
+  }
+  const failure = state.kind === "lookup-error" || state.kind === "write-error" ? state.failure : null;
+  const completed = state.kind === "done" && state.result.outcome === "applied" && state.result.member !== null
+    && state.result.member.isOnline === (state.attempt.intent === "check-in");
+  return <div className="min-h-screen bg-board-bg text-board-text">
+    <header className="border-b border-board-border px-5 py-4"><div className="mx-auto max-w-lg">
+      <h1 className="text-lg font-bold text-fire-500">Crew check-in</h1><p className="mt-1 break-words text-sm text-board-muted">{orgName}</p>
+    </div></header>
+    <main className="mx-auto max-w-lg space-y-5 px-5 py-8">
+      {state.kind === "entry" && <form className="space-y-4" onSubmit={event => { event.preventDefault(); const memberId = code.trim().toUpperCase(); if (memberId) lookup(memberId); }}>
+        <KeyRound className="size-10 text-fire-500" aria-hidden="true" />
+        <p>Enter your member ID, then confirm your name and attendance.</p>
+        <label htmlFor="member-id" className="block text-sm font-medium">Member ID</label>
+        <input ref={input} id="member-id" value={code} onChange={event => setCode(event.target.value.toUpperCase())} maxLength={64} autoComplete="off" autoCapitalize="characters" spellCheck={false}
+          className="min-h-12 w-full rounded-xl border border-board-border bg-board-card px-4 py-3 font-mono text-lg focus-visible:outline-fire-500" placeholder="e.g. TD3917" />
+        <button type="submit" disabled={!code.trim()} className={`${buttonClass} w-full bg-fire-500 text-white`}>Find my name</button>
+        <p className="text-xs text-board-muted">Shared station: your identity is cleared when you finish. Enter your own ID each time.</p>
+      </form>}
+      {(state.kind === "lookup" || state.kind === "write") && <p role="status" className="flex items-center gap-3"><LoaderCircle className="size-5 animate-spin" aria-hidden="true" />{state.kind === "lookup" ? "Finding your name…" : "Confirming attendance…"}</p>}
+      {state.kind === "lookup" && <button className={buttonClass} onClick={reset}>Cancel lookup</button>}
+      {state.kind === "confirm" && <section aria-label="Confirm your identity" className="space-y-4 rounded-2xl border border-board-border bg-board-card p-5">
+        {state.member.photoUrl && <img src={state.member.photoUrl} alt="" className="size-20 rounded-full object-cover" />}
+        <h2 className="break-words text-xl font-semibold">Is this you, {state.member.name}?</h2>
+        <p className="break-words text-board-muted">{state.member.role}</p>
+        <p>{state.member.isOnline ? "You are currently checked in." : "You are currently checked out."}</p>
+        <button className={`${buttonClass} w-full bg-fire-500 text-white`} onClick={() => write({ slug, memberId: state.member.memberId, intent: state.member.isOnline ? "check-out" : "check-in", expectedRevision: state.member.revision, requestId: crypto.randomUUID() })}>
+          {state.member.isOnline ? "Yes, check me out" : "Yes, check me in"}
+        </button>
+        <button className={`${buttonClass} w-full`} onClick={reset}>Not me · use another ID</button>
+      </section>}
+      {failure && <section role="alert" className="space-y-4 rounded-xl border border-red-400/30 bg-red-500/5 p-4">
+        <h2 className="text-lg font-medium">{state.kind === "write-error" ? "Attendance not confirmed" : "Could not find your name"}</h2>
+        <p className="break-words">{failure.message}</p>
+        {state.kind === "write-error" && <p className="text-sm text-board-muted">The change may have arrived. Retry checks the same request without changing a later attendance update.</p>}
+        <p className="text-xs text-board-muted">Last error <time dateTime={new Date(failure.occurredAt).toISOString()}>{new Date(failure.occurredAt).toLocaleTimeString()}</time></p>
+        <button className={buttonClass} onClick={() => { if (state.kind === "lookup-error") lookup(state.memberId); else if (state.kind === "write-error") write(state.attempt); }}>{state.kind === "write-error" ? "Retry attendance" : "Retry lookup"}</button>
+        <button className={`${buttonClass} ml-2`} onClick={() => void startOver()}>Start over</button>
+      </section>}
+      {state.kind === "done" && <section role="status" className="space-y-4">
+        {completed && <CheckCircle2 aria-hidden="true" className="size-12 text-green-400" />}
+        <h2 className="text-xl font-semibold">{completed ? state.attempt.intent === "check-in" ? "Checked in" : "Checked out" : "Attendance changed"}</h2>
+        {completed ? <p className="break-words">{state.result.member?.name}</p> : <p>{state.result.outcome === "conflict" ? "Your change was not applied because attendance changed after you looked it up." : "Your earlier change was recorded, and attendance has since changed."} Enter your ID again to review the latest state.</p>}
+        <button className={`${buttonClass} w-full`} onClick={reset}>Done</button>
+        <p className="text-xs text-board-muted">This screen clears automatically after 15 seconds.</p>
+      </section>}
+    </main>
+    {ConfirmDialogEl}
+    <ConfirmDialog open={blocker.status === "blocked"} onOpenChange={open => { if (!open) blocker.reset?.(); }} onConfirm={() => blocker.proceed?.()}
+      title="Leave check-in?" description="The attendance change may still complete. Leaving removes this retry. Enter your ID again when you return to check the latest attendance." confirmLabel="Leave" cancelLabel="Stay" variant="warning" />
+  </div>;
 }

@@ -21,7 +21,8 @@ import {
   parseOrThrow,
   serviceDateSchema,
 } from "@/lib/validation";
-import { applyPublicAttendanceIntent } from "@/lib/public-checkin";
+import { publicCheckInOrgSchema, publicMemberLookupSchema, publicAttendanceWriteSchema } from "@/lib/public-checkin";
+import { applyPublicAttendanceIntent, getPublicAttendanceMember } from "@/lib/public-checkin.server";
 import { enforcePublicCheckInRateLimit } from "@/lib/public-checkin-rate-limit.server";
 
 const nameSchema = z.string().min(1).max(200);
@@ -203,74 +204,27 @@ export const checkInByMemberId = createServerFn({ method: "POST" })
   });
 
 export const getPublicCheckInOrg = createServerFn({ method: "GET" })
-  .inputValidator((data: { slug: string }) => data)
-  .handler(async ({ data }) => {
-    const prisma = getPrisma();
-    return await prisma.organization.findUnique({
-      where: { slug: data.slug },
-      select: { id: true, name: true, slug: true },
-    });
-  });
+  .inputValidator((data: unknown) => parseOrThrow(publicCheckInOrgSchema, data))
+  .handler(async ({ data }) => getPrisma().organization.findUnique({
+    where: { slug: data.slug }, select: { name: true, slug: true },
+  }));
 
 export const publicCheckInByMemberId = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        slug: z.string().min(1).max(64),
-        memberId: idSchema,
-        intent: z.enum(["check-in", "check-out"]),
-      }),
-      data,
-    ),
-  )
+  .inputValidator((data: unknown) => parseOrThrow(publicAttendanceWriteSchema, data))
   .handler(async ({ data }) => {
     await enforcePublicCheckInRateLimit("write", data.slug, data.memberId);
-    const prisma = getPrisma();
-    const org = await prisma.organization.findUnique({
-      where: { slug: data.slug },
-      select: { id: true },
-    });
-    if (!org) return null;
-
-    const updated = await applyPublicAttendanceIntent(prisma, {
-      orgId: org.id,
-      memberId: data.memberId,
-      intent: data.intent,
-    });
-    if (!updated) return null;
-
-    return {
-      name: updated.name,
-      memberId: updated.memberId,
-      photoUrl: updated.photoUrl,
-      role: updated.role,
-      isOnline: updated.isOnline,
-    };
+    const org = await getPrisma().organization.findUnique({ where: { slug: data.slug }, select: { id: true } });
+    if (!org) throw new Error("Organization not found. Check the check-in link.");
+    return applyPublicAttendanceIntent(getD1(), org.id, data);
   });
 
 export const getPublicCrewMemberByMemberId = createServerFn({ method: "GET" })
-  .inputValidator((data: { slug: string; memberId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(publicMemberLookupSchema, data))
   .handler(async ({ data }) => {
     await enforcePublicCheckInRateLimit("read", data.slug, data.memberId);
-    const prisma = getPrisma();
-    const org = await prisma.organization.findUnique({
-      where: { slug: data.slug },
-      select: { id: true },
-    });
+    const org = await getPrisma().organization.findUnique({ where: { slug: data.slug }, select: { id: true } });
     if (!org) return null;
-
-    const member = await prisma.crewMember.findUnique({
-      where: { orgId_memberId: { orgId: org.id, memberId: data.memberId } },
-      select: {
-        memberId: true,
-        name: true,
-        photoUrl: true,
-        role: true,
-        isOnline: true,
-      },
-    });
-
-    return member;
+    return getPublicAttendanceMember(getD1(), org.id, data.memberId);
   });
 
 // ─── Checklist ──────────────────────────────────────────────
