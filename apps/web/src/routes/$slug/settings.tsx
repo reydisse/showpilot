@@ -192,6 +192,7 @@ function OrganizationSettingsPage({
   loaderData: ReturnType<typeof Route.useLoaderData>;
 }) {
   const { settings, members, billing, orgId, slug, org, role, rundownPinEnabled } = loaderData;
+  const { user } = Route.useRouteContext();
   const [confidenceLayoutValue, setConfidenceLayoutValue] = useState<string | undefined>(settings[CONFIDENCE_LAYOUT_KEY]);
   const [confidenceDirty, setConfidenceDirty] = useState(false);
   const [invitationDirty, setInvitationDirty] = useState(false);
@@ -378,7 +379,7 @@ function OrganizationSettingsPage({
             <LowerThirdsSection {...sectionProps} />
           )}
             {resolvedSection === "kiosk" && (
-            <KioskSection orgId={orgId} slug={slug} members={members} />
+            <KioskSection orgId={orgId} slug={slug} userId={user.id} members={members} />
           )}
             {resolvedSection === "companion" && (
             <CompanionSection orgId={orgId} slug={slug} />

@@ -12,7 +12,10 @@ export const Route = createFileRoute("/api/v1/kiosk/display")({
         if ("error" in auth) {
           return kioskError(auth.error.code, auth.error.message, auth.error.status);
         }
-        return kioskJson(await getKioskDisplay(auth.orgId));
+        const response = kioskJson(await getKioskDisplay(auth.orgId));
+        // Every display poll must observe the latest operator command.
+        response.headers.set("Cache-Control", "private, no-store");
+        return response;
       },
     },
   },
