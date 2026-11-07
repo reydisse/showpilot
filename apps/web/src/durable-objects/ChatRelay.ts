@@ -1,3 +1,4 @@
+import { chatPassIsRevoked } from "@/lib/chat-pass-revocation.server";
 import { reportRelayError } from "@/lib/operational-errors.server";
 import { DurableObject } from "cloudflare:workers";
 import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh, socketAuthorityClaim } from "@/lib/socket-read-authority.server";
@@ -59,7 +60,7 @@ interface GatewayStatusFrame {
 
 type ChatSession = { name: string; orgId: string; roomId: string } & (
   | { kind: "member"; userId: string; role?: string; authClaim: LiveSessionAuthorityClaim }
-  | { kind: "guest"; userId?: never; role: "Guest"; workerVerified: true; expiresAt: number; attachmentOwnerId?: string }
+  | { kind: "guest"; userId?: never; role: "Guest"; workerVerified: true; tokenHash: string; expiresAt: number; attachmentOwnerId?: string }
   | { kind: "viewer"; userId?: never; role?: never }
 );
 
@@ -67,12 +68,14 @@ function readChatSession(value: unknown): ChatSession | null {
   if (!isRecord(value) || typeof value.name !== "string" || typeof value.orgId !== "string" || typeof value.roomId !== "string") return null;
   const base = { name: value.name, orgId: value.orgId, roomId: value.roomId };
   if (value.kind === "guest" && value.workerVerified === true && value.userId === undefined && value.role === "Guest"
+    && typeof value.tokenHash === "string" && /^sha256:[0-9a-f]{64}$/.test(value.tokenHash)
     && typeof value.expiresAt === "number" && Number.isFinite(value.expiresAt)) {
     return {
       ...base,
       kind: "guest",
       role: "Guest",
       workerVerified: true,
+      tokenHash: value.tokenHash,
       expiresAt: value.expiresAt,
       ...(typeof value.attachmentOwnerId === "string" ? { attachmentOwnerId: value.attachmentOwnerId } : {}),
     };
@@ -466,7 +469,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         nextAlarm = Math.min(nextAlarm ?? session.expiresAt, session.expiresAt);
       }
     }
-    await scheduleSocketReadRefresh(this.ctx, socket => socketAuthorityClaim(socket) !== null,
+    await scheduleSocketReadRefresh(this.ctx, socket => readChatSession(socket.deserializeAttachment())?.kind !== "viewer",
       activeConnections > 0 ? nextAlarm : null);
   }
 
@@ -584,8 +587,11 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         }
         const expiresAt = Number(url.searchParams.get("guestExpiresAt"));
         if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return new Response("Guest pass expired", { status: 401 });
+        const tokenHash = url.searchParams.get("guestTokenHash");
+        if (!tokenHash || !/^sha256:[0-9a-f]{64}$/.test(tokenHash)) return new Response("Guest token identity required", { status: 401 });
+        if (await chatPassIsRevoked(this.env.DB, this.orgId, tokenHash)) return new Response("Guest pass revoked", { status: 401 });
         const attachmentOwnerId = url.searchParams.get("attachmentOwnerId") ?? undefined;
-        session = { ...base, kind: "guest", role: "Guest", workerVerified: true, expiresAt, attachmentOwnerId };
+        session = { ...base, kind: "guest", role: "Guest", workerVerified: true, tokenHash, expiresAt, attachmentOwnerId };
       } else {
         if (url.searchParams.get("role") === "Guest") return new Response("Guest authority required", { status: 401 });
         session = await this.readMemberSession(url) ?? { ...base, kind: "viewer" };
@@ -598,8 +604,8 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       this.ctx.acceptWebSocket(server);
       this.sessions.set(server, session);
       server.serializeAttachment(session);
-      if (session.kind === "member") renewSocketReadLease(server);
-      await scheduleSocketReadRefresh(this.ctx, socket => socketAuthorityClaim(socket) !== null,
+      if (session.kind !== "viewer") renewSocketReadLease(server);
+      await scheduleSocketReadRefresh(this.ctx, socket => readChatSession(socket.deserializeAttachment())?.kind !== "viewer",
         await this.ctx.storage.getAlarm());
 
       // Send recent messages for hydration
@@ -735,16 +741,22 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
       const session = this.getSession(ws);
       if (!session) return;
-      if (
-        session.kind === "viewer"
-        || (session.kind === "member" && !(await hasLivePermissionAuthority(this.env.DB, session.authClaim, "chat:access")))
-      ) {
-        ws.close(4403, "Chat access changed");
+      let allowed: boolean;
+      try {
+        allowed = session.kind === "member" ? await hasLivePermissionAuthority(this.env.DB, session.authClaim, "chat:access")
+          : session.kind === "guest" && !await chatPassIsRevoked(this.env.DB, this.orgId, session.tokenHash);
+      } catch {
+        ws.close(1011, "Chat authorization unavailable. Reconnect.");
+        this.sessions.delete(ws);
+        return;
+      }
+      if (!allowed) {
+        ws.close(4403, session.kind === "guest" ? "Guest pass revoked" : "Chat access changed");
         this.sessions.delete(ws);
         return;
       }
 
-      if (session.kind === "member") renewSocketReadLease(ws);
+      renewSocketReadLease(ws);
       if (parsed.type === "typing") {
         this.broadcast(JSON.stringify({
           type: "typing",
@@ -1098,7 +1110,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       return null;
     }
     this.sessions.set(ws, session);
-    if (!socketReadLeaseAllows(ws, session.kind === "member")) {
+    if (!socketReadLeaseAllows(ws, session.kind !== "viewer")) {
       this.sessions.delete(ws);
       return null;
     }
@@ -1107,11 +1119,20 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
   async refreshReadAuthority(userId?: string): Promise<void> {
     await refreshSocketReadLeases(this.ctx.getWebSockets(), async socket => {
+      const session = this.getSession(socket);
+      if (session?.kind === "guest") {
+        if (await chatPassIsRevoked(this.env.DB, session.orgId, session.tokenHash)) {
+          socket.close(4403, "Guest pass revoked");
+          this.sessions.delete(socket);
+          return null;
+        }
+        return true;
+      }
       const claim = socketAuthorityClaim(socket);
       if (!claim || (userId && claim.userId !== userId)) return null;
       return hasLivePermissionAuthority(this.env.DB, claim, "chat:access");
     });
-    await scheduleSocketReadRefresh(this.ctx, socket => socketAuthorityClaim(socket) !== null,
+    await scheduleSocketReadRefresh(this.ctx, socket => readChatSession(socket.deserializeAttachment())?.kind !== "viewer",
       await this.ctx.storage.getAlarm());
   }
 

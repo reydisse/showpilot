@@ -40,9 +40,19 @@ it("removes the chat when its signed access period ends", async () => {
   expect(screen.getByRole("heading", { name: "This crew pass has expired" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "Guest chat connected" })).toBeNull();
 });
-it.each(["invalid", "expired", "unavailable"])("never connects or requests a guest name for a %s pass", async status => {
+it.each(["invalid", "expired", "unavailable", "revoked"])("never connects or requests a guest name for a %s pass", async status => {
   api.validate.mockResolvedValue({ status });
   await renderJoin();
   expect(screen.queryByLabelText("Display name")).toBeNull();
   expect(api.chat).not.toHaveBeenCalled();
+});
+
+it("removes guest chat when the authenticated relay reports revocation", async () => {
+  api.validate.mockResolvedValue({ status: "valid", pass: { orgId: "org", orgSlug: "venue", exp: Math.floor(Date.now()/1000)+3600 } });
+  api.chat.mockReturnValue({ guestAccessRevoked: true, connectionStatus: "disconnected" });
+  await renderJoin();
+  fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Camera fixture" } });
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Join Team Chat" })));
+  expect(screen.getByRole("heading", { name: "This crew pass was revoked" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Guest chat connected" })).toBeNull();
 });

@@ -19,7 +19,7 @@ vi.mock("@/lib/effective-access", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../effective-access")>()),
   resolveEffectiveAccess: mocks.access,
 }));
-vi.mock("@/lib/crew-chat-pass", () => ({ verifyCrewChatPass: vi.fn() }));
+vi.mock("@/lib/chat-pass-revocation.server", () => ({ chatPassDigest: async () => "sha256:" + "a".repeat(64), verifyCrewChatPass: vi.fn() }));
 vi.mock("@/lib/auth-origins", () => ({ isAllowedApiOrigin: () => true }));
 vi.mock("@/durable-objects/ChatRelay", () => ({ ChatRelay: class {} }));
 vi.mock("@/durable-objects/RundownRelay", () => ({ RundownRelay: class {} }));

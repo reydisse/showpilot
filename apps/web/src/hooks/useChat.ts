@@ -18,6 +18,7 @@ interface UseChatOptions {
 }
 
 interface UseChatReturn {
+  guestAccessRevoked: boolean;
   messages: ChatMessage[];
   sendMessage: (text: string, type?: MessageType, options?: ChatMessageOptions) => void;
   uploadAttachment: (file: File) => Promise<ChatAttachment>;
@@ -44,7 +45,7 @@ interface UseChatReturn {
   cancelQueuedMessage: (messageId: string) => void;
 }
 
-function createAdapter(orgId: string, guest: { token: string; name: string } | undefined, roomId: string, identity: string, currentUserId?: string): ChatAdapter {
+function createAdapter(orgId: string, guest: ConstructorParameters<typeof NativeChatAdapter>[1], roomId: string, identity: string, currentUserId?: string): ChatAdapter {
   return new NativeChatAdapter(orgId, guest, roomId, identity, currentUserId);
 }
 
@@ -56,6 +57,7 @@ function createAdapter(orgId: string, guest: { token: string; name: string } | u
  * share one ordered conversation.
  */
 export function useChat({ orgId, isVisible = false, senderName: userName, senderRole: userRole, guestToken, roomId = "production", currentUserId }: UseChatOptions): UseChatReturn {
+  const [guestAccessRevoked, setGuestAccessRevoked] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("disconnected");
   const [unreadCount, setUnreadCount] = useState(0);
@@ -87,6 +89,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
 
     // Clear state when the organization, room, or guest identity changes.
     setMessages([]);
+    setGuestAccessRevoked(false);
     setTypingUsers([]);
     setReadReceipts({});
     setHydrated(false);
@@ -96,7 +99,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     setHasOlderMessages(false);
     setOlderMessagesError(null);
 
-    const adapter = createAdapter(orgId, guestToken && userName ? { token: guestToken, name: userName } : undefined, roomId, chatOutboxIdentity(currentUserId, guestToken), currentUserId);
+    const adapter = createAdapter(orgId, guestToken && userName ? { token: guestToken, name: userName, onRevoked: () => setGuestAccessRevoked(true) } : undefined, roomId, chatOutboxIdentity(currentUserId, guestToken), currentUserId);
     adapterRef.current = adapter;
 
     // Subscribe to messages
@@ -278,6 +281,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
   const cancelQueuedMessage = useCallback((messageId: string) => adapterRef.current?.cancelOutbox?.(messageId), []);
 
   return {
+    guestAccessRevoked,
     messages,
     sendMessage,
     uploadAttachment,

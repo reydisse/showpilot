@@ -147,7 +147,7 @@ describe("ChatRelay threads", () => {
     const sent = nextFrame(member.socket, "message");
     member.socket.send(JSON.stringify({ type: "message", text: "Member original", clientMessageId: messageId }));
     await sent;
-    const response = await member.stub.fetch(new Request(`https://chat.test/internal/guest-ws?orgId=guest-ownership-org&room=production&userId=user-1&name=Guest&role=Guest&guestExpiresAt=${Date.now() + 60000}`, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } }));
+    const response = await member.stub.fetch(new Request(`https://chat.test/internal/guest-ws?orgId=guest-ownership-org&room=production&userId=user-1&name=Guest&role=Guest&guestTokenHash=sha256:${"a".repeat(64)}&guestExpiresAt=${Date.now() + 60000}`, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } }));
     if (!response.webSocket) throw new Error("Missing guest socket");
     const guest = response.webSocket;
     const hydration = nextFrame(guest, "hydrate"); guest.accept(); await hydration;
@@ -163,7 +163,7 @@ describe("ChatRelay threads", () => {
   it("rejects a guest connection without a current expiry", async () => {
     const stub = env.CHAT_RELAY.getByName("expired-guest-org:production");
     for (const expiry of ["", "NaN", "0", String(Date.now() - 1)]) {
-      const response = await stub.fetch(new Request(`https://chat.test/internal/guest-ws?orgId=expired-guest-org&role=Guest&guestExpiresAt=${expiry}`, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } }));
+      const response = await stub.fetch(new Request(`https://chat.test/internal/guest-ws?orgId=expired-guest-org&role=Guest&guestTokenHash=sha256:${"a".repeat(64)}&guestExpiresAt=${expiry}`, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } }));
       expect(response.status).toBe(401);
     }
   });
@@ -175,7 +175,7 @@ describe("ChatRelay threads", () => {
     // Hold time steady during the handshake, then expire the hydrated guest.
     const clock = vi.spyOn(Date, "now").mockReturnValue(now);
     try {
-      const response = await member.stub.fetch(new Request(`https://chat.test/internal/guest-ws?orgId=guest-expiry-org&role=Guest&guestExpiresAt=${expiresAt}`, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } }));
+      const response = await member.stub.fetch(new Request(`https://chat.test/internal/guest-ws?orgId=guest-expiry-org&role=Guest&guestTokenHash=sha256:${"a".repeat(64)}&guestExpiresAt=${expiresAt}`, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } }));
       expect(response.status).toBe(101);
       if (!response.webSocket) throw new Error("Missing guest socket");
       const guest = response.webSocket;
