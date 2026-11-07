@@ -142,38 +142,33 @@ export async function loadRosterDuty(
   serviceDate: string,
 ): Promise<SnapshotRosterDuty> {
   const weekStart = weekStartFor(serviceDate);
-  const empty: SnapshotRosterDuty = { weekStart, pm: null, tm: null };
-  try {
-    const rows =
-      (
-        await getD1()
-          .prepare(
-            `SELECT a.kind AS kind, r.code AS code, u.id AS userId, u.name AS name
-               FROM roster_assignment a
-               JOIN user u ON u.id = a.userId
-               LEFT JOIN roster_role r ON r.id = a.roleId
-              WHERE a.orgId = ? AND a.weekStart = ?`,
-          )
-          .bind(orgId, weekStart)
-          .all<{
-            kind: string;
-            code: string | null;
-            userId: string;
-            name: string;
-          }>()
-      ).results ?? [];
+  const rows =
+    (
+      await getD1()
+        .prepare(
+          `SELECT a.kind AS kind, r.code AS code, u.id AS userId, u.name AS name
+             FROM roster_assignment a
+             JOIN user u ON u.id = a.userId
+             JOIN member m ON m.organizationId = a.orgId AND m.userId = a.userId
+             LEFT JOIN roster_role r ON r.id = a.roleId AND r.orgId = a.orgId
+            WHERE a.orgId = ? AND a.weekStart = ?`,
+        )
+        .bind(orgId, weekStart)
+        .all<{
+          kind: string;
+          code: string | null;
+          userId: string;
+          name: string;
+        }>()
+    ).results ?? [];
 
-    const duty: SnapshotRosterDuty = { weekStart, pm: null, tm: null };
-    for (const row of rows) {
-      const person = { id: row.userId, name: row.name };
-      if (row.kind === "pm") duty.pm = person;
-      else if ((row.code ?? "").toLowerCase() === "tm") duty.tm = person;
-    }
-    return duty;
-  } catch {
-    // Org predates migration 0005, or the roster tables are absent.
-    return empty;
+  const duty: SnapshotRosterDuty = { weekStart, pm: null, tm: null };
+  for (const row of rows) {
+    const person = { id: row.userId, name: row.name };
+    if (row.kind === "pm") duty.pm = person;
+    else if ((row.code ?? "").toLowerCase() === "tm") duty.tm = person;
   }
+  return duty;
 }
 
 /** Has this org ever assigned anyone to anything? */

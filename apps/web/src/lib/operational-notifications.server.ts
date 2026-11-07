@@ -28,7 +28,7 @@ export type OperationalNotification = {
   once?: boolean;
 };
 
-async function notificationIdFor(
+export async function operationalNotificationId(
   input: Pick<OperationalNotification, "orgId" | "dedupeKey">,
   userId: string,
 ) {
@@ -94,7 +94,7 @@ async function deliverOperationalEvent(input: OperationalNotification) {
     recipientIds.map(async (userId) => {
       try {
         const deviceAlerts = preferences.get(userId) ?? true;
-        const notificationId = await notificationIdFor(input, userId);
+        const notificationId = await operationalNotificationId(input, userId);
         if (input.once && !input.dedupeKey) throw new Error("Once-only notifications require an event key");
         const inserted = await getD1()
           .prepare(

@@ -1,3 +1,4 @@
+vi.mock("../KioskDutyRoster", () => ({ KioskDutyRoster: () => null }));
 import {
   act,
   cleanup,
@@ -16,12 +17,6 @@ vi.mock("@/lib/kiosk-display", () => ({
 }));
 vi.mock("@/lib/kiosk-admin", () => ({
   getKioskTeams: async () => [],
-  getRosterRoles: async () => [],
-  getRosterWeek: vi.fn(),
-  seedRosterRoles: vi.fn(),
-  createRosterRole: vi.fn(),
-  deleteRosterRole: vi.fn(),
-  saveRosterWeek: vi.fn(),
 }));
 vi.mock("@/lib/kiosk", () => ({
   listKioskTokens: async () => [],
