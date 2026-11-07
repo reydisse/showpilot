@@ -1798,8 +1798,10 @@
       "phase": "2",
       "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
       "line": 274,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-07: Reproduced late Production history and errors contaminating Planning, a carried-over loading flag, and stale callbacks targeting a new room. useChat now owns all view state and callbacks per connection; render-time identity prevents the old room flashing before cleanup. History requests coalesce, abort on disconnect, time out after eight seconds, and cannot advance their cursor after cancellation. Ten hook and two additional adapter regressions passed, including organization/user changes, returning to the same room, timeout/retry and unmount. Room navigation retains Back/Forward, reflects one room in URL/header/panel/highlight, distinguishes Rooms and Direct messages in the desktop sections and mobile optgroups, removes unsupported seven-day retention copy, and recovers invalid or foreign DM links without opening a chat socket. No operator Join production action remains; the guest join page keeps its explicit join action. Full web suite passed 2168 unit, 829 Worker and four coverage-gate tests; typecheck/build passed. Compiled Worker/Chrome smoke-chat-rooms.mjs passed 2003 real seeded messages, actual older-history delivery held across switching, timeout/retry, isolated DM composer persistence, Back/Forward and all three rooms at 320/768/1440px. Named controls passed 44px hit checks, phone screenshot inspected, zero browser errors or external email. Nothing deployed or released."
+      ]
     },
     {
       "id": "8fb2f980425e345c",
