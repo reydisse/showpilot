@@ -1,0 +1,40 @@
+import { act, cleanup, renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { useIncidentWrite } from "../useIncidentWrite";
+const api = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/incidents", () => ({ mutateIncident: api }));
+const scope = { orgId:"org", showId:"show", serviceDate:"2026-11-06" };
+const add = { kind:"report" as const, description:"Camera", category:"Video" as const, severity:"high" as const, reportedBy:"" };
+beforeEach(()=>{ vi.useFakeTimers(); api.mockReset(); api.mockImplementation(async({data})=>({requestId:data.requestId,outcome:"applied"})); });
+afterEach(()=>{ cleanup(); vi.useRealTimers(); });
+it("captures a save once, rejects double submission, and retries the same body after a deadline",async()=>{
+  let late: (value:unknown)=>void = ()=>{};
+  api.mockImplementationOnce(()=>new Promise(resolve=>{late=resolve;}));
+  const {result}=renderHook(()=>useIncidentWrite(scope)); const mutable={...add};
+  act(()=>{void result.current.run(mutable);void result.current.run(mutable);}); mutable.description="Later edit";
+  await act(async()=>vi.advanceTimersByTimeAsync(10_000));
+  expect(result.current.state.kind).toBe("uncertain"); expect(api).toHaveBeenCalledOnce(); expect(api.mock.calls[0][0].signal.aborted).toBe(true);
+  await act(async()=>late({requestId:api.mock.calls[0][0].data.requestId,outcome:"applied"})); expect(result.current.state.kind).toBe("uncertain");
+  await act(async()=>{expect(await result.current.run(add)).toBeNull(); await result.current.run();});
+  expect(api.mock.calls[1][0].data).toEqual(api.mock.calls[0][0].data); expect(api.mock.calls[1][0].data.operation.description).toBe("Camera");
+  expect(result.current.state.kind).toBe("idle");
+});
+it("keeps a conflict for review and refuses to discard an unknown outcome",async()=>{
+  api.mockImplementationOnce(async({data})=>({requestId:data.requestId,outcome:"conflict"}));
+  const {result}=renderHook(()=>useIncidentWrite(scope));
+  await act(async()=>{await result.current.run(add);}); expect(result.current.state.kind).toBe("conflict");
+  await act(async()=>{expect(await result.current.run()).toBeNull();}); expect(api).toHaveBeenCalledOnce();
+  act(()=>result.current.clearConflict()); expect(result.current.state.kind).toBe("idle");
+  api.mockRejectedValueOnce(new Error("lost"));
+  await act(async()=>{await result.current.run(add);}); act(()=>result.current.clearConflict()); expect(result.current.state.kind).toBe("uncertain");
+});
+it("rejects the wrong acknowledgement and ignores old show replies after navigation",async()=>{
+  api.mockResolvedValueOnce({requestId:"other",outcome:"applied"});
+  const {result,rerender,unmount}=renderHook(props=>useIncidentWrite(props),{initialProps:scope});
+  await act(async()=>{await result.current.run(add);}); expect(result.current.state.kind).toBe("uncertain");
+  let late: (value:unknown)=>void=()=>{};api.mockImplementationOnce(()=>new Promise(resolve=>{late=resolve;}));
+  act(()=>{void result.current.run();});rerender({...scope,showId:"next"});
+  expect(api.mock.calls[1][0].signal.aborted).toBe(true);expect(result.current.state.kind).toBe("idle");
+  await act(async()=>late({requestId:api.mock.calls[1][0].data.requestId,outcome:"applied"}));expect(result.current.state.kind).toBe("idle");
+  unmount();expect(vi.getTimerCount()).toBe(0);
+});

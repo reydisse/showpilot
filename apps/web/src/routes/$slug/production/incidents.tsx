@@ -1,5 +1,5 @@
 import { RelaySyncNotice } from "@/components/RelaySyncNotice";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useBlocker } from "@tanstack/react-router";
 import { isEmojiReaction } from "@showpilot/shared";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import {
@@ -15,7 +15,6 @@ import {
   AlertTriangle,
   ShieldCheck,
   Trash2,
-  X,
   MessageCircle,
   Send,
   History,
@@ -24,7 +23,14 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
-import { getIncidents, addIncident, deleteIncident } from "@/lib/data";
+import { objectionableContentReason } from "@/lib/user-content-safety";
+import { getIncidentSnapshot } from "@/lib/incidents";
+import { INCIDENT_CATEGORIES, REACTION_EMOJIS, incidentCategorySchema, incidentSeveritySchema, type IncidentOperation, type IncidentRow, type IncidentComment, type ContentReaction } from "@/lib/incident-writes";
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { useIncidentWrite } from "@/hooks/useIncidentWrite";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import {
   hasAnyEffectivePermission,
   hasEffectivePermission,
@@ -35,19 +41,8 @@ import { getOrgSettings } from "@/lib/settings";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
-import {
-  addIncidentComment,
-  getIncidentComments,
-  type IncidentComment,
-} from "@/lib/incident-comments";
 import { getIncidentHistory } from "@/lib/incident-history";
 import { getRundownOpeningDate } from "@/lib/rundown";
-import {
-  getContentReactions,
-  REACTION_EMOJIS,
-  toggleContentReaction,
-  type ContentReaction,
-} from "@/lib/content-reactions";
 
 function shiftDate(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T12:00:00");
@@ -65,53 +60,8 @@ function formatDisplayDate(dateStr: string): string {
   });
 }
 
-type IncidentItem = {
-  id: string;
-  category: string;
-  severity: string;
-  description: string;
-  reportedBy: string;
-  timestamp: string;
-  status: string;
-  assignedTo: string | null;
-  assignedName: string;
-  acknowledgedAt: string | null;
-};
-
-function normalizeIncident(incident: {
-  id: string;
-  category: string;
-  severity: string;
-  description: string;
-  reportedBy: string;
-  timestamp: Date | string;
-  status?: string;
-  assignedTo?: string | null;
-  assignedName?: string | null;
-  acknowledgedAt?: Date | string | null;
-}): IncidentItem {
-  return {
-    id: incident.id,
-    category:
-      CATEGORIES.find(
-        (category) =>
-          category.toLowerCase() === incident.category.trim().toLowerCase(),
-      ) ?? incident.category,
-    severity: incident.severity,
-    description: incident.description,
-    reportedBy: incident.reportedBy,
-    timestamp:
-      incident.timestamp instanceof Date
-        ? incident.timestamp.toISOString()
-        : incident.timestamp,
-    status: incident.status ?? "open",
-    assignedTo: incident.assignedTo ?? null,
-    assignedName: incident.assignedName ?? "",
-    acknowledgedAt:
-      incident.acknowledgedAt instanceof Date
-        ? incident.acknowledgedAt.toISOString()
-        : (incident.acknowledgedAt ?? null),
-  };
+function normalizeIncident(incident: IncidentRow): IncidentRow {
+  return { ...incident, category: INCIDENT_CATEGORIES.find(category => category.toLowerCase() === incident.category.trim().toLowerCase()) ?? incident.category };
 }
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -120,17 +70,6 @@ const SEVERITY_COLORS: Record<string, string> = {
   high: "bg-orange-500/15 text-orange-400 border-orange-500/25",
   critical: "bg-red-500/15 text-red-400 border-red-500/25",
 };
-
-const CATEGORIES = [
-  "Audio",
-  "Video",
-  "Lighting",
-  "Network",
-  "Power",
-  "Software",
-  "Hardware",
-  "Other",
-];
 
 export const Route = createFileRoute("/$slug/production/incidents")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -145,7 +84,8 @@ export const Route = createFileRoute("/$slug/production/incidents")({
   pendingMs: 800,
   pendingMinMs: 100,
   loaderDeps: ({ search }) => ({ date: search.date, show: search.show }),
-  loader: async ({ context, deps }) => {
+  loader: async ({ context, deps, abortController }) => {
+    const signal = abortController.signal;
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(
       context.role,
@@ -153,309 +93,148 @@ export const Route = createFileRoute("/$slug/production/incidents")({
       context.slug,
       context.orgId,
     );
-    const settings = await getOrgSettings({ data: { orgId: context.orgId } });
+    return { ...await loadIncidentPage(context.orgId, deps, signal), role: context.role, grantedPermissions: context.grantedPermissions };
+
+  },
+  component: IncidentsPage,
+});
+
+async function loadIncidentPage(orgId: string, deps: { date?: string; show?: string }, signal: AbortSignal) {
+    const settings = await getOrgSettings({ data: { orgId: orgId }, signal });
     const today = getTodayDateString(settings["org-timezone"]);
     const opening = await getRundownOpeningDate({
       data: {
-        orgId: context.orgId,
+        orgId: orgId,
         today,
         serviceDate: deps.date,
         showId: deps.show,
-      },
+      }, signal,
     });
     const serviceDate = opening.serviceDate;
     const showId = opening.showId;
-    const [incidents, comments, recentHistory] = await Promise.all([
-      getIncidents({ data: { orgId: context.orgId, serviceDate, showId } }),
-      getIncidentComments({
-        data: { orgId: context.orgId, serviceDate, showId },
-      }),
+    const [snapshot, recentHistory] = await Promise.all([
+      getIncidentSnapshot({ data: { orgId: orgId, serviceDate, showId: showId ?? null }, signal }),
       getIncidentHistory({
         data: {
-          orgId: context.orgId,
+          orgId: orgId,
           status: "all",
           severity: "all",
           sort: "newest",
           to: shiftDate(getTodayDateString(settings["org-timezone"]), -1),
           page: 1,
           pageSize: 10,
-        },
+        }, signal,
       }),
     ]);
     return {
-      incidents: incidents.map(normalizeIncident),
-      orgId: context.orgId,
-      role: context.role,
-      grantedPermissions: context.grantedPermissions,
+      snapshot,
+      orgId: orgId,
       orgTimezone: settings["org-timezone"] || "UTC",
       initialServiceDate: serviceDate,
       initialShowId: showId ?? null,
       shows: opening.shows,
-      comments,
       recentHistory,
     };
-  },
-  component: IncidentsPage,
-});
+}
 
 function IncidentsPage() {
+  const initial = Route.useLoaderData();
   const { incident: focusedIncidentId } = Route.useSearch();
   const { slug } = Route.useParams();
-  const {
-    incidents: initialIncidents,
-    comments: initialComments,
-    recentHistory,
-    orgId,
-    role,
-    grantedPermissions,
-    orgTimezone,
-    initialServiceDate,
-    initialShowId,
-    shows,
-  } = Route.useLoaderData();
-  const [showId, setShowId] = useState<string | null>(initialShowId);
-  const [serviceDate, setServiceDate] = useState(initialServiceDate);
-  const [incidents, setIncidents] = useState(initialIncidents);
-  const [loadingIncidents, setLoadingIncidents] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [comments, setComments] = useState<IncidentComment[]>(initialComments);
-  const [openIncidentId, setOpenIncidentId] = useState<string | null>(focusedIncidentId ?? null);
-  const requestVersion = useRef(0);
-  const scrolledIncident = useRef<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [commentError, setCommentError] = useState<{ incidentId: string; message: string } | null>(null);
-  const toggleIncident = (id: string) => setOpenIncidentId((current) => current === id ? null : id);
-  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>(
-    {},
-  );
-  const [commentBusy, setCommentBusy] = useState<string | null>(null);
-  const [replyTargets, setReplyTargets] = useState<
-    Record<string, string | null>
-  >({});
-  const [reactions, setReactions] = useState<ContentReaction[]>([]);
-  const [form, setForm] = useState({
-    category: "Audio",
-    severity: "medium",
-    description: "",
-    reportedBy: "",
+  return <IncidentsWorkspace key={`${initial.orgId}:${initial.initialShowId}:${initial.initialServiceDate}`} initial={initial} slug={slug} focusedIncidentId={focusedIncidentId} />;
+}
+
+type IncidentInitial = Awaited<ReturnType<typeof loadIncidentPage>> & { role: Parameters<typeof hasEffectivePermission>[0]; grantedPermissions: Parameters<typeof hasEffectivePermission>[1] };
+type ReportFields = Omit<Extract<IncidentOperation, { kind: "report" }>, "kind">;
+const emptyReport: ReportFields = { category: "Audio", severity: "medium", description: "", reportedBy: "" };
+
+export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initial: IncidentInitial; slug: string; focusedIncidentId?: string }) {
+  const { snapshot: initialSnapshot, recentHistory, orgId, role, grantedPermissions, orgTimezone, initialServiceDate, initialShowId, shows } = initial;
+  const [selection, setSelection] = useState({ showId: initialShowId, serviceDate: initialServiceDate });
+  const { showId, serviceDate } = selection;
+  const scopeKey = JSON.stringify([orgId, showId, serviceDate]);
+  const read = useCallback((signal: AbortSignal) => getIncidentSnapshot({ data: { orgId, showId, serviceDate }, signal }), [orgId, showId, serviceDate]);
+  const snapshotRead = useOperatorRead<Awaited<ReturnType<typeof getIncidentSnapshot>> | null>({
+    key: scopeKey, initialValue: showId === initialShowId && serviceDate === initialServiceDate ? initialSnapshot : null,
+    read, errorMessage: "Could not refresh incidents. Confirmed reports and drafts are kept. Retry to get the latest discussion.",
+    // The relay can request a fresh snapshot while this tab is in the background.
+    pauseWhenHidden: false,
   });
+  const incidents = snapshotRead.value?.incidents.map(normalizeIncident) ?? [];
+  const comments = snapshotRead.value?.comments ?? [];
+  const reactions = snapshotRead.value?.reactions ?? [];
+  const loadingIncidents = !snapshotRead.value && !snapshotRead.error;
+  const writes = useIncidentWrite({ orgId, showId, serviceDate });
+  const writeLocked = writes.state.kind !== "idle";
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState<ReportFields>(emptyReport);
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [replyTargets, setReplyTargets] = useState<Record<string, string | null>>({});
+  const [savedNotice, setSavedNotice] = useState("");
+  const [openIncidentId, setOpenIncidentId] = useState<string | null>(focusedIncidentId ?? null);
+  const scrolledIncident = useRef<string | null>(null);
+  const toggleIncident = (id: string) => setOpenIncidentId(current => current === id ? null : id);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
-  const canReportIncidents = hasAnyEffectivePermission(
-    role,
-    grantedPermissions,
-    ["incidents:report", "incidents:access"],
-  );
-  const canManageIncidents = hasEffectivePermission(
-    role,
-    grantedPermissions,
-    "incidents:access",
-  );
+  const canReportIncidents = hasAnyEffectivePermission(role, grantedPermissions, ["incidents:report", "incidents:access"]);
+  const canManageIncidents = hasEffectivePermission(role, grantedPermissions, "incidents:access");
+  const canWrite = canReportIncidents && !!snapshotRead.value && !snapshotRead.error && !snapshotRead.refreshing && !writeLocked;
   const today = getTodayDateString(orgTimezone);
-
-  useEffect(() => {
-    setOpenIncidentId(focusedIncidentId ?? null);
-  }, [focusedIncidentId]);
-
+  const dirty = writeLocked || !!form.description.trim() || Object.values(commentDrafts).some(value => !!value.trim());
+  const blocker = useBlocker({ shouldBlockFn: () => dirty, enableBeforeUnload: dirty, withResolver: true });
+  const selectShow = async (next: typeof selection) => {
+    if (dirty && !await confirm({ title: "Leave these incidents?", description: "An unconfirmed save may still complete. Leaving discards your local drafts and retry controls. Review this incident log when you return.", confirmLabel: "Leave incident log" })) return;
+    setSelection(next); setForm(emptyReport); setCommentDrafts({}); setReplyTargets({}); setSavedNotice(""); setShowForm(false); setOpenIncidentId(null);
+  };
+  useServiceDateRollover({ serviceDate, timeZone: orgTimezone, onTodayChanged: nextToday => {
+    if (!dirty) { const nextShow = shows.find(show => show.serviceDate === nextToday); void selectShow({ serviceDate: nextShow?.serviceDate ?? nextToday, showId: nextShow?.id ?? null }); }
+  } });
+  useEffect(() => { setOpenIncidentId(focusedIncidentId ?? null); }, [focusedIncidentId]);
   useEffect(() => {
     if (!openIncidentId) { scrolledIncident.current = null; return; }
     if (loadingIncidents || scrolledIncident.current === openIncidentId) return;
     const frame = requestAnimationFrame(() => {
       const card = document.getElementById(`incident-${openIncidentId}`);
-      if (!card) return;
-      scrolledIncident.current = openIncidentId;
-      card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      if (card) { scrolledIncident.current = openIncidentId; card.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
     });
     return () => cancelAnimationFrame(frame);
-  }, [openIncidentId, loadingIncidents]);
-
-  const loadIncidents = useCallback(
-    async (date: string, targetShowId: string | null, reportFailure = false, signal?: AbortSignal) => {
-      const version = ++requestVersion.current;
-      setLoadingIncidents(true);
-      setLoadError(null);
-      try {
-        const [latest, latestComments] = await Promise.all([
-          getIncidents({
-            data: {
-              orgId,
-              serviceDate: date,
-              showId: targetShowId ?? undefined,
-            },
-            signal,
-          }),
-          getIncidentComments({
-            data: {
-              orgId,
-              serviceDate: date,
-              showId: targetShowId ?? undefined,
-            },
-            signal,
-          }),
-        ]);
-        if (signal?.aborted || version !== requestVersion.current) return;
-        setIncidents(latest.map(normalizeIncident));
-        setComments(latestComments);
-      } catch (cause) {
-        if (!signal?.aborted && version === requestVersion.current) setLoadError(cause instanceof Error ? cause.message : "Could not load incidents. Try again.");
-        if (reportFailure) throw cause;
-      } finally {
-        if (version === requestVersion.current) setLoadingIncidents(false);
-      }
-    },
-    [orgId],
-  );
-
+  }, [openIncidentId, loadingIncidents, snapshotRead.confirmedAt]);
   const { publish: publishIncident, syncError, syncErrorAt, status: syncStatus, retrySync } = useCueSheetSync({
-    orgId,
-    scope: showId ?? "",
-    onNote: () => {},
-    onRefresh: (signal) => loadIncidents(serviceDate, showId, true, signal),
-    onIncident: (event) => {
-      if (event.showId === showId) void loadIncidents(serviceDate, showId);
-    },
+    orgId, scope: scopeKey, onNote: () => {},
+    onRefresh: async signal => { if (!await snapshotRead.refresh() || signal.aborted) throw new Error("Incident refresh was not confirmed. Retry to reconnect."); },
+    onIncident: event => { if (event.showId === showId) snapshotRead.invalidate(); },
   });
-
-  useEffect(() => {
-    requestVersion.current += 1;
-    setLoadingIncidents(false);
-    setServiceDate(initialServiceDate);
-    setShowId(initialShowId);
-    setIncidents(initialIncidents);
-    setComments(initialComments);
-  }, [initialIncidents, initialComments, initialServiceDate, initialShowId]);
-
-  useEffect(() => {
-    if (!showForm) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setShowForm(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [showForm]);
-
-  useEffect(() => {
-    setOpenIncidentId(focusedIncidentId ?? null);
-    void loadIncidents(serviceDate, showId);
-    return () => { requestVersion.current += 1; };
-  }, [loadIncidents, serviceDate, showId]);
-
-  useEffect(() => {
-    const targetIds = comments.map((comment) => comment.id);
-    if (targetIds.length === 0) {
-      setReactions([]);
-      return;
+  const save = async (operation?: IncidentOperation) => {
+    if (operation && (!canWrite || (operation.kind === "report" && !showId))) return;
+    setSavedNotice("");
+    const ack = await writes.run(operation);
+    if (!ack) return;
+    snapshotRead.invalidate();
+    if (ack.result.outcome !== "applied") return;
+    setSavedNotice("Change saved.");
+    const op = ack.attempt.operation;
+    if (op.kind === "report") { setForm(emptyReport); setShowForm(false); }
+    if (op.kind === "comment") {
+      setCommentDrafts(current => current[op.incidentId]?.trim() === op.body ? { ...current, [op.incidentId]: "" } : current);
+      setReplyTargets(current => ({ ...current, [op.incidentId]: null }));
     }
-    let active = true;
-    void getContentReactions({
-      data: { orgId, targetType: "incident-comment", targetIds },
-    })
-      .then((rows) => { if (active) setReactions(rows); })
-      .catch(() => { if (active) setReactions([]); });
-    return () => { active = false; };
-  }, [comments, orgId]);
-
-  useServiceDateRollover({
-    serviceDate,
-    timeZone: orgTimezone,
-    onTodayChanged: (nextToday) => {
-      const nextShow = shows.find((show) => show.serviceDate === nextToday);
-      setServiceDate(nextShow?.serviceDate ?? nextToday);
-      setShowId(nextShow?.id ?? null);
-    },
-  });
-
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!canReportIncidents) return;
-    if (!form.description.trim()) return;
-    if (!showId) return;
-    await addIncident({ data: { orgId, ...form, serviceDate, showId } });
-    publishIncident({
-      type: "incident",
-      showId,
-      incidentId: "new",
-      action: "created",
-      at: Date.now(),
-    });
-    setForm({
-      category: "Audio",
-      severity: "medium",
-      description: "",
-      reportedBy: "",
-    });
-    setShowForm(false);
-    await loadIncidents(serviceDate, showId);
+    const incidentId = op.kind === "report" ? `incident-${ack.attempt.requestId}` : op.kind === "delete" ? op.id : op.kind === "comment" ? op.incidentId : comments.find(comment => comment.id === op.commentId)?.incidentId;
+    if (incidentId && op.kind !== "reaction") publishIncident({ type: "incident", showId, incidentId, action: op.kind === "report" ? "created" : op.kind === "delete" ? "deleted" : "commented", at: Date.now() });
+    if (incidentId && op.kind === "reaction") publishIncident({ type: "incident", showId, incidentId, action: "commented", at: Date.now() });
   };
-
-  const handleDelete = async (id: string) => {
-    if (!canManageIncidents) return;
-    const ok = await confirm({
-      title: "Delete incident",
-      description: "Delete this incident? This action cannot be undone.",
-      confirmLabel: "Delete",
-    });
-    if (!ok) return;
-    await deleteIncident({ data: { orgId, id } });
-    publishIncident({
-      type: "incident",
-      showId,
-      incidentId: id,
-      action: "deleted",
-      at: Date.now(),
-    });
-    await loadIncidents(serviceDate, showId);
+  const handleAdd = (event: React.FormEvent) => { event.preventDefault(); if (form.description.trim()) void save({ kind: "report", ...form }); };
+  const handleDelete = async (incident: IncidentRow) => {
+    if (!canManageIncidents || !canWrite) return;
+    if (await confirm({ title: "Delete incident", description: "Delete this incident and its discussion? This action cannot be undone.", confirmLabel: "Delete" })) await save({ kind: "delete", id: incident.id, snapshot: incident.deleteSnapshot });
   };
-
-  const submitComment = async (incidentId: string) => {
-    const body = commentDrafts[incidentId]?.trim();
-    if (!body || commentBusy) return;
-    setCommentError(null);
-    setCommentBusy(incidentId);
-    try {
-      const comment = await addIncidentComment({
-        data: {
-          orgId,
-          incidentId,
-          parentId: replyTargets[incidentId] ?? null,
-          body,
-        },
-      });
-      setComments((current) => [...current, comment]);
-      setCommentDrafts((current) => ({ ...current, [incidentId]: "" }));
-      setReplyTargets((current) => ({ ...current, [incidentId]: null }));
-      publishIncident({
-        type: "incident",
-        showId,
-        incidentId,
-        action: "commented",
-        at: Date.now(),
-      });
-    } catch (cause) {
-      setCommentError({ incidentId, message: cause instanceof Error ? cause.message : "Comment did not send. Your draft has been kept." });
-    } finally {
-      setCommentBusy(null);
-    }
+  const submitComment = (incidentId: string) => { const body = commentDrafts[incidentId]?.trim(); if (body && !objectionableContentReason(body)) void save({ kind: "comment", incidentId, parentId: replyTargets[incidentId] ?? null, body }); };
+  const reactToComment = async (commentId: string, emoji: string) => {
+    const own = reactions.find(reaction => reaction.targetId === commentId && reaction.emoji === emoji && reaction.userId === snapshotRead.value?.viewerId);
+    await save({ kind: "reaction", commentId, emoji, active: !own, expectedId: own?.id ?? null });
   };
-
-  const reactToComment = async (
-    commentId: string,
-    emoji: string,
-  ) => {
-    await toggleContentReaction({
-      data: {
-        orgId,
-        targetType: "incident-comment",
-        targetId: commentId,
-        emoji,
-      },
-    });
-    const targetIds = comments.map((comment) => comment.id);
-    setReactions(
-      await getContentReactions({
-        data: { orgId, targetType: "incident-comment", targetIds },
-      }),
-    );
-  };
+  const writeNotice = writes.state.kind === "uncertain" || writes.state.kind === "conflict" ?
+    <ReadFailureNotice error={writes.state.failure} refreshing={writes.state.kind === "conflict" && (snapshotRead.refreshing || !!snapshotRead.error)}
+      retry={() => writes.state.kind === "conflict" ? writes.clearConflict() : void save()} label={writes.state.kind === "conflict" ? "I reviewed the incident log" : "Retry incident save"} />
+    : writes.state.kind === "pending" ? <p role="status" className="p-3 text-sm text-board-muted">Saving incident change…</p> : null;
 
   return (
     <div className="h-full overflow-auto">
@@ -465,7 +244,7 @@ function IncidentsPage() {
           <h1 className="text-lg font-semibold text-board-text">
             Incident Log
           </h1>
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end [&_button]:min-h-11">
             <Link
               to="/$slug/production/incidents-history"
               params={{ slug }}
@@ -480,24 +259,24 @@ function IncidentsPage() {
                 sort: "newest",
                 page: 1,
               }}
-              className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-board-border bg-board-card px-3 text-xs font-medium text-board-muted transition-colors hover:border-fire-500/30 hover:text-board-text"
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-board-border bg-board-card px-3 text-xs font-medium text-board-muted transition-colors hover:border-fire-500/30 hover:text-board-text"
             >
               <History className="h-3.5 w-3.5" />
               History
             </Link>
             <ShowSwitcherMenu
+              disabled={writes.state.kind === "pending"}
               selectedId={showId}
               shows={shows}
               timeZone={orgTimezone}
               onSelect={(selected) => {
-                setShowId(selected.id);
-                setServiceDate(selected.serviceDate);
+                void selectShow({ showId: selected.id, serviceDate: selected.serviceDate });
               }}
             />
             {canReportIncidents && showId && (
               <button
                 onClick={() => setShowForm(true)}
-                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
                 style={{
                   background:
                     "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
@@ -509,23 +288,25 @@ function IncidentsPage() {
             )}
           </div>
         </div>
+        <ReadFailureNotice error={snapshotRead.error} refreshing={snapshotRead.refreshing} retry={snapshotRead.retry} label="Retry incidents" />
+        {!showForm && writeNotice}
       </div>
 
       <div className="mx-auto max-w-3xl p-4 sm:p-6">
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-fire-400">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-fire-400">
               {serviceDate === today ? "Today" : "Selected date"}
             </p>
             <h2 className="mt-1 text-sm font-semibold text-board-text">
               {serviceDate === today ? "Current incidents" : "Incident details"}
             </h2>
           </div>
-          <span className="text-[11px] text-board-muted">
+          <span className="text-xs text-board-muted">
             {formatDisplayDate(serviceDate)}
           </span>
         </div>
-        {loadError ? <div role="alert" className="mb-3 flex items-center gap-3 text-sm text-red-300"><p className="flex-1">{loadError}</p><button className="min-h-11 px-2 font-semibold" onClick={() => void loadIncidents(serviceDate, showId)}>Retry</button></div> : null}
+        {savedNotice && <p role="status" className="py-3 text-sm text-emerald-400">{savedNotice}</p>}
         {loadingIncidents && (
           <p className="mb-3 text-xs text-board-muted">
             Loading incidents for {formatDisplayDate(serviceDate)}...
@@ -557,20 +338,20 @@ function IncidentsPage() {
                       </p>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         <span
-                          className={`text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded border ${SEVERITY_COLORS[incident.severity] || SEVERITY_COLORS.medium}`}
+                          className={`text-xs font-medium uppercase tracking-wider px-1.5 py-0.5 rounded border ${SEVERITY_COLORS[incident.severity] || SEVERITY_COLORS.medium}`}
                         >
                           {incident.severity}
                         </span>
-                        <span className="text-[10px] text-board-muted bg-board-bg px-1.5 py-0.5 rounded border border-board-border">
+                        <span className="text-xs text-board-muted bg-board-bg px-1.5 py-0.5 rounded border border-board-border">
                           {incident.category}
                         </span>
                         {incident.reportedBy && (
-                          <span className="text-[10px] text-board-muted">
+                          <span className="text-xs text-board-muted">
                             by {incident.reportedBy}
                           </span>
                         )}
                         {incident.timestamp && (
-                          <span className="text-[10px] text-board-muted">
+                          <span className="text-xs text-board-muted">
                             {formatTime(
                               new Date(incident.timestamp),
                               "12hr",
@@ -579,13 +360,13 @@ function IncidentsPage() {
                           </span>
                         )}
                         <span
-                          className={`text-[10px] font-medium ${incident.status === "resolved" ? "text-green-400" : "text-board-muted"}`}
+                          className={`text-xs font-medium ${incident.status === "resolved" ? "text-green-400" : "text-board-muted"}`}
                         >
                           {incident.status}
                         </span>
                       </div>
                       <p
-                        className={`mt-2 text-[11px] ${incident.assignedTo ? "text-board-text" : "text-red-400"}`}
+                        className={`mt-2 text-xs ${incident.assignedTo ? "text-board-text" : "text-red-400"}`}
                       >
                         {incident.assignedTo
                           ? `Assigned to ${incident.assignedName || "team member"}${incident.acknowledgedAt ? " · acknowledged" : " · awaiting acknowledgement"}`
@@ -599,9 +380,10 @@ function IncidentsPage() {
                       type="button"
                       onClick={(event) => {
                         event.stopPropagation();
-                        void handleDelete(incident.id);
+                        void handleDelete(incident);
                       }}
-                      className="rounded-lg p-2 text-board-muted opacity-100 transition-all hover:bg-red-500/20 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100"
+                      disabled={!canWrite}
+                      className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted hover:bg-red-500/20 hover:text-red-400 focus-visible:outline-2 focus-visible:outline-fire-500 disabled:opacity-50"
                       aria-label={`Delete incident: ${incident.description}`}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -659,10 +441,12 @@ function IncidentsPage() {
                               }))
                             }
                             onReact={reactToComment}
+                            disabled={!canWrite}
+                            viewerId={snapshotRead.value?.viewerId ?? ""}
                           />
                         ))}
                       {replyTargets[incident.id] ? (
-                        <div className="flex items-center justify-between rounded-lg border border-fire-500/20 bg-fire-500/[0.04] px-3 py-2 text-[10px] text-board-muted">
+                        <div className="flex items-center justify-between rounded-lg border border-fire-500/20 bg-fire-500/[0.04] px-3 py-2 text-xs text-board-muted">
                           <span>Replying in thread</span>
                           <button
                             type="button"
@@ -672,13 +456,13 @@ function IncidentsPage() {
                                 [incident.id]: null,
                               }))
                             }
-                            className="text-fire-400"
+                            className="min-h-11 px-2 text-fire-400"
                           >
                             Cancel reply
                           </button>
                         </div>
                       ) : null}
-                      {commentError?.incidentId === incident.id ? <p role="alert" className="text-sm text-red-300">{commentError.message}</p> : null}
+                      {objectionableContentReason(commentDrafts[incident.id] ?? "") && <p role="alert" className="text-sm text-red-300">{objectionableContentReason(commentDrafts[incident.id] ?? "")}</p>}
                       <div className="flex items-end gap-2">
                         <textarea
                           aria-label={`Update for ${incident.description}`}
@@ -703,11 +487,12 @@ function IncidentsPage() {
                         <button
                           type="button"
                           disabled={
-                            commentBusy !== null ||
+                            !canWrite ||
+                            !!objectionableContentReason(commentDrafts[incident.id] ?? "") ||
                             !commentDrafts[incident.id]?.trim()
                           }
                           onClick={() => void submitComment(incident.id)}
-                          className="rounded-lg bg-fire-500 p-2.5 text-black disabled:opacity-40"
+                          className="min-h-11 min-w-11 rounded-lg bg-fire-500 p-2.5 text-black disabled:opacity-40"
                           aria-label="Post comment"
                         >
                           <Send className="h-4 w-4" />
@@ -719,7 +504,7 @@ function IncidentsPage() {
               </div>
             ))}
           </div>
-        ) : (
+        ) : !loadingIncidents && !snapshotRead.error ? (
           <EmptyState
             icon={ShieldCheck}
             title="No incidents for this date"
@@ -729,12 +514,12 @@ function IncidentsPage() {
                 : "All clear. Issues reported during the show will appear here."
             }
           />
-        )}
+        ) : null}
 
         <section className="mt-10 border-t border-board-border pt-6">
           <div className="mb-3 flex items-end justify-between gap-3">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-board-muted">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-board-muted">
                 History
               </p>
               <h2 className="mt-1 text-sm font-semibold text-board-text">
@@ -755,7 +540,7 @@ function IncidentsPage() {
                 sort: "newest",
                 page: 1,
               }}
-              className="text-[11px] font-medium text-fire-400 hover:text-fire-300"
+              className="inline-flex min-h-11 items-center text-xs font-medium text-fire-400 hover:text-fire-300"
             >
               View and filter all
             </Link>
@@ -780,7 +565,7 @@ function IncidentsPage() {
               ))}
             </div>
           ) : (
-            <div className="rounded-xl border border-dashed border-board-border px-4 py-8 text-center">
+            <div className="min-h-11 rounded-xl border border-dashed border-board-border px-4 py-8 text-center">
               <p className="text-xs text-board-muted">
                 No previous incidents yet.
               </p>
@@ -789,44 +574,17 @@ function IncidentsPage() {
         </section>
       </div>
 
-      {showForm && canReportIncidents && showId && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-md"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setShowForm(false);
-          }}
-        >
-          <form
-            onSubmit={handleAdd}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="report-incident-title"
-            className="w-full max-w-lg space-y-4 rounded-2xl border border-board-border bg-board-card p-5 shadow-2xl sm:p-6"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h3
-                  id="report-incident-title"
-                  className="text-base font-semibold text-board-text"
-                >
-                  Report incident
-                </h3>
-                <p className="mt-1 text-xs text-board-muted">
-                  Log an issue for {formatDisplayDate(serviceDate)}.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="rounded-lg p-2 text-board-muted hover:bg-board-border hover:text-board-text"
-                aria-label="Close report incident"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      <Dialog open={showForm && canReportIncidents && !!showId} onOpenChange={setShowForm}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto border-board-border bg-board-card text-board-text sm:max-w-lg">
+          <DialogHeader><DialogTitle>Report incident</DialogTitle><DialogDescription>Log an issue for {formatDisplayDate(serviceDate)}.</DialogDescription></DialogHeader>
+          <ReadFailureNotice error={snapshotRead.error} refreshing={snapshotRead.refreshing} retry={snapshotRead.retry} label="Retry incidents" />
+          {writeNotice}
+          <form onSubmit={handleAdd} className="space-y-4">
+            <label htmlFor="incident-description" className="block text-sm font-medium">What happened?</label>
             <textarea
-              autoFocus
+              id="incident-description"
+              maxLength={10_000}
+              disabled={writeLocked}
               value={form.description}
               onChange={(e) =>
                 setForm({ ...form, description: e.target.value })
@@ -836,48 +594,58 @@ function IncidentsPage() {
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 resize-none"
             />
             <div className="grid gap-3 sm:grid-cols-3">
+              <label className="sr-only" htmlFor="incident-category">Category</label>
               <select
+                id="incident-category"
+                disabled={writeLocked}
                 value={form.category}
-                onChange={(e) => setForm({ ...form, category: e.target.value })}
-                className="px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
+                onChange={(e) => setForm({ ...form, category: incidentCategorySchema.parse(e.target.value) })}
+                className="min-h-11 min-w-0 px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
               >
-                {CATEGORIES.map((c) => (
+                {INCIDENT_CATEGORIES.map((c) => (
                   <option key={c} value={c}>
                     {c}
                   </option>
                 ))}
               </select>
+              <label className="sr-only" htmlFor="incident-severity">Severity</label>
               <select
+                id="incident-severity"
+                disabled={writeLocked}
                 value={form.severity}
-                onChange={(e) => setForm({ ...form, severity: e.target.value })}
-                className="px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
+                onChange={(e) => setForm({ ...form, severity: incidentSeveritySchema.parse(e.target.value) })}
+                className="min-h-11 min-w-0 px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
               >
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
                 <option value="critical">Critical</option>
               </select>
+              <label className="sr-only" htmlFor="incident-reporter">Reported by</label>
               <input
+                id="incident-reporter"
+                maxLength={200}
+                disabled={writeLocked}
                 value={form.reportedBy}
                 onChange={(e) =>
                   setForm({ ...form, reportedBy: e.target.value })
                 }
                 placeholder="Reported by..."
-                className="px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
+                className="min-h-11 min-w-0 px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
               />
             </div>
             <div className="flex justify-end gap-2 border-t border-board-border pt-4">
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
-                className="rounded-xl border border-board-border px-4 py-2.5 text-sm font-medium text-board-muted hover:text-board-text"
+                className="min-h-11 rounded-xl border border-board-border px-4 py-2.5 text-sm font-medium text-board-muted hover:text-board-text"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={!form.description.trim()}
-                className="rounded-xl px-4 py-2.5 text-sm font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98] disabled:opacity-50"
+                disabled={!canWrite || !form.description.trim()}
+                className="min-h-11 rounded-xl px-4 py-2.5 text-sm font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98] disabled:opacity-50"
                 style={{
                   background:
                     "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
@@ -887,9 +655,12 @@ function IncidentsPage() {
               </button>
             </div>
           </form>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
       {ConfirmDialogEl}
+      <Dialog open={blocker.status === "blocked"} onOpenChange={open => { if (!open) blocker.reset?.(); }}>
+        <DialogContent><DialogHeader><DialogTitle>Leave these incidents?</DialogTitle><DialogDescription>An unconfirmed save may still complete. Leaving discards your local drafts and retry controls. Review this incident log when you return.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => blocker.reset?.()}>Stay</Button><Button onClick={() => blocker.proceed?.()}>Leave incident log</Button></DialogFooter></DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -901,11 +672,15 @@ function CommentThread({
   onReply,
   onReact,
   timeZone,
+  disabled,
+  viewerId,
 }: {
   comment: IncidentComment;
   comments: IncidentComment[];
   reactions: ContentReaction[];
   timeZone: string;
+  disabled: boolean;
+  viewerId: string;
   onReply: (commentId: string) => void;
   onReact: (
     commentId: string,
@@ -935,7 +710,7 @@ function CommentThread({
         >
           <div className="rounded-lg bg-board-bg/55 px-3 py-2">
             {parent ? (
-              <div className="mb-2 rounded-md border-l-2 border-fire-500/50 bg-board-card/60 px-2 py-1.5 text-[10px] text-board-muted">
+              <div className="mb-2 rounded-md border-l-2 border-fire-500/50 bg-board-card/60 px-2 py-1.5 text-xs text-board-muted">
                 <span className="font-semibold text-fire-300">
                   Replying to {parent.authorName}
                 </span>
@@ -943,10 +718,10 @@ function CommentThread({
               </div>
             ) : null}
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-semibold text-board-text">
+              <span className="text-xs font-semibold text-board-text">
                 {item.authorName}
               </span>
-              <span className="text-[9px] text-board-muted">
+              <span className="text-xs text-board-muted">
                 {formatTime(new Date(item.createdAt), "12hr", timeZone)}
               </span>
             </div>
@@ -964,7 +739,9 @@ function CommentThread({
                     type="button"
                     onClick={() => void onReact(item.id, emoji)}
                     aria-label={`React ${emoji}`}
-                    className="rounded-full border border-board-border px-1.5 py-0.5 text-[10px] text-board-muted hover:border-fire-500/30 hover:text-board-text"
+                    disabled={disabled}
+                    aria-pressed={itemReactions.some(reaction => reaction.emoji === emoji && reaction.userId === viewerId)}
+                    className="min-h-11 min-w-11 rounded-full border border-board-border px-2 py-1 text-xs text-board-muted hover:border-fire-500/30 hover:text-board-text"
                   >
                     {emoji}
                     {count ? ` ${count}` : ""}
@@ -980,13 +757,14 @@ function CommentThread({
                     )
                   }
                   aria-label="Add reaction"
-                  className="rounded-md p-1 text-board-muted hover:bg-board-border/60 hover:text-board-text"
+                  disabled={disabled}
+                  className="min-h-11 min-w-11 rounded-md p-1 text-board-muted hover:bg-board-border/60 hover:text-board-text"
                 >
                   <SmilePlus className="h-3.5 w-3.5" />
                 </button>
                 {reactionPickerFor === item.id ? (
-                  <span className="absolute left-0 top-full z-20 mt-1 block w-64 rounded-lg border border-board-border bg-board-card p-2 shadow-xl">
-                    <span className="grid max-h-40 grid-cols-6 gap-1 overflow-y-auto">{REACTION_EMOJIS.map((emoji) => (
+                  <span className="fixed inset-x-4 bottom-4 z-40 block max-h-[50vh] overflow-auto sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:top-full sm:mt-1 sm:w-80 rounded-lg border border-board-border bg-board-card p-2 shadow-xl">
+                    <span className="grid max-h-40 grid-cols-5 sm:grid-cols-6 gap-1 overflow-y-auto">{REACTION_EMOJIS.map((emoji) => (
                       <button
                         key={emoji}
                         type="button"
@@ -994,15 +772,17 @@ function CommentThread({
                           setReactionPickerFor(null);
                           void onReact(item.id, emoji);
                         }}
-                        className="rounded-md p-1.5 text-base hover:bg-board-border/60"
+                        className="min-h-11 min-w-11 rounded-md p-1.5 text-base hover:bg-board-border/60"
                         aria-label={`React ${emoji}`}
+                    disabled={disabled}
+                    aria-pressed={itemReactions.some(reaction => reaction.emoji === emoji && reaction.userId === viewerId)}
                       >
                         {emoji}
                       </button>
                     ))}</span>
                     <form className="mt-2 flex gap-1 border-t border-board-border pt-2" onSubmit={(event) => { event.preventDefault(); if (!isEmojiReaction(customReaction)) return; setReactionPickerFor(null); setCustomReaction(""); void onReact(item.id, customReaction); }}>
                       <input aria-label="Type or paste any emoji" value={customReaction} onChange={(event) => setCustomReaction(event.target.value)} maxLength={32} placeholder="Any emoji" className="min-w-0 flex-1 rounded-md border border-board-border bg-board-bg px-2 py-1 text-xs text-board-text outline-none focus:border-fire-400/50" />
-                      <button type="submit" disabled={!isEmojiReaction(customReaction)} className="rounded-md bg-fire-500 px-2 text-xs font-semibold text-black disabled:opacity-40">Add</button>
+                      <button type="submit" disabled={disabled || !isEmojiReaction(customReaction)} className="min-h-11 rounded-md bg-fire-500 px-2 text-xs font-semibold text-black disabled:opacity-40">Add</button>
                     </form>
                   </span>
                 ) : null}
@@ -1010,7 +790,8 @@ function CommentThread({
               <button
                 type="button"
                 onClick={() => onReply(item.id)}
-                className="ml-1 text-[10px] font-medium text-board-muted hover:text-fire-400"
+                disabled={disabled}
+                className="min-h-11 px-2 ml-1 text-xs font-medium text-board-muted hover:text-fire-400"
               >
                 Reply
               </button>
