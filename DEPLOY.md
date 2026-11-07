@@ -3560,3 +3560,85 @@ No production migration, deployment, native release, real organization write or
 paid provider action was performed. The 20 necessary tracked Markdown files
 remain. Phase 2 stays 46/79. Go Live, Stop All, destination selection/deletion and
 ingest mutation confirmations/recovery remain to be completed before its gate.
+
+## Stream output command recovery and broadcast confirmation
+
+The real-D1 baseline reproduces Disable clearing a pending marker while its
+provider output is still enabled, and Stop All refusing to reconcile that marker.
+Command receipts alone cannot fix partial provider effects. An organization
+Durable Object would serialize requests but still need durable provider outcome
+tracking and would add a deployment binding. Use D1 command receipts with frozen
+targets and per-destination intent, provider state and expiring execution leases.
+A newer Stop supersedes the earlier intent without erasing its physical state.
+Completed command retries cannot apply over later commands. Keep credentials out
+of command records; retain the existing encrypted destination key.
+
+Create provider outputs disabled, persist the creation attempt before the POST,
+and enable only after rechecking the current intent. Capture existing provider
+output IDs before creation so recovery cannot adopt or delete an unrelated output.
+An unknown creation with no matching new output remains explicitly unconfirmed;
+elapsed time does not prove the POST failed and cannot authorize a duplicate POST.
+Bound provider calls including response bodies, preserve failed stop records, and
+report independent results. Keep selection separate from Go Live. A credential
+claim prevents simultaneous destinations with identical credentials from making
+recovery ownership ambiguous. Legacy markers without a baseline require a unique,
+unclaimed matching output; ambiguity remains an explicit error.
+
+
+Implemented migration 0061_stream_output_commands.sql and the shared web/native/
+Companion output command core. Go Live captures the confirmed destination IDs and
+versions, including keyed fingerprints of the displayed name, platform and stored
+credentials. Receipts retain those configuration fingerprints: an old request
+cannot silently adopt credentials edited after a provider rejection. The receipt
+and target intents commit together. Completed retries never repeat provider work,
+including after destination deletion. Current authorization is checked on every
+public retry. Mobile selection/removal accepts the same retained request IDs.
+Companion Start/Stop returns partial failures as HTTP 502 with per-target results.
+
+Stop All includes selected destinations whose creation has not begun yet. It
+supersedes their intents without erasing provider state, and continues across
+missing targets, missing inputs and individual claim/provider failures. A
+pending or ambiguous creation cannot be cleared by guessing that elapsed time
+means failure. New outputs start disabled; unknown creates reconcile only against
+new matching output IDs. A keyed credential claim prevents competing creations
+for identical destination credentials. Provider operations have five-second
+response/body deadlines. The web retains exact requests with ten-second bounds,
+refreshes without re-sending acknowledged changes, protects navigation and offers
+explicit Review. Stop remains available while Go Live awaits confirmation and
+replaces that pending browser operation only after the Stop confirmation. Server
+intent/version checks, not browser abort alone, prevent late restarts.
+
+Shared confirmation dialogs name Go Live/Stop targets, identify active-output
+Disable and confirm removal. Selection alone never starts a broadcast. The new
+smoke-stream-output-commands.mjs runs actual Chrome/auth/compiled Worker/D1 with
+an isolated, stateful fake provider. Its final run passes Cancel without a
+command, lost Go Live/Stop/selection/deletion replies, exact Retry, partial Stop,
+unknown provider creation and Stop during delayed creation. After five fixture
+provider creates and nine distinct commands, D1 retains only the beta destination,
+selected with no output or input binding, and the provider map is empty. Its
+320/768/1440px confirmation controls pass bounds/hit tests; phone screenshot
+inspected. The fixture snapshot now uses a single write queue and atomic rename
+so concurrent provider operations cannot corrupt the observation artifact.
+
+Evidence includes baseline failures for the original pending-marker bugs,
+independent Stop preparation, credential changes after rejection and stale
+confirmation versions. Twenty-five real-D1 output tests plus eleven real-auth
+stream-save/API tests cover recovery, supersession, expired leases, frozen
+completed targets, ownership, scope/revocation, redaction, deadlines, rollback and
+configuration fencing. Six new component cases cover confirmation and retained
+output requests. Five old mock-Prisma mutation tests were replaced by these real
+D1/provider tests, retaining their behavioral assertions.
+
+Final full suite: 2,192 unit tests, 899 Worker tests, migration/client boundaries
+and four coverage-gate tests pass. Typecheck and production build pass, with
+511,914 raw / 162,143 gzip client entry bytes. Coverage thresholds also passed
+before the final configuration-fencing follow-up; CI reruns coverage on the pushed
+head. Compiled output-status and destination-editor browser regressions pass.
+The final command browser run uses the rebuilt configuration-fencing code.
+
+Migration 0061 remains unapplied to production. No production deployment, native
+release, real organization mutation, real provider request or paid service was
+used. Twenty necessary tracked Markdown files remain. Phase 2 stays 46/79:
+ingest mutation recovery, native/Companion client request retention and the
+remaining product-wide/catalog/gate checks are still outstanding. Phase 3 has
+not started.
