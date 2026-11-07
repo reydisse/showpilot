@@ -109,9 +109,10 @@ export function timecodeToString(
 
 /**
  * Parse "HH:MM:SS:FF" or "HH:MM:SS;FF" to TimecodeValue.
- * Returns null if invalid.
+ * Validate labels against the selected rate and drop-frame rules.
+ * Both separators are accepted; the selected format determines valid labels.
  */
-export function parseTimecodeString(str: string): TimecodeValue | null {
+export function parseTimecodeString(str: string, format: TimecodeFormat): TimecodeValue | null {
   const match = str.match(/^(\d+):(\d+):(\d+)[:;](\d+)$/);
   if (!match) return null;
 
@@ -121,8 +122,7 @@ export function parseTimecodeString(str: string): TimecodeValue | null {
     seconds: parseInt(match[3], 10),
     frames: parseInt(match[4], 10),
   };
-  if (value.hours < 0 || value.minutes > 59 || value.seconds > 59) return null;
-  return value;
+  return isValidTimecodeFormat(format) && isValidTimecode(value, format) ? value : null;
 }
 
 /** Validate a parsed value against the active SMPTE format. */
