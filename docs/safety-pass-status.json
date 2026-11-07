@@ -1673,10 +1673,11 @@
       "phase": "2",
       "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
       "line": 256,
-      "status": "in_progress",
+      "status": "verified",
       "evidence": [
         "2026-11-06 Installed the matching Vitest 4.1.11 Istanbul provider and measured both complete test pools over timecode helpers/sources, every relay and device modules. Shared scope covers 38 executable files; three type-only contracts are identified by compiler output. The gate merges counters once, rejects empty or missing executable-file reports in either pool, and checks statements/branches/functions/lines separately for each source family. Baseline thresholds floor the measured current percentages to whole numbers; the ratchet command reruns coverage and can only raise thresholds.",
-        "Local exact CI command passed migration/client boundaries, four gate tests, 1961 unit tests and 729 Worker tests; web typecheck, production build and frozen-lockfile installation passed. Measured statements/branches/functions/lines: timecode 92.44/90.57/91.56/95.09; relays 85.92/83.25/90.17/91.42; devices 64.55/49.66/62.90/67.19. Real-report negative probe exited 1 for a temporarily raised threshold; baseline restored byte-for-byte and the upward-only ratchet passed. CI now invokes test:coverage and uploads reports, but actual GitHub execution remains pending. Do not mark verified until that step passes remotely."
+        "Local exact CI command passed migration/client boundaries, four gate tests, 1961 unit tests and 729 Worker tests; web typecheck, production build and frozen-lockfile installation passed. Measured statements/branches/functions/lines: timecode 92.44/90.57/91.56/95.09; relays 85.92/83.25/90.17/91.42; devices 64.55/49.66/62.90/67.19. Real-report negative probe exited 1 for a temporarily raised threshold; baseline restored byte-for-byte and the upward-only ratchet passed. CI now invokes test:coverage and uploads reports, but actual GitHub execution remains pending. Do not mark verified until that step passes remotely.",
+        "2026-11-06 GitHub run 42335684059 for commit f4f4133308a475dc024178918214cde3172a1983 completed both CI and Native Rust jobs successfully. The actual Test web and enforce coverage step and Upload web coverage step passed. The downloadable web-coverage artifact is present, unexpired, 426750 bytes, with seven-day retention. This closes the coverage requirement; the wider Phase 2 gate remains incomplete."
       ]
     },
     {
@@ -1899,8 +1900,10 @@
       "phase": "2",
       "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
       "line": 284,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "2026-11-06 Reproduced verify-email showing Email verified for an unverified user solely because no error query parameter existed. The page now reads a fresh Better Auth session with cookie caching disabled; anonymous, checking, unverified, failed and verified states are distinct, and Continue requires confirmed verification. Status and resend requests have eight-second deadlines, abort cleanup, timestamped errors and explicit Retry; late replies cannot restore stale success. Nine component regressions passed, including stale route data, URL errors, timeout/late replies, resend failure and unmount. Full test:coverage passed 1970 unit + 729 Worker + four gate tests; typecheck and production build passed. Compiled Worker/Chrome rehearsal used a real local unverified account and signed verification token, confirmed D1 changed only the intended verification state, and verified setup agreed. Real resend failed visibly with no email provider configured. No browser errors; controls passed at 320/768/1440px and both phone screenshots were inspected. Signup interstitial, reset-password, setup recovery, returnTo and remaining compound auth/landing requirements are not claimed complete. No deployment or real email sent."
+      ]
     },
     {
       "id": "4e2cdcca026fe871",
