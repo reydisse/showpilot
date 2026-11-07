@@ -767,6 +767,58 @@ inspected. The earlier form-validation rehearsal also passed.
 No deployment, migration, external email or native release is included. Setup
 navigation, role/workspace checkpoints and seeding recovery remain open.
 
+### Setup rundown creation and recovery
+
+The old seed wrote the show, checklist and cue notes separately, then recorded
+completion. A forced checklist failure reproduced a partial show left behind.
+The replacement commits every row and the receipt in one D1 transaction. A
+conditional receipt chooses one concurrent request; subsequent requests return
+the actual saved template and date without updating or recreating any rows.
+Existing edits, deleted items, cue columns and same-date shows are preserved.
+Legacy partial seeds, unreadable receipts and removed shows require review.
+
+Reads and writes have ten-second client deadlines, cancellation and rejection
+of late replies. Checking a result only reads. Retry keeps the original date
+and template, including across midnight. The build step shows real pending
+status and timestamped uncertainty instead of asserting that a failed request
+created nothing or that the show clock is armed. Continue without adding a
+rundown records a blank choice; if a previous request already won, the actual
+saved result appears for review. A later original request cannot replace a
+confirmed blank choice. Refresh only reads server progress.
+
+No migration or native build is required. Deploy matching Worker and web assets
+and reload existing setup tabs. The retired sequential seed interface is
+removed. Default cue-column initialization shares the new transaction without
+changing its existing initialize-once behavior for other callers.
+
+After building, run:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-setup-rundown.mjs
+```
+
+Verification passed 2,064 unit tests, 757 Worker tests, four coverage-gate tests,
+web typecheck and the production build. Twelve real auth/D1 Worker tests cover
+rollback through the final cue insert, competing templates, blank choice races,
+edit/deletion preservation, legacy partial/corrupt data, permissions and plan
+limits. The final marker-validation adjustment passed those twelve tests again.
+Eight client hook tests cover deadlines, read-only recovery, missing replies,
+midnight, duplicate submission, scope changes and unmount. Four component tests
+verify pending, uncertain, competing and legacy results.
+
+The compiled Worker/Chrome rehearsal passed rejected writes, an actual committed
+seed with its response withheld, read timeout/retry, late replies, explicit blank
+continuation, a delayed original request arriving after the blank choice, and
+refresh without writes. Final D1 inspection found one show, nine items, five
+checklist entries and four cue notes in recovery; both blank scenarios created
+none. Existing fixture shows stayed unchanged and setup was not prematurely
+marked complete. No browser errors occurred. Controls passed at 320/768/1440px
+and six phone screenshots were inspected. The existing team form rehearsal also
+passed against this build with real crew/invitation saves and local email capture.
+
+Nothing is deployed. Setup Back/exit, role/workspace checkpoints, organization
+creation recovery and the wider Phase 2 gate remain open.
+
 ### Timecode label validation
 
 `parseTimecodeString` now requires the selected format. It rejects frame numbers

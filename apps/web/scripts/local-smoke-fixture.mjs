@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, setupTeam = false, paidPlan = false, damagedGraphicScenes = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, setupTeam = false, setupSeed = false, paidPlan = false, damagedGraphicScenes = false } = {}) {
   if (captureEmail) assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Email capture requires the isolated outbound handler");
   const directory = await mkdtemp(join(tmpdir(), "showpilot-display-smoke-"));
   const session = `display-smoke-${process.pid}`;
@@ -137,11 +137,11 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
   INSERT INTO account (id,accountId,providerId,userId,password,issuer,updatedAt) VALUES ('smoke-unverified-account','smoke-unverified','credential','smoke-unverified','${passwordHash}','local:credential',CURRENT_TIMESTAMP);
   ` : ""}
   ${passwordReset ? Object.entries(resetTokens).map(([name, token]) => `INSERT INTO verification (id,identifier,value,expiresAt,createdAt,updatedAt) VALUES ('smoke-reset-${name}','reset-password:${token}','smoke-operator','${new Date(Date.now() + (name === "expired" ? -60_000 : 3600_000)).toISOString()}','${new Date().toISOString()}','${new Date().toISOString()}');`).join("\n") : ""}
-  ${setupTeam ? `INSERT INTO app_setting(id,orgId,key,value) VALUES
+  ${setupTeam || setupSeed ? `INSERT INTO app_setting(id,orgId,key,value) VALUES
     ('smoke-setup-start','display-smoke','onboarding-started','2026-11-06T00:00:00.000Z'),
     ('smoke-setup-workspace','display-smoke','workspace-type','church'),
-    ('smoke-setup-role','display-smoke','onboarding-role:smoke-operator','{"archetype":"td","landing":"/show"}'),
-    ('smoke-setup-seed','display-smoke','onboarding-template-seeded','{"template":"blank","serviceDate":"${date}"}');` : ""}
+    ('smoke-setup-role','display-smoke','onboarding-role:smoke-operator','{"archetype":"td","landing":"/show"}');
+    ${setupTeam ? `INSERT INTO app_setting(id,orgId,key,value) VALUES ('smoke-setup-seed','display-smoke','onboarding-template-seeded','{"template":"blank","serviceDate":"${date}"}');` : ""}` : ""}
   INSERT INTO rundown (id,orgId,serviceDate,name) VALUES ('smoke-show','display-smoke','${date}','Display test show');
   ${secondShow ? `INSERT INTO rundown (id,orgId,serviceDate,name) VALUES ('smoke-second-show','display-smoke','${date}','Evening test show');` : ""}
   INSERT INTO app_setting (id,orgId,key,value) VALUES ('smoke-message','display-smoke','rundown-message:smoke-show','Fixture private stage message'), ('smoke-active','display-smoke','active-graphics','["smoke-graphic"]'), ('smoke-show-setting','display-smoke','active-show-id','smoke-show');
