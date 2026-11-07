@@ -1,9 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { env } from "cloudflare:workers";
-import { z } from "zod";
+import { organizationDeletionSchema } from "./organization-deletion-contract";
 import { getPrisma } from "@/lib/db";
-import { idSchema, parseOrThrow } from "@/lib/validation";
+import { parseOrThrow } from "@/lib/validation";
 import {
   assertCanDeleteOrg,
   deleteOrganizationCore,
@@ -117,19 +117,13 @@ async function purgeOrganizationExternalState(orgId: string): Promise<void> {
   await bindings.DB.prepare("DELETE FROM chat_user_room WHERE orgId = ?").bind(orgId).run();
 }
 
-const deleteOrganizationSchema = z.object({
-  orgId: idSchema,
-  confirmName: z.string().min(1).max(200),
-  continueAccountDeletion: z.boolean().optional(),
-});
-
 export const deleteOrganization = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(deleteOrganizationSchema, data))
+  .inputValidator((data: unknown) => parseOrThrow(organizationDeletionSchema, data))
   .handler(async ({ data }) => {
     const { getAuth } = await import("@/lib/auth");
     const auth = getAuth();
     const headers = getRequestHeaders();
-    const session = await auth.api.getSession({ headers });
+    const session = await auth.api.getSession({ headers, query: { disableCookieCache: true } });
     if (!session) throw new Error("Unauthorized");
 
     const prisma = getPrisma();
@@ -160,15 +154,8 @@ export const deleteOrganization = createServerFn({ method: "POST" })
       purgeExternalState: purgeOrganizationExternalState,
     });
 
-    // Account deletion continues in the same session after the core clears
-    // its active organization. Other entry points keep their sign-out flow.
-    if (!data.continueAccountDeletion) {
-      try {
-        await auth.api.signOut({ headers });
-      } catch {
-        // Session row may already be gone; the client redirects regardless.
-      }
-    }
-
+    // Keep the account session valid so a lost response can be acknowledged on
+    // retry. Organization membership and active-organization pointers are gone;
+    // the user's account and memberships in other organizations remain valid.
     return { alreadyDeleted: result.alreadyDeleted };
   });

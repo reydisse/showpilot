@@ -1,8 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { CheckCircle } from "lucide-react";
 
-// Landing page after organization deletion. The acting session was revoked
-// server-side, so this page must not require auth.
+// Public confirmation page; organization deletion keeps the account available.
 export const Route = createFileRoute("/org-deleted")({
   component: OrgDeletedPage,
 });
@@ -17,13 +16,13 @@ function OrgDeletedPage() {
         </h1>
         <p className="text-sm text-board-muted mb-6">
           The organization and all of its data have been permanently removed.
-          Any active subscription was cancelled. You have been signed out.
+          Any active subscription was cancelled. Your account and other organizations are kept.
         </p>
         <Link
-          to="/login"
+          to="/"
           className="inline-block px-4 py-2.5 rounded-xl bg-fire-500 text-white text-sm font-medium hover:bg-fire-600 transition-colors"
         >
-          Back to sign in
+          Continue to ShowPilot
         </Link>
       </div>
     </div>

@@ -4347,3 +4347,61 @@ Stacked on #203. Do not open this draft PR until #203 CI run 42418701631 is gree
 No production migration, deployment or native release. Phase 2 remains 47/79;
 organization deletion and broader product-wide gates remain open. The 20 necessary
 tracked Markdown files are retained; no new Markdown file was added.
+
+## Organization deletion recovery (2026-11-07, not deployed)
+
+Real-auth D1/relay baselines proved two recovery failures. A successful deletion
+signed out the acting session before its lost acknowledgement could be retried.
+A trigger rejecting the final organization DELETE left the organization alive
+but removed its owner, because Prisma D1 $transaction ran the prior membership
+deletes individually. The first correction exposed a third defect: resumed chat
+purge tried loading SQL history after the first purge had dropped its tables.
+
+The final organization DELETE now uses the existing ON DELETE CASCADE constraints
+for memberships, invitations and app settings. That single SQLite statement is
+atomic, so a failed final delete keeps the owner and deletion marker for retry.
+App-data cleanup remains ordered and resumable; Stripe cancellation still precedes
+destructive cleanup. This shared-core correction also applies to the administrative
+CLI. ChatRelay authorizes and handles an org purge before reading history, making
+repeated cleanup succeed after its tables have already been dropped.
+
+Organization deletion now retains the user's account session. Deleted memberships
+and active-organization pointers are removed; the account and other memberships
+remain. This allows the same authenticated request to confirm an already-completed
+deletion. The obsolete continueAccountDeletion switch is removed from both callers.
+The public confirmation page states that the account is kept and offers Continue
+to ShowPilot. The server reads the session without cookie-cache shortcuts and
+retains owner-only, recent-sign-in and typed-name checks for existing organizations.
+
+Settings and the account-deletion workspace blocker share a typed-name Dialog.
+The deletion request has a twenty-second acknowledgement deadline, abort/late-reply
+protection, explicit partial-cleanup copy, timestamped errors and Retry of the same
+organization/name. Mutation state survives editor unmount within the account/org
+cache. Post-success navigation has its own five-second deadline. Account deletion
+continues only after workspace removal is acknowledged. Inputs and buttons are
+named, at least 44px, and fit within the dialog at narrow widths.
+
+Seven real-auth Worker tests cover normal deletion, lost-response replay, final
+DELETE interruption with owner retained, repeated relay purge, other-org/account/
+session isolation, raw receipt cascades, wrong name/role/org and stale/revoked
+sessions, subscription failure before data removal, and child-table interruption.
+Subscription tests use an isolated mock; no provider is contacted. Thirty shared
+core tests and four UI cases pass, including exact retry, navigation failure,
+account isolation and ignored late results. Full web suite: 2,278 unit plus 1,057
+Worker tests. Typecheck and production build pass; main bundle 551,432 raw /
+174,357 gzip bytes. A stale unused icon import was removed after the first typecheck.
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-organization-deletion.mjs`
+passes twice against the compiled app with actual auth, D1 and native chat: once
+from Settings and once from the account-deletion workspace blocker. Both withhold
+the committed deletion reply, reach bounded Retry, confirm through the exact same
+request and preserve the account plus the other fixture organization. Settings
+opens /org-deleted; the account flow returns to its password form. Cancel sends no
+request, controls and containment pass at 320/768/1440px, and the phone screenshot
+was inspected. Both fixture runs send zero emails.
+
+No migration, deployment, native release, real-org mutation or external-provider
+call. Stacked on draft #204; wait for its CI run 42419840525 to turn green before
+opening this draft. Phase 2 remains 47/79: kiosk blanking still lacks confirmation
+and its initial read silently fails, so the broad confirmation and UX gates are
+not complete. Twenty necessary tracked Markdown files remain.
