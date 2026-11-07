@@ -4031,3 +4031,20 @@ run 42406977373 is green for both main CI and Native Rust tests.
 The existing `smoke-team-recovery.mjs` also passes against this build: six Team
 receipts, one remaining owner, exact and refresh-only retries, newer role
 preservation, cancellation/moderation, keyboard/navigation and 320/768/1440px.
+
+### Crew PR CI follow-up: song test setup
+
+Run 42409219813 passed Native Rust and all typechecks, but the first song-write
+Worker test exceeded its five-second limit. Its fixture created and hashed a
+credential, seeded the organization and signed in through the real auth endpoint
+inside the behavior test. A local coverage timing probe measured 1,740 ms in
+fixture setup and 19 ms in the trigger-induced rollback and database assertions.
+The probe did not reproduce the CI timeout locally; it identified setup as the
+large cold-start cost.
+
+Move each test's fresh authenticated fixture to `beforeEach`, matching the Team
+Worker suite. Preserve real auth/D1, all rollback/receipt/foreign-org assertions,
+and the default five-second behavior timeout. No production code or test timeout
+setting changes. The targeted 14 tests, full 2,233 unit and 988 Worker tests,
+coverage thresholds, web typecheck and status-ledger check pass locally. The next
+GitHub run must confirm this on the CI runner before calling the failure closed.
