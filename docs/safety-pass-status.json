@@ -22,8 +22,11 @@
       "phase": "global",
       "section": "How to work",
       "line": 19,
-      "status": "pending",
-      "evidence": []
+      "status": "partial",
+      "evidence": [
+        "2026-11-06 Settings permission boundary: reproduced six failing assertions on main showing generic Settings reads exposed internal app_setting records and a technical-manager account could overwrite internal or unknown keys. Added an exact 36-field permission registry shared by reads and all three generic write paths. Dedicated Workspace and schedule-provider commands remain separate; unknown keys no longer inherit settings:organization access.",
+        "Verification on fix/settings-key-boundary: full web suite passed 1393 unit and 390 Worker tests, including 11 new Worker regressions; web typecheck and production build passed. Audited all 35 literal Settings UI keys plus the confidence-layout key against the registry. smoke-settings-boundary.mjs exercised compiled RPCs with real authentication and disposable D1: 21 denied writes, no partial invalid batch, internal records unchanged, supported writes preserved, credentials encrypted/masked, anonymous and cross-org requests rejected. No production data touched. This is partial evidence for the broad preserve-existing-invariants requirement, not completion of the global or Phase 2 gate."
+      ]
     },
     {
       "id": "cdd38c547766eb40",
