@@ -1,3 +1,4 @@
+import { workspaceCustomSchema, workspaceModulesSchema, workspaceTypeSchema } from "./profile-contract";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getRequestOrgAccess, assertOrgPermission } from "../org-access";
@@ -6,9 +7,6 @@ import {
   workspacePrismaStore,
   readWorkspaceProfile,
   writeWorkspaceProfile,
-  workspaceCustomSchema,
-  workspaceModulesSchema,
-  workspaceTypeSchema,
 } from "./profile.server";
 const orgInput = z.object({ orgId: idSchema });
 export const getWorkspaceProfile = createServerFn({ method: "GET" })
@@ -16,26 +14,6 @@ export const getWorkspaceProfile = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     await getRequestOrgAccess(data.orgId);
     return readWorkspaceProfile(await workspacePrismaStore(data.orgId));
-  });
-export const saveWorkspaceType = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) =>
-    parseOrThrow(
-      orgInput.extend({
-        type: workspaceTypeSchema,
-        custom: workspaceCustomSchema.optional(),
-        modules: workspaceModulesSchema.optional(),
-      }),
-      d,
-    ),
-  )
-  .handler(async ({ data }) => {
-    const { access } = await getRequestOrgAccess(data.orgId);
-    if (access.role !== "owner") throw new Error("Forbidden");
-    return writeWorkspaceProfile(await workspacePrismaStore(data.orgId), {
-      kind: "initial",
-      ...data,
-      onlyIfUnconfigured: false,
-    });
   });
 export const setWorkspaceType = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>

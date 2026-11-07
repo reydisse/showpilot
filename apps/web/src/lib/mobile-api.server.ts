@@ -1,3 +1,4 @@
+import { workspaceCommandSchema } from "./workspace/profile-contract";
 import { z } from "zod";
 import { CREDENTIAL_MASK, isCredentialField } from "./credential-fields";
 import { maskDeviceSettings, readDeviceSettingsForUse, writeDeviceSettings } from "./device-settings.server";
@@ -11,7 +12,6 @@ import {
   workspaceD1Store,
   readWorkspaceProfile,
   writeWorkspaceProfile,
-  workspaceCommandSchema,
 } from "./workspace/profile.server";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,

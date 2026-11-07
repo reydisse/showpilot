@@ -835,6 +835,61 @@ coverage afterward. Full coverage passed 2,064 unit and 758 Worker tests and
 the existing coverage thresholds. The final ES2022-compatible helper also passed
 the full plain web suite and typecheck. This correction requires no deployment.
 
+### Setup workspace and role checkpoints
+
+Setup now advances past workspace and role selection only after the server
+confirms the choice. Failed saves preserve custom names and selected roles.
+Reads and writes have ten-second deadlines, cancellation, timestamped errors,
+read-only result checks and explicit same-request retries. A recovered saved
+choice offers Continue; a late response cannot advance the wizard. Reload reads
+the confirmed choices without replaying writes. Team roles remain personalization
+only and never change the owner's membership permissions.
+
+Workspace writes atomically compare a saved revision before committing all
+fields and their receipt. Settings and mobile workspace writes advance that same
+revision, including changes back to an earlier value. Roles compare the current
+per-user receipt. A delayed request or retry returns the newer saved choice for
+review instead of overwriting it. Selecting again is an explicit new request
+against the reviewed revision. Replays cannot resurrect old field values, and a
+reused current request ID with different content is rejected. The existing
+workspace normalizer serves all callers; initialization-only guards now work
+atomically in both the D1 and Prisma entry points.
+
+The old unchecked saveWorkspaceType and saveOnboardingRole RPCs and their UI
+callers are removed. Shared workspace schemas live in a browser-safe contract
+module. Deploy matching Worker/web assets and reload existing setup tabs so all
+workspace writers participate in revision checks. No migration or native build
+is required. Back/exit and organization-creation recovery remain open.
+
+After building, run:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-setup-choices.mjs
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-setup-rundown.mjs
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-setup-team.mjs
+```
+
+The regression reproduced a rejected role save advancing the rendered wizard.
+Eleven real auth/D1 Worker tests cover normalization, permissions, concurrency,
+receipt replay, last-field rollback, per-user roles, initialization guards and
+changes from actual Settings/mobile entry points. Eight hook tests and three
+rendered-wizard tests cover bounded requests, duplicate submission, missing/late
+acknowledgements, scope/unmount cleanup, failed-save navigation and kept drafts.
+
+The compiled Worker/Chrome rehearsal passed initial-read timeout/retry, rejected
+writes, committed writes with lost responses, read-only recovery, explicit
+continuation, queued old writes after newer Settings/role choices, safe retry,
+reselection and refresh without writes. Final D1 inspection confirmed normalized
+custom names or the latest school workspace, the selected role, unchanged owner
+membership and no seed/completion marker. No browser errors occurred. Controls
+passed at 320/768/1440px and all seven phone screenshots were inspected.
+
+Final validation passed 2,074 unit tests, 769 Worker tests, four coverage-gate
+tests and web typecheck, including the parent ProPresenter fixture correction.
+The production build passed its client budgets. Existing rundown recovery and
+team form rehearsals also passed against that build, including real local D1
+saves and captured invitation delivery. No deployment or external email occurred.
+
 ### Timecode label validation
 
 `parseTimecodeString` now requires the selected format. It rejects frame numbers
