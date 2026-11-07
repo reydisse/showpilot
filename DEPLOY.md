@@ -4244,3 +4244,55 @@ Danger Zone destructive actions; this export fix does not certify those actions.
 No migration, deployment, native release, production data change or external
 provider call. Twenty necessary tracked Markdown files remain. Stacked on draft
 #201; do not open the export PR until #201 CI run 42415959635 passes.
+
+## Chat history clear recovery (2026-11-07, not deployed)
+
+The original Settings action deleted only legacy D1 chat_message rows, while
+native history remained in ChatRelay SQLite. A real-auth Worker baseline proved
+that the action reported success while Production still returned the old message.
+The action now requires the exact organization name in the shared Dialog and
+records one organization/account/request receipt with a fixed cutoff and room
+list. Migration 0068_chat_history_clear_receipts.sql must follow 0067 before the
+matching Worker deployment. No remote migration has been applied.
+
+The server checks current session and danger-zone permission, rechecks membership
+and session at the D1 commit, and delivers the clear to registered rooms plus
+Production and Planning. Each relay checks the durable receipt, room identity,
+live authority and delivery deadline before committing. Room acknowledgements are
+reported individually. A timeout or partial reply retains the original request
+across Settings navigation; Retry finishes that request without deleting newer
+messages. Legacy D1 deletion runs only for the invocation that created the receipt.
+Cleared message IDs cannot be replayed from an outbox; old external imports are
+suppressed, and newer replies lose quotes of erased messages. Uploaded files and
+connected chat services are unchanged, as stated in the confirmation.
+
+Review found a second defect: an offline client missed the clear broadcast and
+merged old messages back into the UI on reconnect. The compiled browser reproduced
+that failure before the correction. ChatRelay now persists a clear version and
+includes it in ordinary hydration, allowing web clients to replace retained
+history on reconnect. Both web and native clients reject stale older-history reads
+that complete after hydration. The current live document remains open throughout.
+
+Validation: 12 Worker cases cover actual relay/D1 clearing, direct rooms and org
+isolation, eviction and lost replies, partial recovery, duplicate requests, exact
+name and authority checks, rollback, commit-time revocation, expired delivery,
+2,100 older rows, external import suppression and cleared outbox IDs. Component
+and web/native hook tests cover typed confirmation, cancel, bounded pending state,
+account isolation, exact retry, live clearing and offline hydration. The final
+full suite passes 2,270 unit and 1,041 Worker tests. Web and mobile typechecks pass.
+Production web build passes at 551,383 raw / 174,337 gzip bytes. Mobile verification
+passes iOS/Android/web exports, 18 Doctor checks and 41 API contracts; this is not
+a device UI or signing test.
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-chat-history-clear.mjs`
+passes against the compiled app with real authentication and disposable D1/relay
+storage. Two Chrome sessions verify live clearing, an intentionally lost reply,
+exact retry after navigation, newer messages retained, and offline reconnect
+recovery without reloading the chat document. The fixture has exactly two clear
+receipts across three rooms, no foreign-org mutation and zero outgoing emails.
+Controls pass 44px checks at 320/768/1440px; the phone screenshot was inspected.
+
+Stacked on draft #202, whose CI run 42416828926 passed both jobs before publication.
+No deployment, native release, production data mutation or provider call occurred.
+Phase 2 remains 47/79. Graphics reset, organization deletion and the broader
+product-wide gates remain open. Twenty necessary tracked Markdown files remain.

@@ -1,3 +1,4 @@
+import { chatRoomClearSchema, chatClearReceiptSchema, type ChatRoomClear } from "@/lib/chat-history-clear-contract";
 import { chatPassIsRevoked } from "@/lib/chat-pass-revocation.server";
 import { reportRelayError } from "@/lib/operational-errors.server";
 import { DurableObject } from "cloudflare:workers";
@@ -152,6 +153,11 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       )`);
       ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS chat_messages_timestamp_idx ON chat_messages(timestamp)");
       ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS chat_messages_timestamp_id_idx ON chat_messages(timestamp, id)");
+      ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS chat_clear_receipts (
+        actor_id TEXT NOT NULL, request_id TEXT NOT NULL, cutoff INTEGER NOT NULL,
+        PRIMARY KEY (actor_id,request_id)
+      )`);
+      ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS chat_cleared_messages (id TEXT PRIMARY KEY)");
       ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS chat_automation_receipts (
         execution_id TEXT PRIMARY KEY,
         fingerprint TEXT NOT NULL,
@@ -365,6 +371,8 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
   }
 
   private importExternalMessage(platform: ExternalChatPlatform, external: ExternalChatMessage) {
+    const cutoff=this.ctx.storage.sql.exec<{cutoff:number|null}>("SELECT MAX(cutoff) AS cutoff FROM chat_clear_receipts").toArray()[0]?.cutoff;
+    if((cutoff !== null && cutoff !== undefined && external.timestamp<=cutoff) || (external.sourceNativeId && this.wasCleared(external.sourceNativeId))) return;
     const linkedNativeId = this.nativeIdForExternal(platform, external.externalId);
     if (linkedNativeId) {
       const current = this.findMessage(linkedNativeId);
@@ -533,6 +541,51 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     return { ok: true, messageId: message.id, duplicate: false };
   }
 
+  /** Worker-only destructive RPC, authorized against a durable organization receipt. */
+  async clearHistory(input: ChatRoomClear): Promise<{ cleared: true } | { cleared: false; error: string }> {
+    const parsed = chatRoomClearSchema.safeParse(input);
+    if(!parsed.success) return {cleared:false,error:"Invalid chat clear delivery."};
+    const command = parsed.data;
+    if(command.authority.orgId !== command.orgId) return {cleared:false,error:"Chat clear organization mismatch."};
+    await this.ensureHistoryLoaded();
+    const receiptRow = await this.env.DB.prepare("SELECT confirmName,cutoff,rooms FROM chat_history_clear_receipt WHERE orgId=? AND actorId=? AND requestId=?")
+      .bind(command.orgId,command.authority.userId,command.requestId).first();
+    if(!receiptRow) return {cleared:false,error:"Chat clear receipt is missing."};
+    const receipt = chatClearReceiptSchema.parse(receiptRow);
+    if(receipt.confirmName !== command.confirmName || !receipt.rooms.includes(command.roomId)) return {cleared:false,error:"Chat clear receipt does not include this room."};
+    if(!await hasLivePermissionAuthority(this.env.DB,command.authority,"settings:danger_zone")) return {cleared:false,error:"Chat clear access changed."};
+    if(command.deadline <= Date.now() || command.deadline > Date.now()+10_000) return {cleared:false,error:"Chat clear delivery expired."};
+    if(!this.setContext(command.orgId,command.roomId)) return {cleared:false,error:"Chat clear room mismatch."};
+    const existing = this.ctx.storage.sql.exec("SELECT request_id FROM chat_clear_receipts WHERE actor_id=? AND request_id=?",command.authority.userId,command.requestId).toArray();
+    if(!existing.length) {
+      this.ctx.storage.transactionSync(()=>{
+        this.ctx.storage.sql.exec("INSERT OR IGNORE INTO chat_cleared_messages(id) SELECT id FROM chat_messages WHERE timestamp<=?",receipt.cutoff);
+        this.ctx.storage.sql.exec("DELETE FROM chat_messages WHERE timestamp<=?",receipt.cutoff);
+        this.ctx.storage.sql.exec("INSERT INTO chat_clear_receipts(actor_id,request_id,cutoff) VALUES(?,?,?)",command.authority.userId,command.requestId,receipt.cutoff);
+        // Replies sent during a delayed clear keep their new text but not a quote of erased history.
+        for(const row of this.ctx.storage.sql.exec<{payload:string}>("SELECT payload FROM chat_messages").toArray()) {
+          const message: ChatMessage = JSON.parse(row.payload);
+          if(message.replyTo && this.wasCleared(message.replyTo.messageId)) delete message.replyTo;
+          if(message.threadRootId && this.wasCleared(message.threadRootId)) delete message.threadRootId;
+          this.persistMessage(message);
+        }
+      });
+      const rows=this.ctx.storage.sql.exec<{payload:string}>("SELECT payload FROM chat_messages ORDER BY timestamp DESC,id DESC LIMIT ?",this.HYDRATION_MESSAGE_LIMIT).toArray().reverse();
+      this.recentMessages=rows.map(row=>JSON.parse(row.payload));
+    }
+    // A replay publishes current history, never the old cleared snapshot.
+    this.broadcast(JSON.stringify({type:"hydrate",historyCleared:true,historyClearVersion:this.historyClearVersion(),messages:this.recentMessages,readReceipts:this.getReadReceipts()}));
+    return {cleared:true};
+  }
+
+  private historyClearVersion(): number {
+    return this.ctx.storage.sql.exec<{version:number}>("SELECT COUNT(*) AS version FROM chat_clear_receipts").toArray()[0].version;
+  }
+
+  private wasCleared(id: string): boolean {
+    return this.ctx.storage.sql.exec("SELECT id FROM chat_cleared_messages WHERE id=?",id).toArray().length>0;
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     await this.ensureHistoryLoaded();
@@ -612,6 +665,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       server.send(
         JSON.stringify({
           type: "hydrate",
+          historyClearVersion: this.historyClearVersion(),
           messages: this.recentMessages,
           readReceipts: this.getReadReceipts(),
         })
@@ -792,6 +846,10 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
           return;
         }
         const clientMessageId = requestedMessageId ?? crypto.randomUUID();
+        if(this.wasCleared(clientMessageId)) {
+          ws.send(JSON.stringify({type:"error",messageId:clientMessageId,error:"This message was already cleared from chat history. Write a new message to send it again."}));
+          return;
+        }
         const existingMessage = this.findMessage(clientMessageId);
         if (existingMessage) {
           ws.send(JSON.stringify({ type: "message", message: existingMessage }));
@@ -818,6 +876,10 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         };
 
         if (!message.text && !message.attachments?.length && !message.poll) return;
+        if(this.wasCleared(clientMessageId)) {
+          ws.send(JSON.stringify({type:"error",messageId:clientMessageId,error:"This message was cleared while it was being sent. Write a new message to send it again."}));
+          return;
+        }
         this.addMessage(message);
         this.broadcast(JSON.stringify({ type: "message", message }));
         this.ctx.waitUntil(this.enqueueGatewayOperation(() => this.forwardExternalMessage(message)).catch(() => undefined));
@@ -918,6 +980,12 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
   }
 
   private addMessage(message: ChatMessage) {
+    // Attachment validation can yield while a clear commits. This newly accepted
+    // message belongs after the clear; quotes of cleared messages do not.
+    const cutoff=this.ctx.storage.sql.exec<{cutoff:number|null}>("SELECT MAX(cutoff) AS cutoff FROM chat_clear_receipts").toArray()[0]?.cutoff ?? 0;
+    message.timestamp=Math.max(Date.now(),message.timestamp,cutoff+1);
+    if(message.replyTo && this.wasCleared(message.replyTo.messageId)) delete message.replyTo;
+    if(message.threadRootId && this.wasCleared(message.threadRootId)) delete message.threadRootId;
     this.persistMessage(message);
     const existing = this.recentMessages.findIndex((candidate) => candidate.id === message.id);
     if (existing >= 0) {
