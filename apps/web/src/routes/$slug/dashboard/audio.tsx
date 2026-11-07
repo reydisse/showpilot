@@ -15,6 +15,7 @@ import { getTodayDateString } from "@/lib/utils";
 import { ShowSwitcherMenu, type ShowSwitcherOption } from "@/components/show-switcher-menu";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { ConfirmedWriteNotice as WriteNotice } from "@/components/layout/ConfirmedWriteNotice";
 import { useConfirmedWrite } from "@/hooks/useConfirmedWrite";
 import { getRundownOpeningDate } from "@/lib/rundown";
 import { createBrowserId } from "@/lib/browser-id";
@@ -79,7 +80,6 @@ async function loadAudio(orgId: string, signal: AbortSignal) {
 type Assignment = Awaited<ReturnType<typeof getMicAssignments>>[number];
 type AudioInitial = Awaited<ReturnType<typeof loadAudio>>;
 type AudioDraft = Pick<Assignment, "channel" | "label" | "micType" | "micModel" | "notes" | "gainDb" | "phantom" | "group">;
-type WriteState = ReturnType<typeof useConfirmedWrite>["state"];
 const controlClass = "min-h-11 rounded-lg border border-board-border px-3 py-2 text-sm font-medium text-board-text outline-none hover:bg-board-bg focus-visible:ring-2 focus-visible:ring-fire-500 disabled:opacity-40";
 
 function AudioPage() {
@@ -177,7 +177,7 @@ function AudioShow({ initial, selection, selectShow }: {
     rows: visibleAssignments.filter(row => (Object.hasOwn(GROUP_CONFIG, row.group) ? row.group : "other") === key),
   })).filter(group => group.rows.length > 0);
   const enabledMixer = mixers.find(mixer => mixer.enabled);
-  const notice = <><WriteNotice state={writes.state} retry={() => void writes.retry()} review={() => void reviewStored()} reviewing={reviewing} />{editor?.open && read.error && <p role="alert" className="text-sm text-amber-200">{read.error.message}</p>}</>;
+  const notice = <><WriteNotice collectionLabel="channels" state={writes.state} retry={() => void writes.retry()} review={() => void reviewStored()} reviewing={reviewing} />{editor?.open && read.error && <p role="alert" className="text-sm text-amber-200">{read.error.message}</p>}</>;
   const muteButton = (row: Assignment) => <button type="button" disabled={controlsDisabled} onClick={() => void handleToggleMute(row)} className={`${controlClass} min-w-11 ${row.muted ? "text-red-400" : "text-board-muted"}`} aria-label={`${row.muted ? "Mark unmuted" : "Mark muted"}: ${row.label}`}>
     {row.muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
   </button>;
@@ -239,11 +239,6 @@ function AudioShow({ initial, selection, selectShow }: {
     {editor && <MicAssignmentForm key={editor.key} existing={editor.assignment} open={editor.open} locked={writeLocked} busy={busy} nextChannel={assignments.length ? Math.max(...assignments.map(row => row.channel)) + 1 : 1} onClose={() => void closeEditor()} onSave={saveDraft} onDirty={setFormDirty} notice={notice} />}
     <Dialog open={blocker.status === "blocked"} onOpenChange={open => { if (!open && blocker.status === "blocked") blocker.reset(); }}><DialogContent aria-modal="true" showCloseButton={false} className="border-board-border bg-board-card text-board-text"><DialogTitle>Leave Audio?</DialogTitle><DialogDescription>Unsaved drafts and retry controls will be discarded. An unconfirmed change may still complete; review this show when you return.</DialogDescription><div className="flex flex-wrap gap-2"><button className={controlClass} onClick={() => blocker.status === "blocked" && blocker.reset()}>Stay</button><button className={controlClass} onClick={() => blocker.status === "blocked" && blocker.proceed()}>Leave Audio</button></div></DialogContent></Dialog>
   </div>;
-}
-function WriteNotice({ state, retry, review, reviewing }: { state: WriteState; retry: () => void; review: () => void; reviewing: boolean }) {
-  if (state.status === "idle") return null;
-  if (state.status === "saving") return <p role="status" className="text-sm text-board-muted">{state.saved ? "Change saved. Refreshing channels…" : `${state.label}… Waiting for confirmation.`}</p>;
-  return <div role="alert" aria-label="Channel change" className="space-y-3 rounded-xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm text-amber-200"><p>{state.saved ? "Change saved." : `${state.label} was not confirmed.`} {state.message} <time dateTime={new Date(state.at).toISOString()}>{new Date(state.at).toLocaleTimeString()}</time></p><div className="flex flex-wrap gap-2"><button className={controlClass} disabled={reviewing} onClick={retry}>{state.saved ? "Retry refresh" : "Retry change"}</button><button className={controlClass} disabled={reviewing} onClick={review}>{reviewing ? "Reviewing…" : "Review stored channels"}</button></div></div>;
 }
 function AudioStat({ label, value, icon: Icon, tone = "text-board-text" }: {
   label: string;
