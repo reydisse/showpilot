@@ -2,7 +2,7 @@ import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CreatedTokenNotice } from "./CreatedTokenNotice";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import {
   Plus,
   Trash2,
@@ -33,8 +33,7 @@ import {
   listKioskTokens,
   revokeKioskToken,
 } from "@/lib/kiosk";
-import { getKioskBlankState, setKioskBlankState } from "@/lib/kiosk-display";
-import { MonitorOff, Monitor } from "lucide-react";
+import { KioskDisplayControl } from "./KioskDisplayControl";
 
 type Member = { id: string; name: string; image: string | null };
 
@@ -55,9 +54,11 @@ export function KioskSection({
   orgId,
   slug,
   members: rawMembers,
+  userId,
 }: {
   orgId: string;
   slug: string;
+  userId: string;
   members: Array<{ user: { id: string; name: string; image: string | null } }>;
 }) {
   const members: Member[] = rawMembers.map((m) => ({
@@ -93,7 +94,7 @@ export function KioskSection({
         </p>
       </div>
 
-      <BlankDisplaysToggle orgId={orgId} />
+      <KioskDisplayControl key={`${orgId}:${userId}`} orgId={orgId} userId={userId} />
 
       <div className="flex flex-wrap items-center gap-1.5 mb-5">
         {[
@@ -135,66 +136,6 @@ export function KioskSection({
         <code className="text-board-muted">/api/v1/kiosk/roster</code> for org{" "}
         <span className="font-mono">{slug}</span> (kiosk token required).
       </p>
-    </div>
-  );
-}
-
-// ─── Blank Displays toggle ───────────────────────────────────
-
-function BlankDisplaysToggle({ orgId }: { orgId: string }) {
-  const [blanked, setBlanked] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    getKioskBlankState({ data: { orgId } })
-      .then((r) => setBlanked(r.blanked))
-      .catch(() => {});
-  }, [orgId]);
-
-  const toggle = async () => {
-    if (busy) return;
-    setBusy(true);
-    const next = !blanked;
-    setBlanked(next); // optimistic
-    try {
-      await setKioskBlankState({ data: { orgId, blanked: next } });
-    } catch {
-      setBlanked(!next); // revert
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div
-      className={`flex items-center gap-3 rounded-xl border p-3 mb-5 ${
-        blanked ? "border-red-500/40 bg-red-500/5" : "border-board-border bg-board-card"
-      }`}
-    >
-      {blanked ? (
-        <MonitorOff className="w-4 h-4 text-red-400 shrink-0" />
-      ) : (
-        <Monitor className="w-4 h-4 text-board-muted shrink-0" />
-      )}
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-board-text">Blank displays</div>
-        <div className="text-[11px] text-board-muted">
-          {blanked
-            ? "All kiosk displays are showing a black slate."
-            : "Hide all kiosk displays instantly (also Stream Deck button 9)."}
-        </div>
-      </div>
-      <button
-        onClick={toggle}
-        disabled={busy}
-        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
-          blanked
-            ? "bg-red-500 text-white hover:bg-red-600"
-            : "bg-board-bg text-board-muted hover:text-board-text border border-board-border"
-        }`}
-      >
-        {blanked ? "Restore" : "Blank"}
-      </button>
     </div>
   );
 }

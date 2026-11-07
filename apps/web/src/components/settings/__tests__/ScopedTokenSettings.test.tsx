@@ -1,3 +1,4 @@
+vi.mock("../KioskDisplayControl", () => ({ KioskDisplayControl: () => null }));
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const api = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), revoke: vi.fn() }));
@@ -13,7 +14,7 @@ const created = { ...row, id: "new-token", label: "New device", token: "fixture-
 beforeEach(() => { vi.resetAllMocks(); api.list.mockResolvedValue([row]); api.create.mockResolvedValue(created); api.revoke.mockResolvedValue({ id: row.id, revokedAt: new Date() }); });
 afterEach(cleanup);
 async function open(kind: "kiosk" | "companion", orgId = "org-1") {
-  const view = render(kind === "kiosk" ? <KioskSection orgId={orgId} slug={orgId} members={[]} /> : <CompanionSection orgId={orgId} slug={orgId} />);
+  const view = render(kind === "kiosk" ? <KioskSection userId="fixture-user" orgId={orgId} slug={orgId} members={[]} /> : <CompanionSection orgId={orgId} slug={orgId} />);
   if (kind === "kiosk") fireEvent.click(await screen.findByRole("button", { name: "Access Tokens" }));
   await screen.findAllByText("Existing device");
   return view;

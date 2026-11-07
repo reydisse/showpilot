@@ -4405,3 +4405,57 @@ call. Stacked on draft #204; wait for its CI run 42419840525 to turn green befor
 opening this draft. Phase 2 remains 47/79: kiosk blanking still lacks confirmation
 and its initial read silently fails, so the broad confirmation and UX gates are
 not complete. Twenty necessary tracked Markdown files remain.
+
+## Kiosk display command recovery (2026-11-07, not deployed)
+
+Real-auth Worker baselines reproduced a lost acknowledgement retry re-blanking
+displays after a newer Companion restore, and stale reviewed state overwriting
+an intervening controller change. Component baselines reproduced immediate
+blanking without confirmation and an unknown initial read presented as restored.
+
+Settings now uses a shared confirmation before blanking, with Cancel making no
+request. Restore remains one click. Reads and writes have eight/ten-second
+acknowledgement deadlines, explicit errors with timestamps, and separate Retry
+controls. The exact failed command survives navigation in its account/org cache.
+The UI describes the desired setting and next kiosk poll, not an unverified
+claim that every physical display has already applied it. Controls are at least
+44px and the confirmation fits at 320/768/1440px.
+
+An atomic D1 batch records the account/org/request receipt, desired boolean and
+revision. Commit-time membership/session/role revision and org-deletion checks
+protect writes. A stale reviewed revision returns conflict; an exact replay
+only reads its receipt and latest state. Companion and the technical dashboard
+share the server setter, which advances the revision atomically with the flag.
+Their boolean contract and the read-only kiosk payload remain unchanged. No
+migration is needed. Generic Settings access still excludes these internal keys.
+
+The first production build exposed a server-only helper exported through the
+client RPC module. Storage helpers now live only in the server module and the
+boolean interpreter lives in the pure contract; import protection stays enabled.
+The first compiled Chrome rehearsal then proved kiosk polling reused a cached
+pre-command response. The display endpoint now returns private, no-store. Other
+kiosk endpoint caching remains part of the Phase 3 token-hygiene requirement.
+
+Nine real-auth Worker cases cover duplicate/concurrent commands, intervening
+Companion changes, changed-payload reuse, transactional rollback, org/actor
+isolation, revoked access and corrupt saved state. Six component cases cover
+confirmation, bounded unknown reads, retained exact retry, account/org isolation,
+late replies, reviewed-state capture and one-click restore. Final full suite:
+2,284 unit plus 1,066 Worker tests. Typecheck and production build pass; main
+bundle 551,432 raw / 174,352 gzip bytes.
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-kiosk-display-command.mjs`
+passes against compiled Chrome/auth/D1 with real fixture kiosk and Companion
+tokens. It withholds a committed write response, restores via Companion, navigates
+away/back, retries the exact command and proves the restore remains. Fresh blank
+and restore commands reach browser polling without a stale cache. It also checks
+bounded initial reads, Cancel, three durable receipts, other-org isolation and
+320/768/1440px confirmation bounds. Phone screenshot inspected; no runtime errors
+or emails. Physical kiosk hardware was not exercised.
+
+Stacked on #205, whose CI run 42420964310 is green. Keep this PR draft. No
+production deployment, release, migration or real-org/provider mutation. Phase 2
+remains 47/79; the broader product confirmation/error gates remain incomplete.
+The Kiosk org-chart/roster editors still have unbounded writes and unconfirmed
+removal, and the technical dashboard's output controls need further review.
+Twenty necessary tracked Markdown files remain; no new Markdown file was added.
