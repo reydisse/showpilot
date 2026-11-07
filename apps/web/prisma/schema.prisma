@@ -687,6 +687,7 @@ model Song {
   id                 String        @id @default(cuid())
   orgId              String
   organization       Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  writeRevision Int          @default(0)
   title              String
   artist             String        @default("")
   ccliNumber         String        @default("")
