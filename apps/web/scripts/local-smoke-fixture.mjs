@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, paidPlan = false, damagedGraphicScenes = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, passwordReset = false, paidPlan = false, damagedGraphicScenes = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "showpilot-display-smoke-"));
   const session = `display-smoke-${process.pid}`;
   const secret = randomUUID();
@@ -21,6 +21,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
   const companionSecret = randomUUID();
   const encryptionSecret = JSON.stringify({ active: "fixture", keys: { fixture: randomBytes(32).toString("base64") } });
   const orgId = "display-smoke";
+  const resetTokens = Object.fromEntries(["valid", "expired", "lost"].map(name => [name, randomBytes(12).toString("hex")]));
   const date = new Date().toLocaleDateString("en-CA");
   let worker;
   let workerLog = "";
@@ -129,6 +130,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
   INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-unverified','Unverified operator','unverified@display-smoke.invalid',0,CURRENT_TIMESTAMP);
   INSERT INTO account (id,accountId,providerId,userId,password,issuer,updatedAt) VALUES ('smoke-unverified-account','smoke-unverified','credential','smoke-unverified','${passwordHash}','local:credential',CURRENT_TIMESTAMP);
   ` : ""}
+  ${passwordReset ? Object.entries(resetTokens).map(([name, token]) => `INSERT INTO verification (id,identifier,value,expiresAt,createdAt,updatedAt) VALUES ('smoke-reset-${name}','reset-password:${token}','smoke-operator','${new Date(Date.now() + (name === "expired" ? -60_000 : 3600_000)).toISOString()}','${new Date().toISOString()}','${new Date().toISOString()}');`).join("\n") : ""}
   INSERT INTO rundown (id,orgId,serviceDate,name) VALUES ('smoke-show','display-smoke','${date}','Display test show');
   ${secondShow ? `INSERT INTO rundown (id,orgId,serviceDate,name) VALUES ('smoke-second-show','display-smoke','${date}','Evening test show');` : ""}
   INSERT INTO app_setting (id,orgId,key,value) VALUES ('smoke-message','display-smoke','rundown-message:smoke-show','Fixture private stage message'), ('smoke-active','display-smoke','active-graphics','["smoke-graphic"]'), ('smoke-show-setting','display-smoke','active-show-id','smoke-show');
@@ -186,7 +188,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
       url.searchParams.set("token", token); url.searchParams.set("callbackURL", "/verify-email");
       return url.toString();
     };
-    await check({ origin, orgId, date, browser, pass, crewChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
+    await check({ origin, orgId, date, browser, pass, crewChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, resetTokens: passwordReset ? resetTokens : undefined, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
   } catch (error) {
     // Configuration contains only disposable fixture secrets; redact them anyway.
     console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]").replaceAll(companionSecret, "[fixture secret]").replaceAll(encryptionSecret, "[fixture secret]"));
