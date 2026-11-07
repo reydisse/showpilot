@@ -113,6 +113,11 @@ let sharedPrismaProbe: ReturnType<typeof import("../lib/db").getPrisma> | undefi
 
 export default {
   async fetch(request: Request, bindings: Env): Promise<Response> {
+    if (new URL(request.url).pathname.startsWith("/api/auth/")) {
+      const { getAuth } = await import("../lib/auth");
+      const { withDatabaseRequest } = await import("../lib/request-database.server");
+      return withDatabaseRequest(request, bindings.DB, () => getAuth().handler(request));
+    }
     if (new URL(request.url).pathname === "/_test/prisma") {
       const { getPrisma } = await import("../lib/db");
       const { withDatabaseRequest } = await import("../lib/request-database.server");
