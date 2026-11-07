@@ -183,10 +183,11 @@ function fakeDatabase(state: FakeState): MobileApiDatabase {
           state.entries.push({ id, orgId, templateId, showId, serviceDate, category, checked: false, checkedBy: null, checkedAt: null, revision: 0 });
           return { success: true, meta: { changes: 1 } };
         }
-        if (sql.startsWith("UPDATE checklist_entry SET category")) {
-          const [category, entryId, orgId] = params as [string, string, string];
+        if (sql.startsWith("UPDATE checklist_entry SET revision = CASE WHEN category")) {
+          const [, category, entryId, orgId] = params as [string, string, string, string];
           const entry = state.entries.find((candidate) => candidate.id === entryId && candidate.orgId === orgId);
           if (!entry) return { success: true, meta: { changes: 0 } };
+          if (entry.category !== category) entry.revision += 1;
           entry.category = category;
           return { success: true, meta: { changes: 1 } };
         }
@@ -314,6 +315,7 @@ describe("mobile checklist", () => {
     );
     expect(categoryResponse.status).toBe(200);
     expect(state.entries[0].category).toBe("lighting");
+    expect(state.entries[0].revision).toBe(1);
     expect(state.templates[0].category).toBe("visuals");
 
     const removeResponse = await mobileRequest(

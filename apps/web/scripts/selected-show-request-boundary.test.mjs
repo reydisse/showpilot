@@ -2,9 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
+// Checklist now uses useOperatorRead; ChecklistRecovery.test.tsx exercises actual
+// show switches, deadlines and late replies instead of matching counter spelling.
 const files = [
   "src/routes/$slug/dashboard/audio.tsx",
-  "src/routes/$slug/production/checklist.tsx",
 ];
 
 for (const file of files) {
