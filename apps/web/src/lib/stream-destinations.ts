@@ -1,7 +1,8 @@
-import { createServerFn } from "@tanstack/react-start";
+import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { getPrisma } from "@/lib/db";
 import { env } from "cloudflare:workers";
 import { assertOrgPermission } from "@/lib/org-access";
+import { readStreamDestinationKey, saveStreamDestinationForOrg } from "./stream-destination-write.server";
 import { z } from "zod";
 import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
 
@@ -73,11 +74,14 @@ export function normalizeCfOutputStatus(output: { enabled?: boolean } | null | u
   return { status: output.enabled ? "enabled" : "disabled" };
 }
 
+const destinationRequestIdSchema = z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/).optional();
+
 export const addStreamDestination = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
       z.object({
         orgId: idSchema,
+        requestId: destinationRequestIdSchema,
         name: labelSchema,
         platform: z.string().min(1).max(50),
         rtmpUrl: z.string().regex(/^rtmps?:\/\//i).max(500),
@@ -87,24 +91,20 @@ export const addStreamDestination = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "stream_health:manage");
-    const prisma = getPrisma();
-    return await prisma.streamDestination.create({
-      data: {
-        orgId: data.orgId,
-        name: data.name,
-        platform: data.platform,
-        rtmpUrl: data.rtmpUrl,
-        streamKey: data.streamKey,
-        enabled: false,
-      },
-    });
+    const { user } = await assertOrgPermission(data.orgId, "stream_health:manage");
+    const { orgId, requestId, ...fields } = data;
+    const id = await saveStreamDestinationForOrg({ orgId, actorId: user.id, requestId, kind: "create", fields });
+    const destination = await getPrisma().streamDestination.findFirst({ where: { id, orgId } });
+    if (!destination) throw new Error("The saved destination was removed. Retrying will not recreate it.");
+    return redactStreamDestination(destination);
   });
 
 export const updateStreamDestination = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
       z.object({
+        orgId: idSchema,
+        requestId: destinationRequestIdSchema,
         id: idSchema,
         updates: z
           .object({
@@ -119,22 +119,11 @@ export const updateStreamDestination = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }) => {
-    await assertDestinationAccess(data.id);
-    const prisma = getPrisma();
-    const destination = await prisma.streamDestination.findUnique({ where: { id: data.id } });
-    if (!destination) throw new Error("Destination not found");
-    const changesCredentials = (
-      data.updates.rtmpUrl !== undefined && data.updates.rtmpUrl !== destination.rtmpUrl
-    ) || Boolean(data.updates.streamKey?.trim());
-    if (destination.cfOutputId && changesCredentials) {
-      throw new Error("Disable this destination before changing its RTMP credentials");
-    }
-    const updates = { ...data.updates };
-    if (!updates.streamKey?.trim()) delete updates.streamKey;
-    return await prisma.streamDestination.update({
-      where: { id: data.id },
-      data: updates,
-    });
+    const { user } = await assertOrgPermission(data.orgId, "stream_health:manage");
+    await saveStreamDestinationForOrg({ orgId: data.orgId, actorId: user.id, requestId: data.requestId, kind: "update", id: data.id, fields: data.updates });
+    const destination = await getPrisma().streamDestination.findFirst({ where: { id: data.id, orgId: data.orgId } });
+    if (!destination) throw new Error("The saved destination was removed. Retrying will not recreate it.");
+    return redactStreamDestination(destination);
   });
 
 export const deleteStreamDestination = createServerFn({ method: "POST" })
@@ -154,7 +143,7 @@ export const toggleStreamDestination = createServerFn({ method: "POST" })
     await assertDestinationAccess(data.id);
     const destination = await getPrisma().streamDestination.findUnique({ where: { id: data.id }, select: { orgId: true } });
     if (!destination) throw new Error("Destination not found");
-    return setStreamDestinationEnabledForOrg(destination.orgId, data.id, data.enabled);
+    return redactStreamDestination(await setStreamDestinationEnabledForOrg(destination.orgId, data.id, data.enabled));
   });
 
 /** Tenant-scoped Stream Connect toggle shared by web, native, and future adapters. */
@@ -264,6 +253,7 @@ async function connectDestinationOutput(
     return;
   }
 
+  const streamKey = await readStreamDestinationKey(destination);
   const previousMarker = destination.cfOutputId;
   const startedAt = streamOutputOperationStartedAt(previousMarker);
   if (startedAt !== null && Date.now() - startedAt < OUTPUT_OPERATION_STALE_MS) {
@@ -277,6 +267,8 @@ async function connectDestinationOutput(
       orgId: destination.orgId,
       enabled: true,
       cfOutputId: previousMarker,
+      rtmpUrl: destination.rtmpUrl,
+      streamKey: destination.streamKey,
     },
     data: { cfOutputId: marker, liveInputId: liveInput.id },
   });
@@ -285,12 +277,12 @@ async function connectDestinationOutput(
   let outputId = "";
   try {
     const matching = (await listCfOutputs(liveInput.cfInputId)).filter(
-      (output) => output.url === destination.rtmpUrl && output.streamKey === destination.streamKey,
+      (output) => output.url === destination.rtmpUrl && output.streamKey === streamKey,
     );
     outputId = matching[0]?.uid ?? await createCfOutput(
       liveInput.cfInputId,
       destination.rtmpUrl,
-      destination.streamKey,
+      streamKey,
     );
     await setCfOutputEnabled(liveInput.cfInputId, outputId, true);
     for (const duplicate of matching.slice(1)) await deleteCfOutput(liveInput.cfInputId, duplicate.uid);
@@ -428,10 +420,10 @@ export async function resolveOrgLiveInput(
 }
 
 /** Connect all enabled destinations to a live input; returns per-dest result. */
-export async function connectDestinationsForOrg(
+export const connectDestinationsForOrg = createServerOnlyFn(async (
   orgId: string,
   liveInputId: string,
-): Promise<{ id: string; success: boolean; error?: string }[]> {
+): Promise<{ id: string; success: boolean; error?: string }[]> => {
   const prisma = getPrisma();
   const liveInput = await prisma.liveInput.findFirst({
     where: { id: liveInputId, orgId },
@@ -454,7 +446,7 @@ export async function connectDestinationsForOrg(
   }
 
   return results;
-}
+});
 
 /** Disconnect every connected output for an org. */
 export async function disconnectAllForOrg(

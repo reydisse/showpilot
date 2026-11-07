@@ -105,6 +105,7 @@ import {
   setStreamDestinationEnabledForOrg,
 } from "./stream-destinations";
 import { getLiveInputStatusForOrg } from "./stream";
+import { saveStreamDestinationForOrg } from "./stream-destination-write.server";
 import { objectionableContentReason } from "./user-content-safety";
 import { mobileRundownStatus } from "./rundown-status";
 import {
@@ -6734,56 +6735,23 @@ async function writeMobileDestination(
       400,
     );
   }
-  if (destinationId) {
-    const current = await db
-      .prepare(
-        "SELECT rtmpUrl, streamKey, cfOutputId FROM stream_destination WHERE id = ? AND orgId = ?",
-      )
-      .bind(destinationId, access.orgId)
-      .first<{ rtmpUrl: string; streamKey: string; cfOutputId: string }>();
-    if (!current) return json({ error: "Destination not found." }, 404);
-    const changesCredentials =
-      rtmpUrl !== current.rtmpUrl || Boolean(streamKey);
-    if (current.cfOutputId && changesCredentials) {
-      return json(
-        {
-          error:
-            "Disable this destination before changing its RTMP credentials.",
-        },
-        409,
-      );
-    }
-    await db
-      .prepare(
-        "UPDATE stream_destination SET name = ?, platform = ?, rtmpUrl = ?, streamKey = ? WHERE id = ? AND orgId = ?",
-      )
-      .bind(
-        name,
-        platform,
-        rtmpUrl,
-        streamKey === undefined || streamKey === ""
-          ? current.streamKey
-          : streamKey,
-        destinationId,
-        access.orgId,
-      )
-      .run();
-    return json({ ok: true });
+  const requestId = body?.requestId;
+  if (requestId !== undefined && (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(requestId))) {
+    return json({ error: "The destination request ID is invalid." }, 400);
   }
-  if (!streamKey)
-    return json(
-      { error: "A stream key is required for a new destination." },
-      400,
-    );
-  const id = crypto.randomUUID();
-  await db
-    .prepare(
-      `INSERT INTO stream_destination (id, orgId, name, platform, rtmpUrl, streamKey, enabled, cfOutputId, liveInputId, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, 0, '', '', CURRENT_TIMESTAMP)`,
-    )
-    .bind(id, access.orgId, name, platform, rtmpUrl, streamKey)
-    .run();
-  return json({ ok: true, id });
+  try {
+    const fields = { name, platform, rtmpUrl, ...(streamKey === undefined ? {} : { streamKey }) };
+    let id: string;
+    if (destinationId) id = await saveStreamDestinationForOrg({ orgId: access.orgId, actorId: access.identity.userId, requestId, kind: "update", id: destinationId, fields });
+    else {
+      if (!streamKey) return json({ error: "A stream key is required for a new destination." }, 400);
+      id = await saveStreamDestinationForOrg({ orgId: access.orgId, actorId: access.identity.userId, requestId, kind: "create", fields: { name, platform, rtmpUrl, streamKey } });
+    }
+    return json({ ok: true, id });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The destination save could not be confirmed. Retry the same change.";
+    return json({ error: message }, /not found/i.test(message) ? 404 : /Disable this destination|changed elsewhere|different destination changes/.test(message) ? 409 : 502);
+  }
 }
 
 function parseActiveGraphicIds(value: string | null | undefined): string[] {

@@ -1,8 +1,8 @@
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter, useBlocker } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { RouteError } from "@/components/ui/RouteRecovery";
@@ -33,6 +33,11 @@ import {
   type StreamOutputStatus,
 } from "@/lib/stream-destinations";
 import { getLiveInputs } from "@/lib/stream";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { ConfirmedWriteNotice } from "@/components/layout/ConfirmedWriteNotice";
+import { useConfirmedWrite } from "@/hooks/useConfirmedWrite";
+import { createBrowserId } from "@/lib/browser-id";
 
 type Platform = "youtube" | "facebook" | "twitch" | "custom";
 
@@ -77,13 +82,77 @@ export const Route = createFileRoute("/$slug/streaming/platforms")({
   component: PlatformsPage,
 });
 
+type Destination = Awaited<ReturnType<typeof getStreamDestinations>>[number];
+type PlatformInitial = { destinations: Destination[]; inputs: Awaited<ReturnType<typeof getLiveInputs>>; orgId: string };
+type DestinationDraft = { name: string; platform: Platform; rtmpUrl: string; streamKey: string };
+const controlClass = "min-h-11 rounded-lg border border-board-border px-3 py-2 text-sm text-board-text outline-none hover:bg-board-bg focus-visible:ring-2 focus-visible:ring-fire-500 disabled:opacity-40";
+function platformName(value: string): Platform {
+  return value === "youtube" || value === "facebook" || value === "twitch" ? value : "custom";
+}
+
 function PlatformsPage() {
-  const { destinations, inputs, orgId } = Route.useLoaderData();
+  const initial = Route.useLoaderData();
+  return <PlatformsWorkspace key={initial.orgId} initial={initial} />;
+}
+export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
+  const { orgId } = initial;
   const router = useRouter();
-  const [showForm, setShowForm] = useState(false);
-  const [editDest, setEditDest] = useState<(typeof destinations)[0] | null>(
-    null,
-  );
+  const readConfiguration = useCallback(async (signal: AbortSignal) => {
+    const [destinations, inputs] = await Promise.all([
+      getStreamDestinations({ data: { orgId }, signal }), getLiveInputs({ data: { orgId }, signal }),
+    ]);
+    return { destinations, inputs };
+  }, [orgId]);
+  const read = useOperatorRead({
+    key: JSON.stringify([orgId, initial.destinations, initial.inputs]),
+    initialValue: { destinations: initial.destinations, inputs: initial.inputs }, read: readConfiguration,
+    errorMessage: "Destinations could not be refreshed. Previously confirmed values are shown. Retry before making changes.",
+  });
+  const { destinations, inputs } = read.value;
+  const writes = useConfirmedWrite(orgId);
+  const locked = writes.state.status !== "idle", busy = writes.state.status === "saving";
+  const controlsDisabled = locked || read.refreshing || !!read.error;
+  const [editor, setEditor] = useState<{ key: string; existing: Destination | null; open: boolean } | null>(null);
+  const [formDirty, setFormDirty] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
+  const dirty = locked || formDirty;
+  const blocker = useBlocker({ shouldBlockFn: () => dirty, enableBeforeUnload: dirty, withResolver: true });
+  useEffect(() => { if (!dirty && blocker.status === "blocked") blocker.proceed(); }, [dirty, blocker]);
+  const openEditor = (existing: Destination | null) => {
+    if (controlsDisabled) return;
+    setFormDirty(false); setEditor({ key: createBrowserId(), existing, open: true });
+  };
+  const closeEditor = async () => {
+    if (busy) return;
+    if (locked) { setEditor(current => current ? { ...current, open: false } : null); return; }
+    if (formDirty && !await confirm({ title: "Discard destination draft?", description: "Your unsaved destination fields will be discarded.", confirmLabel: "Discard draft" })) return;
+    setEditor(null); setFormDirty(false);
+  };
+  const saveDraft = (draft: DestinationDraft) => {
+    if (!editor || controlsDisabled) return;
+    const existing = editor.existing;
+    void writes.start({
+      label: existing ? "Update destination" : "Add destination",
+      write: (requestId, signal) => existing
+        ? updateStreamDestination({ data: { orgId, id: existing.id, requestId, updates: draft }, signal })
+        : addStreamDestination({ data: { orgId, requestId, ...draft }, signal }),
+      apply: () => read.invalidate(),
+      finish: async (_result, signal) => {
+        const confirmed = await read.refresh(); signal.throwIfAborted();
+        if (!confirmed) throw new Error("The destination was saved, but the list could not be refreshed. Retry refresh without repeating the save.");
+        setEditor(null); setFormDirty(false);
+      },
+    });
+  };
+  const reviewStored = async () => {
+    if (reviewing || writes.state.status !== "failed") return;
+    if (!await confirm({ title: "Review stored destinations?", description: "The previous save may already have completed. Check the refreshed list before submitting another destination. Your draft will be kept.", confirmLabel: "Review destinations", variant: "warning" })) return;
+    setReviewing(true);
+    if (await read.refresh()) writes.discard();
+    setReviewing(false);
+  };
+  const notice = <><ConfirmedWriteNotice collectionLabel="destinations" state={writes.state} retry={() => void writes.retry()} review={() => void reviewStored()} reviewing={reviewing} />{editor?.open && read.error && <p role="alert" className="text-sm text-amber-200">{read.error.message}</p>}</>;
   const [goingLive, setGoingLive] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -163,7 +232,8 @@ function PlatformsPage() {
   };
 
   return (
-    <div className="h-full overflow-auto">
+    <div className="h-full min-w-0 overflow-auto">
+      {ConfirmDialogEl}
       <div className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-4 md:px-6 py-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -179,7 +249,7 @@ function PlatformsPage() {
               {connectedCount > 0 ? (
                 <button
                   onClick={handleStopAll}
-                  disabled={stopping}
+                  disabled={stopping || controlsDisabled}
                   className="flex min-h-[44px] items-center gap-1.5 px-4 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 disabled:opacity-50 transition-colors"
                 >
                   {stopping ? (
@@ -192,7 +262,7 @@ function PlatformsPage() {
               ) : (
                 <button
                   onClick={handleGoLive}
-                  disabled={goingLive || !hasInputs || activeCount === 0}
+                  disabled={controlsDisabled || goingLive || !hasInputs || activeCount === 0}
                   className="flex min-h-[44px] items-center gap-1.5 px-4 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50 transition-colors"
                   title={!hasInputs ? "Create a live input on Stream first" : activeCount === 0 ? "Enable at least one destination" : ""}
                 >
@@ -205,10 +275,7 @@ function PlatformsPage() {
                 </button>
               )}
               <button
-                onClick={() => {
-                  setEditDest(null);
-                  setShowForm(true);
-                }}
+                onClick={() => openEditor(null)} disabled={controlsDisabled}
                 className="flex min-h-[44px] items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors"
               >
                 <Plus className="w-3 h-3" />
@@ -220,6 +287,10 @@ function PlatformsPage() {
       </div>
 
       <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
+        <ReadFailureNotice error={read.error} refreshing={read.refreshing} retry={read.retry} label="Retry destinations" />
+        {!editor?.open && notice}
+        {editor && !editor.open && <button className={controlClass} onClick={() => setEditor({ ...editor, open: true })}>Review destination draft</button>}
+        {read.refreshing && <p role="status" className="text-xs text-board-muted">Refreshing destinations… Previously confirmed values are shown.</p>}
         <ReadFailureNotice error={outputFailure} refreshing={outputRead.refreshing} retry={outputRead.retry} label="Retry output status" />
         {connectedCount > 0 && (() => {
           const enabled = Object.values(outputStatuses).filter(state => state.status === "enabled").length;
@@ -283,10 +354,7 @@ function PlatformsPage() {
             description="Add YouTube, Facebook, Twitch, or custom RTMP destinations to simulcast your live input."
             action={
               <EmptyStateButton
-                onClick={() => {
-                  setEditDest(null);
-                  setShowForm(true);
-                }}
+                onClick={() => openEditor(null)} disabled={controlsDisabled}
               >
                 Add Destination
               </EmptyStateButton>
@@ -296,7 +364,7 @@ function PlatformsPage() {
           <div className="space-y-3">
             {destinations.map((dest) => {
               const platformCfg =
-                PLATFORM_CONFIG[dest.platform as Platform] ?? PLATFORM_CONFIG.custom;
+                PLATFORM_CONFIG[platformName(dest.platform)] ?? PLATFORM_CONFIG.custom;
               const isConnected = !!dest.cfOutputId;
               const outputStatus = outputStatuses[dest.id];
               const outputLabel = outputStatus?.status === "enabled" ? "Output enabled"
@@ -317,11 +385,11 @@ function PlatformsPage() {
                       {outputError && <p className="text-xs text-amber-200">{outputError}</p>}
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
-                      <button onClick={() => handleToggle(dest.id, dest.enabled)} className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted outline-none hover:bg-board-border/50 focus-visible:ring-2 focus-visible:ring-fire-500" aria-label={`${dest.enabled ? "Disable" : "Enable"} ${dest.name}`}>
+                      <button disabled={controlsDisabled} onClick={() => handleToggle(dest.id, dest.enabled)} className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted outline-none hover:bg-board-border/50 focus-visible:ring-2 focus-visible:ring-fire-500" aria-label={`${dest.enabled ? "Disable" : "Enable"} ${dest.name}`}>
                         {dest.enabled ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
                       </button>
-                      <button type="button" onClick={() => { setEditDest(dest); setShowForm(true); }} aria-label={`Edit ${dest.name}`} className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted outline-none hover:bg-board-border/50 focus-visible:ring-2 focus-visible:ring-fire-500"><Pencil className="h-4 w-4" /></button>
-                      <button type="button" onClick={() => handleDelete(dest.id)} aria-label={`Delete ${dest.name}`} className="min-h-11 min-w-11 rounded-lg p-2 text-red-400 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-fire-500"><Trash2 className="h-4 w-4" /></button>
+                      <button type="button" disabled={controlsDisabled} onClick={() => openEditor(dest)} aria-label={`Edit ${dest.name}`} className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted outline-none hover:bg-board-border/50 focus-visible:ring-2 focus-visible:ring-fire-500"><Pencil className="h-4 w-4" /></button>
+                      <button type="button" disabled={controlsDisabled} onClick={() => handleDelete(dest.id)} aria-label={`Delete ${dest.name}`} className="min-h-11 min-w-11 rounded-lg p-2 text-red-400 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-fire-500"><Trash2 className="h-4 w-4" /></button>
                     </div>
                   </div>
 
@@ -373,203 +441,49 @@ function PlatformsPage() {
           </div>
         </div>
 
-        {/* Add/Edit form modal */}
-        {showForm && (
-          <DestinationFormModal
-            existing={editDest}
-            orgId={orgId}
-            onClose={() => {
-              setShowForm(false);
-              setEditDest(null);
-            }}
-            onSaved={() => {
-              setShowForm(false);
-              setEditDest(null);
-              router.invalidate();
-            }}
-          />
-        )}
+        {editor && <DestinationFormModal key={editor.key} existing={editor.existing} open={editor.open} locked={locked} busy={busy} controlsDisabled={controlsDisabled} onClose={() => void closeEditor()} onSave={saveDraft} onDirty={setFormDirty} notice={notice} />}
+        <Dialog open={blocker.status === "blocked"} onOpenChange={open => { if (!open && blocker.status === "blocked") blocker.reset(); }}>
+          <DialogContent aria-modal="true" showCloseButton={false} className="border-board-border bg-board-card text-board-text"><DialogTitle>Leave Multi-Platform?</DialogTitle><DialogDescription>Unsaved drafts and retry controls will be discarded. An unconfirmed save may still complete. Review stored destinations when you return.</DialogDescription><div className="flex flex-wrap gap-2"><button className={controlClass} onClick={() => blocker.status === "blocked" && blocker.reset()}>Stay</button><button className={controlClass} onClick={() => blocker.status === "blocked" && blocker.proceed()}>Leave Multi-Platform</button></div></DialogContent>
+        </Dialog>
       </div>
     </div>
   );
 }
 
-function DestinationFormModal({
-  existing,
-  orgId,
-  onClose,
-  onSaved,
-}: {
-  existing: Awaited<ReturnType<typeof getStreamDestinations>>[0] | null;
-  orgId: string;
-  onClose: () => void;
-  onSaved: () => void;
+function DestinationFormModal({ existing, open, locked, busy, controlsDisabled, onClose, onSave, onDirty, notice }: {
+  existing: Destination | null; open: boolean; locked: boolean; busy: boolean; controlsDisabled: boolean;
+  onClose: () => void; onSave: (draft: DestinationDraft) => void; onDirty: (dirty: boolean) => void; notice: React.ReactNode;
 }) {
   const workspaceTerms = useWorkspaceTerms();
   const [name, setName] = useState(existing?.name ?? "");
-  const [platform, setPlatform] = useState<Platform>(
-    (existing?.platform as Platform) ?? "youtube"
-  );
-  const [rtmpUrl, setRtmpUrl] = useState(
-    existing?.rtmpUrl ?? PLATFORM_CONFIG.youtube.defaultRtmp
-  );
+  const [platform, setPlatform] = useState<Platform>(existing ? platformName(existing.platform) : "youtube");
+  const [rtmpUrl, setRtmpUrl] = useState(existing?.rtmpUrl ?? PLATFORM_CONFIG.youtube.defaultRtmp);
   const [streamKey, setStreamKey] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  const handlePlatformChange = (p: Platform) => {
-    setPlatform(p);
-    if (!existing) {
-      setRtmpUrl(PLATFORM_CONFIG[p].defaultRtmp);
-      if (!name) setName(PLATFORM_CONFIG[p].label);
-    }
+  const dirty = name !== (existing?.name ?? "") || platform !== (existing ? platformName(existing.platform) : "youtube") || rtmpUrl !== (existing?.rtmpUrl ?? PLATFORM_CONFIG.youtube.defaultRtmp) || !!streamKey;
+  useEffect(() => onDirty(dirty), [dirty, onDirty]);
+  const fieldClass = "min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-sm text-board-text outline-none focus-visible:ring-2 focus-visible:ring-fire-500 disabled:opacity-50";
+  const changePlatform = (next: Platform) => {
+    setPlatform(next);
+    if (!existing) { setRtmpUrl(PLATFORM_CONFIG[next].defaultRtmp); if (!name) setName(PLATFORM_CONFIG[next].label); }
   };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-    setSaving(true);
-    setError("");
-    try {
-      if (existing) {
-        await updateStreamDestination({
-          data: {
-            id: existing.id,
-            updates: {
-              name: name.trim(),
-              platform,
-              rtmpUrl: rtmpUrl.trim(),
-              streamKey: streamKey.trim(),
-            },
-          },
-        });
-      } else {
-        await addStreamDestination({
-          data: {
-            orgId,
-            name: name.trim(),
-            platform,
-            rtmpUrl: rtmpUrl.trim(),
-            streamKey: streamKey.trim(),
-          },
-        });
-      }
-      onSaved();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Destination update failed");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-semibold text-board-text">
-            {existing ? "Edit Destination" : "Add Destination"}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close destination editor"
-            className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Status banner */}
-          <div>
-            <label className="block text-sm text-board-muted mb-1.5">
-              Platform
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {(Object.keys(PLATFORM_CONFIG) as Platform[]).map((p) => {
-                const config = PLATFORM_CONFIG[p];
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => handlePlatformChange(p)}
-                    className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
-                      platform === p
-                        ? "bg-fire-500/15 text-fire-500 border-fire-500/25"
-                        : "text-board-muted border-board-border hover:border-board-muted/50"
-                    }`}
-                  >
-                    {config.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Name */}
-          <div>
-            <label className="block text-sm text-board-muted mb-1.5">
-              Display Name
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={workspaceCopy("e.g. Church YouTube", workspaceTerms)}
-              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
-            />
-          </div>
-
-          {/* RTMP URL */}
-          <div>
-            <label className="block text-sm text-board-muted mb-1.5">
-              RTMP URL
-            </label>
-            <input
-              type="text"
-              value={rtmpUrl}
-              onChange={(e) => setRtmpUrl(e.target.value)}
-              placeholder="rtmp://..."
-              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono"
-            />
-          </div>
-
-          {/* Stream Key */}
-          <div>
-            <label className="block text-sm text-board-muted mb-1.5">
-              {existing ? "New stream key" : "Stream key"}
-            </label>
-            <input
-              type="password"
-              value={streamKey}
-              onChange={(e) => setStreamKey(e.target.value)}
-              placeholder={existing ? "Leave blank to keep the stored key" : "Your stream key"}
-              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono"
-            />
-          </div>
-
-          {error ? (
-            <p role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</p>
-          ) : null}
-
-          <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving || !name.trim() || !rtmpUrl.trim() || (!existing && !streamKey.trim())}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
-            >
-              {saving ? "Saving..." : existing ? "Update" : "Add"}
-            </button>
-          </div>
-        </form>
+  return <Dialog open={open} onOpenChange={next => { if (!next && !busy) onClose(); }}>
+    <DialogContent aria-modal="true" showCloseButton={false} className="flex max-h-[90dvh] flex-col gap-0 overflow-hidden border-board-border bg-board-card p-0 text-board-text">
+      <div className="flex shrink-0 items-start justify-between gap-3 border-b border-board-border p-4">
+        <div className="space-y-2"><DialogTitle>{existing ? "Edit Destination" : "Add Destination"}</DialogTitle><DialogDescription>Save the destination credentials. Enable it and use Go Live separately to start forwarding.</DialogDescription></div>
+        <button type="button" disabled={busy} onClick={onClose} aria-label="Close destination editor" className={`${controlClass} min-w-11`}><X className="size-4" /></button>
       </div>
-    </div>
-  );
+      <form className="flex min-h-0 flex-1 flex-col" onSubmit={event => { event.preventDefault(); if (!controlsDisabled) onSave({ name: name.trim(), platform, rtmpUrl: rtmpUrl.trim(), streamKey: streamKey.trim() }); }}>
+        <div className="min-h-0 space-y-4 overflow-y-auto p-4">
+          {notice}
+          <fieldset disabled={locked} className="space-y-4">
+            <fieldset><legend className="mb-2 text-sm text-board-muted">Platform</legend><div className="grid grid-cols-2 gap-2">{(["youtube", "facebook", "twitch", "custom"] satisfies Platform[]).map(value => <button type="button" key={value} aria-pressed={platform === value} onClick={() => changePlatform(value)} className={`${controlClass} ${platform === value ? "border-fire-500 bg-fire-500/10 text-fire-500" : ""}`}>{PLATFORM_CONFIG[value].label}</button>)}</div></fieldset>
+            <div className="space-y-2"><label htmlFor="destination-name" className="text-sm text-board-muted">Display Name</label><input id="destination-name" required maxLength={200} value={name} onChange={event => setName(event.target.value)} placeholder={workspaceCopy("e.g. Church YouTube", workspaceTerms)} className={fieldClass} /></div>
+            <div className="space-y-2"><label htmlFor="destination-url" className="text-sm text-board-muted">RTMP URL</label><input id="destination-url" required maxLength={500} pattern="[rR][tT][mM][pP][sS]?://.*" value={rtmpUrl} onChange={event => setRtmpUrl(event.target.value)} placeholder="rtmps://…" className={`${fieldClass} font-mono`} /></div>
+            <div className="space-y-2"><label htmlFor="destination-key" className="text-sm text-board-muted">{existing ? "New stream key" : "Stream key"}</label><input id="destination-key" type="password" autoComplete="new-password" required={!existing} maxLength={500} value={streamKey} onChange={event => setStreamKey(event.target.value)} aria-describedby="destination-key-help" className={`${fieldClass} font-mono`} /><p id="destination-key-help" className="text-xs text-board-muted">{existing ? "Leave blank to keep the stored key. Disable a connected destination before replacing its credentials." : "Enter the stream key from your destination platform."}</p></div>
+          </fieldset>
+        </div>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-board-border p-4"><button type="button" disabled={busy} onClick={onClose} className={controlClass}>{locked ? "Close editor" : "Cancel"}</button><button type="submit" disabled={controlsDisabled || !name.trim() || !rtmpUrl.trim() || (!existing && !streamKey.trim())} className={`${controlClass} bg-fire-500 text-black`}>{busy ? "Saving…" : existing ? "Update destination" : "Add destination"}</button></div>
+      </form>
+    </DialogContent>
+  </Dialog>;
 }
