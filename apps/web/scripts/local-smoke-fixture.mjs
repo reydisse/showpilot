@@ -62,6 +62,10 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     const iat = Math.floor(Date.now() / 1000);
     return `chat_${signFixtureToken({ scope: "crew-chat", orgId, orgSlug: orgId, iat, exp: iat + seconds })}`;
   }
+  function planningChatPass(targetUserIds = ["smoke-operator"], seconds = 300, organizationId = orgId) {
+    const iat = Math.floor(Date.now() / 1000);
+    return `planning_chat_${signFixtureToken({ scope: "planning-chat", roomId: "planning", orgId: organizationId, orgSlug: organizationId, targetUserIds, iat, exp: iat + seconds })}`;
+  }
   async function availablePort() {
     const server = createServer();
     await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
@@ -214,7 +218,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
       assert.ok(captureEmail);
       return (await readFile(join(directory, "emails.jsonl"), "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
     };
-    await check({ configureEmail, capturedEmails, origin, orgId, date, browser, pass, crewChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, resetTokens: passwordReset ? resetTokens : undefined, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
+    await check({ configureEmail, capturedEmails, origin, orgId, date, browser, pass, crewChatPass, planningChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, resetTokens: passwordReset ? resetTokens : undefined, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
   } catch (error) {
     // Configuration contains only disposable fixture secrets; redact them anyway.
     console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]").replaceAll(companionSecret, "[fixture secret]").replaceAll(encryptionSecret, "[fixture secret]"));
