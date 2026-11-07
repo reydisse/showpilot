@@ -117,6 +117,7 @@ const initial = {
     },
   ],
   accessManagement: {
+    notices: [],
     currentUserId: "actor",
     authority: {
       canManage: false,
