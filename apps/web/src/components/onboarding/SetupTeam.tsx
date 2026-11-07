@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, Plus, QrCode } from "lucide-react";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
@@ -10,8 +10,10 @@ import { useSetupTeamSave } from "@/hooks/useSetupTeamSave";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 const T = { stage: "#0A0B0D", panel: "#13151A", border: "#262A32", text: "#E9EBEE", muted: "#8B919C", amber: "#FFB224" };
 const actionClass = "min-h-11 rounded-lg border border-white/20 px-4 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 disabled:opacity-50";
-export function SetupTeam({ orgId, onFinished }: { orgId: string; onFinished: () => void }) {
+export function SetupTeam({ orgId, onFinished, onStateChange }: { orgId: string; onFinished: () => void; onStateChange?: (state: { busy: boolean; saved: boolean }) => void }) {
   const save = useSetupTeamSave(orgId, onFinished);
+  const saved = Boolean(save.snapshot?.batch);
+  useEffect(() => { onStateChange?.({ busy: save.busy, saved }); }, [save.busy, saved, onStateChange]);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const batch = save.snapshot?.batch;
   const unresolved = save.snapshot?.invitations.filter(job => job?.state !== "accepted").length ?? 0;
