@@ -34,7 +34,6 @@ import { getAccessManagementSnapshot } from "@/lib/access-grants";
 import { MemberTable } from "@/components/admin/MemberTable";
 import { AccessManagementTab } from "@/components/admin/AccessManagementTab";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
-import type { Member } from "@/types";
 import {
   closeContentReport,
   getContentReports,
@@ -74,7 +73,7 @@ async function loadTeam(
   return {
     orgMembers,
     invitations,
-    crewMembers: crewMembers as unknown as Member[],
+    crewMembers,
     contentReports,
     accessManagement,
     orgId,
@@ -164,17 +163,18 @@ export function TeamWorkspace({ initial }: { initial: TeamInitial }) {
   const writes = useConfirmedWrite(orgId);
   const locked = writes.state.status !== "idle";
   const [invitationDirty, setInvitationDirty] = useState(false);
+  const [crewDirty, setCrewDirty] = useState(false);
   const disabled = locked || read.refreshing || !!read.error;
   const [reviewing, setReviewing] = useState(false);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const blocker = useBlocker({
-    shouldBlockFn: () => locked || invitationDirty,
-    enableBeforeUnload: locked || invitationDirty,
+    shouldBlockFn: () => locked || invitationDirty || crewDirty,
+    enableBeforeUnload: locked || invitationDirty || crewDirty,
     withResolver: true,
   });
   useEffect(() => {
-    if (!locked && !invitationDirty && blocker.status === "blocked") blocker.proceed();
-  }, [locked, invitationDirty, blocker]);
+    if (!locked && !invitationDirty && !crewDirty && blocker.status === "blocked") blocker.proceed();
+  }, [locked, invitationDirty, crewDirty, blocker]);
   const startChange = <T,>(change: TeamChange<T>) =>
     writes.start({
       ...change,
@@ -445,11 +445,14 @@ export function TeamWorkspace({ initial }: { initial: TeamInitial }) {
               members={accessManagement.members}
               grants={accessManagement.grants}
             />
-          ) : visibleTab === tab.id && tab.id === "crew" ? (
+          ) : tab.id === "crew" ? (
             <MemberTable
               members={crewMembers}
               orgId={orgId}
               canManage={canManageMembers}
+              disabled={disabled}
+              change={change => void startChange(change)}
+              onDirtyChange={setCrewDirty}
             />
           ) : null}
         </section>
@@ -466,7 +469,7 @@ export function TeamWorkspace({ initial }: { initial: TeamInitial }) {
         >
           <DialogTitle>Leave Team?</DialogTitle>
           <DialogDescription>
-            Leaving discards your invitation draft and retry controls. An unconfirmed change may still complete. Review the team when you return.
+            Leaving discards your unsaved drafts and retry controls. An unconfirmed change may still complete. Review the team when you return.
           </DialogDescription>
           <div className="flex flex-wrap gap-2">
             <button
