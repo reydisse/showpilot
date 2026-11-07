@@ -1,52 +1,25 @@
-export type AttendanceIntent = "check-in" | "check-out";
+import { z } from "zod";
 
+export const publicCheckInOrgSchema = z.object({ slug: z.string().min(1).max(64) });
+export const publicMemberLookupSchema = publicCheckInOrgSchema.extend({
+  memberId: z.string().trim().min(1, "Enter your member ID.").max(64).transform(value => value.toUpperCase()),
+});
+export const publicAttendanceWriteSchema = publicMemberLookupSchema.extend({
+  intent: z.enum(["check-in", "check-out"]),
+  requestId: z.uuid(),
+  expectedRevision: z.string().regex(/^[a-f0-9]{64}$/, "Find your member ID again before confirming attendance."),
+});
+export type PublicAttendanceWrite = z.infer<typeof publicAttendanceWriteSchema>;
 export interface PublicCrewMember {
   memberId: string;
   name: string;
   photoUrl: string;
   role: string;
   isOnline: boolean;
+  revision: string;
 }
-
-interface PublicCheckInStore {
-  crewMember: {
-    updateMany(input: {
-      where: { orgId: string; memberId: string; isOnline: boolean };
-      data: { isOnline: boolean; lastCheckIn?: Date; lastCheckOut?: Date };
-    }): Promise<{ count: number }>;
-    findUnique(input: {
-      where: { orgId_memberId: { orgId: string; memberId: string } };
-    }): Promise<PublicCrewMember | null>;
-  };
-}
-
-/**
- * Apply a public attendance command as explicit, retry-safe intent.
- * Replaying a successful command is a no-op and preserves its timestamp.
- */
-export async function applyPublicAttendanceIntent(
-  store: PublicCheckInStore,
-  input: {
-    orgId: string;
-    memberId: string;
-    intent: AttendanceIntent;
-    now?: Date;
-  },
-): Promise<PublicCrewMember | null> {
-  const desiredOnline = input.intent === "check-in";
-  const now = input.now ?? new Date();
-  await store.crewMember.updateMany({
-    where: {
-      orgId: input.orgId,
-      memberId: input.memberId,
-      isOnline: !desiredOnline,
-    },
-    data: {
-      isOnline: desiredOnline,
-      ...(desiredOnline ? { lastCheckIn: now } : { lastCheckOut: now }),
-    },
-  });
-  return store.crewMember.findUnique({
-    where: { orgId_memberId: { orgId: input.orgId, memberId: input.memberId } },
-  });
+export interface PublicAttendanceResult {
+  requestId: string;
+  outcome: "applied" | "conflict";
+  member: PublicCrewMember | null;
 }
