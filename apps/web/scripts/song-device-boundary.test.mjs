@@ -30,5 +30,6 @@ test("song drafts have one save-all path and block destructive navigation", () =
   assert.match(route, /Discard drafts and update from ProPresenter/);
   assert.match(route, /reconcileSavedSection/);
   assert.match(server, /export const saveSongDraft/);
-  assert.match(server, /await prisma\.\$transaction\(\[/);
+  // Real D1 rollback and replay behavior is exercised in song-writes.worker.test.ts.
+  // Prisma transaction syntax does not prove atomicity on D1.
 });

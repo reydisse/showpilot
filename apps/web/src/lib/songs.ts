@@ -8,10 +8,18 @@ import { parseTimecodeString, timecodeToFrames } from "@/lib/timecode";
 import type { FrameRate, TimecodeFormat } from "@/types/timecode";
 import { isBridgeVersionAtLeast } from "@/lib/bridge-version";
 import { planProPresenterMerge } from "@/lib/song-import";
-import type { Prisma } from "@/generated/prisma/client";
+import { getD1 } from "@/lib/d1";
+import { runSongWrite } from "@/lib/song-write.server";
+
+const writeRequest = { requestId: z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/).optional() };
+const songResult = z.object({ id: idSchema });
+const savedResult = z.object({ ok: z.literal(true) });
+const mapResult = savedResult.extend({ cueMapId: idSchema });
+const importResult = z.object({ songId: idSchema, changed: z.boolean(), preservedMappedSections: z.array(z.object({ sectionId: idSchema, label: z.string(), reason: z.string() })).optional() });
 
 const songIdInput = z.object({ orgId: idSchema, songId: idSchema });
 const metadataSchema = z.object({
+  ...writeRequest,
   orgId: idSchema,
   songId: idSchema.optional(),
   title: labelSchema,
@@ -29,6 +37,7 @@ const createSongSchema = metadataSchema.omit({ songId: true }).extend({
 });
 
 const sectionSchema = z.object({
+  ...writeRequest,
   orgId: idSchema,
   songId: idSchema,
   sectionId: idSchema.optional(),
@@ -38,6 +47,7 @@ const sectionSchema = z.object({
 });
 
 const cueMapSchema = z.object({
+  ...writeRequest,
   orgId: idSchema,
   songId: idSchema,
   cueMapId: idSchema.optional(),
@@ -59,7 +69,7 @@ const songDraftSchema = metadataSchema.extend({
     lyrics: textSchema,
     sourceSlideIndex: z.number().int().min(0).nullable(),
   })).max(100),
-  cueMap: cueMapSchema.omit({ orgId: true, songId: true }),
+  cueMap: cueMapSchema.omit({ orgId: true, songId: true, requestId: true }),
 });
 
 function parseCueDrafts(data: z.infer<typeof cueMapSchema>) {
@@ -114,226 +124,193 @@ export const getSong = createServerFn({ method: "GET" })
   });
 
 export const saveSongMetadata = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(metadataSchema, data))
+  .inputValidator((data: unknown) => parseOrThrow(metadataSchema.extend({ songId: idSchema }), data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "songs:manage");
-    const prisma = getPrisma();
-    const details = {
-      title: data.title.trim(), artist: data.artist, ccliNumber: data.ccliNumber,
-      bpm: data.bpm, keySignature: data.keySignature,
-    };
-    if (!data.songId) return prisma.song.create({ data: { orgId: data.orgId, ...details } });
-    const existing = await prisma.song.findFirst({ where: { id: data.songId, orgId: data.orgId }, select: { id: true } });
-    if (!existing) throw new Error("Song not found");
-    return prisma.song.update({ where: { id: existing.id }, data: details });
+    const { user } = await assertOrgPermission(data.orgId, "songs:manage");
+    const saved = await runSongWrite({ orgId: data.orgId, actorId: user.id, requestId: data.requestId, kind: "metadata", payload: data, targetSongId: data.songId }, songResult, async () => ({
+      songId: data.songId, result: { id: data.songId }, statements: [getD1().prepare(`UPDATE song SET title=?,artist=?,ccliNumber=?,bpm=?,keySignature=?,updatedAt=? WHERE id=? AND orgId=?`)
+        .bind(data.title, data.artist, data.ccliNumber, data.bpm, data.keySignature, new Date().toISOString(), data.songId, data.orgId)],
+    }));
+    const song = await getPrisma().song.findFirst({ where: { id: saved.id, orgId: data.orgId } });
+    if (!song) throw new Error("The saved song has been removed.");
+    return song;
   });
 
 export const createSong = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(createSongSchema, data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "songs:manage");
-    return getPrisma().song.create({
-      data: {
-        orgId: data.orgId,
-        title: data.title.trim(),
-        artist: data.artist,
-        ccliNumber: data.ccliNumber,
-        bpm: data.bpm,
-        keySignature: data.keySignature,
-        sections: {
-          create: data.sections.map((section, sortOrder) => ({
-            orgId: data.orgId,
-            label: section.label,
-            lyrics: section.lyrics,
-            sortOrder,
-          })),
-        },
-      },
-      select: { id: true },
+    const { user } = await assertOrgPermission(data.orgId, "songs:manage");
+    return runSongWrite({ orgId: data.orgId, actorId: user.id, requestId: data.requestId, kind: "create", payload: data }, songResult, async () => {
+      const db = getD1(); const id = crypto.randomUUID(); const now = new Date().toISOString();
+      const statements = [
+        db.prepare(`INSERT INTO song(id,orgId,title,artist,ccliNumber,bpm,keySignature,createdAt,updatedAt)
+          VALUES(?,?,?,?,?,?,?,?,?)`).bind(id, data.orgId, data.title, data.artist, data.ccliNumber, data.bpm, data.keySignature, now, now),
+        ...data.sections.map((section, sortOrder) => db.prepare(`INSERT INTO song_section(id,orgId,songId,label,lyrics,sortOrder)
+          VALUES(?,?,?,?,?,?)`).bind(crypto.randomUUID(), data.orgId, id, section.label, section.lyrics, sortOrder)),
+      ];
+      return { songId: id, result: { id }, statements };
     });
   });
 
 export const saveSongSection = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(sectionSchema, data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "songs:manage");
-    const prisma = getPrisma();
-    const song = await prisma.song.findFirst({ where: { id: data.songId, orgId: data.orgId }, select: { id: true } });
-    if (!song) throw new Error("Song not found");
-    if (data.sectionId) {
-      const section = await prisma.songSection.findFirst({ where: { id: data.sectionId, songId: song.id, orgId: data.orgId }, select: { id: true } });
-      if (!section) throw new Error("Song section not found");
-      return prisma.songSection.update({ where: { id: section.id }, data: { label: data.label.trim(), lyrics: data.lyrics, sourceSlideIndex: data.sourceSlideIndex } });
-    }
-    const last = await prisma.songSection.findFirst({ where: { songId: song.id, orgId: data.orgId }, orderBy: { sortOrder: "desc" }, select: { sortOrder: true } });
-    return prisma.songSection.create({ data: { orgId: data.orgId, songId: song.id, label: data.label.trim(), lyrics: data.lyrics, sourceSlideIndex: data.sourceSlideIndex, sortOrder: (last?.sortOrder ?? -1) + 1 } });
+    const { user } = await assertOrgPermission(data.orgId, "songs:manage");
+    const saved = await runSongWrite({ orgId: data.orgId, actorId: user.id, requestId: data.requestId, kind: "section", payload: data, targetSongId: data.songId }, songResult, async () => {
+      const db = getD1(); const id = data.sectionId ?? crypto.randomUUID();
+      if (data.sectionId) {
+        const section = await getPrisma().songSection.findFirst({ where: { id, songId: data.songId, orgId: data.orgId } });
+        if (!section) throw new Error("Song section not found");
+        return { songId: data.songId, result: { id }, statements: [db.prepare("UPDATE song_section SET label=?,lyrics=?,sourceSlideIndex=? WHERE id=? AND songId=? AND orgId=?")
+          .bind(data.label, data.lyrics, data.sourceSlideIndex === undefined ? section.sourceSlideIndex : data.sourceSlideIndex, id, data.songId, data.orgId)] };
+      }
+      return { songId: data.songId, result: { id }, statements: [db.prepare(`INSERT INTO song_section(id,orgId,songId,label,lyrics,sourceSlideIndex,sortOrder)
+        SELECT ?,?,?,?,?,?,COALESCE(MAX(sortOrder),-1)+1 FROM song_section WHERE orgId=? AND songId=?`)
+        .bind(id, data.orgId, data.songId, data.label, data.lyrics, data.sourceSlideIndex ?? null, data.orgId, data.songId)] };
+    });
+    const section = await getPrisma().songSection.findFirst({ where: { id: saved.id, songId: data.songId, orgId: data.orgId } });
+    if (!section) throw new Error("The saved section has been removed. Retrying will not recreate it.");
+    return section;
   });
 
 export const deleteSongSection = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(songIdInput.extend({ sectionId: idSchema, confirmMapped: z.boolean().default(false) }), data))
+  .inputValidator((data: unknown) => parseOrThrow(songIdInput.extend({ ...writeRequest, sectionId: idSchema, confirmMapped: z.boolean().default(false) }), data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "songs:manage");
-    const prisma = getPrisma();
-    const section = await prisma.songSection.findFirst({ where: { id: data.sectionId, songId: data.songId, orgId: data.orgId }, include: { _count: { select: { cues: true } } } });
-    if (!section) throw new Error("Song section not found");
-    if (section._count.cues > 0 && !data.confirmMapped) throw new Error("This section is used in a cue map. Confirm deletion to remove those mapped cues too.");
-    await prisma.songSection.delete({ where: { id: section.id } });
-    return { ok: true };
+    const { user } = await assertOrgPermission(data.orgId, "songs:manage");
+    return runSongWrite({ orgId: data.orgId, actorId: user.id, requestId: data.requestId, kind: "delete-section", payload: data, targetSongId: data.songId }, savedResult, async () => {
+      const section = await getPrisma().songSection.findFirst({ where: { id: data.sectionId, songId: data.songId, orgId: data.orgId }, include: { _count: { select: { cues: true } } } });
+      if (!section) throw new Error("Song section not found");
+      if (section._count.cues > 0 && !data.confirmMapped) throw new Error("This section is used in a cue map. Confirm deletion to remove those mapped cues too.");
+      return { songId: data.songId, result: { ok: true as const }, statements: [getD1().prepare("DELETE FROM song_section WHERE id=? AND songId=? AND orgId=?")
+        .bind(data.sectionId, data.songId, data.orgId)] };
+    });
   });
 
 export const reorderSongSections = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(songIdInput.extend({ sectionIds: z.array(idSchema).max(100) }), data))
+  .inputValidator((data: unknown) => parseOrThrow(songIdInput.extend({ ...writeRequest, sectionIds: z.array(idSchema).max(100) }), data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "songs:manage");
-    const prisma = getPrisma();
-    const existing = await prisma.songSection.findMany({ where: { songId: data.songId, orgId: data.orgId }, select: { id: true } });
-    if (existing.length !== data.sectionIds.length || new Set(data.sectionIds).size !== existing.length || existing.some((row) => !data.sectionIds.includes(row.id))) throw new Error("Section order is incomplete.");
-    await prisma.$transaction(data.sectionIds.map((id, sortOrder) => prisma.songSection.update({ where: { id }, data: { sortOrder } })));
-    return { ok: true };
+    const { user } = await assertOrgPermission(data.orgId, "songs:manage");
+    return runSongWrite({ orgId: data.orgId, actorId: user.id, requestId: data.requestId, kind: "reorder", payload: data, targetSongId: data.songId }, savedResult, async () => {
+      const prisma = getPrisma();
+      const existing = await prisma.songSection.findMany({ where: { songId: data.songId, orgId: data.orgId }, select: { id: true } });
+      if (existing.length !== data.sectionIds.length || new Set(data.sectionIds).size !== existing.length || existing.some((row) => !data.sectionIds.includes(row.id))) throw new Error("Section order is incomplete.");
+      // A single update also verifies the complete set at write time, so a
+      // concurrent section deletion cannot leave a partially applied order.
+      const order = JSON.stringify(data.sectionIds);
+      const db = getD1();
+      const statements = [db.prepare(`UPDATE song_section SET sortOrder = (SELECT key FROM json_each(?) WHERE value=song_section.id)
+        WHERE orgId=? AND songId=? AND (SELECT COUNT(*) FROM song_section WHERE orgId=? AND songId=?)=?
+        AND NOT EXISTS(SELECT 1 FROM song_section s WHERE s.orgId=? AND s.songId=? AND s.id NOT IN (SELECT value FROM json_each(?)))`)
+        .bind(order, data.orgId, data.songId, data.orgId, data.songId, data.sectionIds.length, data.orgId, data.songId, order)];
+      return { songId: data.songId, result: { ok: true as const }, statements };
+    });
   });
+
+function cueMapWrites(data: z.infer<typeof cueMapSchema>, cueMapId: string, parsed: ReturnType<typeof parseCueDrafts>): D1PreparedStatement[] {
+  const db = getD1(); const now = new Date().toISOString();
+  return [
+    data.cueMapId
+      ? db.prepare("UPDATE song_cue_map SET name=?,format=?,updatedAt=? WHERE id=? AND orgId=? AND songId=?")
+        .bind(data.name, JSON.stringify(parsed.format), now, cueMapId, data.orgId, data.songId)
+      : db.prepare("INSERT INTO song_cue_map(id,orgId,songId,name,format,createdAt,updatedAt) VALUES(?,?,?,?,?,?,?)")
+        .bind(cueMapId, data.orgId, data.songId, data.name, JSON.stringify(parsed.format), now, now),
+    db.prepare("DELETE FROM song_cue WHERE cueMapId=? AND orgId=?").bind(cueMapId, data.orgId),
+    ...parsed.cues.map(cue => db.prepare(`INSERT INTO song_cue(id,orgId,cueMapId,sectionId,triggerTc,triggerFrame,sortOrder,ppSlideIndex)
+      VALUES(?,?,?,?,?,?,?,?)`).bind(crypto.randomUUID(), data.orgId, cueMapId, cue.sectionId, cue.triggerTc, cue.triggerFrame, cue.sortOrder, cue.ppSlideIndex ?? null)),
+  ];
+}
 
 export const saveSongCueMap = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(cueMapSchema, data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "songs:manage");
-    const { cues: parsed, format } = parseCueDrafts(data);
-    const prisma = getPrisma();
-    const sections = await prisma.songSection.findMany({ where: { songId: data.songId, orgId: data.orgId }, select: { id: true } });
-    const sectionIds = new Set(sections.map((section) => section.id));
-    if (parsed.some((cue) => !sectionIds.has(cue.sectionId))) throw new Error("Cue map contains a section from another song.");
-    const formatJson = JSON.stringify(format);
-    let cueMapId = data.cueMapId;
-    if (cueMapId) {
-      const existing = await prisma.songCueMap.findFirst({ where: { id: cueMapId, songId: data.songId, orgId: data.orgId }, select: { id: true } });
-      if (!existing) throw new Error("Cue map not found");
-      await prisma.songCueMap.update({ where: { id: existing.id }, data: { name: data.name.trim(), format: formatJson } });
-    } else {
-      const created = await prisma.songCueMap.create({ data: { orgId: data.orgId, songId: data.songId, name: data.name.trim(), format: formatJson }, select: { id: true } });
-      cueMapId = created.id;
-    }
-    await prisma.$transaction([
-      prisma.songCue.deleteMany({ where: { cueMapId, orgId: data.orgId } }),
-      ...parsed.map((cue) => prisma.songCue.create({ data: { orgId: data.orgId, cueMapId: cueMapId!, sectionId: cue.sectionId, triggerTc: cue.triggerTc, triggerFrame: cue.triggerFrame, sortOrder: cue.sortOrder, ppSlideIndex: cue.ppSlideIndex ?? null } })),
-    ]);
-    return { ok: true, cueMapId };
+    const { user } = await assertOrgPermission(data.orgId, "songs:manage");
+    return runSongWrite({ orgId: data.orgId, actorId: user.id, requestId: data.requestId, kind: "cue-map", payload: data, targetSongId: data.songId }, mapResult, async () => {
+      const parsed = parseCueDrafts(data);
+      const prisma = getPrisma();
+      const song = await prisma.song.findFirst({ where: { id: data.songId, orgId: data.orgId }, select: { id: true } });
+      if (!song) throw new Error("Song not found");
+      const sections = await prisma.songSection.findMany({ where: { songId: data.songId, orgId: data.orgId }, select: { id: true } });
+      const sectionIds = new Set(sections.map(section => section.id));
+      if (parsed.cues.some(cue => !sectionIds.has(cue.sectionId))) throw new Error("Cue map contains a section from another song.");
+      const cueMapId = data.cueMapId ?? crypto.randomUUID();
+      if (data.cueMapId) {
+        const map = await prisma.songCueMap.findFirst({ where: { id: cueMapId, songId: data.songId, orgId: data.orgId }, select: { id: true } });
+        if (!map) throw new Error("Cue map not found");
+      }
+      return { songId: data.songId, result: { ok: true as const, cueMapId }, statements: cueMapWrites(data, cueMapId, parsed) };
+    });
   });
 
 export const saveSongDraft = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(songDraftSchema, data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "songs:manage");
-    const prisma = getPrisma();
-    const [song, storedSections] = await Promise.all([
-      prisma.song.findFirst({
-        where: { id: data.songId, orgId: data.orgId },
-        select: { id: true },
-      }),
-      prisma.songSection.findMany({
-        where: { songId: data.songId, orgId: data.orgId },
-        select: { id: true },
-      }),
-    ]);
-    if (!song) throw new Error("Song not found");
-    const sectionIds = new Set(data.sections.map((section) => section.id));
-    if (
-      sectionIds.size !== data.sections.length ||
-      storedSections.length !== data.sections.length ||
-      storedSections.some((section) => !sectionIds.has(section.id))
-    ) {
-      throw new Error(
-        "The song arrangement changed elsewhere. Reload before saving your draft.",
-      );
-    }
-
-    const cueInput = {
-      orgId: data.orgId,
-      songId: data.songId,
-      ...data.cueMap,
-    };
-    const { cues: parsedCues, format } = parseCueDrafts(cueInput);
-    if (parsedCues.some((cue) => !sectionIds.has(cue.sectionId))) {
-      throw new Error("Cue map contains a section from another song.");
-    }
-
-    const cueMapId = data.cueMap.cueMapId ?? crypto.randomUUID();
-    if (data.cueMap.cueMapId) {
-      const existingMap = await prisma.songCueMap.findFirst({
-        where: {
-          id: data.cueMap.cueMapId,
-          songId: data.songId,
-          orgId: data.orgId,
-        },
-        select: { id: true },
-      });
-      if (!existingMap) throw new Error("Cue map not found");
-    }
-
-    const metadata = {
-      title: data.title.trim(),
-      artist: data.artist,
-      ccliNumber: data.ccliNumber,
-      bpm: data.bpm,
-      keySignature: data.keySignature,
-    };
-    const cueMapData = {
-      name: data.cueMap.name.trim(),
-      format: JSON.stringify(format),
-    };
-    await prisma.$transaction([
-      prisma.song.update({ where: { id: song.id }, data: metadata }),
-      ...data.sections.map((section, sortOrder) =>
-        prisma.songSection.update({
-          where: { id: section.id },
-          data: {
-            label: section.label.trim(),
-            lyrics: section.lyrics,
-            sourceSlideIndex: section.sourceSlideIndex,
-            sortOrder,
-          },
+    const { user } = await assertOrgPermission(data.orgId, "songs:manage");
+    return runSongWrite({ orgId: data.orgId, actorId: user.id, requestId: data.requestId, kind: "draft", payload: data, targetSongId: data.songId }, mapResult, async () => {
+      const prisma = getPrisma();
+      const [song, storedSections] = await Promise.all([
+        prisma.song.findFirst({
+          where: { id: data.songId, orgId: data.orgId },
+          select: { id: true },
         }),
-      ),
-      data.cueMap.cueMapId
-        ? prisma.songCueMap.update({
-            where: { id: cueMapId },
-            data: cueMapData,
-          })
-        : prisma.songCueMap.create({
-            data: {
-              id: cueMapId,
-              orgId: data.orgId,
-              songId: data.songId,
-              ...cueMapData,
-            },
-          }),
-      prisma.songCue.deleteMany({
-        where: { cueMapId, orgId: data.orgId },
-      }),
-      ...parsedCues.map((cue) =>
-        prisma.songCue.create({
-          data: {
+        prisma.songSection.findMany({
+          where: { songId: data.songId, orgId: data.orgId },
+          select: { id: true },
+        }),
+      ]);
+      if (!song) throw new Error("Song not found");
+      const sectionIds = new Set(data.sections.map((section) => section.id));
+      if (
+        sectionIds.size !== data.sections.length ||
+        storedSections.length !== data.sections.length ||
+        storedSections.some((section) => !sectionIds.has(section.id))
+      ) {
+        throw new Error(
+          "The song arrangement changed elsewhere. Reload before saving your draft.",
+        );
+      }
+
+      const cueInput = {
+        orgId: data.orgId,
+        songId: data.songId,
+        ...data.cueMap,
+      };
+      const { cues: parsedCues, format } = parseCueDrafts(cueInput);
+      if (parsedCues.some((cue) => !sectionIds.has(cue.sectionId))) {
+        throw new Error("Cue map contains a section from another song.");
+      }
+
+      const cueMapId = data.cueMap.cueMapId ?? crypto.randomUUID();
+      if (data.cueMap.cueMapId) {
+        const existingMap = await prisma.songCueMap.findFirst({
+          where: {
+            id: data.cueMap.cueMapId,
+            songId: data.songId,
             orgId: data.orgId,
-            cueMapId,
-            sectionId: cue.sectionId,
-            triggerTc: cue.triggerTc,
-            triggerFrame: cue.triggerFrame,
-            sortOrder: cue.sortOrder,
-            ppSlideIndex: cue.ppSlideIndex ?? null,
           },
-        }),
-      ),
-    ]);
-    return { ok: true, cueMapId };
+          select: { id: true },
+        });
+        if (!existingMap) throw new Error("Cue map not found");
+      }
+
+      const db = getD1();
+      const statements = [
+        db.prepare("UPDATE song SET title=?,artist=?,ccliNumber=?,bpm=?,keySignature=?,updatedAt=? WHERE id=? AND orgId=?")
+          .bind(data.title, data.artist, data.ccliNumber, data.bpm, data.keySignature, new Date().toISOString(), song.id, data.orgId),
+        ...data.sections.map((section, sortOrder) => db.prepare(`UPDATE song_section SET label=?,lyrics=?,sourceSlideIndex=?,sortOrder=?
+          WHERE id=? AND songId=? AND orgId=?`).bind(section.label, section.lyrics, section.sourceSlideIndex, sortOrder, section.id, song.id, data.orgId)),
+        ...cueMapWrites(cueInput, cueMapId, { cues: parsedCues, format }),
+      ];
+      return { songId: data.songId, result: { ok: true as const, cueMapId }, statements };
+    });
   });
 
 export const deleteSong = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(songIdInput, data))
+  .inputValidator((data: unknown) => parseOrThrow(songIdInput.extend(writeRequest), data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "songs:manage");
-    const prisma = getPrisma();
-    const song = await prisma.song.findFirst({ where: { id: data.songId, orgId: data.orgId }, select: { id: true } });
-    if (!song) throw new Error("Song not found");
-    await prisma.song.delete({ where: { id: song.id } });
-    return { ok: true };
+    const { user } = await assertOrgPermission(data.orgId, "songs:manage");
+    return runSongWrite({ orgId: data.orgId, actorId: user.id, requestId: data.requestId, kind: "delete", payload: data, targetSongId: data.songId }, savedResult, async () => ({
+      songId: data.songId, result: { ok: true as const }, statements: [getD1().prepare("DELETE FROM song WHERE id=? AND orgId=?").bind(data.songId, data.orgId)],
+    }));
   });
 
 export interface BridgePresentationSummary {
@@ -477,69 +454,62 @@ export const getProPresenterSong = createServerFn({ method: "GET" })
 
 export const importProPresenterSong = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({
+    ...writeRequest,
     orgId: idSchema,
     presentation: z.object({ uuid: idSchema, name: labelSchema, slides: z.array(z.object({ index: z.number().int().min(0), sourceId: z.string().max(300).optional(), text: textSchema, label: z.string().max(120), notes: textSchema })).max(500) }),
     strategy: z.enum(["merge", "replace", "skip"]).default("merge"),
   }), data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "songs:manage");
-    const prisma = getPrisma();
-    const existing = await prisma.song.findFirst({
-      where: { orgId: data.orgId, ppPresentationUuid: data.presentation.uuid },
-      include: { sections: { include: { _count: { select: { cues: true } } } } },
-    });
-    if (existing && data.strategy === "skip") return { songId: existing.id, changed: false };
-    const songId = existing?.id ?? crypto.randomUUID();
-    const operations: Prisma.PrismaPromise<unknown>[] = [existing
-      ? prisma.song.update({ where: { id: existing.id }, data: { title: data.presentation.name, importSource: "propresenter" } })
-      : prisma.song.create({ data: { id: songId, orgId: data.orgId, title: data.presentation.name, ppPresentationUuid: data.presentation.uuid, importSource: "propresenter" } })];
-    let preservedMappedSections: Array<{ sectionId: string; label: string; reason: string }> = [];
+    const { user } = await assertOrgPermission(data.orgId, "songs:manage");
+    const target = await getPrisma().song.findFirst({ where: { orgId: data.orgId, ppPresentationUuid: data.presentation.uuid }, select: { id: true } });
+    return runSongWrite({ orgId: data.orgId, actorId: user.id, requestId: data.requestId, kind: "import", payload: data, targetSongId: target?.id }, importResult, async () => {
+      const prisma = getPrisma();
+      const existing = await prisma.song.findFirst({
+        where: { orgId: data.orgId, ppPresentationUuid: data.presentation.uuid },
+        include: { sections: { include: { _count: { select: { cues: true } } } } },
+      });
+      if (existing?.id !== target?.id) throw new Error("The imported song changed while preparing this request. Retry to review its current arrangement.");
+      if (existing && data.strategy === "skip") return { songId: existing.id, result: { songId: existing.id, changed: false }, statements: [] };
+      const songId = existing?.id ?? crypto.randomUUID();
+      const db = getD1(); const now = new Date().toISOString();
+      const operations: D1PreparedStatement[] = [existing
+        ? db.prepare("UPDATE song SET title=?,importSource='propresenter',updatedAt=? WHERE id=? AND orgId=?")
+          .bind(data.presentation.name, now, existing.id, data.orgId)
+        : db.prepare("INSERT INTO song(id,orgId,title,ppPresentationUuid,importSource,createdAt,updatedAt) VALUES(?,?,?,?,'propresenter',?,?)")
+          .bind(songId, data.orgId, data.presentation.name, data.presentation.uuid, now, now)];
+      const insertSlide = (slide: (typeof data.presentation.slides)[number], sortOrder: number) => db.prepare(`INSERT INTO song_section(id,orgId,songId,label,lyrics,sortOrder,sourceSlideIndex,sourceSlideId)
+        VALUES(?,?,?,?,?,?,?,?)`).bind(crypto.randomUUID(), data.orgId, songId, slide.label || `Slide ${slide.index + 1}`, slide.text, sortOrder, slide.index, slide.sourceId ?? "");
+      let preservedMappedSections: Array<{ sectionId: string; label: string; reason: string }> = [];
 
-    if (existing && data.strategy === "replace") {
-      operations.push(prisma.songSection.deleteMany({ where: { songId, orgId: data.orgId } }));
-      for (const [sortOrder, slide] of data.presentation.slides.entries()) {
-        operations.push(prisma.songSection.create({ data: {
-          orgId: data.orgId,
-          songId,
-          label: slide.label || `Slide ${slide.index + 1}`,
-          lyrics: slide.text,
-          sortOrder,
-          sourceSlideIndex: slide.index,
-          sourceSlideId: slide.sourceId ?? "",
-        } }));
-      }
-    } else {
-      const plan = planProPresenterMerge(
-        (existing?.sections ?? []).map((section) => ({
-          id: section.id,
-          label: section.label,
-          lyrics: section.lyrics,
-          sortOrder: section.sortOrder,
-          sourceSlideIndex: section.sourceSlideIndex,
-          sourceSlideId: section.sourceSlideId,
-          cueCount: section._count.cues,
-        })),
-        data.presentation.slides,
-      );
-      preservedMappedSections = plan.preservedMappedSections;
-      for (const write of plan.writes) {
-        if (write.kind === "delete") {
-          operations.push(prisma.songSection.delete({ where: { id: write.sectionId } }));
-          continue;
+      if (existing && data.strategy === "replace") {
+        operations.push(db.prepare("DELETE FROM song_section WHERE songId=? AND orgId=?").bind(songId, data.orgId));
+        for (const [sortOrder, slide] of data.presentation.slides.entries()) operations.push(insertSlide(slide, sortOrder));
+      } else {
+        const plan = planProPresenterMerge(
+          (existing?.sections ?? []).map((section) => ({
+            id: section.id,
+            label: section.label,
+            lyrics: section.lyrics,
+            sortOrder: section.sortOrder,
+            sourceSlideIndex: section.sourceSlideIndex,
+            sourceSlideId: section.sourceSlideId,
+            cueCount: section._count.cues,
+          })),
+          data.presentation.slides,
+        );
+        preservedMappedSections = plan.preservedMappedSections;
+        for (const write of plan.writes) {
+          if (write.kind === "delete") {
+            operations.push(db.prepare("DELETE FROM song_section WHERE id=? AND songId=? AND orgId=?").bind(write.sectionId, songId, data.orgId));
+            continue;
+          }
+          operations.push(write.kind === "update"
+            ? db.prepare("UPDATE song_section SET label=?,lyrics=?,sortOrder=?,sourceSlideIndex=?,sourceSlideId=? WHERE id=? AND songId=? AND orgId=?")
+              .bind(write.slide.label || `Slide ${write.slide.index + 1}`, write.slide.text, write.sortOrder, write.slide.index, write.slide.sourceId ?? "", write.sectionId, songId, data.orgId)
+            : insertSlide(write.slide, write.sortOrder));
         }
-        const sectionData = {
-          label: write.slide.label || `Slide ${write.slide.index + 1}`,
-          lyrics: write.slide.text,
-          sortOrder: write.sortOrder,
-          sourceSlideIndex: write.slide.index,
-          sourceSlideId: write.slide.sourceId ?? "",
-        };
-        operations.push(write.kind === "update"
-          ? prisma.songSection.update({ where: { id: write.sectionId }, data: sectionData })
-          : prisma.songSection.create({ data: { orgId: data.orgId, songId, ...sectionData } }));
       }
-    }
 
-    await prisma.$transaction(operations);
-    return { songId, changed: true, preservedMappedSections };
+      return { songId, result: { songId, changed: true, preservedMappedSections }, statements: operations };
+    });
   });
