@@ -184,25 +184,6 @@ async function upsertOrgSetting(orgId: string, key: string, value: string) {
   });
 }
 
-/**
- * Checkpoint #1 marker: the org was created through the wizard. Orgs
- * without it (pre-existing, invited members) never see the wizard.
- */
-export const markOnboardingStarted = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema }), data),
-  )
-  .handler(async ({ data }) => {
-    const role = await getOrgMemberRole(data.orgId);
-    if (role !== "owner") throw new Error("Forbidden");
-    await upsertOrgSetting(
-      data.orgId,
-      ONBOARDING_STARTED_KEY,
-      new Date().toISOString(),
-    );
-    return { ok: true };
-  });
-
 // ─── First Session Checklist (post-GO LIVE, show page) ───────
 // Stored per user in org appSettings — the same storage UI prefs use.
 

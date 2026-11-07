@@ -103,7 +103,7 @@ for (const scenario of ["back-exit-resume", "leave-creation", "creation-during-e
   if(scenario!=="back-exit-resume") {
     assert.equal((await queryFixture("SELECT COUNT(*) AS count FROM organization WHERE slug='setup-navigation-created'"))[0].count,1);
     assert.ok((await queryFixture("SELECT activeOrganizationId FROM session WHERE userId='smoke-operator'")).every(row=>row.activeOrganizationId==='display-smoke'));
-    assert.equal((await queryFixture("SELECT COUNT(*) AS count FROM app_setting WHERE orgId IN (SELECT id FROM organization WHERE slug='setup-navigation-created') AND key='onboarding-started'"))[0].count,0);
+    assert.equal((await queryFixture("SELECT COUNT(*) AS count FROM app_setting WHERE orgId IN (SELECT id FROM organization WHERE slug='setup-navigation-created') AND key='onboarding-started'"))[0].count,1);
   }
   console.log(JSON.stringify({scenario,result:"passed"}));
 },{setupChoices:true,captureEmail:true});

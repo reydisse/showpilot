@@ -33,6 +33,7 @@ model User {
   contentReportsReceived ContentReport[]         @relation("ContentReportAuthor")
   contentReportsReviewed ContentReport[]         @relation("ContentReportReviewer")
   notificationPreferences NotificationPreference[]
+  organizationCreationReceipts OrganizationCreationReceipt[]
 
   @@unique([email])
   @@map("user")
@@ -1025,4 +1026,18 @@ model OperationalError {
   @@index([orgId, createdAt], map: "operational_error_org_time")
   @@index([createdAt], map: "operational_error_time")
   @@map("operational_error")
+}
+
+
+/// Durable user-owned intent; orgId deliberately survives organization deletion.
+model OrganizationCreationReceipt {
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requestId   String
+  orgId       String   @unique(map: "organization_creation_receipt_org")
+  fingerprint String
+  createdAt   DateTime
+
+  @@id([userId, requestId])
+  @@map("organization_creation_receipt")
 }

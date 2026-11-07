@@ -41,13 +41,9 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorPassword, q
   await browser("wait", "text=Create another organization");
   await browser("fill", "#organization-name", "Third fixture team");
   await browser("wait", "text=available");
-  await browser("network", "route", "**/api/auth/organization/set-active", "--abort");
+  // Lost-response retry now lives in smoke-organization-recovery.mjs, which
+  // installs its transport fault before Better Auth captures fetch at startup.
   await click("Create organization");
-  await browser("wait", '[role="alert"]');
-  assert.ok((await browser("get", "text", '[role="alert"]')).text);
-  assert.equal((await queryFixture("SELECT COUNT(*) AS count FROM member WHERE userId='smoke-second-operator'"))[0].count, 3);
-  await browser("network", "unroute", "**/api/auth/organization/set-active");
-  await click("Continue setup");
   await browser("wait", "text=What are you running?");
   const thirdId = new URL(await currentUrl()).searchParams.get("orgId");
   assert.ok(thirdId && thirdId !== secondId && thirdId !== orgId);
@@ -68,5 +64,5 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorPassword, q
   assert.equal((await browser("eval", "[...document.querySelectorAll('button')].find(button => button.textContent.includes('Create organization')).disabled")).result, true);
   assert.equal((await browser("eval", "fetch('/api/auth/organization/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Unverified team',slug:'unverified-fixture-team'})}).then(response=>response.status)")).result, 403);
   assert.equal((await queryFixture("SELECT COUNT(*) AS count FROM member WHERE userId='smoke-unverified'"))[0].count, 0);
-  console.log(JSON.stringify({ existingEmailSignIn: "passed", memberCreatesOrganization: "passed", ownerOnlyInNewOrganization: "passed", scopedResumeAfterRefresh: "passed", unrelatedOrganizationDenied: "passed", switcherCreatesAnotherOrganization: "passed", activationRetryWithoutDuplicate: "passed", originalSettingsPreserved: "passed", verifiedEmailRequired: "passed" }, null, 2));
+  console.log(JSON.stringify({ existingEmailSignIn: "passed", memberCreatesOrganization: "passed", ownerOnlyInNewOrganization: "passed", scopedResumeAfterRefresh: "passed", unrelatedOrganizationDenied: "passed", switcherCreatesAnotherOrganization: "passed", originalSettingsPreserved: "passed", verifiedEmailRequired: "passed" }, null, 2));
 }, { secondOperator: true, secondOperatorMember: true, unverifiedOperator: true });

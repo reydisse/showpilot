@@ -18,7 +18,7 @@ await withLocalSmokeFixture(async ({ origin, operatorCookie, queryFixture, captu
     });
     const text = value => check(`document.body?.innerText.includes(${JSON.stringify(value)})`, value);
     const button = name => `[...(document.querySelector('[role=dialog][data-state=open]')??document).querySelectorAll('button')].find(n=>n.textContent.trim()===${JSON.stringify(name)}&&!n.disabled&&!n.closest('[role=dialog][data-state=closed]')&&n.getBoundingClientRect().height>0)`;
-    const point = name => `(async()=>{const n=${button(name)};if(!n)return null;n.scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));for(let p=n;p;p=p.parentElement)if(p.getAnimations().some(a=>a.playState==='running'))return null;const r=n.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return n.contains(document.elementFromPoint(x,y))?{x,y}:null})()`;
+    const point = name => `(async()=>{const n=${button(name)};if(!n)return null;n.scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));for(let p=n;p;p=p.parentElement)if(p.getAnimations().some(a=>a.playState==='running'))return null;const r=n.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return !n.disabled&&n.contains(document.elementFromPoint(x,y))?{x,y}:null})()`;
     const click = async name => {
       const position = await poll(() => evaluate(point(name)), `reachable ${name}`);
       await page("Input.dispatchMouseEvent", { type: "mousePressed", ...position, button: "left", clickCount: 1 });
@@ -32,13 +32,16 @@ await withLocalSmokeFixture(async ({ origin, operatorCookie, queryFixture, captu
     await fill("Atomic failure fixture"); await click("Create organization");
     await text("Organization creation was not confirmed.");
     assert.equal(await evaluate("document.getElementById('organization-name').value"), "Atomic failure fixture");
-    assert.equal(await evaluate("location.search"), "?mode=new");
+    assert.equal(await evaluate("new URL(location.href).searchParams.get('mode')"), "new");
+    assert.match(await evaluate("new URL(location.href).searchParams.get('creationRequestId')"), /^[0-9a-f-]{36}$/);
     for (const [width, height] of [[320,568], [768,1024], [1440,900]]) {
       await page("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
-      await check(point("Create organization"), `retry reachable at ${width}`);
-      await check(`(()=>{const n=${button("Create organization")},r=n.getBoundingClientRect();return document.documentElement.scrollWidth<=innerWidth+1&&document.querySelector('.spob').scrollWidth<=innerWidth+1&&r.width>=44&&r.height>=44&&r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight})()`, `retry bounds at ${width}`);
+      await check(point("Retry creation"), `retry reachable at ${width}`);
+      await check(`(()=>{const n=${button("Retry creation")},r=n.getBoundingClientRect();return document.documentElement.scrollWidth<=innerWidth+1&&document.querySelector('.spob').scrollWidth<=innerWidth+1&&r.width>=44&&r.height>=44&&r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight})()`, `retry bounds at ${width}`);
       if (width === 320) await writeFile("/tmp/showpilot-organization-atomic-error-320.png", Buffer.from((await page("Page.captureScreenshot", { format: "png" })).data, "base64"));
     }
+    await click("Check saved workspace"); await text("No saved workspace was found");
+    await click("Edit creation details");
     await fill("Atomic recovered fixture"); await click("Create organization"); await text("What are you running?");
     recoveredId = await evaluate("new URL(location.href).searchParams.get('orgId')"); assert.ok(recoveredId);
     const native = await evaluate(`fetch('/api/auth/organization/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Native compatibility fixture',slug:'native-compatibility-fixture',metadata:{fixture:'native'}})}).then(async r=>({status:r.status,body:await r.json()}))`);
