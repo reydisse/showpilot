@@ -2,11 +2,11 @@ import { z } from "zod";
 import { ASSIGNABLE_ROLES } from "./permissions";
 import { emailSchema } from "./validation";
 
-const crewSchema = z.object({
+export const crewSchema = z.object({
   name: z.string().trim().min(1, "Enter a name or clear this row.").max(200, "Use 200 characters or fewer."),
   pos: z.string().trim().min(1, "Enter a position or clear this row.").max(100, "Use 100 characters or fewer."),
 });
-const inviteSchema = z.object({
+export const inviteSchema = z.object({
   email: z.string().trim().toLowerCase().pipe(emailSchema),
   role: z.enum(ASSIGNABLE_ROLES),
 });

@@ -15,6 +15,7 @@ import {
   invitationEmail,
   verificationEmail,
 } from "@/lib/email";
+import { sendInvitationWithSetupReceipt } from "./setup-invitation-delivery.server";
 import { beforeDeleteAccount } from "@/lib/account-deletion.server";
 import { env } from "cloudflare:workers";
 import { refreshOrgReadAuthority, refreshUserReadAuthority } from "./relay-read-invalidation.server";
@@ -82,7 +83,7 @@ const orgConfig = {
   sendInvitationEmail: async (data: {
     id: string;
     email: string;
-    organization: { name: string };
+    organization: { id: string; name: string };
     inviter: { user: { name: string } };
   }) => {
     const inviteUrl = new URL(
@@ -94,7 +95,9 @@ const orgConfig = {
       data.inviter.user.name,
       inviteUrl,
     );
-    await sendEmail({ to: data.email, subject, html });
+    await sendInvitationWithSetupReceipt({ orgId: data.organization.id, email: data.email, invitationId: data.id,
+      send: signal => sendEmail({ to: data.email, subject, html, signal }),
+    });
   },
 };
 

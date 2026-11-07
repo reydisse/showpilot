@@ -264,21 +264,6 @@ export const saveOnboardingRole = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** GO LIVE pressed — the wizard never shows again for this org. */
-export const completeOnboarding = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema }), data),
-  )
-  .handler(async ({ data }) => {
-    const role = await getOrgMemberRole(data.orgId);
-    if (role !== "owner") throw new Error("Forbidden");
-    await upsertOrgSetting(
-      data.orgId,
-      ONBOARDING_COMPLETED_KEY,
-      new Date().toISOString(),
-    );
-    return { ok: true };
-  });
 
 // ─── First Session Checklist (post-GO LIVE, show page) ───────
 // Stored per user in org appSettings — the same storage UI prefs use.
