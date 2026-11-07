@@ -46,6 +46,31 @@ afterEach(() => {
 });
 
 describe("internal timecode clock", () => {
+  it.each(formats)("deduplicates rundown elapsed samples at $frameRate $dropFrame without starting a ticker", format => {
+    const emit = vi.fn();
+    const source = new InternalTimecodeSource(format, emit);
+    source.feedElapsed(0);
+    source.feedElapsed(1);
+    source.feedElapsed(10);
+    expect(emit).toHaveBeenCalledExactlyOnceWith(
+      { hours: 0, minutes: 0, seconds: 0, frames: 0 }, 0,
+      format.dropFrame === "df" ? "00:00:00;00" : "00:00:00:00",
+    );
+    vi.advanceTimersByTime(1000);
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(TickWorker.instances).toHaveLength(0);
+    source.feedElapsed(1000);
+    source.feedElapsed(1001);
+    source.feedElapsed(1001);
+    expect(emit).toHaveBeenCalledTimes(2);
+    expect(emit.mock.lastCall?.[1]).toBe(Math.floor(format.frameRate));
+    // A deliberate rewind is a new observation, even if this label was seen before.
+    source.feedElapsed(0);
+    expect(emit).toHaveBeenCalledTimes(3);
+    expect(emit.mock.lastCall?.[1]).toBe(0);
+    source.stop();
+  });
+
   it.each(formats)(
     "advances from the exact held frame at $frameRate $dropFrame without animation frames",
     (format) => {
