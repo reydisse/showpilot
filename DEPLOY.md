@@ -3137,3 +3137,35 @@ to exercise actual CoreMIDI virtual ports, message filtering, input/output
 replug, LED recovery, stale revisions, session replacement, lease expiry and
 shutdown cleanup. Both macOS jobs in the unsigned workflow run this probe.
 Virtual ports do not replace the physical APC/DAW/USB acceptance rehearsal.
+
+
+## Chat room navigation and history recovery (2026-11-07)
+
+Chat now resets the full view for each organization, identity and room connection.
+Late history responses and old callbacks cannot update a replacement connection,
+even after returning to the same room. Older-history reads coalesce, abort on
+room exit, and reach a visible error with Retry after eight seconds. No schema or
+native binary change is needed for this web fix.
+
+The room selector preserves browser Back/Forward and distinguishes shared rooms
+from direct messages. Desktop buttons expose the selected room; invalid or foreign
+DM links show recovery instead of pretending to be Production. The unsupported
+seven-day retention claim is removed. Signed-in operators enter rooms directly;
+the public guest page still requires its explicit join action.
+
+After building, run
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-chat-rooms.mjs`.
+It seeds 2,003 messages through the real local relay, then exercises actual older
+history held across room changes, timeout/Retry, DM sends, Back/Forward, invalid
+links and 320/768/1440px controls. The 320px screenshot was inspected. All checks
+passed with no browser errors or external email. The final full suite passed
+2,168 unit tests, 829 Worker tests and four coverage-gate tests; typecheck and web
+build passed. Ten hook regressions and two additional adapter regressions cover
+stale replies, identity changes, return navigation, callback ownership, deadline
+recovery, cancellation and timer cleanup. Nothing deployed or released.
+
+The existing `smoke-chat-creation.mjs` regression also passed real lost-response
+recovery, clipboard denial and notification retry at all three widths, with
+three durable creation receipts and no external email.
+
+Landing PR #185 CI run 42363813340 passed both main CI and Native Rust tests.

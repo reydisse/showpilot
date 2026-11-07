@@ -28,6 +28,7 @@ import { readChatOutbox, writeChatOutbox, type ChatOutboxItem } from "@/lib/chat
 const INITIAL_RECONNECT_DELAY = 1000;
 const MAX_RECONNECT_DELAY = 30000;
 const BACKOFF_MULTIPLIER = 2;
+type HistoryPage = Awaited<ReturnType<NonNullable<ChatAdapter["loadOlder"]>>>;
 
 export class NativeChatAdapter implements ChatAdapter {
   private orgId: string;
@@ -42,6 +43,7 @@ export class NativeChatAdapter implements ChatAdapter {
   private gatewayStatus: ChatGatewayStatus | null = null;
   private messageQueue: ChatOutboxItem[] = [];
   private outboxListeners = new Set<(messages: ChatMessage[]) => void>();
+  private pendingHistory: { controller: AbortController; promise: Promise<HistoryPage> } | null = null;
   private historyCursor: { timestamp: number; id: string } | null = null;
   private reconnectDelay = INITIAL_RECONNECT_DELAY;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -138,6 +140,8 @@ export class NativeChatAdapter implements ChatAdapter {
         this.ws.onclose = (event) => {
           if (this.guest && event.code === 4403 && event.reason === "Guest pass revoked") {
             this.intentionalClose = true;
+            this.pendingHistory?.controller.abort(new Error("This crew pass is no longer active."));
+            this.pendingHistory = null;
             this.guest.onRevoked?.();
           }
           this.ws = null;
@@ -208,6 +212,8 @@ export class NativeChatAdapter implements ChatAdapter {
 
   disconnect(): void {
     this.intentionalClose = true;
+    this.pendingHistory?.controller.abort(new Error("Chat disconnected before history loaded."));
+    this.pendingHistory = null;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -263,20 +269,39 @@ export class NativeChatAdapter implements ChatAdapter {
     return history;
   }
 
-  async loadOlder(limit = 100): Promise<{ messages: ChatMessage[]; nextCursor: { timestamp: number; id: string } | null }> {
-    if (!this.historyCursor) return { messages: [], nextCursor: null };
-    const params = new URLSearchParams({ room: this.roomId, limit: String(Math.max(1, Math.min(limit, 200))), beforeTimestamp: String(this.historyCursor.timestamp), beforeId: this.historyCursor.id });
-    if (this.guest) { params.set("guestToken", this.guest.token); params.set("guestName", this.guest.name); }
-    const response = await fetch(`/api/chat/${encodeURIComponent(this.orgId)}/history?${params}`);
-    if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? "You no longer have access to this conversation." : "Older messages could not be loaded.");
-    const value: unknown = await response.json();
-    const body = value && typeof value === "object" ? value as { messages?: unknown; nextCursor?: unknown } : {};
-    const messages = Array.isArray(body.messages) ? body.messages.filter((message): message is ChatMessage => Boolean(message) && typeof message === "object" && typeof (message as ChatMessage).id === "string" && typeof (message as ChatMessage).timestamp === "number") : [];
-    const cursor = body.nextCursor && typeof body.nextCursor === "object" && typeof (body.nextCursor as { timestamp?: unknown }).timestamp === "number" && typeof (body.nextCursor as { id?: unknown }).id === "string" ? body.nextCursor as { timestamp: number; id: string } : null;
-    this.historyCursor = cursor;
-    const byId = new Map([...messages, ...this.messageHistory].map((message) => [message.id, message]));
-    this.messageHistory = [...byId.values()].sort((left, right) => left.timestamp - right.timestamp || left.id.localeCompare(right.id));
-    return { messages, nextCursor: cursor };
+  loadOlder(limit = 100): Promise<HistoryPage> {
+    if (this.pendingHistory) return this.pendingHistory.promise;
+    const cursorBefore = this.historyCursor;
+    if (!cursorBefore) return Promise.resolve({ messages: [], nextCursor: null });
+    const controller = new AbortController();
+    let onAbort: () => void = () => {};
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(controller.signal.reason);
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+    });
+    const timer = setTimeout(() => controller.abort(new Error("Loading older messages timed out. Please retry.")), 8000);
+    const read = async (): Promise<HistoryPage> => {
+      const params = new URLSearchParams({ room: this.roomId, limit: String(Math.max(1, Math.min(limit, 200))), beforeTimestamp: String(cursorBefore.timestamp), beforeId: cursorBefore.id });
+      if (this.guest) { params.set("guestToken", this.guest.token); params.set("guestName", this.guest.name); }
+      const response = await fetch(`/api/chat/${encodeURIComponent(this.orgId)}/history?${params}`, { signal: controller.signal });
+      if (!response.ok) throw new Error(response.status === 401 || response.status === 403 ? "You no longer have access to this conversation." : "Older messages could not be loaded.");
+      const value: unknown = await response.json();
+      const body = value && typeof value === "object" ? value as { messages?: unknown; nextCursor?: unknown } : {};
+      const messages = Array.isArray(body.messages) ? body.messages.filter((message): message is ChatMessage => Boolean(message) && typeof message === "object" && typeof (message as ChatMessage).id === "string" && typeof (message as ChatMessage).timestamp === "number") : [];
+      controller.signal.throwIfAborted();
+      const cursor = body.nextCursor && typeof body.nextCursor === "object" && typeof (body.nextCursor as { timestamp?: unknown }).timestamp === "number" && typeof (body.nextCursor as { id?: unknown }).id === "string" ? body.nextCursor as { timestamp: number; id: string } : null;
+      this.historyCursor = cursor;
+      const byId = new Map([...messages, ...this.messageHistory].map(message => [message.id, message]));
+      this.messageHistory = [...byId.values()].sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id));
+      return { messages, nextCursor: cursor };
+    };
+    const promise = Promise.race([read(), aborted]).finally(() => {
+      clearTimeout(timer);
+      controller.signal.removeEventListener("abort", onAbort);
+      if (this.pendingHistory?.controller === controller) this.pendingHistory = null;
+    });
+    this.pendingHistory = { controller, promise };
+    return promise;
   }
 
   onOutboxChange(callback: (messages: ChatMessage[]) => void): () => void {
