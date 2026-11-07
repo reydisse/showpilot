@@ -940,6 +940,58 @@ including actual local saves, captured email delivery, response loss and explici
 continuation with unresolved invitations. Nothing has been deployed or released
 here.
 
+### Atomic organization creation
+
+The organization-create endpoint previously inserted an organization, then its
+owner, then trial defaults and the active session separately. A forced owner
+insert failure reproduced an organization with no owner and no trial. Creation
+now commits the organization, owner, fourteen-day trial, cloud flag and optional
+active-session change in one D1 batch. Failure through the final session update
+rolls all of it back, so retry can use the same address.
+
+The existing `/api/auth/organization/create` API and SDK shape remain available
+to web and mobile clients. The organization plugin retains its schema,
+middleware, origin checks, rate limits and cookie hooks; its creation endpoint
+uses the app-owned transaction. Verified-email policy is checked against a fresh
+session and again inside the write. Revoked, expired, unverified or mismatched
+sessions cannot create rows. Creator identity comes from the session. Names are
+trimmed and addresses use the existing workspace-address validator. Duplicate
+addresses return a conflict message; unknown failures report that creation was
+not confirmed. Trial prices, duration and plan limits are unchanged.
+
+Creation dates use Prisma's ISO format. The first prototype used numeric dates,
+which sorted ahead of existing ISO rows and changed the fallback workspace when
+there was no active selection. The real-browser navigation rehearsal caught it,
+a deterministic test reproduced it, and the final transaction preserves the
+previous first workspace. Session expiry checks accept both date representations.
+
+Sixteen actual HTTP/D1 tests cover owner and final-session rollback, retry,
+concurrent address claims, metadata, actor identity, trial duration, native
+activation defaults, preserved active workspace, fresh verification, revocation,
+expiry, input validation and first-workspace ordering. Final web verification
+passed 2,089 unit tests, 782 Worker tests, four coverage-gate tests, typecheck and
+production build.
+
+After building, run:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-organization-atomic.mjs
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-organization-creation.mjs
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-setup-navigation.mjs
+```
+
+All three compiled Worker/browser rehearsals passed. The new rehearsal forces a
+real owner-insert failure, preserves the form, then creates a valid workspace.
+Final D1 inspection confirmed no failed organization, exactly one owner and the
+same fourteen-day trial for each successful creation. Native default activation,
+Expo origin, foreign-origin rejection and the ten-request rate limit passed.
+No browser errors or external email occurred. The error and retry control fit
+320/768/1440px with reachable 44px targets; the phone screenshot was inspected.
+
+No migration or native release is required. Nothing is deployed by this change.
+Bounded creation requests, durable lost-response recovery and the remaining
+Phase 2 auth/landing requirements are still open.
+
 ### Timecode label validation
 
 `parseTimecodeString` now requires the selected format. It rejects frame numbers
