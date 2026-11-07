@@ -19,6 +19,8 @@ const api = vi.hoisted(() => ({
   remove: vi.fn(),
   cancel: vi.fn(),
   close: vi.fn(),
+  invite: vi.fn(),
+  retryEmail: vi.fn(),
 }));
 vi.mock("@/lib/session", () => ({
   getOrgMembers: api.members,
@@ -26,7 +28,8 @@ vi.mock("@/lib/session", () => ({
   updateMemberRole: api.role,
   removeMember: api.remove,
   cancelInvitation: api.cancel,
-  inviteMember: vi.fn(),
+  inviteMember: api.invite,
+  retryTeamInvitationDelivery: api.retryEmail,
 }));
 vi.mock("@/lib/content-moderation", () => ({
   getContentReports: api.reports,
@@ -61,13 +64,14 @@ const member = {
     image: null,
   },
 };
-const invitation = {
+const invitation: React.ComponentProps<typeof TeamWorkspace>["initial"]["invitations"][number] = {
   id: "invitation-id",
   organizationId: "org-id",
   inviterId: "actor",
   email: "invited@example.test",
   role: "member",
   status: "pending",
+  delivery: { id: null, state: "unknown", retryable: false, updatedAt: null },
   createdAt: new Date(),
   expiresAt: new Date(Date.now() + 3600_000),
 };
@@ -113,6 +117,8 @@ beforeEach(() => {
   api.remove.mockResolvedValue({});
   api.cancel.mockResolvedValue({});
   api.close.mockResolvedValue({ ok: true });
+  api.invite.mockResolvedValue(invitation);
+  api.retryEmail.mockResolvedValue(invitation);
 });
 afterEach(() => {
   cleanup();
@@ -290,4 +296,75 @@ it("supports arrow, Home and End navigation with one focusable selected tab", as
   expect(document.activeElement).toBe(reports);
   fireEvent.keyDown(reports, { key: "ArrowRight" });
   expect(document.activeElement).toBe(members);
+});
+
+async function fillInvitation() {
+  fireEvent.click(screen.getByRole("button", { name: "Invite Member" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Member email" }), { target: { value: "new@example.test" } });
+}
+it("retains an invitation draft and exact creation retry across form close and team tabs", async () => {
+  api.invite.mockRejectedValueOnce(new Error("Creation reply lost"));
+  await open(); await fillInvitation();
+  fireEvent.click(screen.getByRole("button", { name: "Close invitation form" }));
+  fireEvent.click(screen.getByRole("button", { name: "Resume invitation" }));
+  expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Member email" }).value).toBe("new@example.test");
+  fireEvent.click(screen.getByRole("button", { name: "Create invitation" }));
+  await act(async () => {});
+  const original = api.invite.mock.calls[0][0].data;
+  expect(original).toMatchObject({ email: "new@example.test", requestId: expect.any(String) });
+  fireEvent.click(screen.getByRole("tab", { name: /Reports/ }));
+  expect(screen.getByRole("alert", { name: "Team change" }).textContent).toContain("Creation reply lost");
+  fireEvent.click(screen.getByRole("button", { name: "Retry change" }));
+  await act(async () => {});
+  expect(api.invite.mock.calls[1][0].data).toEqual(original);
+  fireEvent.click(screen.getByRole("tab", { name: /Members/ }));
+  expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Member email" }).value).toBe("");
+});
+it("retries only the list after invitation creation was acknowledged", async () => {
+  await open(); await fillInvitation();
+  api.invitations.mockRejectedValue(new Error("Refresh unavailable"));
+  fireEvent.click(screen.getByRole("button", { name: "Create invitation" }));
+  await act(async () => {});
+  expect(screen.getByRole("alert", { name: "Team change" }).textContent).toContain("Change saved");
+  api.invitations.mockResolvedValue([invitation]);
+  fireEvent.click(screen.getByRole("button", { name: "Retry refresh" }));
+  await act(async () => {});
+  expect(api.invite).toHaveBeenCalledTimes(1);
+});
+it("keeps failed email separate from invitation creation and retries its exact delivery", async () => {
+  const failed = { ...invitation, delivery: { id: "00000000-0000-4000-8000-000000000001", state: "failed", retryable: true, updatedAt: Date.now() } };
+  api.invitations.mockResolvedValue([failed]);
+  await open();
+  const row = screen.getByRole("article", { name: `Invitation for ${invitation.email}` });
+  expect(row.textContent).toContain("email was rejected");
+  fireEvent.click(within(row).getByRole("button", { name: "Retry email" }));
+  await act(async () => {});
+  expect(api.retryEmail.mock.calls[0][0].data).toEqual({ orgId: "org-id", invitationId: invitation.id, deliveryId: failed.delivery.id });
+  expect(api.invite).not.toHaveBeenCalled();
+});
+it("requires confirmation before sending another email and freezes the previous delivery", async () => {
+  await open();
+  fireEvent.click(screen.getByRole("button", { name: "Send again" }));
+  await act(async () => {});
+  expect(api.invite).not.toHaveBeenCalled();
+  const dialog = screen.getByRole("dialog");
+  expect(dialog.textContent).toContain("may already have received");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Send again" }));
+  await act(async () => {});
+  expect(api.invite.mock.calls[0][0].data).toMatchObject({ orgId: "org-id", email: invitation.email, resend: { invitationId: invitation.id, previousDeliveryId: null }, requestId: expect.any(String) });
+});
+it("does not report copied until the clipboard confirms and offers retry on failure", async () => {
+  const copy = vi.fn().mockRejectedValueOnce(new Error("Denied")).mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: copy } });
+  await open();
+  const control = screen.getByRole("button", { name: `Copy invitation link for ${invitation.email}` });
+  fireEvent.click(control);
+  await act(async () => {});
+  expect(control.textContent).toBe("Retry copy");
+  expect(screen.getByRole("alert").textContent).toContain("Could not copy");
+  fireEvent.click(control);
+  await act(async () => {});
+  expect(control.textContent).toBe("Copied");
+  expect(copy).toHaveBeenCalledTimes(2);
+  expect(copy.mock.calls[0][0]).toContain(`/invite/${invitation.id}`);
 });

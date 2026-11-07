@@ -6,11 +6,12 @@ interface SendEmailOptions {
   subject: string;
   html: string;
   signal?: AbortSignal;
+  idempotencyKey?: string;
 }
 
 export class EmailDeliveryRejected extends Error {}
 
-export async function sendEmail({ to, subject, html, signal }: SendEmailOptions) {
+export async function sendEmail({ to, subject, html, signal, idempotencyKey }: SendEmailOptions) {
   const apiKey: string | undefined = env.RESEND_API_KEY;
 
   if (!apiKey) {
@@ -26,6 +27,7 @@ export async function sendEmail({ to, subject, html, signal }: SendEmailOptions)
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
     },
     body: JSON.stringify({ from, to, subject, html }),
   });
@@ -35,7 +37,12 @@ export async function sendEmail({ to, subject, html, signal }: SendEmailOptions)
       status: res.status,
       requestId: res.headers.get("x-request-id") ?? undefined,
     });
+    if (idempotencyKey && (res.status >= 500 || res.status === 409 || res.status === 408)) throw new Error("Email acceptance could not be confirmed. Retry the same email attempt.");
     throw new EmailDeliveryRejected(`Email send failed with status ${res.status}.`);
+  }
+  if (idempotencyKey) {
+    const result: unknown = await res.json();
+    if (!result || typeof result !== "object" || !("id" in result) || typeof result.id !== "string" || !result.id.trim()) throw new Error("Email acceptance could not be confirmed. Retry the same email attempt.");
   }
 }
 
@@ -241,14 +248,15 @@ export function invitationEmail(
   inviterName: string,
   inviteUrl: string,
 ) {
+  const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char);
   return {
     subject: `You're invited to join ${orgName} on ShowPilot`,
     html: emailWrapper(`
       <p style="color: #888; font-size: 14px; margin: 0 0 32px 0;">Team Invitation</p>
       <p style="color: #e5e5e5; font-size: 15px; line-height: 1.6; margin: 0 0 16px 0;">
-        <strong style="color: #f5f5f5;">${inviterName}</strong> has invited you to join <strong style="color: #f5f5f5;">${orgName}</strong> on ShowPilot.
+        <strong style="color: #f5f5f5;">${escape(inviterName)}</strong> has invited you to join <strong style="color: #f5f5f5;">${escape(orgName)}</strong> on ShowPilot.
       </p>
-      <a class="sp-button" href="${inviteUrl}" style="display:inline-block;margin:24px 0;padding:12px 32px;background-color:#FFC107;background-image:linear-gradient(#FFC107,#FFC107);color:#0A0A0A;-webkit-text-fill-color:#0A0A0A;font-weight:600;text-decoration:none;border-radius:8px;font-size:15px;">
+      <a class="sp-button" href="${escape(inviteUrl)}" style="display:inline-block;margin:24px 0;padding:12px 32px;background-color:#FFC107;background-image:linear-gradient(#FFC107,#FFC107);color:#0A0A0A;-webkit-text-fill-color:#0A0A0A;font-weight:600;text-decoration:none;border-radius:8px;font-size:15px;">
         Accept Invitation
       </a>
       <p style="color: #888; font-size: 13px; line-height: 1.5; margin: 0;">

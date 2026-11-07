@@ -13,7 +13,7 @@ export async function sendInvitationWithSetupReceipt(input: {
   orgId: string; email: string; invitationId: string; send: (signal?: AbortSignal) => Promise<void>;
 }) {
   const context = delivery.getStore();
-  if (!context) return input.send();
+  if (!context) return await input.send();
   if (context.orgId !== input.orgId || context.email !== input.email.toLowerCase()) throw new Error("Invitation delivery scope changed.");
   await context.record("running", input.invitationId);
   const controller = new AbortController();

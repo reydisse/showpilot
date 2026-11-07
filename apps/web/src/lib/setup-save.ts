@@ -1,3 +1,6 @@
+import { invitationRequestHeaders, teamInvitationSchema } from "./team-invitation-contract";
+import { assertTeamCommandSuccess } from "./team-command.server";
+import { readTeamInvitation } from "./team-invitation.server";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
@@ -53,11 +56,17 @@ export const sendSetupInvitation = createServerFn({ method: "POST" })
     }
     const { getAuth } = await import("./auth");
     try {
-      await withSetupInvitationDelivery({ orgId: data.orgId, email: row.email,
+      const current = existing ? await readTeamInvitation(db, data.orgId, existing.id) : null;
+      const headers = invitationRequestHeaders({ requestId: data.attemptId,
+        resend: job && current ? { invitationId: current.id, previousDeliveryId: current.delivery.id } : undefined,
+      }, getRequestHeaders());
+      const result = await withSetupInvitationDelivery({ orgId: data.orgId, email: row.email,
         record: (state, id) => recordSetupInvitation(db, data, state, id),
-      }, () => getAuth().api.createInvitation({ headers: getRequestHeaders(), body: {
+      }, () => getAuth().api.createInvitation({ headers, body: {
         organizationId: data.orgId, email: row.email, role: row.role, ...(job ? { resend: true } : {}),
       } }));
+      assertTeamCommandSuccess(result);
+      teamInvitationSchema.parse(result);
       // Missing hook evidence never counts as a successful email.
       await recordSetupInvitation(db, data, "uncertain", existing?.id ?? null);
     } catch {

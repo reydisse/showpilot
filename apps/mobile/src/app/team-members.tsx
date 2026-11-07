@@ -1,5 +1,7 @@
+import { invitationCommandSchema, invitationStatusText, invitationMutationOptions, type InvitationCommand } from "@/lib/invitation-recovery";
+import { createLocalRequestUuid } from "@/lib/request-id";
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import Mail from "lucide-react-native/icons/mail";
 import Send from "lucide-react-native/icons/send";
 import Shield from "lucide-react-native/icons/shield";
@@ -33,6 +35,9 @@ import {
   cancelMobileTeamInvitation,
   getMobileTeamMembers,
   inviteMobileTeamMember,
+  retryMobileTeamInvitation,
+  type MobileOrganizationInvitation,
+  type MobileTeamMembers,
   removeMobileTeamMember,
   resolveMobileAvatarUrl,
   updateMobileTeamMemberRole,
@@ -74,6 +79,7 @@ export default function TeamMembersScreen() {
   const pollingInterval = useScreenPollingInterval(15_000);
   const query = useQuery({
     queryKey,
+    networkMode: "always",
     queryFn: () => getMobileTeamMembers(organization!.id),
     enabled: Boolean(organization?.id),
     refetchInterval: pollingInterval,
@@ -83,25 +89,46 @@ export default function TeamMembersScreen() {
     [query.data?.members],
   );
 
-  const inviteMutation = useMutation({
-    mutationFn: () => inviteMobileTeamMember({ orgId: organization!.id, email, role: inviteRole }),
-    onSuccess: async (invitation) => {
-      setInviteOpen(false);
-      setEmail("");
-      await queryClient.invalidateQueries({ queryKey });
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert("Invitation sent", `An invitation was sent to ${invitation.email}.`, [
-        { text: "Done" },
-        {
-          text: "Share link",
-          onPress: () => void Share.share({
-            message: `Join ${organization?.name ?? "our team"} on ShowPilot: ${SHOWPILOT_URL}/invite/${invitation.id}`,
-          }),
-        },
-      ]);
+  const invitationMutationKey = ["team-invitation-command", organization?.id, query.data?.currentUserId];
+  const history = useMutationState({ filters: { mutationKey: invitationMutationKey, exact: true }, select: mutation => ({
+    status: mutation.state.status, command: invitationCommandSchema.safeParse(mutation.state.variables), error: mutation.state.error,
+  }) });
+  const latest = history.at(-1);
+  const unfinished = latest && (latest.status === "pending" || latest.status === "error") ? latest : null;
+  const invitationLocked = !!unfinished || !query.data || !!query.error;
+  const inviteMutation = useMutation(invitationMutationOptions({
+    key: invitationMutationKey, client: queryClient,
+    execute: (command: InvitationCommand) => command.kind === "invite" ? inviteMobileTeamMember(command) : retryMobileTeamInvitation(command),
+    confirmed: invitation => {
+      setInviteOpen(false); setEmail(""); setInviteRole("member");
+      queryClient.setQueryData<MobileTeamMembers>(queryKey, previous => previous ? { ...previous,
+        invitations: [invitation, ...previous.invitations.filter(row => row.id !== invitation.id)].filter(row => row.status === "pending"),
+      } : previous);
+      void queryClient.invalidateQueries({ queryKey });
+      Alert.alert("Invitation confirmed", `${invitation.email}: ${invitationStatusText(invitation)}`);
     },
-    onError: (error) => Alert.alert("Invitation not sent", error.message),
-  });
+  }));
+  const reviewInvitation = () => Alert.alert("Review stored invitations?", "The previous request may already have saved. Refresh invitations before discarding its exact retry. A running request may still finish later.", [
+    { text: "Keep retry", style: "cancel" }, { text: "Review invitations", onPress: () => {
+      void query.refetch().then(result => {
+        if (result.isError) return;
+        const cache = queryClient.getMutationCache();
+        for (const failed of cache.findAll({ mutationKey: invitationMutationKey, exact: true, status: "error" })) cache.remove(failed);
+      });
+    } },
+  ]);
+  const sendAgain = (invitation: MobileOrganizationInvitation) => {
+    if (invitationLocked || !invitation.role || invitation.delivery.state === "sending") return;
+    const command: InvitationCommand = { kind: "invite", orgId: organization!.id, email: invitation.email, role: invitation.role,
+      requestId: createLocalRequestUuid(), resend: { invitationId: invitation.id, previousDeliveryId: invitation.delivery.id } };
+    Alert.alert("Send another email?", `${invitation.email} may already have received an earlier email. This reuses the same invitation and renews it for 48 hours.`, [
+      { text: "Keep invitation", style: "cancel" }, { text: "Send again", onPress: () => inviteMutation.mutate(command) },
+    ]);
+  };
+  const shareInvitation = async (invitation: MobileOrganizationInvitation) => {
+    try { await Share.share({ message: `Join ${organization?.name ?? "our team"} on ShowPilot: ${SHOWPILOT_URL}/invite/${encodeURIComponent(invitation.id)}` }); }
+    catch (error) { Alert.alert("Link not shared", error instanceof Error ? error.message : "Retry sharing this invitation link."); }
+  };
   const cancelMutation = useMutation({
     mutationFn: (invitationId: string) => cancelMobileTeamInvitation({ orgId: organization!.id, invitationId }),
     onSuccess: async () => {
@@ -179,7 +206,12 @@ export default function TeamMembersScreen() {
         ListHeaderComponent={(
           <View style={styles.headerContent}>
             {query.isPending ? <ActivityIndicator color={colors.amberText} size="large" /> : null}
-            {query.error ? <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
+            {query.error ? <View><Text accessibilityRole="alert" style={styles.error}>{query.error.message}</Text><AppButton label="Retry team refresh" variant="secondary" onPress={() => void query.refetch()} /></View> : null}
+            {unfinished && <View style={styles.summaryCard}><View style={styles.summaryCopy}>
+              <Text accessibilityRole="alert" style={styles.summaryText}>{unfinished.status === "pending" ? "Waiting for invitation confirmation…" : `The invitation request was not confirmed. ${unfinished.error instanceof Error ? unfinished.error.message : "Retry the same request to check its result."}`}</Text>
+              {unfinished.status === "error" && unfinished.command.success && <AppButton label="Retry invitation request" variant="secondary" onPress={() => { if (unfinished.command.success) inviteMutation.mutate(unfinished.command.data); }} />}
+              {unfinished.status === "error" && <AppButton label="Review stored invitations" variant="secondary" onPress={reviewInvitation} />}
+            </View></View>}
             <View style={styles.summaryCard}>
               <Shield color={colors.blue} size={21} />
               <View style={styles.summaryCopy}>
@@ -199,10 +231,14 @@ export default function TeamMembersScreen() {
                     <View style={styles.memberCopy}>
                       <Text numberOfLines={1} style={styles.memberName}>{invitation.email}</Text>
                       <Text style={styles.memberMeta}>{roleLabel(invitation.role ?? "member")} · Expires {formatDate(invitation.expiresAt)}</Text>
+                      <Text style={styles.memberMeta}>{invitationStatusText(invitation)}</Text>
+                      <AppButton label="Share invitation link" variant="secondary" onPress={() => void shareInvitation(invitation)} />
+                      {invitation.delivery.retryable && invitation.delivery.id && <AppButton label="Retry email" variant="secondary" disabled={invitationLocked} onPress={() => { if (invitation.delivery.id) inviteMutation.mutate({ kind: "retry", orgId: organization.id, invitationId: invitation.id, deliveryId: invitation.delivery.id }); }} />}
+                      <AppButton label="Send again" variant="secondary" disabled={invitationLocked || invitation.delivery.state === "sending"} onPress={() => sendAgain(invitation)} />
                     </View>
                     <Pressable
                       accessibilityLabel={`Cancel invitation for ${invitation.email}`}
-                      disabled={cancelMutation.isPending}
+                      disabled={cancelMutation.isPending || invitationLocked}
                       hitSlop={8}
                       onPress={() => confirmCancel(invitation.id, invitation.email)}
                       style={styles.iconButton}
@@ -272,10 +308,13 @@ export default function TeamMembersScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <View><Text style={styles.modalTitle}>Invite a member</Text><Text style={styles.modalSubtitle}>They will receive an email invitation.</Text></View>
+              <View><Text style={styles.modalTitle}>Invite a member</Text><Text style={styles.modalSubtitle}>Create an invitation and check its email status.</Text></View>
               <Pressable accessibilityLabel="Close invitation form" hitSlop={10} onPress={() => setInviteOpen(false)} style={styles.closeButton}><X color={colors.textMuted} size={20} /></Pressable>
             </View>
             <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
+              {unfinished && <View><Text accessibilityRole="alert" style={styles.error}>{unfinished.status === "pending" ? "Waiting for invitation confirmation…" : "The last invitation request is unconfirmed. Retry that request before creating another."}</Text>
+                {unfinished.status === "error" && unfinished.command.success && <AppButton label="Retry invitation request" variant="secondary" onPress={() => { if (unfinished.command.success) inviteMutation.mutate(unfinished.command.data); }} />}
+              </View>}
               <Text style={styles.label}>EMAIL</Text>
               <TextInput
                 accessibilityLabel="Member email"
@@ -283,6 +322,7 @@ export default function TeamMembersScreen() {
                 autoComplete="email"
                 inputMode="email"
                 maxLength={254}
+                editable={!invitationLocked}
                 onChangeText={setEmail}
                 placeholder="team@example.com"
                 placeholderTextColor={colors.textFaint}
@@ -292,17 +332,17 @@ export default function TeamMembersScreen() {
               <Text style={styles.label}>ROLE</Text>
               <View style={styles.choices}>
                 {(query.data?.assignableRoles ?? []).map((role) => (
-                  <Pressable key={role} onPress={() => setInviteRole(role)} style={[styles.choice, inviteRole === role && styles.choiceActive]}>
+                  <Pressable key={role} disabled={invitationLocked} onPress={() => setInviteRole(role)} style={[styles.choice, inviteRole === role && styles.choiceActive]}>
                     <Text style={[styles.choiceTitle, inviteRole === role && styles.choiceTitleActive]}>{roleLabel(role)}</Text>
                     <Text style={styles.choiceDescription}>{roleDetails[role]?.description ?? "Organization role"}</Text>
                   </Pressable>
                 ))}
               </View>
               <AppButton
-                label="Send invitation"
+                label="Create invitation"
                 loading={inviteMutation.isPending}
-                disabled={!email.trim() || !inviteRole}
-                onPress={() => inviteMutation.mutate()}
+                disabled={invitationLocked || !email.trim() || !inviteRole}
+                onPress={() => inviteMutation.mutate({ kind: "invite", orgId: organization.id, email: email.trim().toLowerCase(), role: inviteRole, requestId: createLocalRequestUuid() })}
               />
             </ScrollView>
           </View>

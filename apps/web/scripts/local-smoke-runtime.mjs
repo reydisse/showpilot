@@ -27,15 +27,26 @@ if (emailCaptureDirectory) {
   assert.equal(options.bindings?.RESEND_API_KEY, "local-email-capture-only");
   // Intercept every outbound fetch. This fixture can never send real mail or
   // fall through to an external network, even for an unexpected recipient.
+  const acceptedEmails = new Map();
   options.outboundService = async request => {
     assert.equal(request.url, "https://api.resend.com/emails", "Unexpected outbound request");
     assert.equal(request.method, "POST");
     const email = await request.json();
     assert.ok(typeof email.to === "string" && /^[a-z0-9-]+@display-smoke\.invalid$/.test(email.to), "Only disposable fixture recipients are allowed");
     const mode = (await readFile(join(emailCaptureDirectory, "email-mode"), "utf8")).trim();
-    assert.ok(mode === "success" || mode === "fail");
-    await appendFile(join(emailCaptureDirectory, "emails.jsonl"), JSON.stringify({ ...email, delivered: mode === "success" }) + "\n");
-    return Response.json(mode === "success" ? { id: "fixture-email" } : { message: "Fixture provider unavailable" }, { status: mode === "success" ? 200 : 503 });
+    assert.ok(["success", "fail", "lose-reply"].includes(mode));
+    const key = request.headers.get("Idempotency-Key"), payload = JSON.stringify(email);
+    const previous = key ? acceptedEmails.get(key) : null;
+    if (previous) assert.equal(previous.payload, payload, "An idempotent retry must preserve its email body");
+    const accepted = mode !== "fail", replayed = !!previous;
+    const id = previous?.id ?? `fixture-email-${acceptedEmails.size + 1}`;
+    if (key && accepted && !previous) acceptedEmails.set(key, { id, payload });
+    await appendFile(join(emailCaptureDirectory, "emails.jsonl"), JSON.stringify({ ...email, idempotencyKey: key, replayed, delivered: replayed || accepted }) + "\n");
+    // A lost reply represents a provider accepting mail before returning an
+    // unusable response. Replaying its frozen key recovers the original ID.
+    if (previous) return Response.json({ id });
+    if (mode === "lose-reply") return Response.json({ message: "Fixture acknowledgement lost" }, { status: 503 });
+    return Response.json(accepted ? { id } : { message: "Fixture validation rejection" }, { status: accepted ? 200 : 422 });
   };
 }
 if (streamOutputDirectory) {
