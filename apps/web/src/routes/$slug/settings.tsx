@@ -13,7 +13,7 @@ import { CONFIDENCE_LAYOUT_KEY } from "@/lib/confidence-layout";
 import { WorkspaceSettings } from "@/components/workspace/WorkspaceSettings";
 import { createFileRoute, useRouter, useBlocker } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { formatServicePickerLabel } from "@/lib/service-picker";
+import { ShowReportExport } from "@/components/settings/ShowReportExport";
 import { useState, useCallback } from "react";
 import {
   Building2,
@@ -28,7 +28,6 @@ import {
   Check,
   RefreshCw,
   Trash2,
-  Download,
   MessageSquare,
   Clock,
   Shield,
@@ -40,7 +39,6 @@ import {
   Gamepad2,
   Mail,
   MonitorSmartphone,
-  X,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { IntegrationCard } from "@/components/settings/IntegrationCard";
@@ -70,11 +68,10 @@ import {
 import { BillingSection } from "@/components/settings/BillingSection";
 import { clearChatHistory } from "@/lib/chat";
 import { testChatConnection } from "@/lib/chat-proxy";
-import { listRundownDates, testProPresenterConnection } from "@/lib/rundown";
+import { testProPresenterConnection } from "@/lib/rundown";
 import { testOntimeConnection } from "@/lib/ontime";
 import { deleteOrganization } from "@/lib/org-deletion";
 import { resetLowerThirdLibrary } from "@/lib/lowerthirds";
-import { exportShowReport } from "@/lib/report";
 import { hasAnyPermission, hasPermission, isAdminTier } from "@/lib/app-permissions";
 import { ROLE_META } from "@/lib/permissions";
 import {
@@ -86,14 +83,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ContextHelp } from "@/components/ui/context-help";
-import { spreadsheetSafeCsvCell } from "@showpilot/shared";
-import {
-  REPORT_EXPORT_SECTIONS,
-  selectReportExportSections,
-  type ReportExportSection,
-} from "@/lib/settings-export";
-
-
 // ─── Route ──────────────────────────────────────────────────
 
 export const Route = createFileRoute("/$slug/settings")({
@@ -1792,25 +1781,9 @@ function DangerSection({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<null | "lowerthirds" | "chat" | "export">(null);
+  const [busy, setBusy] = useState<null | "lowerthirds" | "chat">(null);
   const [confirmingDangerAction, setConfirmingDangerAction] = useState<null | "lowerthirds" | "chat">(null);
   const [dangerActionError, setDangerActionError] = useState<string | null>(null);
-  const [showExportModal, setShowExportModal] = useState(false);
-  const [isLoadingExportDates, setIsLoadingExportDates] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const [availableDates, setAvailableDates] = useState<
-    Array<{
-      showId: string;
-      date: string;
-      name: string;
-      scheduledStartTime: string | null;
-      itemCount: number;
-    }>
-  >([]);
-  const [selectedDate, setSelectedDate] = useState("");
-  const [selectedFormat, setSelectedFormat] = useState<"json" | "csv" | "xlsx">("json");
-  const [selectedSections, setSelectedSections] = useState<ReportExportSection[]>(REPORT_EXPORT_SECTIONS.map(([value]) => value));
-
   const handleDeleteOrganization = async () => {
     setDeleting(true);
     setDeleteError(null);
@@ -1855,144 +1828,6 @@ function DangerSection({
     }
   };
 
-  const handleExport = async () => {
-    setBusy("export");
-    setExportError(null);
-    try {
-      const selectedShow = availableDates.find((show) => show.showId === selectedDate) ?? availableDates[0];
-      if (!selectedShow) return;
-      const serviceDate = selectedShow.date;
-
-      const report = await exportShowReport({ data: { orgId: org.id, serviceDate, showId: selectedShow.showId } });
-      const filteredReport = selectReportExportSections(report, selectedSections);
-
-      let blob: Blob;
-      let extension = selectedFormat;
-
-      if (selectedFormat === "json") {
-        blob = new Blob([JSON.stringify(filteredReport, null, 2)], { type: "application/json" });
-      } else if (selectedFormat === "csv") {
-        const rows: string[][] = [["section", "field", "value"]];
-        const csvValue = (value: unknown) => {
-          if (value === undefined || value === null) return "";
-          if (typeof value === "string") return value;
-          return JSON.stringify(value);
-        };
-
-        for (const [section, value] of Object.entries(filteredReport)) {
-          if (section === "organization") {
-            for (const [field, fieldValue] of Object.entries(value as Record<string, unknown>)) {
-              rows.push([section, field, csvValue(fieldValue)]);
-            }
-            continue;
-          }
-          if (Array.isArray(value)) {
-            value.forEach((item, index) => {
-              for (const [field, fieldValue] of Object.entries(item)) {
-                rows.push([`${section}[${index}]`, field, csvValue(fieldValue)]);
-              }
-            });
-            continue;
-          }
-          if (value && typeof value === "object") {
-            for (const [field, fieldValue] of Object.entries(value)) {
-              rows.push([section, field, csvValue(fieldValue)]);
-            }
-            continue;
-          }
-          rows.push([section, "value", csvValue(value)]);
-        }
-        blob = new Blob([
-          rows
-            .map((row) => row.map(spreadsheetSafeCsvCell).join(","))
-            .join("\n"),
-        ], { type: "text/csv" });
-      } else {
-        const { default: writeExcelFile } = await import("write-excel-file/browser");
-        const excelValue = (value: unknown): string | number | boolean | Date => {
-          if (value === undefined || value === null) return "";
-          if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value instanceof Date) {
-            return value;
-          }
-          return JSON.stringify(value);
-        };
-        const excelRows = <T extends object>(records: readonly T[]) => {
-          const entries = records.map((record) => Object.entries(record));
-          const columns = [...new Set(entries.flatMap((record) => record.map(([key]) => key)))];
-          return [
-            columns.map((column) => ({ value: column, fontWeight: "bold" as const })),
-            ...entries.map((record) => {
-              const values = new Map(record);
-              return columns.map((column) => excelValue(values.get(column)));
-            }),
-          ];
-        };
-        const sheets: Array<{
-          sheet: string;
-          data: ReturnType<typeof excelRows>;
-          stickyRowsCount: number;
-        }> = [];
-
-        if (selectedSections.includes("summary")) {
-          sheets.push({ sheet: "Summary", data: excelRows([report.summary]), stickyRowsCount: 1 });
-        }
-        if (selectedSections.includes("rundown")) {
-          sheets.push({ sheet: "Rundown", data: excelRows(report.rundown.items), stickyRowsCount: 1 });
-        }
-        if (selectedSections.includes("incidents")) {
-          sheets.push({ sheet: "Incidents", data: excelRows(report.incidents), stickyRowsCount: 1 });
-        }
-        if (selectedSections.includes("checklist")) {
-          sheets.push({ sheet: "Checklist", data: excelRows(report.checklist), stickyRowsCount: 1 });
-        }
-        if (selectedSections.includes("crew")) {
-          sheets.push({ sheet: "Crew", data: excelRows(report.crew), stickyRowsCount: 1 });
-        }
-        if (selectedSections.includes("cueSheets")) {
-          sheets.push({ sheet: "Cue Sheets", data: excelRows(report.cueSheets), stickyRowsCount: 1 });
-        }
-        if (selectedSections.includes("managerNotes")) {
-          sheets.push({ sheet: "Manager Notes", data: excelRows(report.managerNotes), stickyRowsCount: 1 });
-        }
-
-        blob = await writeExcelFile(sheets).toBlob();
-      }
-
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${org.slug}-show-report-${serviceDate}.${extension}`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      setShowExportModal(false);
-    } catch {
-      setExportError("Unable to export show data. Please try again.");
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const openExportModal = async () => {
-    setExportError(null);
-    setIsLoadingExportDates(true);
-    setShowExportModal(true);
-    try {
-      const dates = await listRundownDates({ data: { orgId: org.id } });
-      setAvailableDates(dates);
-      setSelectedDate(dates[0]?.showId ?? "");
-      if (!dates.length) {
-        setExportError("No show data found for this organization.");
-      }
-    } catch {
-      setExportError("Unable to load show dates. Please try again.");
-      setAvailableDates([]);
-      setSelectedDate("");
-    } finally {
-      setIsLoadingExportDates(false);
-    }
-  };
 
   return (
     <div>
@@ -2087,150 +1922,7 @@ function DangerSection({
           ) : null}
         </div>
 
-        {/* Export data */}
-        <div className="rounded-xl border border-board-border bg-board-card p-4 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-board-text">
-              Export org data
-            </p>
-            <p className="text-xs text-board-muted">
-              Choose a past show date and export its data
-            </p>
-          </div>
-          <button
-            onClick={openExportModal}
-            disabled={busy !== null}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors disabled:opacity-50"
-          >
-            <Download className="w-3 h-3" />
-            Export show data
-          </button>
-        </div>
-
-        {showExportModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div role="dialog" aria-modal="true" aria-labelledby="export-show-data-title" className="w-full max-w-xl rounded-2xl border border-board-border bg-board-card p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
-              <div className="flex items-center justify-between mb-5">
-                <h3 id="export-show-data-title" className="text-lg font-semibold text-board-text">Export Show Data</h3>
-                <button
-                  type="button"
-                  onClick={() => setShowExportModal(false)}
-                  aria-label="Close export dialog"
-                  className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
-
-              <div className="space-y-5">
-                {exportError && (
-                  <p className="text-xs text-red-400">{exportError}</p>
-                )}
-
-                {isLoadingExportDates ? (
-                  <p className="text-xs text-board-muted">Loading available show dates...</p>
-                ) : availableDates.length === 0 ? (
-                  <p className="text-xs text-board-muted">
-                    No show data found for this organization.
-                  </p>
-                ) : (
-                  <FieldGroup label="Show Date">
-                    <select
-                      value={selectedDate}
-                      onChange={(e) => setSelectedDate(e.target.value)}
-                      className="min-h-11 w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text focus:outline-none focus:border-fire-500 transition-colors text-sm appearance-none"
-                    >
-                      {availableDates.map((entry) => (
-                        <option key={entry.showId} value={entry.showId}>
-                          {formatServicePickerLabel({
-                            name: entry.name,
-                            serviceDate: entry.date,
-                            scheduledStartTime: entry.scheduledStartTime,
-                          })} ({entry.itemCount} items)
-                        </option>
-                      ))}
-                    </select>
-                  </FieldGroup>
-                )}
-
-                <FieldGroup label="Format">
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    {([
-                      ["json", "JSON"],
-                      ["csv", "CSV"],
-                      ["xlsx", "Excel"],
-                    ] as const).map(([value, label]) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setSelectedFormat(value)}
-                        className={`px-4 py-2.5 rounded-xl border text-sm transition-colors ${
-                          selectedFormat === value
-                            ? "border-fire-500/40 bg-fire-500/10 text-fire-400"
-                            : "border-board-border bg-board-bg text-board-muted hover:text-board-text"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </FieldGroup>
-
-                <FieldGroup label="Include Sections">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {REPORT_EXPORT_SECTIONS.map(([value, label]) => {
-                      const enabled = selectedSections.includes(value);
-                      return (
-                        <label
-                          key={value}
-                          className="flex items-center gap-3 rounded-xl border border-board-border bg-board-bg px-3 py-2.5 cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={enabled}
-                            onChange={(e) => {
-                              setSelectedSections((prev) =>
-                                e.target.checked
-                                  ? [...prev, value]
-                                  : prev.filter((section) => section !== value)
-                              );
-                            }}
-                            className="w-4 h-4 rounded border-board-border accent-fire-500"
-                          />
-                          <span className="text-sm text-board-text">{label}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </FieldGroup>
-
-                <div className="flex flex-col sm:flex-row gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowExportModal(false)}
-                    className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleExport}
-                    disabled={
-                      busy === "export" ||
-                      isLoadingExportDates ||
-                      availableDates.length === 0 ||
-                      !selectedDate ||
-                      selectedSections.length === 0
-                    }
-                    className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
-                  >
-                    {busy === "export" ? "Exporting..." : "Download"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <ShowReportExport key={org.id} orgId={org.id} slug={org.slug} disabled={busy !== null || deleting} />
 
         {/* Invite form */}
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4">
