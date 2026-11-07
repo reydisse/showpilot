@@ -187,17 +187,19 @@ function AudioPage() {
                 void loadAssignments(selected.serviceDate, selected.id);
               }}
             />
-            <button
-              disabled={!showId}
-              onClick={() => {
-                setEditAssignment(null);
-                setShowForm(true);
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-40 transition-colors"
-            >
-              <Plus className="w-3 h-3" />
-              Add Channel
-            </button>
+            {!loading && assignments.length > 0 && (
+              <button
+                disabled={!showId}
+                onClick={() => {
+                  setEditAssignment(null);
+                  setShowForm(true);
+                }}
+                className="flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-40 transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                Add Channel
+              </button>
+            )}
           </div>
         </div>
       </div>
