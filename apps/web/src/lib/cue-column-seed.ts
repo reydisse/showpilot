@@ -14,11 +14,18 @@ export async function seedDefaultCueColumnsOnce(
   orgId: string,
   now: string,
 ) {
-  await db.batch([
+  await db.batch(defaultCueColumnSeedStatements(db, orgId, now));
+}
+
+export function defaultCueColumnSeedStatements(
+  db: Pick<D1Database, "prepare">, orgId: string, now: string,
+  guard: { sql: string; values: (string | number)[] } = { sql: "1", values: [] },
+) {
+  return [
     ...DEFAULT_CUE_COLUMNS.map((column, index) => db.prepare(
       `INSERT INTO cue_column (id, orgId, label, color, sortOrder, width, createdAt, updatedAt)
        SELECT ?, ?, ?, ?, ?, ?, ?, ?
-       WHERE NOT EXISTS (
+       WHERE (${guard.sql}) AND NOT EXISTS (
          SELECT 1 FROM app_setting WHERE orgId = ? AND key = ?
        )
        ON CONFLICT(id) DO NOTHING`,
@@ -31,15 +38,16 @@ export async function seedDefaultCueColumnsOnce(
       160,
       now,
       now,
+      ...guard.values,
       orgId,
       MARKER_KEY,
     )),
     db.prepare(
       `INSERT INTO app_setting (id, orgId, key, value)
-       VALUES (?, ?, ?, ?)
+       SELECT ?, ?, ?, ? WHERE ${guard.sql}
        ON CONFLICT(orgId, key) DO NOTHING`,
-    ).bind(`${orgId}-cue-columns-marker`, orgId, MARKER_KEY, VERSION),
-  ]);
+    ).bind(`${orgId}-cue-columns-marker`, orgId, MARKER_KEY, VERSION, ...guard.values),
+  ];
 }
 
 export async function markDefaultCueColumnsInitialized(

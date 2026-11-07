@@ -8,7 +8,7 @@ import { Route } from "@/routes/_auth/setup";
 const submitTeam = vi.fn(async () => {});
 vi.mock("@/lib/analytics", () => ({ identifyAnalytics: vi.fn(), track: vi.fn() }));
 vi.mock("@/lib/auth-client", () => ({ authClient: {} }));
-vi.mock("@/lib/onboarding", () => ({ checkOrgSlug: vi.fn(), getOnboardingProgress: vi.fn(), markOnboardingStarted: vi.fn(), saveOnboardingRole: vi.fn(), seedOrgTemplate: vi.fn() }));
+vi.mock("@/lib/onboarding", () => ({ checkOrgSlug: vi.fn(), getOnboardingProgress: vi.fn(), markOnboardingStarted: vi.fn(), saveOnboardingRole: vi.fn(), seedOrgTemplate: vi.fn(), getOnboardingSeed: async () => ({ status: "saved", template: "blank", serviceDate: "2026-11-07", showId: null, items: [] }) }));
 vi.mock("@/lib/setup-save", () => ({ getSetupTeam: async () => ({ batch: null, invitations: [], completed: false }), saveSetupTeam: vi.fn(), sendSetupInvitation: vi.fn(), finishSetupTeam: vi.fn() }));
 vi.mock("@/lib/workspace/profile", () => ({ saveWorkspaceType: vi.fn(), getWorkspaceProfile: vi.fn(), setWorkspaceModules: vi.fn() }));
 vi.mock("@tanstack/react-router", () => ({
