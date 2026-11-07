@@ -37,19 +37,28 @@ it.each(["USER_ALREADY_EXISTS", "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"])("offer
 it("keeps a failed signup draft and does not mistake another failure for an existing account", async () => {
   auth.signUp.mockRejectedValue(new Error("Connection failed. Try again."));
   await attemptSignup();
-  expect(screen.getByRole("alert").textContent).toBe("Connection failed. Try again.");
+  expect(screen.getByRole("alert").textContent).toContain("Your account may already exist");
+  expect(screen.getByRole("alert").textContent).toContain("Last attempt:");
   expect(screen.getByLabelText("Full name")).toHaveProperty("value", "Existing member");
   expect(screen.getByLabelText("Password")).toHaveProperty("value", "Draft-password-123!");
   expect(screen.queryByRole("button", { name: "Sign in to create an organization" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Create account" })).toHaveProperty("disabled", false);
+  expect(screen.getByRole("button", { name: "Retry creating account" })).toHaveProperty("disabled", false);
 });
 
-it("allows only the specific local setup and account-deletion return paths", () => {
+it("accepts app deep links and rejects external return paths", () => {
   const validate = Route.options.validateSearch;
   if (typeof validate !== "function") throw new Error("Missing login search validator");
   expect(validate({ returnTo: "/setup?mode=new" })).toMatchObject({ returnTo: "/setup?mode=new" });
   expect(validate({ returnTo: "/delete-account?token=abc123" })).toMatchObject({ returnTo: "/delete-account?token=abc123" });
-  for (const returnTo of ["https://other.test", "//other.test", "/setup?mode=new&redirect=https://other.test", "/setup?mode=new/other"]) {
+  expect(validate({ returnTo: "/test-show/chat?room=planning#message" })).toMatchObject({ returnTo: "/test-show/chat?room=planning#message" });
+  for (const returnTo of ["https://other.test", "//other.test", "/api/auth/sign-out", "/login?returnTo=/login"]) {
     expect(validate({ returnTo })).toMatchObject({ returnTo: undefined });
   }
+});
+
+it("explains signup password-policy errors without exposing raw auth codes", async () => {
+  auth.signUp.mockResolvedValue({ error: { code: "PASSWORD_TOO_LONG", message: "Password too long" } });
+  await attemptSignup();
+  expect(screen.getByRole("alert").textContent).toContain("Use no more than 128 characters");
+  expect(screen.getByRole("alert").textContent).not.toContain("PASSWORD_TOO_LONG");
 });

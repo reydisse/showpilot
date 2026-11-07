@@ -569,9 +569,9 @@ No browser errors occurred, controls passed at 320/768/1440px, and both 320px
 screenshots were inspected. Full coverage checks passed 1,970 unit tests, 729
 Worker tests and four gate tests; web typecheck and production build passed.
 
-This fixes the false verification claim and its recovery flow. Signup
-interstitials, setup recovery and the other compound auth requirements remain
-open; password-reset verification is documented below. No deployment, schema
+This fixes the false verification claim and its recovery flow. Password-reset
+and main web signup/destination verification are documented below. Setup,
+invitation-specific flows and the other compound auth requirements remain open. No deployment, schema
 change or native release was performed.
 
 ### Password reset link validation and recovery
@@ -615,6 +615,62 @@ inspection. No browser errors occurred. Controls passed at 320/768/1440px; the
 phone form, check-error, success and unconfirmed-result screenshots were inspected.
 
 No deployment, migration, email delivery or native release is part of this change.
+
+### Web signup recovery and auth destinations
+
+Confirmed signup opens the email-verification page. It does not enter setup or
+an organization first. Verification, resend and the link delivered by email
+carry a validated app destination through to Continue. Signed-out verification
+visitors return to the status page after sign-in.
+
+Signup and sign-in requests have eight-second deadlines and abort cleanup.
+Known credential, password-policy and rate-limit errors use human messages;
+other failures remain unconfirmed and include a timestamp. A lost signup
+acknowledgement keeps the draft and offers Sign in to check account, then
+returns to verification. Late replies cannot navigate
+after timeout or unmount, and submissions never retry automatically.
+
+The installed Better Auth version catches initial verification-email delivery
+failures and still acknowledges account/session creation. The interstitial
+checks verification status and does not claim delivery; failed explicit resend
+requests show an error and Retry. Initial delivery errors are logged server-side
+and are not exposed by Better Auth's signup response.
+
+Return destinations now preserve app paths, queries and fragments. The shared
+validator rejects external URLs, ambiguous slashes/control characters, API
+routes and recursive auth destinations. Anonymous workspace navigation carries
+its destination through login; authenticated users follow a valid destination
+before the ordinary organization redirect. A signed-in user without workspace
+access gets an error instead of a login loop. HTTP redirects cannot read a URL
+fragment, so login restores the browser's inherited fragment before continuing.
+
+After building, run:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-signup-recovery.mjs
+```
+
+Email capture is opt-in and requires the direct local runtime. It uses
+[Miniflare's outbound service handler](https://github.com/cloudflare/workers-sdk/blob/main/packages/miniflare/README.md)
+to intercept all outbound requests, accept only the Resend endpoint and
+`@display-smoke.invalid` recipients, and save fixture emails locally. There is
+no network fallback and the only provider key is a local dummy value. The
+rehearsal switches delivery between rejection and success, follows real Better
+Auth verification links and inspects D1 after stopping the Worker. It also runs
+the required login-responsive check in both modes across 24 viewport cases.
+
+Verification passed 2,032 unit tests, 733 Worker tests, four coverage-gate tests,
+web typecheck and the production build. The compiled browser rehearsal passed
+real signup and verification, initial provider failure followed by visible
+resend failure/Retry, verification in a fresh session, a committed but lost
+signup response, deep-link restoration and final D1 inspection of three accounts
+with expected verification states and no organization memberships. No browser
+errors occurred. Both login modes passed all 24 required viewport cases from
+320 to 3440px, including tablet breakpoints and short windows. Recovery controls
+passed 320/768/1440px; screenshots were inspected after animations settled.
+
+The invitation-specific and mobile signup screens and the remaining setup
+repair still need their own audits. No deployment, migration, external email delivery or native release is included.
 
 ### Timecode label validation
 

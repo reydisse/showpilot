@@ -1,74 +1,92 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Eye, EyeOff, LoaderCircle } from "lucide-react";
 import { SignInShell } from "@/components/auth/SignInShell";
 import { getSignInDesign } from "@showpilot/shared";
 import { authClient } from "@/lib/auth-client";
 import { PASSWORD_MIN_LENGTH } from "@showpilot/shared";
+import { withOperationTimeout } from "@/lib/operation-timeout";
+import { safeAuthReturnTo, verificationHref } from "@/lib/auth-navigation";
 
 export const Route = createFileRoute("/_auth/login")({
-  // ?signup=1 opens the page in sign-up mode — the landing page's CTAs land
-  // here. Unknown params (utm_*) pass through untouched for analytics.
-  validateSearch: (
-    search: Record<string, unknown>,
-  ): { signup?: 1; returnTo?: string } => {
-    const signup =
-      search.signup === "1" || search.signup === 1 ? (1 as const) : undefined;
-    const returnTo =
-      typeof search.returnTo === "string" &&
-      /^\/(?:delete-account(?:\?token=[A-Za-z0-9]+)?|setup\?mode=new)$/.test(search.returnTo)
-        ? search.returnTo
-        : undefined;
-    return { signup, returnTo };
-  },
+  validateSearch: (search: Record<string, unknown>): { signup?: 1; verify?: 1; returnTo?: string } => ({
+    signup: search.signup === "1" || search.signup === 1 ? 1 : undefined,
+    verify: search.verify === "1" || search.verify === 1 ? 1 : undefined,
+    returnTo: safeAuthReturnTo(search.returnTo),
+  }),
   loader: () => ({ design: getSignInDesign(new Date()) }),
   component: LoginPage,
 });
 
 function LoginPage() {
-  const { signup, returnTo } = Route.useSearch();
+  const { signup, verify, returnTo } = Route.useSearch();
   const { design } = Route.useLoaderData();
   const [isSignUp, setIsSignUp] = useState(Boolean(signup));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; at: number } | null>(null);
+  const [uncertainSignup, setUncertainSignup] = useState(false);
+  const [verifyAfterSignIn, setVerifyAfterSignIn] = useState(Boolean(verify));
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => () => { request.current?.abort(); }, []);
   const [loading, setLoading] = useState(false);
   const [existingAccount, setExistingAccount] = useState(false);
   const [createOrgAfterSignIn, setCreateOrgAfterSignIn] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (loading) return;
-    setError(null);
-    setExistingAccount(false);
-    setLoading(true);
-
+    if (request.current) return;
+    const signingUp = isSignUp;
+    // HTTP redirects cannot see a fragment. Browsers carry it onto the login
+    // URL; put it back on the app destination before navigating or emailing.
+    const destination = safeAuthReturnTo(returnTo && !returnTo.includes("#") ? returnTo + window.location.hash : returnTo);
+    const controller = new AbortController();
+    request.current = controller;
+    setError(null); setExistingAccount(false); setUncertainSignup(false); setLoading(true);
+    const fail = (message: string) => setError({ message, at: Date.now() });
     try {
-      if (isSignUp) {
-        const result = await authClient.signUp.email({ email, password, name });
-        if (result.error?.code === "USER_ALREADY_EXISTS" || result.error?.code === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL") {
+      const fetchOptions = { signal: controller.signal, retry: 0 };
+      const operation = signingUp
+        ? authClient.signUp.email({ email, password, name, callbackURL: verificationHref(destination), fetchOptions })
+        : authClient.signIn.email({ email, password, fetchOptions });
+      const result = await withOperationTimeout(operation, 8_000, "Authentication confirmation timed out.");
+      if (controller.signal.aborted) return;
+      if (result.error) {
+        const code = result.error.code;
+        if (signingUp && (code === "USER_ALREADY_EXISTS" || code === "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL")) {
           setExistingAccount(true);
-          setError("An account with this email already exists. Sign in to create another organization.");
+          fail("An account with this email already exists. Sign in to create another organization.");
           return;
         }
-        if (result.error)
-          throw new Error(
-            `[${result.error.code ?? "ERR"}] ${result.error.message}`,
-          );
-        window.location.href = returnTo ?? "/";
-      } else {
-        const result = await authClient.signIn.email({ email, password });
-        if (result.error)
-          throw new Error(result.error.message ?? "Sign in failed");
-        window.location.href = returnTo ?? (createOrgAfterSignIn ? "/setup?mode=new" : "/");
+        const message = code === "PASSWORD_TOO_SHORT" ? `Use at least ${PASSWORD_MIN_LENGTH} characters.`
+          : code === "PASSWORD_TOO_LONG" ? "Use no more than 128 characters."
+          : code === "INVALID_EMAIL" ? "Enter a valid email address."
+          : !signingUp && code === "INVALID_EMAIL_OR_PASSWORD" ? "The email or password is incorrect. Check your details and try again."
+          : !signingUp && code === "EMAIL_NOT_VERIFIED" ? "Verify your email before signing in. Open the link in your inbox."
+          : result.error.status === 429 ? "Too many attempts. Wait a minute, then try again." : null;
+        if (message) { fail(message); return; }
+        throw new Error("Authentication outcome unavailable.");
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (!result.data?.user || !result.data.token) throw new Error("Authentication acknowledgement missing.");
+      setPassword("");
+      window.location.href = signingUp || verifyAfterSignIn ? verificationHref(destination) : destination ?? (createOrgAfterSignIn ? "/setup?mode=new" : "/");
+    } catch {
+      if (controller.signal.aborted) return;
+      setUncertainSignup(signingUp);
+      fail(signingUp
+        ? "We couldn't confirm account creation. Your account may already exist. Sign in with these details to continue, or retry creating the account."
+        : "We couldn't confirm sign-in. Check your connection and try signing in again.");
     } finally {
-      setLoading(false);
+      controller.abort();
+      if (request.current === controller) { request.current = null; setLoading(false); }
     }
+  }
+
+  function recoverBySigningIn(forVerification: boolean) {
+    setIsSignUp(false); setVerifyAfterSignIn(forVerification); setCreateOrgAfterSignIn(!forVerification);
+    setExistingAccount(false); setUncertainSignup(false); setError(null); setPassword("");
   }
 
   return (
@@ -94,7 +112,7 @@ function LoginPage() {
           ? "Create an account to bring your team together."
           : "Your team. Your cues. All in one place."}
       </p>
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} aria-busy={loading}>
         {isSignUp && (
           <div className="name-field">
             <label htmlFor="name">Full name</label>
@@ -103,6 +121,7 @@ function LoginPage() {
               type="text"
               autoComplete="name"
               required
+              disabled={loading}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Your name"
@@ -117,6 +136,7 @@ function LoginPage() {
           autoCapitalize="none"
           spellCheck={false}
           required
+          disabled={loading}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@example.com"
@@ -131,6 +151,8 @@ function LoginPage() {
             type={showPassword ? "text" : "password"}
             autoComplete={isSignUp ? "new-password" : "current-password"}
             required
+            disabled={loading}
+            maxLength={isSignUp ? 128 : undefined}
             minLength={isSignUp ? PASSWORD_MIN_LENGTH : undefined}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -146,7 +168,7 @@ function LoginPage() {
             type="button"
             onClick={() => setShowPassword(!showPassword)}
             aria-label={showPassword ? "Hide password" : "Show password"}
-            className="eye size-10"
+            className="eye size-11"
           >
             {showPassword ? (
               <EyeOff size={18} aria-hidden="true" />
@@ -157,18 +179,11 @@ function LoginPage() {
         </div>
         {error && (
           <p className="signin-error" id="signin-error" role="alert">
-            {error}
+            {error.message}<span className="block">Last attempt: {new Date(error.at).toLocaleTimeString()}</span>
           </p>
         )}
-        {existingAccount && (
-          <button type="button" className="mb-4 min-h-11 underline underline-offset-4" onClick={() => {
-            setIsSignUp(false);
-            setCreateOrgAfterSignIn(true);
-            setExistingAccount(false);
-            setError(null);
-            setPassword("");
-          }}>Sign in to create an organization</button>
-        )}
+        {existingAccount && <button type="button" className="mb-4 min-h-11 underline underline-offset-4" onClick={() => recoverBySigningIn(false)}>Sign in to create an organization</button>}
+        {uncertainSignup && <button type="button" className="mb-4 min-h-11 underline underline-offset-4" onClick={() => recoverBySigningIn(true)}>Sign in to check account</button>}
         <button
           type="submit"
           className="submit"
@@ -180,8 +195,8 @@ function LoginPage() {
               ? "Creating account…"
               : "Signing in…"
             : isSignUp
-              ? "Create account"
-              : "Sign in"}
+              ? uncertainSignup ? "Retry creating account" : "Create account"
+              : error ? "Retry sign-in" : "Sign in"}
           {loading ? (
             <LoaderCircle
               size={16}
@@ -208,6 +223,8 @@ function LoginPage() {
           onClick={() => {
             setIsSignUp(!isSignUp);
             if (existingAccount) setCreateOrgAfterSignIn(true);
+            if (uncertainSignup) setVerifyAfterSignIn(true);
+            setUncertainSignup(false);
             setExistingAccount(false);
             setError(null);
           }}
