@@ -536,7 +536,43 @@ combined JSON and group summary remain available after a threshold failure.
 Local verification passed 1,961 unit tests, 729 Worker tests, four gate tests,
 web typecheck, production build and frozen-lockfile installation. A negative
 probe using the real reports exited 1 for an unmet threshold, then the baseline
-was restored byte-for-byte. GitHub execution of the new gate remains pending.
+was restored byte-for-byte. GitHub run
+[42335684059](https://github.com/reydisse/showpilot/actions/runs/42335684059)
+passed both CI jobs, including the actual coverage gate and artifact upload.
+
+### Email verification status
+
+The confirmation page now queries Better Auth with cookie caching disabled. An
+absent URL error no longer means the email is verified, and old route context
+cannot authorize the success screen. Signed-out visitors see Sign in; unverified
+members see Check your inbox and can request another email or check again.
+Continue appears only after the current session confirms verification.
+
+Status reads and resend requests have eight-second deadlines. Failures retain a
+timestamp and Retry; timeout/unmount aborts the request and a late reply cannot
+replace recovery state. Email delivery confirmation never marks the address as
+verified. Existing server-side organization-creation checks remain unchanged.
+
+After building, run:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-email-verification.mjs
+```
+
+The rehearsal uses a disposable unverified account and Better Auth's real token
+generator and verification endpoint. It passed anonymous/unverified states,
+failed and timed-out status recovery, rejected resend, actual token consumption,
+verified setup and final D1 inspection. No email provider is configured in the
+fixture, so no external email is sent. Better Auth captures fetch during client
+initialization; transport faults are installed before application modules load.
+No browser errors occurred, controls passed at 320/768/1440px, and both 320px
+screenshots were inspected. Full coverage checks passed 1,970 unit tests, 729
+Worker tests and four gate tests; web typecheck and production build passed.
+
+This fixes the false verification claim and its recovery flow. Signup
+interstitials, password-reset flow, setup recovery and the other compound auth
+requirements still need their own completion audit. No deployment, schema
+change or native release was performed.
 
 ### Timecode label validation
 

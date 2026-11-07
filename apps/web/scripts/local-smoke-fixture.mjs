@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { hashPassword } from "better-auth/crypto";
+import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
@@ -178,7 +179,14 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
       }).join("\n");
       await wrangler("d1","execute","showpilot-db","--local","--config",configPath,"--persist-to",state,"--command",repair);
     };
-    await check({ origin, orgId, date, browser, pass, crewChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
+    const unverifiedOperatorLink = async () => {
+      assert.ok(unverifiedOperator, "Verification links are available only for the unverified fixture account");
+      const token = await createEmailVerificationToken(authSecret, "unverified@display-smoke.invalid");
+      const url = new URL("/api/auth/verify-email", origin);
+      url.searchParams.set("token", token); url.searchParams.set("callbackURL", "/verify-email");
+      return url.toString();
+    };
+    await check({ origin, orgId, date, browser, pass, crewChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
   } catch (error) {
     // Configuration contains only disposable fixture secrets; redact them anyway.
     console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]").replaceAll(companionSecret, "[fixture secret]").replaceAll(encryptionSecret, "[fixture secret]"));
