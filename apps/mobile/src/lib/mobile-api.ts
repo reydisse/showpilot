@@ -1,3 +1,4 @@
+import { accessNoticeSchema, accessReceiptSchema, type AccessCommand } from "./access-recovery";
 import { crewReceiptSchema, type CrewCommand } from "./crew-recovery";
 import { invitationDeliverySchema } from "./invitation-recovery";
 import { workspaceSchema, type MobileWorkspace } from "./workspace-schema";
@@ -490,6 +491,7 @@ const teamAccessSchema = z.object({
   members: z.array(teamAccessMemberSchema),
   grants: z.array(teamAccessGrantSchema),
   capabilities: z.array(teamAccessCapabilitySchema),
+  notices: z.array(accessNoticeSchema),
 });
 
 const organizationMemberSchema = z.object({
@@ -1879,40 +1881,29 @@ export async function setMobileCheckInStatus(input: {
   return checkInStatusSchema.parse(await response.json());
 }
 
-export async function getMobileTeamAccess(
-  orgId: string,
-): Promise<MobileTeamAccess> {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/team/access?orgId=${encodeURIComponent(orgId)}`,
-  );
-  return teamAccessSchema.parse(await response.json());
+export async function getMobileTeamAccess(orgId: string): Promise<MobileTeamAccess> {
+  return withTeamRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/team/access?orgId=${encodeURIComponent(orgId)}`, { signal });
+    return teamAccessSchema.parse(await response.json());
+  });
 }
-
-export async function grantMobileTeamAccess(input: {
-  orgId: string;
-  userId: string;
-  capability: string;
-  duration: "this-week" | "until-revoked";
-  reason: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/team/access/grants?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify(input) },
-  );
-  return z
-    .object({ ok: z.literal(true), grantId: z.string() })
-    .parse(await response.json());
+export async function grantMobileTeamAccess(input: Extract<AccessCommand, { kind: "grant" }>) {
+  return withTeamRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/team/access/grants?orgId=${encodeURIComponent(input.orgId)}`, { method: "POST", signal, body: JSON.stringify(input) });
+    return accessReceiptSchema.parse(await response.json());
+  });
 }
-
-export async function revokeMobileTeamAccess(input: {
-  orgId: string;
-  grantId: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/team/access/grants/${encodeURIComponent(input.grantId)}/revoke?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify({}) },
-  );
-  return okSchema.parse(await response.json());
+export async function revokeMobileTeamAccess(input: Extract<AccessCommand, { kind: "revoke" }>) {
+  return withTeamRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/team/access/grants/${encodeURIComponent(input.grantId)}/revoke?orgId=${encodeURIComponent(input.orgId)}`, { method: "POST", signal, body: JSON.stringify(input) });
+    return accessReceiptSchema.parse(await response.json());
+  });
+}
+export async function retryMobileAccessNotice(input: Extract<AccessCommand, { kind: "notice" }>) {
+  return withTeamRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/team/access/retry-notification?orgId=${encodeURIComponent(input.orgId)}`, { method: "POST", signal, body: JSON.stringify({ requestId: input.requestId }) });
+    return accessReceiptSchema.parse(await response.json());
+  });
 }
 
 async function withTeamRequestDeadline<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {

@@ -1,3 +1,5 @@
+import { readAccessActor, retryAccessNotice } from "./access-write.server";
+import { grantAccessSchema, revokeAccessSchema } from "./access-write-contract";
 import { crewActor, writeCrewProfile } from "./crew-roster.server";
 import { crewProfileCommandSchema } from "./crew-roster-contract";
 import { teamInvitationSchema, retryInvitationDeliverySchema } from "./team-invitation-contract";
@@ -85,13 +87,11 @@ import {
 } from "./smart-checklist-rules";
 import {
   ACCESS_CAPABILITIES,
-  getAccessCapability,
 } from "./access-capabilities";
 import {
   getAccessManagementSnapshotForActor,
   grantMemberAccessForActor,
   revokeMemberAccessForActor,
-  type AccessGrantDuration,
 } from "./access-grants";
 import type {
   BridgeDispatchMessage,
@@ -4944,6 +4944,7 @@ async function teamAccess(
 }
 
 function accessMutationStatus(error: unknown): number {
+  if (error instanceof TeamCommandError) return error.status;
   const message = error instanceof Error ? error.message : "";
   if (
     message.startsWith("Only an Owner") ||
@@ -4964,38 +4965,11 @@ async function grantTeamAccess(
   const access = await authorize(request, url, db);
   if (access instanceof Response) return access;
   const body = await readJson(request);
-  const capability =
-    typeof body?.capability === "string"
-      ? getAccessCapability(body.capability)
-      : null;
-  const duration: AccessGrantDuration | null =
-    body?.duration === "this-week" || body?.duration === "until-revoked"
-      ? body.duration
-      : null;
-  const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
-  if (
-    !body ||
-    !validId(body.userId) ||
-    !capability ||
-    !duration ||
-    reason.length > 240
-  ) {
-    return json(
-      { error: "Choose a member, capability, and valid duration." },
-      400,
-    );
-  }
+  const parsed = grantAccessSchema.safeParse({ ...body, orgId: access.orgId });
+  if (!parsed.success) return json({ error: "Choose a member, capability, valid duration and current duty week." }, 400);
   try {
-    const grant = await grantMemberAccessForActor({
-      orgId: access.orgId,
-      actor: { userId: access.identity.userId, name: access.identity.name },
-      userId: body.userId,
-      capability: capability.id,
-      duration,
-      reason,
-      database: db,
-    });
-    return json({ ok: true, grantId: grant.id }, 201);
+    const grant = await grantMemberAccessForActor({ ...parsed.data, actor: await readAccessActor(request.headers), database: db });
+    return json({ ...grant, grantId: grant.id }, 201);
   } catch (error) {
     return json(
       {
@@ -5015,14 +4989,11 @@ async function revokeTeamAccess(
 ): Promise<Response> {
   const access = await authorize(request, url, db);
   if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const parsed = revokeAccessSchema.safeParse({ ...body, orgId: access.orgId, grantId });
+  if (!parsed.success) return json({ error: "Review the access grant and request before revoking it." }, 400);
   try {
-    await revokeMemberAccessForActor({
-      orgId: access.orgId,
-      actor: { userId: access.identity.userId, name: access.identity.name },
-      grantId,
-      database: db,
-    });
-    return json({ ok: true });
+    return json(await revokeMemberAccessForActor({ ...parsed.data, actor: await readAccessActor(request.headers), database: db }));
   } catch (error) {
     return json(
       {
@@ -5031,6 +5002,25 @@ async function revokeTeamAccess(
       },
       accessMutationStatus(error),
     );
+  }
+}
+
+async function retryTeamAccessNotice(
+  request: Request,
+  url: URL,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db);
+  if (access instanceof Response) return access;
+  const parsed = z.object({ requestId: z.uuid() }).safeParse(await readJson(request));
+  if (!parsed.success) return json({ error: "Choose a pending access notification to retry." }, 400);
+  try {
+    return json(await retryAccessNotice(db, await readAccessActor(request.headers), {
+      orgId: access.orgId,
+      requestId: parsed.data.requestId,
+    }));
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Unable to retry the access notification." }, accessMutationStatus(error));
   }
 }
 
@@ -7477,6 +7467,8 @@ export async function handleMobileApi(
     return createTeamCrewMember(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/access" && request.method === "GET")
     return teamAccess(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/team/access/retry-notification" && request.method === "POST")
+    return retryTeamAccessNotice(request, url, env.DB);
   if (
     url.pathname === "/api/mobile/v1/team/access/grants" &&
     request.method === "POST"

@@ -164,17 +164,18 @@ export function TeamWorkspace({ initial }: { initial: TeamInitial }) {
   const locked = writes.state.status !== "idle";
   const [invitationDirty, setInvitationDirty] = useState(false);
   const [crewDirty, setCrewDirty] = useState(false);
+  const [accessDirty, setAccessDirty] = useState(false);
   const disabled = locked || read.refreshing || !!read.error;
   const [reviewing, setReviewing] = useState(false);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const blocker = useBlocker({
-    shouldBlockFn: () => locked || invitationDirty || crewDirty,
-    enableBeforeUnload: locked || invitationDirty || crewDirty,
+    shouldBlockFn: () => locked || invitationDirty || crewDirty || accessDirty,
+    enableBeforeUnload: locked || invitationDirty || crewDirty || accessDirty,
     withResolver: true,
   });
   useEffect(() => {
-    if (!locked && !invitationDirty && !crewDirty && blocker.status === "blocked") blocker.proceed();
-  }, [locked, invitationDirty, crewDirty, blocker]);
+    if (!locked && !invitationDirty && !crewDirty && !accessDirty && blocker.status === "blocked") blocker.proceed();
+  }, [locked, invitationDirty, crewDirty, accessDirty, blocker]);
   const startChange = <T,>(change: TeamChange<T>) =>
     writes.start({
       ...change,
@@ -437,13 +438,17 @@ export function TeamWorkspace({ initial }: { initial: TeamInitial }) {
               disabled={disabled}
               close={(report, status) => void closeReport(report, status)}
             />
-          ) : visibleTab === tab.id && tab.id === "access" ? (
+          ) : tab.id === "access" ? (
             <AccessManagementTab
               orgId={orgId}
               currentUserId={accessManagement.currentUserId}
               authority={accessManagement.authority}
               members={accessManagement.members}
               grants={accessManagement.grants}
+              notices={accessManagement.notices}
+              disabled={disabled}
+              change={change => void startChange(change)}
+              onDirtyChange={setAccessDirty}
             />
           ) : tab.id === "crew" ? (
             <MemberTable
