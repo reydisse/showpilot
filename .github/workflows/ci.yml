@@ -1,7 +1,7 @@
 # CI for the ShowPilot monorepo.
 #
 # STEP ORDER IS CRITICAL: install → Prisma generate → typecheck → test →
-# landing Worker verification.
+# web production build → landing Worker verification.
 # The Prisma client is generated into apps/web/src/generated/prisma, which is
 # gitignored (see /.gitignore: **/src/generated/). If the "Generate Prisma
 # client" step is removed or moved after typechecking, `tsc --noEmit` fails
@@ -57,6 +57,12 @@ jobs:
       - name: Typecheck bridge
         run: pnpm --filter @showpilot/bridge exec tsc --noEmit
 
+      - name: Typecheck shared
+        run: pnpm --filter @showpilot/shared exec tsc --noEmit
+
+      - name: Typecheck mobile
+        run: pnpm --filter @showpilot/mobile exec tsc --noEmit
+
       - name: Test web
         run: pnpm --filter @showpilot/web test
 
@@ -71,6 +77,11 @@ jobs:
 
       - name: Verify React Native app and EAS workflows
         run: pnpm --filter @showpilot/mobile verify
+
+      # Production deploy is gated on this CI run. Exercise Vite, Worker
+      # bundling and client-boundary budgets before main can deploy.
+      - name: Build web
+        run: pnpm --filter @showpilot/web build
 
       - name: Verify landing release Worker
         run: pnpm --filter @showpilot/landing run verify
