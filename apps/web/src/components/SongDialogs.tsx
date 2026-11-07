@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { ClipboardPaste, Plus, Trash2, X } from "lucide-react";
-import { useSongWrite } from "@/hooks/useSongWrite";
+import { useConfirmedWrite } from "@/hooks/useConfirmedWrite";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatSongLyrics, insertPastedLyrics } from "@/lib/song-lyrics-format";
 import {
@@ -46,7 +46,7 @@ export function SongCreateModal({ orgId, open, onClose, onCreate, onOpenSong }: 
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pastedLyrics, setPastedLyrics] = useState("");
   const [pasteNotice, setPasteNotice] = useState<string | null>(null);
-  const write = useSongWrite(`${orgId}/new-song`);
+  const write = useConfirmedWrite(`${orgId}/new-song`);
   const busy = write.state.status === "saving";
   const locked = write.state.status !== "idle";
   const { confirm, ConfirmDialogEl } = useConfirmDialog();

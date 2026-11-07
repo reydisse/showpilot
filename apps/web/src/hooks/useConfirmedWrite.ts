@@ -4,13 +4,13 @@ import { createBrowserId } from "@/lib/browser-id";
 type WriteState = { status: "idle" }
   | { status: "saving"; label: string; saved: boolean }
   | { status: "failed"; label: string; saved: boolean; message: string; at: number };
-type SongChange<T> = {
+type ConfirmedChange<T> = {
   label: string;
   write: (requestId: string, signal: AbortSignal) => Promise<T>;
   apply: (result: T) => void;
   finish?: (result: T, signal: AbortSignal) => Promise<void>;
 };
-type PendingSongChange = { owner: { scope: string }; run: () => Promise<boolean>; controller: AbortController | null };
+type PendingConfirmedChange = { owner: { scope: string }; run: () => Promise<boolean>; controller: AbortController | null };
 
 /** Abort also settles requests whose transport ignores cancellation. */
 function bounded<T>(work: (signal: AbortSignal) => Promise<T>, controller: AbortController): Promise<T> {
@@ -30,13 +30,13 @@ function bounded<T>(work: (signal: AbortSignal) => Promise<T>, controller: Abort
   });
 }
 
-/** One pending song change, with its exact request and acknowledged result retained for Retry. */
-export function useSongWrite(scope: string) {
+/** One pending change, with its exact request and acknowledged result retained for Retry. */
+export function useConfirmedWrite(scope: string) {
   const owner = useMemo(() => ({ scope }), [scope]);
   const currentOwner = useRef(owner);
   currentOwner.current = owner;
   const [view, setView] = useState<{ owner: typeof owner; state: WriteState }>({ owner, state: { status: "idle" } });
-  const command = useRef<PendingSongChange | null>(null);
+  const command = useRef<PendingConfirmedChange | null>(null);
   useEffect(() => () => {
     const pending = command.current;
     if (pending?.owner === owner) {
@@ -45,12 +45,12 @@ export function useSongWrite(scope: string) {
     }
   }, [owner]);
 
-  const start = <T,>(change: SongChange<T>): Promise<boolean> => {
+  const start = <T,>(change: ConfirmedChange<T>): Promise<boolean> => {
     if (command.current) return Promise.resolve(false);
     const requestId = createBrowserId();
     let result: { saved: false } | { saved: true; value: T } = { saved: false };
     let applied = false;
-    const pending: PendingSongChange = { owner, controller: null, run: async (): Promise<boolean> => {
+    const pending: PendingConfirmedChange = { owner, controller: null, run: async (): Promise<boolean> => {
       if (pending.controller || currentOwner.current !== owner || command.current !== pending) return false;
       const controller = new AbortController();
       pending.controller = controller;
@@ -76,7 +76,7 @@ export function useSongWrite(scope: string) {
       } catch (error) {
         if (command.current === pending && currentOwner.current === owner) {
           setView({ owner, state: { status: "failed", label: change.label, saved: result.saved,
-            message: error instanceof Error ? error.message : "The song change could not be confirmed.", at: Date.now() } });
+            message: error instanceof Error ? error.message : "The change could not be confirmed.", at: Date.now() } });
         }
         return false;
       } finally {
