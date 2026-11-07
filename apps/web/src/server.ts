@@ -11,7 +11,7 @@ import { authenticateDisplayRequest } from "./lib/display-access.server";
 import { getAuth } from "./lib/auth";
 import { relayUpgradeCache } from "./lib/relay-upgrade-cache.server";
 import type { Permission } from "./lib/permissions";
-import { verifyCrewChatPass } from "./lib/crew-chat-pass";
+import { chatPassDigest, verifyCrewChatPass } from "./lib/chat-pass-revocation.server";
 import { chatRelayKey } from "./lib/chat-relay-key";
 import { getTodayDateString } from "./lib/utils";
 import { rundownRelayKey } from "./lib/rundown-relay-key";
@@ -457,7 +457,7 @@ const appServer = {
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const guestToken = url.searchParams.get("guestToken");
-      const guestPass = guestToken && e.KIOSK_SECRET ? await verifyCrewChatPass(guestToken, e.KIOSK_SECRET) : null;
+      const guestPass = guestToken && e.KIOSK_SECRET ? await verifyCrewChatPass(guestToken, e.KIOSK_SECRET, e.DB) : null;
       if (!canUse(access, "chat:access") && guestPass?.orgId !== orgId) {
         return new Response("Unauthorized", { status: 401 });
       }
@@ -490,7 +490,7 @@ const appServer = {
       }
       const headers = new Headers();
       object.writeHttpMetadata(headers);
-      headers.set("Cache-Control", "private, max-age=3600");
+      headers.set("Cache-Control", "private, no-store");
       headers.set("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`);
       return new Response(object.body, { headers });
     }
@@ -503,7 +503,7 @@ const appServer = {
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const guestToken = url.searchParams.get("guestToken");
-      const guestPass = guestToken && e.KIOSK_SECRET ? await verifyCrewChatPass(guestToken, e.KIOSK_SECRET) : null;
+      const guestPass = guestToken && e.KIOSK_SECRET ? await verifyCrewChatPass(guestToken, e.KIOSK_SECRET, e.DB) : null;
       const guestAllowed = Boolean(guestPass && guestPass.orgId === orgId && (subpath === "ws" || subpath === "upload"));
       if (!canUse(access, "chat:access") && !guestAllowed) {
         return new Response("Unauthorized", { status: 401 });
@@ -601,6 +601,7 @@ const appServer = {
         doUrl.searchParams.set("name", (url.searchParams.get("guestName") || "Guest crew").trim().slice(0, 60));
         doUrl.searchParams.set("role", "Guest");
         doUrl.searchParams.set("guestExpiresAt", String(guestPass.exp * 1000));
+        if (guestToken) doUrl.searchParams.set("guestTokenHash", await chatPassDigest(guestToken));
         if (guestToken) doUrl.searchParams.set("attachmentOwnerId", await guestAttachmentOwnerId(guestToken));
       } else if (access.identity) {
         doUrl.searchParams.set("userId", access.identity.userId);

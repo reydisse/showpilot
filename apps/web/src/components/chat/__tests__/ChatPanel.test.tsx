@@ -252,3 +252,24 @@ describe("ChatPanel conversation flow", () => {
     expect(scrollSpy).toHaveBeenCalledWith({ block: "end" });
   });
 });
+
+it("defers composer height writes outside ResizeObserver and cancels them on unmount", () => {
+  const frames = new Map<number, FrameRequestCallback>(); let next = 0;
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.set(++next, callback); return next; });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+  try {
+    const view = render(<ChatPanel messages={[]} connectionStatus="connected" unreadCount={0} onSendMessage={vi.fn()} />);
+    const textarea = view.container.querySelector("textarea"); if (!textarea) throw new Error("Composer missing");
+    let width = 320;
+    Object.defineProperty(textarea, "clientWidth", { configurable: true, get: () => width });
+    Object.defineProperty(textarea, "scrollHeight", { configurable: true, get: () => 96 });
+    textarea.style.height = "44px";
+    act(() => triggerResize());
+    expect(textarea.style.height).toBe("44px");
+    act(() => { for (const [id, callback] of frames) { frames.delete(id); callback(1); } });
+    expect(textarea.style.height).toBe("96px");
+    width = 240; act(() => triggerResize());
+    expect(frames.size).toBeGreaterThan(0);
+    view.unmount(); expect(frames.size).toBe(0);
+  } finally { vi.unstubAllGlobals(); }
+});

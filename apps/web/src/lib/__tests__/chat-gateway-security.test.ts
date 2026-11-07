@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@tanstack/react-start/server-entry", () => ({ default: { fetch: vi.fn() } }));
 vi.mock("@/lib/auth", () => ({ getAuth: () => ({ api: { getSession: mocks.session } }) }));
 vi.mock("@/lib/effective-access", () => ({ resolveEffectiveAccess: mocks.access }));
-vi.mock("@/lib/crew-chat-pass", () => ({ verifyCrewChatPass: mocks.verifyPass }));
+vi.mock("@/lib/chat-pass-revocation.server", () => ({ chatPassDigest: async () => "sha256:" + "a".repeat(64), verifyCrewChatPass: mocks.verifyPass }));
 vi.mock("@/lib/mobile-api.server", () => ({ handleMobileApi: async () => null }));
 vi.mock("@/lib/auth-origins", () => ({ isAllowedApiOrigin: () => true }));
 vi.mock("@/durable-objects/ChatRelay", () => ({ ChatRelay: class {} }));

@@ -21,6 +21,7 @@ it("redirects an authorized Planning invite before rendering any wrong-member ca
 
 it.each([
   ["invalid", "This Planning invite is invalid"],
+  ["revoked", "This Planning invite was revoked"],
   ["expired", "This Planning invite has expired"],
   ["unavailable", "This Planning invite is no longer available"],
   ["wrong-account", "This invite is for another member"],
