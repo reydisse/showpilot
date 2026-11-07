@@ -1,3 +1,4 @@
+import { assertTeamCommandSuccess } from "./team-command.server";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders, setResponseHeader } from "@tanstack/react-start/server";
 import { getAuth } from "@/lib/auth";
@@ -15,6 +16,18 @@ import { withPrimaryDatabase } from "./request-database.server";
 
 // Role names are org-defined (dynamic access control) — bound, not enumerated.
 const roleNameSchema = z.string().min(1).max(50);
+const teamRetryFields = { requestId: z.uuid().optional(), expectedRevision: z.number().int().nonnegative().optional() };
+function teamRequestHeaders(data: { requestId?: string; expectedRevision?: number }) {
+  const headers = new Headers(getRequestHeaders());
+  if (data.requestId) headers.set("Idempotency-Key", data.requestId);
+  if (data.expectedRevision !== undefined) headers.set("X-ShowPilot-Member-Revision", String(data.expectedRevision));
+  return headers;
+}
+const organizationMemberRow = z.object({
+  id: z.string(), organizationId: z.string(), userId: z.string(), role: z.string(),
+  managementRevision: z.number().int().nonnegative(), createdAt: z.union([z.number(), z.string()]),
+  userName: z.string(), userEmail: z.string(), userImage: z.string().nullable(),
+});
 
 async function getSessionOrThrow() {
   const auth = getAuth();
@@ -220,57 +233,62 @@ export const checkPermission = createServerFn({ method: "POST" })
 // ─── Members ─────────────────────────────────────────────
 
 export const getOrgMembers = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "settings:members");
-    const prisma = getPrisma();
-    const members = await prisma.member.findMany({
-      where: { organizationId: data.orgId },
-      include: { user: { select: { id: true, name: true, email: true, image: true } } },
-      orderBy: { createdAt: "asc" },
-    });
-    return members;
+    // Read the displayed role and its revision in one snapshot.
+    const rows = await getD1().prepare(`SELECT m.id,m.organizationId,m.userId,m.role,m.managementRevision,m.createdAt,
+      u.name AS userName,u.email AS userEmail,u.image AS userImage
+      FROM member m JOIN user u ON u.id=m.userId WHERE m.organizationId=? ORDER BY m.createdAt ASC,m.id ASC`)
+      .bind(data.orgId).all();
+    return z.array(organizationMemberRow).parse(rows.results).map(row => ({
+      id: row.id, organizationId: row.organizationId, userId: row.userId, role: row.role,
+      managementRevision: row.managementRevision, createdAt: new Date(row.createdAt),
+      user: { id: row.userId, name: row.userName, email: row.userEmail, image: row.userImage },
+    }));
   });
 
 export const updateMemberRole = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ memberId: idSchema, role: roleNameSchema }), data),
+    parseOrThrow(z.object({ memberId: idSchema, role: roleNameSchema, orgId: idSchema.optional(), ...teamRetryFields }), data),
   )
   .handler(async ({ data }) => {
-    const prisma = getPrisma();
-    const member = await prisma.member.findUnique({
-      where: { id: data.memberId },
-      select: { organizationId: true },
-    });
-    if (!member) throw new Error("Member not found");
-    await assertOrgPermission(member.organizationId, "settings:members");
+    const orgId = data.orgId ?? (await getPrisma().member.findUnique({
+      where: { id: data.memberId }, select: { organizationId: true },
+    }))?.organizationId;
+    if (!orgId) throw new Error("Member not found");
+    await assertOrgPermission(orgId, "settings:members");
 
     const auth = getAuth();
-    const headers = getRequestHeaders();
-    return await auth.api.updateMemberRole({
+    const headers = teamRequestHeaders(data);
+    const result = await auth.api.updateMemberRole({
       headers,
-      body: { memberId: data.memberId, role: data.role, organizationId: member.organizationId },
+      body: { memberId: data.memberId, role: data.role, organizationId: orgId },
     });
+    assertTeamCommandSuccess(result);
+    return result;
   });
 
 export const removeMember = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
-      z.object({ memberIdOrEmail: z.string().min(1).max(254), orgId: idSchema }),
+      z.object({ memberIdOrEmail: z.string().min(1).max(254), orgId: idSchema, ...teamRetryFields }),
       data,
     ),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "settings:members");
     const auth = getAuth();
-    const headers = getRequestHeaders();
-    return await auth.api.removeMember({
+    const headers = teamRequestHeaders(data);
+    const result = await auth.api.removeMember({
       headers,
       body: {
         memberIdOrEmail: data.memberIdOrEmail,
         organizationId: data.orgId,
       },
     });
+    assertTeamCommandSuccess(result);
+    return result;
   });
 
 // ─── Invitations ─────────────────────────────────────────
@@ -312,7 +330,7 @@ export const inviteMember = createServerFn({ method: "POST" })
   });
 
 export const getOrgInvitations = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "settings:members");
     const prisma = getPrisma();
@@ -323,7 +341,7 @@ export const getOrgInvitations = createServerFn({ method: "GET" })
   });
 
 export const cancelInvitation = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ invitationId: idSchema }), data))
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ invitationId: idSchema, requestId: z.uuid().optional() }), data))
   .handler(async ({ data }) => {
     const prisma = getPrisma();
     const invitation = await prisma.invitation.findUnique({
@@ -334,11 +352,13 @@ export const cancelInvitation = createServerFn({ method: "POST" })
     await assertOrgPermission(invitation.organizationId, "settings:members");
 
     const auth = getAuth();
-    const headers = getRequestHeaders();
-    return await auth.api.cancelInvitation({
+    const headers = teamRequestHeaders(data);
+    const result = await auth.api.cancelInvitation({
       headers,
       body: { invitationId: data.invitationId },
     });
+    assertTeamCommandSuccess(result);
+    return result;
   });
 
 export const getUserInvitations = createServerFn({ method: "GET" }).handler(

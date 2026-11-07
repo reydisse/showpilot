@@ -1,3 +1,4 @@
+import { assertTeamCommandSuccess, TeamCommandError } from "./team-command.server";
 import { workspaceCommandSchema } from "./workspace/profile-contract";
 import { z } from "zod";
 import { CREDENTIAL_MASK, isCredentialField } from "./credential-fields";
@@ -316,6 +317,7 @@ interface MobileCheckInMemberRow {
 }
 
 interface MobileOrganizationMemberRow {
+  managementRevision: number;
   id: string;
   userId: string;
   organizationId: string;
@@ -4616,7 +4618,7 @@ async function teamMembers(
   const [membersResult, invitationsResult] = await Promise.all([
     db
       .prepare(
-        `SELECT m.id, m.userId, m.organizationId, m.role, m.createdAt,
+        `SELECT m.id, m.userId, m.organizationId, m.role, m.managementRevision, m.createdAt,
               u.name AS userName, u.email AS userEmail, u.image AS userImage
        FROM member m
        JOIN user u ON u.id = m.userId
@@ -4643,6 +4645,7 @@ async function teamMembers(
       userId: member.userId,
       organizationId: member.organizationId,
       role: member.role,
+      managementRevision: member.managementRevision,
       createdAt: member.createdAt,
       user: {
         id: member.userId,
@@ -4656,7 +4659,9 @@ async function teamMembers(
 }
 
 function membershipMutationStatus(error: unknown): number {
-  if (error instanceof PlanLimitError) return error.status;
+  if (error instanceof PlanLimitError || error instanceof TeamCommandError) return error.status;
+  if (error instanceof Error && "statusCode" in error && typeof error.statusCode === "number"
+      && [400, 401, 403, 404, 409, 500].includes(error.statusCode)) return error.statusCode;
   const message = error instanceof Error ? error.message : "";
   const normalized = message.toLowerCase();
   if (
@@ -4741,16 +4746,17 @@ async function cancelTeamInvitation(
   if (access instanceof Response) return access;
   const invitation = await db
     .prepare(
-      "SELECT id FROM invitation WHERE id = ? AND organizationId = ? AND status = 'pending' LIMIT 1",
+      "SELECT id FROM invitation WHERE id = ? AND organizationId = ? LIMIT 1",
     )
     .bind(invitationId, access.orgId)
     .first<{ id: string }>();
   if (!invitation) return json({ error: "Invitation not found." }, 404);
   try {
-    await getAuth().api.cancelInvitation({
+    const result = await getAuth().api.cancelInvitation({
       headers: request.headers,
       body: { invitationId: invitation.id },
     });
+    assertTeamCommandSuccess(result);
     return json({ ok: true });
   } catch (error) {
     return json(
@@ -4792,6 +4798,7 @@ async function updateTeamMemberRole(
         organizationId: access.orgId,
       },
     });
+    assertTeamCommandSuccess(result);
     return json({ member: result });
   } catch (error) {
     return json(
@@ -4814,18 +4821,14 @@ async function removeTeamMember(
 ): Promise<Response> {
   const access = await authorize(request, url, db, ["settings:members"]);
   if (access instanceof Response) return access;
-  const member = await db
-    .prepare(
-      "SELECT id FROM member WHERE id = ? AND organizationId = ? LIMIT 1",
-    )
-    .bind(memberId, access.orgId)
-    .first<{ id: string }>();
-  if (!member) return json({ error: "Member not found." }, 404);
+  // The authenticated organization endpoint scopes the target and can replay a
+  // committed removal even when the membership no longer exists.
   try {
-    await getAuth().api.removeMember({
+    const result = await getAuth().api.removeMember({
       headers: request.headers,
-      body: { memberIdOrEmail: member.id, organizationId: access.orgId },
+      body: { memberIdOrEmail: memberId, organizationId: access.orgId },
     });
+    assertTeamCommandSuccess(result);
     return json({ ok: true });
   } catch (error) {
     return json(
