@@ -570,9 +570,51 @@ screenshots were inspected. Full coverage checks passed 1,970 unit tests, 729
 Worker tests and four gate tests; web typecheck and production build passed.
 
 This fixes the false verification claim and its recovery flow. Signup
-interstitials, password-reset flow, setup recovery and the other compound auth
-requirements still need their own completion audit. No deployment, schema
+interstitials, setup recovery and the other compound auth requirements remain
+open; password-reset verification is documented below. No deployment, schema
 change or native release was performed.
+
+### Password reset link validation and recovery
+
+Reset pages check the token before showing password fields. The anonymous POST
+returns only validity and uses the same Better Auth verification adapter and
+expiry rule as the installed reset callback. It does not consume a valid token;
+Better Auth still validates and consumes it when changing the password. Link
+checks use the existing fail-closed D1 auth limiter, ten per IP per minute.
+Missing, expired and used links offer a new reset request. Signed-in users can
+reach both reset and forgot-password pages without an organization redirect.
+
+Link checks and reset submissions have eight-second deadlines and abort cleanup.
+Read failures offer Retry. Confirmed success stays visible with Sign in now.
+A lost or failed write acknowledgement shows Reset not confirmed and offers
+sign-in with the new password or a new reset link; it never automatically sends
+the one-use token again. Definite password-policy and rate-limit errors retain
+the form for correction or explicit Retry. Token changes discard the old form
+and cancel pending requests. Passwords are not persisted in browser storage.
+
+After building, run:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-password-reset.mjs
+```
+
+The fixture seeds disposable reset rows with the same ISO date storage used by
+Prisma, keeps rate limiting enabled, and uses separate browser and HTTP probe
+clients. Expected negative auth responses are tested through the compiled
+Worker's HTTP request context. The Worker test host reports handled Better Auth
+HTTP errors as unhandled rejections; it covers adapter/preflight behavior and
+successful password changes, while the browser rehearsal covers expired/used
+token rejection and wrong-password responses through the real HTTP entry.
+
+Verification passed 1,982 unit tests, 733 Worker tests, four coverage-gate tests,
+web typecheck and the production build. The compiled browser rehearsal passed
+actual sign-in with the new password, missing/expired/used token rejection,
+check timeout and Retry, signed-in reset/recovery, a committed save with its
+acknowledgement withheld, late-response rejection, and final D1 password/token
+inspection. No browser errors occurred. Controls passed at 320/768/1440px; the
+phone form, check-error, success and unconfirmed-result screenshots were inspected.
+
+No deployment, migration, email delivery or native release is part of this change.
 
 ### Timecode label validation
 
