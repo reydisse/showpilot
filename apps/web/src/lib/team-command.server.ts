@@ -66,7 +66,7 @@ const roles = (role: string) =>
 const permissionsSchema = z.record(z.string(), z.array(z.string()));
 // This stable SQL expression is also the commit guard for dynamic-role edits.
 const policySql = `(SELECT COALESCE(json_group_array(json_object('id',id,'role',role,'permission',permission)),'[]') FROM (SELECT id,role,permission FROM organizationRole WHERE organizationId=? ORDER BY id))`;
-async function authority(db: Database, actor: Actor, command: Command) {
+export async function readTeamAuthority(db: Database, actor: Actor, command: { orgId: string; kind: Command["kind"] | "invite" }) {
   const member = await db
     .prepare(
       `SELECT m.* FROM member m JOIN session s ON s.userId=m.userId
@@ -100,9 +100,9 @@ async function authority(db: Database, actor: Actor, command: Command) {
   }));
   const actorRoles = roles(member.role),
     owner = actorRoles.includes("owner");
-  const resource = command.kind === "cancel" ? "invitation" : "member";
+  const resource = (command.kind === "cancel" || command.kind === "invite") ? "invitation" : "member";
   const action =
-    command.kind === "cancel"
+    command.kind === "invite" ? "create" : command.kind === "cancel"
       ? "cancel"
       : command.kind === "remove"
         ? "delete"
@@ -152,7 +152,7 @@ export async function executeTeamCommand(
   actor: Actor,
   command: Command,
 ): Promise<TeamCommandResult> {
-  const access = await authority(db, actor, command);
+  const access = await readTeamAuthority(db, actor, command);
   const requestId = command.requestId ?? crypto.randomUUID();
   if (!z.uuid().safeParse(requestId).success)
     throw new TeamCommandError(400, "Use a valid team change request ID.");
@@ -212,21 +212,7 @@ export async function executeTeamCommand(
   };
   const saved = await find();
   if (saved) return saved;
-  const guard: string[] = [
-    `EXISTS(SELECT 1 FROM member m JOIN session s ON s.userId=m.userId WHERE m.organizationId=? AND m.id=? AND m.userId=? AND m.role=? AND m.managementRevision=? AND s.id=?
-    AND (CASE WHEN typeof(s.expiresAt) IN ('integer','real') THEN s.expiresAt ELSE (julianday(s.expiresAt)-2440587.5)*86400000 END)>(julianday('now')-2440587.5)*86400000)`,
-    `${policySql}=?`,
-  ];
-  const params: (string | number)[] = [
-    command.orgId,
-    access.member.id,
-    actor.userId,
-    access.member.role,
-    access.member.managementRevision,
-    actor.sessionId,
-    command.orgId,
-    access.policy,
-  ];
+  const { guard, params } = teamAuthorityGuard(actor, command.orgId, access);
   const mutations: D1PreparedStatement[] = [];
   let result: TeamCommandResult;
   if (canonical.kind === "role" || canonical.kind === "remove") {
@@ -470,4 +456,23 @@ export function assertTeamCommandSuccess(result: unknown): void {
     .safeParse(result);
   if (failure.success)
     throw new TeamCommandError(failure.data.status, failure.data.message);
+}
+
+export function teamAuthorityGuard(actor: Actor, orgId: string, access: Awaited<ReturnType<typeof readTeamAuthority>>) {
+  const guard: string[] = [
+    `EXISTS(SELECT 1 FROM member m JOIN session s ON s.userId=m.userId WHERE m.organizationId=? AND m.id=? AND m.userId=? AND m.role=? AND m.managementRevision=? AND s.id=?
+    AND (CASE WHEN typeof(s.expiresAt) IN ('integer','real') THEN s.expiresAt ELSE (julianday(s.expiresAt)-2440587.5)*86400000 END)>(julianday('now')-2440587.5)*86400000)`,
+    `${policySql}=?`,
+  ];
+  const params: (string | number | null)[] = [
+    orgId,
+    access.member.id,
+    actor.userId,
+    access.member.role,
+    access.member.managementRevision,
+    actor.sessionId,
+    orgId,
+    access.policy,
+  ];
+  return { guard, params };
 }

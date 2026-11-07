@@ -1,3 +1,5 @@
+import { teamInvitationSchema, retryInvitationDeliverySchema } from "./team-invitation-contract";
+import { listTeamInvitations } from "./team-invitation.server";
 import { assertTeamCommandSuccess, TeamCommandError } from "./team-command.server";
 import { workspaceCommandSchema } from "./workspace/profile-contract";
 import { z } from "zod";
@@ -326,15 +328,6 @@ interface MobileOrganizationMemberRow {
   userName: string;
   userEmail: string;
   userImage: string | null;
-}
-
-interface MobileOrganizationInvitationRow {
-  id: string;
-  email: string;
-  role: string | null;
-  status: string;
-  expiresAt: string;
-  createdAt: string;
 }
 
 interface MobileChatMemberRow {
@@ -4627,15 +4620,7 @@ async function teamMembers(
       )
       .bind(access.orgId)
       .all<MobileOrganizationMemberRow>(),
-    db
-      .prepare(
-        `SELECT id, email, role, status, expiresAt, createdAt
-       FROM invitation
-       WHERE organizationId = ? AND status = 'pending'
-       ORDER BY createdAt DESC, id ASC`,
-      )
-      .bind(access.orgId)
-      .all<MobileOrganizationInvitationRow>(),
+    listTeamInvitations(db, access.orgId),
   ]);
   return json({
     currentUserId: access.identity.userId,
@@ -4654,7 +4639,7 @@ async function teamMembers(
         image: member.userImage,
       },
     })),
-    invitations: invitationsResult.results ?? [],
+    invitations: invitationsResult,
   });
 }
 
@@ -4698,31 +4683,12 @@ async function inviteTeamMember(
     return json({ error: "Enter a valid email address and role." }, 400);
   }
   try {
-    const [memberCount, invitationCount] = await Promise.all([
-      db
-        .prepare(
-          "SELECT CAST(COUNT(*) AS INTEGER) AS count FROM member WHERE organizationId = ?",
-        )
-        .bind(access.orgId)
-        .first<{ count: number }>(),
-      db
-        .prepare(
-          "SELECT CAST(COUNT(*) AS INTEGER) AS count FROM invitation WHERE organizationId = ? AND status = 'pending'",
-        )
-        .bind(access.orgId)
-        .first<{ count: number }>(),
-    ]);
-    const { checkPlanLimit } = await import("./plan-limits");
-    await checkPlanLimit(
-      access.orgId,
-      "members",
-      (memberCount?.count ?? 0) + (invitationCount?.count ?? 0),
-    );
     const invitation = await getAuth().api.createInvitation({
       headers: request.headers,
-      body: { email, role: body.role, organizationId: access.orgId },
+      body: { email, role: body.role, organizationId: access.orgId, resend: body.resend === true },
     });
-    return json({ invitation }, 201);
+    assertTeamCommandSuccess(invitation);
+    return json({ invitation: teamInvitationSchema.parse(invitation) }, 201);
   } catch (error) {
     return json(
       {
@@ -4733,6 +4699,21 @@ async function inviteTeamMember(
       },
       membershipMutationStatus(error),
     );
+  }
+}
+
+async function retryMobileInvitationDelivery(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["settings:members"]);
+  if (access instanceof Response) return access;
+  const body = await readJson(request);
+  const parsed = retryInvitationDeliverySchema.safeParse({ ...body, orgId: access.orgId });
+  if (!parsed.success) return json({ error: "Choose the invitation and email attempt to retry." }, 400);
+  try {
+    const result = await getAuth().api.retryInvitationDelivery({ headers: request.headers, body: parsed.data });
+    assertTeamCommandSuccess(result);
+    return json({ invitation: teamInvitationSchema.parse(result) });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Email retry could not be confirmed." }, membershipMutationStatus(error));
   }
 }
 
@@ -7571,6 +7552,8 @@ export async function handleMobileApi(
     request.method === "POST"
   )
     return inviteTeamMember(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/team/invitations/retry-delivery" && request.method === "POST")
+    return retryMobileInvitationDelivery(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/crew" && request.method === "GET")
     return teamCrew(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/crew" && request.method === "POST")

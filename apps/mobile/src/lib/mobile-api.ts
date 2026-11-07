@@ -1,3 +1,4 @@
+import { invitationDeliverySchema } from "./invitation-recovery";
 import { workspaceSchema, type MobileWorkspace } from "./workspace-schema";
 export { workspaceSchema, type MobileWorkspace } from "./workspace-schema";
 import {
@@ -505,10 +506,11 @@ const organizationMemberSchema = z.object({
 });
 
 const organizationInvitationSchema = z.object({
+  delivery: invitationDeliverySchema,
   id: z.string(),
   email: z.string(),
   role: z.string().nullable(),
-  status: z.string(),
+  status: z.enum(["pending", "accepted", "rejected", "canceled"]),
   expiresAt: z.string(),
   createdAt: z.string(),
 });
@@ -1912,28 +1914,44 @@ export async function revokeMobileTeamAccess(input: {
   return okSchema.parse(await response.json());
 }
 
-export async function getMobileTeamMembers(
-  orgId: string,
-): Promise<MobileTeamMembers> {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/team/members?orgId=${encodeURIComponent(orgId)}`,
-  );
-  return teamMembersSchema.parse(await response.json());
+async function withTeamRequestDeadline<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([work(controller.signal), new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { controller.abort(); reject(new Error("The team request timed out. Retry to confirm its result.")); }, 10_000);
+    })]);
+  } finally { clearTimeout(timer); controller.abort(); }
+}
+export async function getMobileTeamMembers(orgId: string): Promise<MobileTeamMembers> {
+  return withTeamRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/team/members?orgId=${encodeURIComponent(orgId)}`, { signal });
+    return teamMembersSchema.parse(await response.json());
+  });
 }
 
 export async function inviteMobileTeamMember(input: {
-  orgId: string;
-  email: string;
-  role: string;
+  orgId: string; email: string; role: string; requestId: string;
+  resend?: { invitationId: string; previousDeliveryId: string | null };
 }) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/team/invitations?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify({ email: input.email, role: input.role }),
-    },
-  );
-  return inviteTeamMemberResponseSchema.parse(await response.json()).invitation;
+  return withTeamRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/team/invitations?orgId=${encodeURIComponent(input.orgId)}`, {
+      method: "POST", signal,
+      headers: { "Idempotency-Key": input.requestId, ...(input.resend ? {
+        "X-ShowPilot-Invitation": input.resend.invitationId, "X-ShowPilot-Previous-Delivery": input.resend.previousDeliveryId ?? "none",
+      } : {}) },
+      body: JSON.stringify({ email: input.email, role: input.role, resend: !!input.resend }),
+    });
+    return inviteTeamMemberResponseSchema.parse(await response.json()).invitation;
+  });
+}
+export async function retryMobileTeamInvitation(input: { orgId: string; invitationId: string; deliveryId: string }) {
+  return withTeamRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/team/invitations/retry-delivery?orgId=${encodeURIComponent(input.orgId)}`, {
+      method: "POST", signal, body: JSON.stringify({ invitationId: input.invitationId, deliveryId: input.deliveryId }),
+    });
+    return inviteTeamMemberResponseSchema.parse(await response.json()).invitation;
+  });
 }
 
 export async function cancelMobileTeamInvitation(input: {

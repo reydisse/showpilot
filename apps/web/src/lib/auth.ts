@@ -1,3 +1,5 @@
+import { retryInvitationDeliverySchema } from "./team-invitation-contract";
+import { createTeamInvitation, deliverTeamInvitation } from "./team-invitation.server";
 import { executeTeamCommand, teamCommandHeaders, teamCommandFailure, TeamCommandError } from "./team-command.server";
 import { betterAuth } from "better-auth";
 import { createAuthEndpoint, getAuthoritativeSessionFromCtx } from "better-auth/api";
@@ -20,10 +22,8 @@ import { PASSWORD_MIN_LENGTH } from "@showpilot/shared";
 import {
   sendEmail,
   passwordResetEmail,
-  invitationEmail,
   verificationEmail,
 } from "@/lib/email";
-import { sendInvitationWithSetupReceipt } from "./setup-invitation-delivery.server";
 import { beforeDeleteAccount } from "@/lib/account-deletion.server";
 import { env } from "cloudflare:workers";
 import { refreshOrgReadAuthority, refreshUserReadAuthority } from "./relay-read-invalidation.server";
@@ -66,25 +66,8 @@ const orgConfig = {
     afterRemoveMember: refreshMemberAuthority,
     afterUpdateMemberRole: refreshMemberAuthority,
   },
-  sendInvitationEmail: async (data: {
-    id: string;
-    email: string;
-    organization: { id: string; name: string };
-    inviter: { user: { name: string } };
-  }) => {
-    const inviteUrl = new URL(
-      `/invite/${encodeURIComponent(data.id)}`,
-      requireShowPilotBaseUrl(env.BETTER_AUTH_URL),
-    ).href;
-    const { subject, html } = invitationEmail(
-      data.organization.name,
-      data.inviter.user.name,
-      inviteUrl,
-    );
-    await sendInvitationWithSetupReceipt({ orgId: data.organization.id, email: data.email, invitationId: data.id,
-      send: signal => sendEmail({ to: data.email, subject, html, signal }),
-    });
-  },
+  // Invitation creation/delivery is owned by the atomic endpoint below.
+
 };
 
 const emailPasswordConfig = {
@@ -130,6 +113,36 @@ function showPilotOrganization() {
     ...plugin,
     endpoints: {
       ...plugin.endpoints,
+      createInvitation: createAuthEndpoint(plugin.endpoints.createInvitation.path, plugin.endpoints.createInvitation.options, async ctx => {
+        ctx.setHeader("Cache-Control", "private, no-store");
+        try {
+          const session = await getAuthoritativeSessionFromCtx(ctx);
+          if (!session) throw new TeamCommandError(401, "Sign in before inviting a member.");
+          const orgId = ctx.body.organizationId || session.session.activeOrganizationId;
+          if (!orgId) throw new TeamCommandError(400, "Choose the organization whose team you want to manage.");
+          const target = ctx.headers?.get("X-ShowPilot-Invitation");
+          const previous = ctx.headers?.get("X-ShowPilot-Previous-Delivery");
+          if (target && !idSchema.safeParse(target).success) throw new TeamCommandError(400, "Choose a valid invitation.");
+          if (previous && previous !== "none" && !z.uuid().safeParse(previous).success) throw new TeamCommandError(400, "Choose a valid email attempt.");
+          if ((target || previous) && !ctx.body.resend) throw new TeamCommandError(400, "Review the existing invitation before sending again.");
+          const result = await createTeamInvitation(getD1(), { userId: session.user.id, sessionId: session.session.id }, {
+            orgId, email: ctx.body.email, role: ctx.body.role, resend: ctx.body.resend,
+            requestId: teamCommandHeaders(ctx.headers).requestId,
+            invitationId: target ?? undefined, previousDeliveryId: previous === "none" ? null : previous ?? undefined,
+          }, requireShowPilotBaseUrl(env.BETTER_AUTH_URL));
+          return ctx.json(result);
+        } catch (error) { const failure = teamCommandFailure(error); ctx.setStatus(failure.status); return ctx.json(failure); }
+      }),
+      retryInvitationDelivery: createAuthEndpoint("/organization/retry-invitation-delivery", {
+        method: "POST", body: retryInvitationDeliverySchema,
+      }, async ctx => {
+        ctx.setHeader("Cache-Control", "private, no-store");
+        try {
+          const session = await getAuthoritativeSessionFromCtx(ctx);
+          if (!session) throw new TeamCommandError(401, "Sign in before retrying this email.");
+          return ctx.json(await deliverTeamInvitation(getD1(), { userId: session.user.id, sessionId: session.session.id }, ctx.body.orgId, ctx.body.invitationId, ctx.body.deliveryId));
+        } catch (error) { const failure = teamCommandFailure(error); ctx.setStatus(failure.status); return ctx.json(failure); }
+      }),
       updateMemberRole: createAuthEndpoint(plugin.endpoints.updateMemberRole.path, plugin.endpoints.updateMemberRole.options, async ctx => {
         ctx.setHeader("Cache-Control", "private, no-store");
         try {

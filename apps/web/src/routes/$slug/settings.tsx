@@ -1,3 +1,4 @@
+import { SettingsTeamInvitations } from "@/components/admin/SettingsTeamInvitations";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { useSettingsReturnTo } from "@/components/layout/AppShell";
@@ -64,14 +65,12 @@ import {
   type WebhookEventLogItem,
 } from "@/lib/settings";
 import { getRundownPinRequirement } from "@/lib/rbac";
-import { inviteMember } from "@/lib/session";
 import {
   getOrgBilling,
   createCheckoutSession,
   createPortalSession,
   type OrgBillingInfo,
 } from "@/lib/billing";
-import { UpgradePrompt, isPlanLimitError } from "@/components/ui/upgrade-prompt";
 import { getStripePublishableKey, resolveCheckoutUiMode } from "@/lib/checkout";
 import { clearChatHistory } from "@/lib/chat";
 import { testChatConnection } from "@/lib/chat-proxy";
@@ -81,7 +80,7 @@ import { deleteOrganization } from "@/lib/org-deletion";
 import { resetLowerThirdLibrary } from "@/lib/lowerthirds";
 import { exportShowReport } from "@/lib/report";
 import { hasAnyPermission, hasPermission, isAdminTier } from "@/lib/app-permissions";
-import { ASSIGNABLE_ROLES, ROLE_META } from "@/lib/permissions";
+import { ROLE_META } from "@/lib/permissions";
 import {
   Select,
   SelectContent,
@@ -213,6 +212,7 @@ function OrganizationSettingsPage({
   const { settings, members, billing, orgId, slug, org, role, rundownPinEnabled } = loaderData;
   const [confidenceLayoutValue, setConfidenceLayoutValue] = useState<string | undefined>(settings[CONFIDENCE_LAYOUT_KEY]);
   const [confidenceDirty, setConfidenceDirty] = useState(false);
+  const [invitationDirty, setInvitationDirty] = useState(false);
   const { section } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
@@ -230,8 +230,8 @@ function OrganizationSettingsPage({
   });
 
   const blocker = useBlocker({
-    shouldBlockFn: ({ current, next }) => confidenceDirty || (hasUnsavedChanges && current.pathname !== next.pathname),
-    enableBeforeUnload: hasUnsavedChanges || confidenceDirty, withResolver: true,
+    shouldBlockFn: ({ current, next }) => invitationDirty || confidenceDirty || (hasUnsavedChanges && current.pathname !== next.pathname),
+    enableBeforeUnload: hasUnsavedChanges || confidenceDirty || invitationDirty, withResolver: true,
   });
 
   const saveCredential = useCallback(async (key: string, change: CredentialChange) => {
@@ -379,7 +379,7 @@ function OrganizationSettingsPage({
             {resolvedSection === "organization" && (
             <OrganizationSection {...sectionProps} />
           )}
-            {resolvedSection === "team" && <TeamSection {...sectionProps} />}
+            {resolvedSection === "team" && <TeamSection {...sectionProps} onInvitationDirty={setInvitationDirty} />}
             {resolvedSection === "people" && (
             <CsvImportSection orgId={orgId} openBilling={openBilling} />
           )}
@@ -890,29 +890,7 @@ const ROLE_COLORS: Record<string, string> = {
   member: "bg-blue-500/15 text-blue-400 border-blue-500/25",
 };
 
-function TeamSection({ members, orgId, openBilling }: SectionProps) {
-  const router = useRouter();
-  const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("member");
-  const [inviting, setInviting] = useState(false);
-  const [inviteError, setInviteError] = useState<string | null>(null);
-
-  const handleInvite = async () => {
-    if (!inviteEmail.trim()) return;
-    setInviting(true);
-    setInviteError(null);
-    try {
-      await inviteMember({ data: { email: inviteEmail.trim(), role: inviteRole, orgId } });
-      setInviteEmail("");
-      setInviteRole("member");
-      router.invalidate();
-    } catch (err) {
-      setInviteError(err instanceof Error ? err.message : "Failed to send invite");
-    } finally {
-      setInviting(false);
-    }
-  };
-
+function TeamSection({ members, orgId, onInvitationDirty }: SectionProps & { onInvitationDirty: (dirty: boolean) => void }) {
   return (
     <div>
       <SectionHeader
@@ -920,59 +898,7 @@ function TeamSection({ members, orgId, openBilling }: SectionProps) {
         description="Manage your organization members and roles"
       />
 
-      {/* Invite form */}
-      <div className="rounded-xl border border-board-border bg-board-card p-4 mb-5">
-        <p className="text-xs font-medium text-board-muted mb-3 flex items-center gap-1.5">
-          <UserPlus className="w-3.5 h-3.5" />
-          Invite a new member
-        </p>
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(10rem,auto)_auto]">
-            <input
-            type="email"
-            value={inviteEmail}
-            onChange={(e) => setInviteEmail(e.target.value)}
-            placeholder="email@example.com"
-            className="min-w-0 w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
-          />
-          <select
-            value={inviteRole}
-            onChange={(e) => setInviteRole(e.target.value)}
-            className="min-w-0 w-full px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text text-sm appearance-none focus:outline-none focus:border-fire-500"
-          >
-            {ASSIGNABLE_ROLES.map((r) => {
-              const roleMeta = ROLE_META[r];
-              return (
-                <option key={r} value={r}>
-                  {roleMeta?.label ?? r}
-                </option>
-              );
-            })}
-          </select>
-            <button
-              type="button"
-              onClick={handleInvite}
-              disabled={inviting || !inviteEmail.trim()}
-              className="w-full px-4 py-2.5 rounded-xl bg-fire-500 text-white text-sm font-medium hover:bg-fire-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed sm:w-auto"
-            >
-            {inviting ? "Inviting..." : "Invite"}
-            </button>
-          </div>
-          {inviteError && !isPlanLimitError(inviteError) && (
-            <p className="mt-2 text-xs text-red-400">{inviteError}</p>
-          )}
-        </div>
-
-      <UpgradePrompt
-        open={isPlanLimitError(inviteError)}
-        onOpenChange={(open) => {
-          if (!open) setInviteError(null);
-        }}
-        message={inviteError ?? ""}
-        onUpgrade={() => {
-          setInviteError(null);
-          openBilling();
-        }}
-      />
+      <SettingsTeamInvitations orgId={orgId} onDirtyChange={onInvitationDirty} />
 
       {/* Members list */}
       <div className="space-y-2">

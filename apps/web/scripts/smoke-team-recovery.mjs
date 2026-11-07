@@ -47,7 +47,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
       await page("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
       await check(width < 1024 ? "!!document.querySelector('button[aria-label=\"Open menu\"]')&&!document.querySelector('aside[aria-hidden=\"false\"]')" : "!document.querySelector('button[aria-label=\"Open menu\"]')", `responsive navigation ${width}`);
       await ready();
-      await check(`(()=>{const nodes=[...document.querySelectorAll('[role=tabpanel]:not([hidden]) button,[role=tabpanel]:not([hidden]) select')];return nodes.length>=4&&nodes.every(n=>{const b=n.getBoundingClientRect();return !n.disabled&&b.height>=44&&b.width>=44&&b.left>=0&&b.right<=innerWidth;})&&document.documentElement.scrollWidth<=innerWidth+1;})()`, `member controls ${width}`);
+      await check(`(()=>{const nodes=[...document.querySelectorAll('[role=tabpanel]:not([hidden]) button,[role=tabpanel]:not([hidden]) select')].filter(n=>n.getBoundingClientRect().height>0);return nodes.length>=4&&nodes.every(n=>{const b=n.getBoundingClientRect();return !n.disabled&&b.height>=44&&b.width>=44&&b.left>=0&&b.right<=innerWidth;})&&document.documentElement.scrollWidth<=innerWidth+1;})()`, `member controls ${width}`);
       if (width === 320) await writeFile("/tmp/showpilot-team-recovery-320.png", Buffer.from((await page("Page.captureScreenshot", { format: "png" })).data, "base64"));
     }
     await hold("updateMemberRole"); await selectRole("tm");

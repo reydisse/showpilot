@@ -254,7 +254,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
         "--command", "DELETE FROM member WHERE organizationId='display-other' AND userId='smoke-operator'");
     };
     const configureEmail = async mode => {
-      assert.ok(captureEmail && ["success", "fail"].includes(mode));
+      assert.ok(captureEmail && ["success", "fail", "lose-reply"].includes(mode));
       await writeFile(join(directory, "email-mode"), mode);
     };
     const configureStreamOutputs = async mode => {
