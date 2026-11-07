@@ -146,3 +146,20 @@ it('defers an invalidated read while hidden and cleans up its pending state', as
   await changeVisibility('visible');
   expect(read).toHaveBeenCalledTimes(2);
 });
+
+it("lets relay refreshes await the same in-flight snapshot and report confirmation honestly",async()=>{
+  let finish:(value:number)=>void=()=>{};
+  const read=vi.fn(()=>new Promise<number>(resolve=>{finish=resolve;}));
+  const {result}=renderHook(()=>useOperatorRead({key:"incident",initialValue:0,read,errorMessage}));await tick();
+  const first=result.current.refresh(),second=result.current.refresh();expect(first).toBe(second);expect(read).toHaveBeenCalledOnce();
+  let confirmed=false;void first.then(value=>{confirmed=value;});expect(confirmed).toBe(false);
+  await act(async()=>finish(2));expect(await first).toBe(true);expect(result.current.value).toBe(2);
+});
+it("resolves waiting refreshes as unconfirmed on timeout, invalidation and unmount",async()=>{
+  const read=vi.fn(()=>new Promise<number>(()=>{}));
+  const {result,unmount}=renderHook(()=>useOperatorRead({key:"incident",initialValue:0,read,errorMessage}));await tick();
+  const timedOut=result.current.refresh();await tick(8000);expect(await timedOut).toBe(false);
+  let old:Promise<boolean>=Promise.resolve(true);act(()=>{old=result.current.refresh();});await tick();
+  act(()=>result.current.invalidate());expect(await old).toBe(false);await tick();
+  const pending=result.current.refresh();unmount();expect(await pending).toBe(false);expect(vi.getTimerCount()).toBe(0);
+});
