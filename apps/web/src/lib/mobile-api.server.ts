@@ -6688,9 +6688,14 @@ async function writeMobileDestination(
   const access = await authorize(request, url, db, ["stream_health:manage"]);
   if (access instanceof Response) return access;
   const body = await readJson(request);
+  const requestId = body?.requestId;
+  if (requestId !== undefined && (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(requestId))) {
+    return json({ error: "The destination request ID is invalid." }, 400);
+  }
+
   if (body?.action === "remove" && destinationId) {
     try {
-      await deleteStreamDestinationForOrg(access.orgId, destinationId);
+      await deleteStreamDestinationForOrg(access.orgId, destinationId, { actorId: access.identity.userId, requestId });
       return json({ ok: true });
     } catch (error) {
       const message =
@@ -6708,6 +6713,7 @@ async function writeMobileDestination(
         access.orgId,
         destinationId,
         body.enabled,
+        { actorId: access.identity.userId, requestId },
       );
       return json({ ok: true });
     } catch (error) {
@@ -6734,10 +6740,6 @@ async function writeMobileDestination(
       { error: "A name, platform, and valid RTMP URL are required." },
       400,
     );
-  }
-  const requestId = body?.requestId;
-  if (requestId !== undefined && (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{16,128}$/.test(requestId))) {
-    return json({ error: "The destination request ID is invalid." }, 400);
   }
   try {
     const fields = { name, platform, rtmpUrl, ...(streamKey === undefined ? {} : { streamKey }) };

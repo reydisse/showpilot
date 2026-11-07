@@ -91,6 +91,14 @@ export function useConfirmedWrite(scope: string) {
   return {
     state,
     start,
+    // Only use after an explicit superseding action whose server command fences
+    // the old request. Aborting the browser transport alone does not cancel it.
+    replace: <T,>(change: ConfirmedChange<T>): Promise<boolean> => {
+      const previous = command.current;
+      command.current = null;
+      previous?.controller?.abort();
+      return start(change);
+    },
     retry: () => command.current?.owner === owner ? command.current.run() : Promise.resolve(false),
     // Call only after the user explicitly abandons the unconfirmed request.
     discard: () => {

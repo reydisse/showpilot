@@ -247,7 +247,7 @@ export function buildCompanionDeps(pinned?: { orgId: string; target: RundownTarg
       return { status: 200, results };
     },
     async streamStop(orgId) {
-      await disconnectAllForOrg(orgId);
+      return disconnectAllForOrg(orgId);
     },
     streamStatus: getStreamStatusForOrg,
   };
