@@ -1,6 +1,6 @@
 import { readDeviceSettingsForUse } from "./device-settings.server";
 import { resolveRemoteDeviceControl } from "./mobile-device-controls";
-import type { BridgeDeviceProtocol } from "./device-modules/types";
+import type { BridgeDeviceProtocol, ModuleAction } from "./device-modules/types";
 import type { AutomationEvent } from "@/types/timecode";
 import { automationDeviceId } from "./automation-timing";
 
@@ -55,6 +55,7 @@ export async function resolveTimecodeDeviceAction(
   orgId: string,
   event: Pick<AutomationEvent, "action" | "payload" | "targetDeviceId" | "targetActionId">,
   encryptionKeys?: string,
+  discoverHomeAssistant?: (device: Omit<ResolvedTimecodeDeviceAction, "command">) => Promise<ModuleAction[]>,
 ): Promise<ResolvedTimecodeDeviceAction> {
   const deviceId = automationDeviceId(event);
   let device: TimecodeDeviceRow | null;
@@ -84,7 +85,13 @@ export async function resolveTimecodeDeviceAction(
   );
   const actionId = event.action === "lighting-blackout" ? "blackout" : requestedActionId || (event.action === "lighting-scene" ? "recall_scene" : "");
   if (!actionId) throw new Error("Choose a device action for this automation event.");
-  if (!remote.actions.some((action) => action.id === actionId)) {
+  const connection = { deviceId: device.id, deviceName: device.name, protocol: remote.definition.protocol,
+    target: remote.target, connectionSettings: remote.connectionSettings };
+  if (device.adapterType === "homeassistant" && !discoverHomeAssistant) {
+    throw new Error("Home Assistant actions require discovery through the venue Bridge.");
+  }
+  const actions = device.adapterType === "homeassistant" && discoverHomeAssistant ? await discoverHomeAssistant(connection) : remote.actions;
+  if (!actions.some((action) => action.id === actionId)) {
     throw new Error(`Action “${actionId}” is not available on device “${device.name}”.`);
   }
 
@@ -99,11 +106,7 @@ export async function resolveTimecodeDeviceAction(
       ].includes(key)));
 
   return {
-    deviceId: device.id,
-    deviceName: device.name,
-    protocol: remote.definition.protocol,
-    target: remote.target,
-    connectionSettings: remote.connectionSettings,
+    ...connection,
     command: remote.definition.buildCommand(actionId, params, settings),
   };
 }
