@@ -3286,3 +3286,64 @@ remaining product-wide dialog, mutation, keyboard or responsive requirements.
 
 Full web validation passed 2,176 unit tests and 843 Worker tests, along with
 typecheck and the production build. No deployment or native release was run.
+
+
+## Audio patch recovery and narrow layouts (2026-11-07)
+
+Apply `apps/web/prisma/migrations/0058_audio_write_receipts.sql` before the matching
+web build. The new receipt table is scoped to organization, actor and request;
+receipts remain after channel deletion. It was applied only to disposable local
+and Worker-test databases. The production migration manifest is unchanged.
+
+The previous Audio UI stayed on Saving after a lost successful reply and deleted
+channels without confirmation. Its mute/edit/delete calls had no failure state,
+and selected-show reads had no deadline. The baseline Chrome rehearsal reproduced
+the stuck save and unconfirmed deletion against the built app.
+
+Creation, edits, stored mute and deletion now retain an exact request for Retry.
+Each command and its receipt commit in one D1 batch. Racing retries recover the
+winning receipt; a changed payload is rejected. Replays cannot duplicate a channel,
+overwrite a later edit or recreate a removed channel. Permissions are checked
+before receipt lookup, and every write remains organization scoped. Independent
+first-time edits retain the existing last-writer behavior.
+
+The shared `useConfirmedWrite` hook is the former `useSongWrite`, with every
+caller and its six lifecycle tests migrated together. Writes and post-save reads
+have separate deadlines. After acknowledgement, Retry refresh does not repeat the
+mutation. A failed channel form can close/reopen with its draft and pending
+request intact. Explicit stored-state review refreshes the patch before unlocking
+that draft. Leaving the patch warns before discarding unconfirmed retry state;
+this state is not persisted across a full page reload.
+
+Audio reads use `useOperatorRead`: eight-second deadlines, error/Retry, retained
+confirmed data and cancellation on show changes. Missing data does not render an
+empty state until a read succeeds. The channel editor uses the shared Dialog with
+explicit modal semantics, focus trapping, Escape, labelled fields, scrolling
+content and fixed header/footer controls. Deletion uses `useConfirmDialog` and
+states that it affects this show's stored patch, not the physical mixer.
+
+Grouped channel cards replace the wide table below xl. The desktop table and
+cards use native keyboard buttons to select the inspector; search remains visible,
+no-match searches are explained and operational controls have 44px targets.
+
+Verification after the web build:
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-audio-write-recovery.mjs`
+
+The rehearsal passed actual Chrome, compiled Worker, authentication and disposable
+D1 with held successful replies across creation, update, stored mute and deletion.
+It checks exact retry bodies, post-save refresh without a repeated write, rejected
+validation with draft preservation, focus trapping/Escape, delete cancellation,
+keyboard selection and 320/768/1440px geometry. A second-show timeout recovers with
+Retry; releasing its late reply cannot overwrite the restored first show. Final
+D1 has five command receipts and one remaining channel with its multiline notes.
+Phone recovery and populated-card screenshots were inspected.
+
+Eight authenticated Worker regressions cover receipt races, changed requests,
+rollback, deletion replay, revoked membership, show/date/org boundaries and bound
+text. Two Audio component regressions replace the old selected-show source-text
+counter check. Full validation passed 2,178 unit tests, 851 Worker tests, typecheck
+and production build. Existing Song Studio and seven-screen empty-state browser
+rehearsals also passed. No real organization, physical mixer, production migration,
+deployment or native release was changed. Product-wide Phase 2 requirements remain
+in progress; this evidence covers Audio only.
