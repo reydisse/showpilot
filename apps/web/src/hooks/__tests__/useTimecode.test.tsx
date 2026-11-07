@@ -53,6 +53,41 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("timecode connection honesty", () => {
+  it("reclaims a reconnected clock only after explicit start and fresh relay confirmation", () => {
+    const start = vi.spyOn(InternalTimecodeSource.prototype, "startAtFrame");
+    const stop = vi.spyOn(InternalTimecodeSource.prototype, "stop");
+    const { result } = hook();
+    const original = Socket.instances[0];
+    act(() => { hydrate(original); result.current.startFreerun(); });
+    act(() => {
+      original.receive({ type: "master-status", granted: true });
+      original.receive({ type: "tc-update", state: { ...state, running: true } });
+    });
+    expect(result.current.isMaster).toBe(true);
+    start.mockClear(); stop.mockClear();
+    act(() => original.close());
+    expect(stop).toHaveBeenCalledOnce();
+    expect(result.current.isMaster).toBe(false);
+    act(() => vi.advanceTimersByTime(1000));
+    const replacement = Socket.instances[1];
+    act(() => {
+      hydrate(replacement);
+      original.receive({ type: "master-status", granted: true });
+      original.receive({ type: "tc-update", state: { ...state, running: true } });
+    });
+    expect(replacement.sent).toEqual([]);
+    expect(start).not.toHaveBeenCalled();
+    expect(result.current.isMaster).toBe(false);
+    act(() => result.current.startFreerun());
+    expect(replacement.sent.map(message => JSON.parse(message).action)).toEqual(["start"]);
+    expect(start).not.toHaveBeenCalled();
+    act(() => replacement.receive({ type: "master-status", granted: true }));
+    expect(start).not.toHaveBeenCalled();
+    act(() => replacement.receive({ type: "tc-update", state: { ...state, totalFrames: 1200, running: true } }));
+    expect(start).toHaveBeenCalledExactlyOnceWith(1200);
+    expect(result.current.isMaster).toBe(true);
+  });
+
   it("timestamps construction failures and permits an immediate reconnect without replaying commands", () => {
     vi.stubGlobal("WebSocket", class { constructor() { throw new Error("fixture failure"); } });
     const { result } = hook();
