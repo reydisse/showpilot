@@ -1,6 +1,8 @@
+import { preferenceMutationSnapshot, preferenceMutationOptions } from "@/lib/notification-preference-recovery";
+import { createLocalRequestUuid } from "@/lib/request-id";
 import { WorkspaceSettings } from "@/components/workspace-settings";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { NotificationCategory, NotificationPreference } from "@showpilot/shared";
 import Constants from "expo-constants";
 import { Redirect, useFocusEffect } from "expo-router";
@@ -82,19 +84,33 @@ export default function SettingsScreen() {
   const [permission, setPermission] = useState<NativeNotificationPermissionState | null>(null);
   const [updatingNotifications, setUpdatingNotifications] = useState(false);
   const [sendingVerification, setSendingVerification] = useState(false);
-  const [savingPreference, setSavingPreference] = useState<string | null>(null);
   const appVersion = Constants.expoConfig?.version ?? "development";
   const pushConfigured = isNativePushConfigured();
   const platformLabel = Platform.OS === "ios" ? "iOS" : Platform.OS === "android" ? "Android" : "Web";
   const apiLabel = SHOWPILOT_URL.replace(/^https?:\/\//, "");
   const notificationCopy = pushConfigured ? notificationStatusCopy(permission) : null;
-  const preferenceQueryKey = ["mobile-notification-preferences", organization?.id] as const;
+  const preferenceQueryKey = ["mobile-notification-preferences", organization?.id, session?.user.id] as const;
   const notificationPreferences = useQuery({
     queryKey: preferenceQueryKey,
     queryFn: () => getMobileNotificationPreferences(organization!.id),
-    enabled: Boolean(organization?.id),
+    enabled: Boolean(organization?.id && session?.user.id),
+    retry: false, networkMode: "always",
     staleTime: 60_000,
   });
+
+  const preferenceMutationKey = ["notification-preference-change", organization?.id, session?.user.id];
+  const preferenceHistory = useMutationState({ filters: { mutationKey: preferenceMutationKey, exact: true }, select: entry => preferenceMutationSnapshot(entry.state) });
+  const preferenceLatest = preferenceHistory.at(-1);
+  const preferenceUnfinished = preferenceLatest && (preferenceLatest.status === "pending" || preferenceLatest.status === "error") ? preferenceLatest : null;
+  const preferenceMutation = useMutation(preferenceMutationOptions({
+    key: preferenceMutationKey, client: queryClient, execute: updateMobileNotificationPreference,
+    confirmed: async result => {
+      await queryClient.cancelQueries({ queryKey: preferenceQueryKey, exact: true });
+      queryClient.setQueryData(preferenceQueryKey, result.preferences);
+      void queryClient.invalidateQueries({ queryKey: preferenceQueryKey, exact: true });
+    },
+  }));
+  const preferenceLocked = !!preferenceUnfinished || notificationPreferences.isFetching || notificationPreferences.isError || !notificationPreferences.data;
 
   const refreshPermission = useCallback(async () => {
     setPermission(await getNativeNotificationPermissionState());
@@ -157,34 +173,9 @@ export default function SettingsScreen() {
     }
   }
 
-  async function setNotificationPreference(
-    current: NotificationPreference,
-    enabled: boolean,
-  ) {
-    if (!organization?.id) return;
-    const previous = notificationPreferences.data;
-    const next = { ...current, deviceAlerts: enabled };
-    setSavingPreference(current.category);
-    queryClient.setQueryData<NotificationPreference[]>(
-      preferenceQueryKey,
-      (preferences) => preferences?.map((item) => item.category === current.category ? next : item),
-    );
-    try {
-      const saved = await updateMobileNotificationPreference({
-        orgId: organization.id,
-        category: current.category,
-        deviceAlerts: next.deviceAlerts,
-      });
-      queryClient.setQueryData(preferenceQueryKey, saved);
-    } catch (caught) {
-      queryClient.setQueryData(preferenceQueryKey, previous);
-      Alert.alert(
-        "Preference not saved",
-        caught instanceof Error ? caught.message : "Check your connection and try again.",
-      );
-    } finally {
-      setSavingPreference(null);
-    }
+  function setNotificationPreference(current: NotificationPreference, enabled: boolean) {
+    if (!organization?.id || !session?.user.id || preferenceLocked || queryClient.getMutationCache().findAll({ mutationKey: preferenceMutationKey, exact: true }).some(entry => entry.state.status === "pending")) return;
+    preferenceMutation.mutate({ orgId: organization.id, category: current.category, deviceAlerts: enabled, expectedDeviceAlerts: current.deviceAlerts, requestId: createLocalRequestUuid() });
   }
 
   async function openExternal(path: string) {
@@ -258,6 +249,12 @@ export default function SettingsScreen() {
           ) : null}
         </View>
         ) : null}
+        {preferenceUnfinished?.status === "pending" ? <Text accessibilityRole="alert" style={styles.cardDescription}>Saving your alert choice… Waiting for confirmation.</Text> : null}
+        {preferenceUnfinished?.status === "error" ? <View>
+          <Text accessibilityRole="alert" style={styles.preferenceError}>Your alert choice was not confirmed. {preferenceUnfinished.error instanceof Error ? preferenceUnfinished.error.message : "Try again."}</Text>
+          <AppButton label="Retry preference save" variant="secondary" onPress={() => { if (preferenceUnfinished.command) preferenceMutation.mutate(preferenceUnfinished.command); }} />
+        </View> : null}
+        {!preferenceUnfinished && preferenceLatest?.receipt ? <Text accessibilityRole="alert" style={styles.cardDescription}>{preferenceLatest.receipt.outcome === "applied" ? "Alert choice saved." : preferenceLatest.receipt.outcome === "conflict" ? "This choice changed elsewhere. Review the saved choice before changing it again." : "A newer alert choice is in effect. Retrying did not replace it."}</Text> : null}
         <View style={styles.preferenceCard}>
           <View style={styles.preferenceHeader}>
             <View style={styles.preferenceHeaderSpacer} />
@@ -284,7 +281,8 @@ export default function SettingsScreen() {
                 <View style={styles.preferenceSwitch}>
                   <Switch
                     accessibilityLabel={`${copy.label} device alerts`}
-                    disabled={savingPreference === item.category}
+                    disabled={preferenceLocked}
+                    hitSlop={8}
                     onValueChange={(value) => void setNotificationPreference(item, value)}
                     thumbColor={item.deviceAlerts ? colors.amber : colors.textMuted}
                     trackColor={{ false: colors.border, true: colors.amberSoft }}

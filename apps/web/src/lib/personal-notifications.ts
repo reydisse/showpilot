@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import {
-  NOTIFICATION_CATEGORIES,
   type NotificationCategory,
   type NotificationPreference,
 } from "@showpilot/shared";
@@ -10,8 +9,10 @@ import { getD1 } from "@/lib/d1";
 import { getPrisma } from "@/lib/db";
 import {
   readNotificationPreferences,
-  saveNotificationPreference,
+  writeNotificationPreference,
+  readPreferenceActor,
 } from "@/lib/notification-preferences.server";
+import { notificationPreferenceCommandSchema } from "./notification-preference-contract";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 
 export interface PersonalNotification {
@@ -127,24 +128,11 @@ export const savePersonalNotificationTimeZone = createServerFn({ method: "POST" 
     return { ok: true };
   });
 
-const updateNotificationPreferenceSchema = z.object({
-  orgId: idSchema,
-  category: z.enum(NOTIFICATION_CATEGORIES),
-  deviceAlerts: z.boolean(),
-});
-
 export const updatePersonalNotificationPreference = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(updateNotificationPreferenceSchema, data))
-  .handler(async ({ data }): Promise<{ preference: NotificationPreference }> => {
-    const userId = await assertInboxAccess(data.orgId);
-    await saveNotificationPreference(data.orgId, userId, data.category, data.deviceAlerts);
-    return {
-      preference: {
-        category: data.category,
-        deviceAlerts: data.deviceAlerts,
-      },
-    };
-  });
+  .inputValidator((data: unknown) => parseOrThrow(notificationPreferenceCommandSchema, data))
+  .handler(async ({ data }) => writeNotificationPreference({
+    command: data, actor: await readPreferenceActor(getRequestHeaders()),
+  }));
 
 export const markPersonalNotificationRead = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data))

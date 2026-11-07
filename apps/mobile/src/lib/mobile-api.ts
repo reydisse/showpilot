@@ -1,3 +1,4 @@
+import { preferenceReceiptSchema, type PreferenceCommand } from "./notification-preference-recovery";
 import { accessNoticeSchema, accessReceiptSchema, type AccessCommand } from "./access-recovery";
 import { crewReceiptSchema, type CrewCommand } from "./crew-recovery";
 import { invitationDeliverySchema } from "./invitation-recovery";
@@ -1882,41 +1883,41 @@ export async function setMobileCheckInStatus(input: {
 }
 
 export async function getMobileTeamAccess(orgId: string): Promise<MobileTeamAccess> {
-  return withTeamRequestDeadline(async signal => {
+  return withMobileRequestDeadline(async signal => {
     const response = await authenticatedFetch(`/api/mobile/v1/team/access?orgId=${encodeURIComponent(orgId)}`, { signal });
     return teamAccessSchema.parse(await response.json());
   });
 }
 export async function grantMobileTeamAccess(input: Extract<AccessCommand, { kind: "grant" }>) {
-  return withTeamRequestDeadline(async signal => {
+  return withMobileRequestDeadline(async signal => {
     const response = await authenticatedFetch(`/api/mobile/v1/team/access/grants?orgId=${encodeURIComponent(input.orgId)}`, { method: "POST", signal, body: JSON.stringify(input) });
     return accessReceiptSchema.parse(await response.json());
   });
 }
 export async function revokeMobileTeamAccess(input: Extract<AccessCommand, { kind: "revoke" }>) {
-  return withTeamRequestDeadline(async signal => {
+  return withMobileRequestDeadline(async signal => {
     const response = await authenticatedFetch(`/api/mobile/v1/team/access/grants/${encodeURIComponent(input.grantId)}/revoke?orgId=${encodeURIComponent(input.orgId)}`, { method: "POST", signal, body: JSON.stringify(input) });
     return accessReceiptSchema.parse(await response.json());
   });
 }
 export async function retryMobileAccessNotice(input: Extract<AccessCommand, { kind: "notice" }>) {
-  return withTeamRequestDeadline(async signal => {
+  return withMobileRequestDeadline(async signal => {
     const response = await authenticatedFetch(`/api/mobile/v1/team/access/retry-notification?orgId=${encodeURIComponent(input.orgId)}`, { method: "POST", signal, body: JSON.stringify({ requestId: input.requestId }) });
     return accessReceiptSchema.parse(await response.json());
   });
 }
 
-async function withTeamRequestDeadline<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+async function withMobileRequestDeadline<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([work(controller.signal), new Promise<never>((_, reject) => {
-      timer = setTimeout(() => { controller.abort(); reject(new Error("The team request timed out. Retry to confirm its result.")); }, 10_000);
+      timer = setTimeout(() => { controller.abort(); reject(new Error("The request timed out. Retry to confirm its result.")); }, 10_000);
     })]);
   } finally { clearTimeout(timer); controller.abort(); }
 }
 export async function getMobileTeamMembers(orgId: string): Promise<MobileTeamMembers> {
-  return withTeamRequestDeadline(async signal => {
+  return withMobileRequestDeadline(async signal => {
     const response = await authenticatedFetch(`/api/mobile/v1/team/members?orgId=${encodeURIComponent(orgId)}`, { signal });
     return teamMembersSchema.parse(await response.json());
   });
@@ -1926,7 +1927,7 @@ export async function inviteMobileTeamMember(input: {
   orgId: string; email: string; role: string; requestId: string;
   resend?: { invitationId: string; previousDeliveryId: string | null };
 }) {
-  return withTeamRequestDeadline(async signal => {
+  return withMobileRequestDeadline(async signal => {
     const response = await authenticatedFetch(`/api/mobile/v1/team/invitations?orgId=${encodeURIComponent(input.orgId)}`, {
       method: "POST", signal,
       headers: { "Idempotency-Key": input.requestId, ...(input.resend ? {
@@ -1938,7 +1939,7 @@ export async function inviteMobileTeamMember(input: {
   });
 }
 export async function retryMobileTeamInvitation(input: { orgId: string; invitationId: string; deliveryId: string }) {
-  return withTeamRequestDeadline(async signal => {
+  return withMobileRequestDeadline(async signal => {
     const response = await authenticatedFetch(`/api/mobile/v1/team/invitations/retry-delivery?orgId=${encodeURIComponent(input.orgId)}`, {
       method: "POST", signal, body: JSON.stringify({ invitationId: input.invitationId, deliveryId: input.deliveryId }),
     });
@@ -1980,13 +1981,13 @@ export async function removeMobileTeamMember(input: {
 }
 
 export async function getMobileTeamCrew(orgId: string) {
-  return withTeamRequestDeadline(async signal => {
+  return withMobileRequestDeadline(async signal => {
     const response = await authenticatedFetch(`/api/mobile/v1/team/crew?orgId=${encodeURIComponent(orgId)}`, { signal });
     return teamCrewSchema.parse(await response.json());
   });
 }
 export async function executeMobileCrewCommand(input: CrewCommand) {
-  return withTeamRequestDeadline(async signal => {
+  return withMobileRequestDeadline(async signal => {
     const suffix = input.kind === "create" ? "" : `/${encodeURIComponent(input.id)}/${input.kind === "update" ? "update" : "remove"}`;
     const response = await authenticatedFetch(`/api/mobile/v1/team/crew${suffix}?orgId=${encodeURIComponent(input.orgId)}`, {
       method: "POST", signal, body: JSON.stringify(input),
@@ -2546,28 +2547,17 @@ export async function markAllNotificationsRead(orgId: string) {
   });
 }
 
-export async function getMobileNotificationPreferences(
-  orgId: string,
-): Promise<NotificationPreference[]> {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/notification-preferences?orgId=${encodeURIComponent(orgId)}`,
-  );
-  return notificationPreferencesSchema.parse(await response.json()).preferences;
+export async function getMobileNotificationPreferences(orgId: string): Promise<NotificationPreference[]> {
+  return withMobileRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/notification-preferences?orgId=${encodeURIComponent(orgId)}`, { signal });
+    return notificationPreferencesSchema.parse(await response.json()).preferences;
+  });
 }
-
-export async function updateMobileNotificationPreference(input: {
-  orgId: string;
-  category: NotificationCategory;
-  deviceAlerts: boolean;
-}): Promise<NotificationPreference[]> {
-  const response = await authenticatedFetch(
-    "/api/mobile/v1/notification-preferences",
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
-  );
-  return notificationPreferencesSchema.parse(await response.json()).preferences;
+export async function updateMobileNotificationPreference(input: PreferenceCommand) {
+  return withMobileRequestDeadline(async signal => {
+    const response = await authenticatedFetch("/api/mobile/v1/notification-preferences", { method: "POST", signal, body: JSON.stringify(input) });
+    return preferenceReceiptSchema.parse(await response.json());
+  });
 }
 
 export async function saveMobilePushToken(

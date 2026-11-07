@@ -4187,3 +4187,70 @@ No migration or native binary is needed for this slice. No deployment, release,
 real organization mutation or payment-provider call occurred. Notification
 categories and the remaining Settings/product-wide acceptance work remain open;
 Phase 2 stays at 46/79. Twenty necessary tracked Markdown files remain.
+
+
+## Personal notification preference recovery (2026-11-07, not deployed)
+
+Settings described editable notification categories without providing their
+controls. The inbox editor reverted failed saves, but its Retry refreshed the
+inbox instead of saving the requested preference. A real-auth/D1 regression also
+proved that retrying a lost save reply could overwrite a newer preference.
+
+Web and native now share the preference writer and reader. Migration 0067 adds
+account/org/request receipts with user/organization cascade cleanup. The receipt
+and preference commit in one D1 batch, with current session/membership guards.
+The command includes the reviewed boolean choice; a conflict returns the stored
+choice for review. Replaying a completed command reads its current result and
+cannot overwrite a newer choice. Reusing a request ID for different intent fails.
+Legacy callers without recovery fields still work; updated callers retain IDs
+and reviewed values for exact retry.
+
+Settings and the inbox use one category editor. Web caches live in a per-rendered-
+app QueryClient at the root, with account/org keys and no SSR module singleton.
+This preserves commands when an editor closes or a Settings section changes.
+Reads time out after eight seconds; writes after ten. Saved changes update the
+shared cache, while a failed follow-up read offers only a refresh retry. Native
+Settings uses the same account/org recovery ownership in its mutation cache,
+bounded requests and visible save/retry/conflict feedback. None of these choices
+changes another member's preferences or removes inbox notifications.
+
+A client-only retry was rejected because it cannot distinguish an acknowledged
+write from an old command that would overwrite a newer choice. Reusing the inbox
+editor unchanged was also insufficient: it had no confirmation deadline and
+retried the wrong operation. The shared server receipt is authoritative; web and
+native caches retain only the current session's recovery intent.
+
+Validation passed 2,254 web unit and 1,029 Worker tests, web/mobile typechecks and
+production web build. Eleven real-auth/D1 regressions cover receipts, concurrency,
+rollback, current authority, account/org isolation, cleanup and web/native
+interoperability. Seven shared-editor tests cover all categories, retained exact
+retry, read-only recovery, deadlines, late responses, account separation and
+render stability. Six existing inbox tests and five native cache/contract tests
+pass. Main bundle: 551,383 raw / 174,355 gzip bytes, below 600,000 / 175,000 limits.
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node
+apps/web/scripts/smoke-notification-preferences.mjs` passes against the compiled
+app with real login and disposable D1. It verifies a lost web reply followed by
+a newer native choice, exact retry after section navigation, read-only retry,
+shared Settings/inbox choices, late replies and 320/768/1440px controls. Final
+audit: four receipts and three category rows, with the other org untouched. The
+phone screenshot is readable. Mobile verification passes iOS/Android/web Expo
+exports, all 18 Doctor checks and polling boundaries. Hermes bundles remain under
+6.5 MB. Native simulator/device UI verification remains outstanding.
+
+The first compiled-browser run caught the missing root QueryClient provider,
+which component wrappers had supplied. Full-suite testing then exposed a real
+selector render loop: retaining freshly-created validation errors in observable
+snapshots caused 1,505 renders during 500 ms of simulated waiting. Selectors now
+return parsed values or null. A Profiler regression requires fewer than 20 renders;
+native structural-sharing coverage guards the same behavior. Test deadlines were
+not raised. Browser harness corrections also waited for the document and compared
+decoded commands rather than JSON property order. The final build and browser
+rehearsal were rerun after the production fixes.
+
+Apply 0067 after 0066 before the matching Worker/web deployment and native release.
+No production migration, deployment, native release, real organization mutation
+or notification-provider call occurred. Phase 2 remains 46/79; the complete
+Settings-specific and product-wide gates remain open. Twenty necessary tracked
+Markdown files remain. Parent #200 at 48d81887c458b405e2690f78a6634864a3060ff1
+passed both jobs in GitHub run 42413363800 before this draft PR is opened.
