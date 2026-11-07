@@ -1,3 +1,4 @@
+import { executeTeamCommand, teamCommandHeaders, teamCommandFailure, TeamCommandError } from "./team-command.server";
 import { betterAuth } from "better-auth";
 import { createAuthEndpoint, getAuthoritativeSessionFromCtx } from "better-auth/api";
 import { createOrganizationAtomically, readOrganizationCreation, OrganizationCreationReceiptError } from "./organization-creation.server";
@@ -129,6 +130,50 @@ function showPilotOrganization() {
     ...plugin,
     endpoints: {
       ...plugin.endpoints,
+      updateMemberRole: createAuthEndpoint(plugin.endpoints.updateMemberRole.path, plugin.endpoints.updateMemberRole.options, async ctx => {
+        ctx.setHeader("Cache-Control", "private, no-store");
+        try {
+          const session = await getAuthoritativeSessionFromCtx(ctx);
+          if (!session) throw new TeamCommandError(401, "Sign in before changing a member role.");
+          const orgId = ctx.body.organizationId || session.session.activeOrganizationId;
+          if (!orgId) throw new TeamCommandError(400, "Choose the organization whose team you want to manage.");
+          const result = await executeTeamCommand(getD1(), { userId: session.user.id, sessionId: session.session.id }, {
+            kind: "role", orgId, memberId: ctx.body.memberId, role: ctx.body.role, ...teamCommandHeaders(ctx.headers),
+          });
+          if (result.kind !== "role") throw new Error("Unexpected team result");
+          await refreshMemberAuthority({ member: result.member });
+          return ctx.json({ ...result.member, createdAt: new Date(result.member.createdAt) });
+        } catch (error) { const failure = teamCommandFailure(error); ctx.setStatus(failure.status); return ctx.json(failure); }
+      }),
+      removeMember: createAuthEndpoint(plugin.endpoints.removeMember.path, plugin.endpoints.removeMember.options, async ctx => {
+        ctx.setHeader("Cache-Control", "private, no-store");
+        try {
+          const session = await getAuthoritativeSessionFromCtx(ctx);
+          if (!session) throw new TeamCommandError(401, "Sign in before removing a member.");
+          const orgId = ctx.body.organizationId || session.session.activeOrganizationId;
+          if (!orgId) throw new TeamCommandError(400, "Choose the organization whose team you want to manage.");
+          const result = await executeTeamCommand(getD1(), { userId: session.user.id, sessionId: session.session.id }, {
+            kind: "remove", orgId, memberIdOrEmail: ctx.body.memberIdOrEmail, ...teamCommandHeaders(ctx.headers),
+          });
+          if (result.kind !== "remove") throw new Error("Unexpected team result");
+          await refreshMemberAuthority({ member: result.member });
+          return ctx.json({ member: { ...result.member, createdAt: new Date(result.member.createdAt) } });
+        } catch (error) { const failure = teamCommandFailure(error); ctx.setStatus(failure.status); return ctx.json(failure); }
+      }),
+      cancelInvitation: createAuthEndpoint(plugin.endpoints.cancelInvitation.path, plugin.endpoints.cancelInvitation.options, async ctx => {
+        ctx.setHeader("Cache-Control", "private, no-store");
+        try {
+          const session = await getAuthoritativeSessionFromCtx(ctx);
+          if (!session) throw new TeamCommandError(401, "Sign in before cancelling an invitation.");
+          const invitation = await getD1().prepare("SELECT organizationId FROM invitation WHERE id=?").bind(ctx.body.invitationId).first<{ organizationId:string }>();
+          if (!invitation) throw new TeamCommandError(404, "This invitation is no longer available.");
+          const result = await executeTeamCommand(getD1(), { userId: session.user.id, sessionId: session.session.id }, {
+            kind: "cancel", orgId: invitation.organizationId, invitationId: ctx.body.invitationId, ...teamCommandHeaders(ctx.headers),
+          });
+          if (result.kind !== "cancel") throw new Error("Unexpected team result");
+          return ctx.json({ ...result.invitation, createdAt: new Date(result.invitation.createdAt), expiresAt: new Date(result.invitation.expiresAt) });
+        } catch (error) { const failure = teamCommandFailure(error); ctx.setStatus(failure.status); return ctx.json(failure); }
+      }),
       acceptInvitation: responseEndpoint(plugin.endpoints.acceptInvitation, "accepted"),
       rejectInvitation: responseEndpoint(plugin.endpoints.rejectInvitation, "rejected"),
       createOrganization: createAuthEndpoint(original.path, original.options, async ctx => {

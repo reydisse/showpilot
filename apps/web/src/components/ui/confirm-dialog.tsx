@@ -110,6 +110,7 @@ export function useConfirmDialog() {
     title: string;
     description: string;
     confirmLabel?: string;
+    cancelLabel?: string;
     variant?: "danger" | "warning";
     resolve: ((value: boolean) => void) | null;
   }>({
@@ -124,6 +125,7 @@ export function useConfirmDialog() {
       title: string;
       description: string;
       confirmLabel?: string;
+      cancelLabel?: string;
       variant?: "danger" | "warning";
     }): Promise<boolean> => {
       return new Promise((resolve) => {
@@ -132,6 +134,7 @@ export function useConfirmDialog() {
           title: opts.title,
           description: opts.description,
           confirmLabel: opts.confirmLabel,
+          cancelLabel: opts.cancelLabel,
           variant: opts.variant,
           resolve,
         });
@@ -164,6 +167,7 @@ export function useConfirmDialog() {
       title={state.title}
       description={state.description}
       confirmLabel={state.confirmLabel}
+      cancelLabel={state.cancelLabel}
       variant={state.variant}
       onConfirm={handleConfirm}
     />

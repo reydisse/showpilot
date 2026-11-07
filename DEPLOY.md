@@ -3694,3 +3694,84 @@ resources; no real organization, provider, production migration, deployment or
 native release was changed. The 20 necessary tracked Markdown files remain.
 Phase 2 remains 46/79; remaining UI sweeps, native/Companion request retention,
 MIDI/LTC/local-mode/catalog verification and phase gates still need completion.
+
+## Team command recovery
+
+Real-auth/D1 baselines reproduce four failures: replaying a role change reverts
+later work; retrying an email-based removal deletes a newly joined membership;
+cancellation overwrites accepted invitation status; closing an already dismissed
+report as resolved reports success without making that decision. The Team page
+also passes a user ID where Better Auth removal expects a membership ID, drops
+role/moderation failures, and can leave cancellation disabled after rejection.
+
+A client deadline and fresh read alone cannot fence a late older mutation.
+Wrapping the existing Better Auth write with a receipt afterward leaves a commit
+window and cannot preserve last-owner checks under concurrent commands. Use the
+existing ShowPilot organization endpoint extension: retain each endpoint's
+schema, middleware, origin/rate-limit/cookie handling, but commit the decision
+and receipt through one D1 batch. Preserve installed Better Auth role semantics
+(static plus dynamic permissions, owner-only changes to owners, at least one
+remaining owner, organization scope), current session and actor authority, and
+post-commit relay read-authority refresh. Better Auth teams are not enabled; do
+not confuse the app's crew team tables with Better Auth membership plumbing.
+
+The caller supplies its organization, stable request ID and target membership
+revision where available. The server freezes the concrete membership even for
+legacy email-based removal. A member management revision advances on role
+changes from every writer, including away-and-back changes. Receipts survive
+membership removal, replays require current authority and never mutate a newer
+membership or role, and dynamic role-policy snapshots are compared at commit.
+Cancel only pending invitations, preserving accepted/rejected outcomes and the
+existing atomic recipient-response path. A report decision conflicting with a
+terminal outcome must fail explicitly. Self-removal clears the current session's
+active organization in the same batch, matching the installed plugin behavior.
+
+Use bounded Team reads and shared confirmed-write recovery for role/removal,
+cancellation and moderation. Keep unresolved commands visible across tab
+switches, confirm removal/cancellation with names, use actual membership IDs,
+make removal controls visible without hover, and provide keyboard tab semantics.
+Invitation creation/email delivery and crew/access editors retain their separate
+contracts and must be audited before the product-wide requirement can close.
+All verification uses disposable users and organizations, never real crew data.
+
+Migration 0063 adds the membership revision trigger and atomic command receipts.
+The web and mobile wrappers preserve request IDs and reject the explicit error
+payload returned by Better Auth's in-process API; HTTP status alone does not
+cause that API to reject. Mobile cancellation and removal can recover after the
+original target has already changed. Both membership endpoints still await the
+existing relay authority refresh. Apply 0063 after 0062 before deploying this
+code; no production migration has been applied.
+
+The Team workspace now retains one unfinished command across tabs, bounds reads
+and writes, and distinguishes Retry change from Retry refresh. Removal uses the
+membership ID and displayed revision. Invitation cancellation and report
+resolution/dismissal have named confirmations. The native role selector and
+visible removal controls meet 44px; tabs expose tablist/tabpanel relationships
+and Arrow/Home/End navigation. A pending command protects page navigation.
+Invitation and report dates hydrate from a stable ISO representation before
+using the operator's locale; report timestamps are explicitly returned as UTC.
+
+Verification on fix/team-write-recovery:
+- Four real-auth/D1 baseline failures reproduced the original retry bugs.
+  Twenty-four Worker regressions now cover exact replay, new memberships,
+  cross-organization and revoked-actor boundaries, dynamic/multiple roles,
+  last-owner concurrency, stale/away-and-back revisions, session expiry,
+  policy/recipient/target races, receipt rollback, self-removal session cleanup,
+  moderation and the web/mobile API wrappers.
+- Seven component cases cover retained requests across tabs, refresh-only Retry,
+  correct removal IDs, cancellation/moderation confirmations, timeouts and tabs.
+  Full web checks pass 2,208 unit and 944 Worker tests plus migration/client
+  boundary and coverage-gate checks. Typecheck and production build pass; the
+  main client bundle is 522,833 raw / 165,530 gzip bytes, within its budgets.
+- smoke-team-recovery.mjs passes actual Chrome, authentication and the compiled
+  Worker with disposable D1. It withholds committed replies, changes a role
+  through another request before retrying the old one, checks read-only Retry,
+  confirms cancellation/moderation/removal, tests keyboard/navigation behavior,
+  and checks 320/768/1440px controls. Six receipts remain with exactly one owner,
+  a canceled invitation and a resolved report attributed to the operator.
+  The browser reports no runtime or hydration errors; phone layout inspected.
+
+This closes these Team controls, not the whole Team audit: invitation creation,
+email delivery, crew/access editors and native client request retention remain
+outstanding. Phase 2 stays 46/79. No deployment, native release, real crew write
+or external email occurred. The 20 necessary tracked Markdown files remain.

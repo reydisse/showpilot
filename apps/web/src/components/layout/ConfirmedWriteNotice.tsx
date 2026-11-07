@@ -7,11 +7,11 @@ export function ConfirmedWriteNotice({ state, retry, review, reviewing, collecti
   retry: () => void;
   review: () => void;
   reviewing: boolean;
-  collectionLabel: "channels" | "devices" | "destinations" | "outputs" | "inputs";
+  collectionLabel: "channels" | "devices" | "destinations" | "outputs" | "inputs" | "team";
 }) {
   if (state.status === "idle") return null;
   if (state.status === "saving") return <p role="status" className="text-sm text-board-muted">{state.saved ? `Change saved. Refreshing ${collectionLabel}…` : `${state.label}… Waiting for confirmation.`}</p>;
-  return <div role="alert" aria-label={`${collectionLabel === "channels" ? "Channel" : collectionLabel === "devices" ? "Device" : collectionLabel === "inputs" ? "Input" : collectionLabel === "outputs" ? "Output" : "Destination"} change`} className="space-y-3 rounded-xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm text-amber-200">
+  return <div role="alert" aria-label={`${collectionLabel === "team" ? "Team" : collectionLabel === "channels" ? "Channel" : collectionLabel === "devices" ? "Device" : collectionLabel === "inputs" ? "Input" : collectionLabel === "outputs" ? "Output" : "Destination"} change`} className="space-y-3 rounded-xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm text-amber-200">
     <p>{state.saved ? "Change saved." : `${state.label} was not confirmed.`} {state.message} <time dateTime={new Date(state.at).toISOString()}>{new Date(state.at).toLocaleTimeString()}</time></p>
     <div className="flex flex-wrap gap-2">
       <button className={controlClass} disabled={reviewing} onClick={retry}>{state.saved ? "Retry refresh" : "Retry change"}</button>
