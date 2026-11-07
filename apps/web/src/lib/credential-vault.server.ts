@@ -20,7 +20,8 @@ const envelopeSchema = z.object({
 
 export type CredentialScope =
   | { kind: "setting"; orgId: string; key: string }
-  | { kind: "device"; orgId: string; deviceId: string; path: readonly string[] };
+  | { kind: "device"; orgId: string; deviceId: string; path: readonly string[] }
+  | { kind: "stream-destination"; orgId: string; destinationId: string };
 
 export class CredentialVaultError extends Error {
   constructor(message: string) { super(message); this.name = "CredentialVaultError"; }
@@ -38,12 +39,18 @@ function decodeBase64(value: string): Uint8Array<ArrayBuffer> {
   return decoded;
 }
 function additionalData(scope: CredentialScope, purpose: "key" | "value", keyId: string): Uint8Array<ArrayBuffer> {
-  if (!scope.orgId || (scope.kind === "setting" ? !scope.key : !scope.deviceId || !scope.path.length || scope.path.some(part => !part))) {
+  let identity: readonly (string | readonly string[])[];
+  switch (scope.kind) {
+    case "setting": identity = [scope.key]; break;
+    case "device": identity = [scope.deviceId, scope.path]; break;
+    case "stream-destination": identity = [scope.destinationId, "streamKey"]; break;
+  }
+  if (!scope.orgId || identity.some(part => typeof part === "string" ? !part : !part.length || part.some(value => !value))) {
     throw new CredentialVaultError("Credential storage identity is missing.");
   }
   return encoder.encode(JSON.stringify([
     "showpilot-credential", 1, purpose, keyId, scope.kind, scope.orgId,
-    ...(scope.kind === "setting" ? [scope.key] : [scope.deviceId, scope.path]),
+    ...identity,
   ]));
 }
 

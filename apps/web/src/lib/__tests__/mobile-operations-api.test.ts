@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   setDestinationEnabled: vi.fn(),
   deleteDestination: vi.fn(),
   getLiveInputStatus: vi.fn(),
+  saveDestination: vi.fn(),
 }));
 
 vi.mock("../auth", () => ({
@@ -27,6 +28,8 @@ vi.mock("../stream-destinations", () => ({
   deleteStreamDestinationForOrg: mocks.deleteDestination,
 }));
 
+vi.mock("../stream-destination-write.server", () => ({ saveStreamDestinationForOrg: mocks.saveDestination }));
+
 vi.mock("../stream", () => ({
   getLiveInputStatusForOrg: mocks.getLiveInputStatus,
 }));
@@ -39,11 +42,6 @@ interface QueryCall {
 
 function fakeDatabase(input: {
   calls: QueryCall[];
-  destination?: {
-    rtmpUrl: string;
-    streamKey: string;
-    cfOutputId: string;
-  } | null;
   activeShow?: {
     id: string;
     serviceDate: string;
@@ -62,13 +60,6 @@ function fakeDatabase(input: {
         input.calls.push({ sql, params, operation: "first" });
         if (sql.startsWith("SELECT id FROM organization WHERE id = ?"))
           return { id: "org-1" } as T;
-        if (
-          sql.startsWith(
-            "SELECT rtmpUrl, streamKey, cfOutputId FROM stream_destination",
-          )
-        ) {
-          return (input.destination ?? null) as T | null;
-        }
         if (
           sql.startsWith(
             "SELECT id, serviceDate FROM rundown WHERE id = ? AND orgId = ?",
@@ -180,6 +171,7 @@ describe("mobile operations API", () => {
     });
     mocks.setDestinationEnabled.mockResolvedValue(undefined);
     mocks.deleteDestination.mockResolvedValue(undefined);
+    mocks.saveDestination.mockResolvedValue("created-destination");
     mocks.getLiveInputStatus.mockResolvedValue({
       inputId: "input-1",
       status: "streaming",
@@ -211,7 +203,7 @@ describe("mobile operations API", () => {
     ).toEqual(["org-1"]);
   });
 
-  it("creates destinations disconnected until an operator enables the provider output", async () => {
+  it("routes destination creation through the shared save with the authenticated identity", async () => {
     const calls: QueryCall[] = [];
     const response = await request(
       fakeDatabase({ calls }),
@@ -225,30 +217,18 @@ describe("mobile operations API", () => {
       },
     );
     expect(response.status).toBe(200);
-    const insert = calls.find((call) =>
-      call.sql.startsWith("INSERT INTO stream_destination"),
-    );
-    expect(insert?.sql).toContain("VALUES (?, ?, ?, ?, ?, ?, 0, '', ''");
-    expect(insert?.params.slice(1)).toEqual([
-      "org-1",
-      "YouTube",
-      "youtube",
-      "rtmps://a.rtmp.youtube.com/live2",
-      "write-only-secret",
-    ]);
+    expect(await response.json()).toEqual({ ok: true, id: "created-destination" });
+    expect(mocks.saveDestination).toHaveBeenCalledWith({ orgId: "org-1", actorId: "operator-1", requestId: undefined, kind: "create", fields: {
+      name: "YouTube", platform: "youtube", rtmpUrl: "rtmps://a.rtmp.youtube.com/live2", streamKey: "write-only-secret",
+    } });
+    expect(mocks.setDestinationEnabled).not.toHaveBeenCalled();
   });
 
-  it("rejects credential edits while a provider output is connected", async () => {
+  it("returns 409 when the shared save rejects connected credential edits", async () => {
+    mocks.saveDestination.mockRejectedValueOnce(new Error("Disable this destination before changing its RTMP credentials."));
     const calls: QueryCall[] = [];
     const response = await request(
-      fakeDatabase({
-        calls,
-        destination: {
-          rtmpUrl: "rtmps://old.example/live",
-          streamKey: "saved",
-          cfOutputId: "cf-output-1",
-        },
-      }),
+      fakeDatabase({ calls }),
       "/api/mobile/v1/streaming/destinations/dest-1?orgId=org-1",
       "POST",
       {

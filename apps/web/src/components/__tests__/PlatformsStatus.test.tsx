@@ -2,16 +2,20 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, expect, it, vi } from "vitest";
 import { Route } from "@/routes/$slug/streaming/platforms";
 
-const api = vi.hoisted(() => ({ statuses: vi.fn(), invalidate: vi.fn(), initial: {} }));
+const api = vi.hoisted(() => {
+  const initial: Record<string, unknown> = {};
+  return { statuses: vi.fn(), invalidate: vi.fn(), initial };
+});
 vi.mock("@/lib/stream-destinations", () => ({
-  getOutputStatuses: api.statuses, getStreamDestinations: vi.fn(), addStreamDestination: vi.fn(),
+  getOutputStatuses: api.statuses, getStreamDestinations: async () => api.initial.destinations, addStreamDestination: vi.fn(),
   updateStreamDestination: vi.fn(), deleteStreamDestination: vi.fn(), toggleStreamDestination: vi.fn(),
   connectDestinationsToInput: vi.fn(), disconnectAllDestinations: vi.fn(),
 }));
-vi.mock("@/lib/stream", () => ({ getLiveInputs: vi.fn() }));
+vi.mock("@/lib/stream", () => ({ getLiveInputs: async () => api.initial.inputs }));
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (options: object) => ({ options, useLoaderData: () => api.initial }),
   useRouter: () => ({ invalidate: api.invalidate }),
+  useBlocker: () => ({ status: "idle" }),
 }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); vi.restoreAllMocks(); vi.useRealTimers(); });
 const Page = Route.options.component as React.ComponentType;
