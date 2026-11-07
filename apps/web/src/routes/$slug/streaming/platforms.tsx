@@ -198,46 +198,48 @@ function PlatformsPage() {
               Simulcast to multiple streaming platforms
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {connectedCount > 0 ? (
+          {destinations.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              {connectedCount > 0 ? (
+                <button
+                  onClick={handleStopAll}
+                  disabled={stopping}
+                  className="flex min-h-[44px] items-center gap-1.5 px-4 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 disabled:opacity-50 transition-colors"
+                >
+                  {stopping ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <ZapOff className="w-3.5 h-3.5" />
+                  )}
+                  Stop All
+                </button>
+              ) : (
+                <button
+                  onClick={handleGoLive}
+                  disabled={goingLive || !hasInputs || activeCount === 0}
+                  className="flex min-h-[44px] items-center gap-1.5 px-4 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50 transition-colors"
+                  title={!hasInputs ? "Create a live input on Stream first" : activeCount === 0 ? "Enable at least one destination" : ""}
+                >
+                  {goingLive ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Zap className="w-3.5 h-3.5" />
+                  )}
+                  Go Live
+                </button>
+              )}
               <button
-                onClick={handleStopAll}
-                disabled={stopping}
-                className="flex min-h-[44px] items-center gap-1.5 px-4 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 disabled:opacity-50 transition-colors"
+                onClick={() => {
+                  setEditDest(null);
+                  setShowForm(true);
+                }}
+                className="flex min-h-[44px] items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors"
               >
-                {stopping ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <ZapOff className="w-3.5 h-3.5" />
-                )}
-                Stop All
+                <Plus className="w-3 h-3" />
+                Add Destination
               </button>
-            ) : (
-              <button
-                onClick={handleGoLive}
-                disabled={goingLive || !hasInputs || activeCount === 0}
-                className="flex min-h-[44px] items-center gap-1.5 px-4 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50 transition-colors"
-                title={!hasInputs ? "Create a live input on Stream first" : activeCount === 0 ? "Enable at least one destination" : ""}
-              >
-                {goingLive ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Zap className="w-3.5 h-3.5" />
-                )}
-                Go Live
-              </button>
-            )}
-            <button
-              onClick={() => {
-                setEditDest(null);
-                setShowForm(true);
-              }}
-              className="flex min-h-[44px] items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors"
-            >
-              <Plus className="w-3 h-3" />
-              Add Destination
-            </button>
-          </div>
+            </div>
+          )}
         </div>
       </div>
 
