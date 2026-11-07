@@ -1253,6 +1253,42 @@ workspace opening, expiry and server/client timezone differences. The capacity
 and hydration regressions failed before their fixes. The broader Phase 2 gate
 remains open.
 
+### Landing entry and download recovery
+
+The concept page's Product link now targets `/#product`. Hero, pricing and closing
+copy state the 14-day Pro trial and no-card terms. Starter, Pro and Founding Member
+prices are unchanged. The founding-offer end date still requires the owner's date
+and timezone; no deadline is invented or marked complete. Annual billing remains
+Phase 3 work.
+
+All eight native download cards have static links. The landing Worker checks the
+approved manifest before streaming a file or redirecting to an official store.
+Unavailable builds and storage failures get distinct, script-free recovery pages
+with Try again, View downloads and Open web app. Programmatic error responses stay
+JSON, HEAD errors stay bodyless, private object keys are not reflected, and recovery
+HTML uses a restrictive CSP. Manifest/object lookup and browser status requests
+have eight-second deadlines. The artifact body can continue streaming normally.
+
+Mutable download ID URLs now use `Cache-Control: no-store`. Browser rehearsal
+exposed the previous immutable one-hour cache skipping a fresh release check.
+The final test replaces the manifest's artifact and downloads the new bytes from
+the same URL. R2 object immutability and existing range/attachment behavior remain.
+Download labels are at least 14px, metadata at least 12px, including mobile overrides.
+
+Validation: `pnpm --filter @showpilot/landing verify` passed type generation checks,
+typecheck, 31 tests, static/concept build and Wrangler deployment dry run. The full
+web suite passed 2,156 unit and 829 Worker tests plus four coverage-gate tests; web
+typecheck passed. `node apps/landing/scripts/smoke-download-fallback.mjs` passed
+against the compiled Worker and disposable R2 with actual Chrome downloads,
+JavaScript disabled, status timeout, invalid-manifest recovery, same-URL release
+replacement and the concept Product anchor. Release-site HTTP smoke also passed.
+Controls passed 44px bounds/hit checks and readable-label checks at 320/768/1440px;
+final phone screenshots were inspected. No browser errors or production writes.
+
+PR #184's invitation CI run 42362831479 passed both main CI and Native Rust tests.
+These landing changes remain a draft Phase 2 change. Nothing has been deployed,
+no release manifest has been published, and the wider Phase 2 gate remains open.
+
 ### Timecode label validation
 
 `parseTimecodeString` now requires the selected format. It rejects frame numbers
