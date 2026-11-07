@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, damagedGraphicScenes = false, chatNotificationFailure = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false } = {}) {
   if (captureEmail) assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Email capture requires the isolated outbound handler");
   const directory = await mkdtemp(join(tmpdir(), "showpilot-display-smoke-"));
   const session = `display-smoke-${process.pid}`;
@@ -146,6 +146,13 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
   INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-unverified','Unverified operator','unverified@display-smoke.invalid',0,CURRENT_TIMESTAMP);
   INSERT INTO account (id,accountId,providerId,userId,password,issuer,updatedAt) VALUES ('smoke-unverified-account','smoke-unverified','credential','smoke-unverified','${passwordHash}','local:credential',CURRENT_TIMESTAMP);
   ` : ""}
+  ${invitationResponses ? `
+  UPDATE organization SET plan='pro' WHERE id='display-other';
+  INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('invitation-owner','Invitation owner','owner@invitation-smoke.invalid',1,CURRENT_TIMESTAMP);
+  INSERT INTO member (id,organizationId,userId,role,createdAt) VALUES ('invitation-owner-member','display-other','invitation-owner','owner',CURRENT_TIMESTAMP);
+  ${["accept", "decline", "list", "expired", "canceled", "wrong", "unverified"].map(name => `INSERT INTO invitation(id,organizationId,email,role,status,expiresAt,inviterId,createdAt) VALUES
+    ('invitation-${name}','display-other','${name === "wrong" ? "someone-else@invitation-smoke.invalid" : name === "unverified" ? "unverified@display-smoke.invalid" : "operator@display-smoke.invalid"}','member','${name === "canceled" ? "canceled" : "pending"}','${new Date(Date.now() + (name === "expired" ? -60_000 : 3600_000)).toISOString()}','invitation-owner',CURRENT_TIMESTAMP);`).join("\n")}
+  ` : ""}
   ${passwordReset ? Object.entries(resetTokens).map(([name, token]) => `INSERT INTO verification (id,identifier,value,expiresAt,createdAt,updatedAt) VALUES ('smoke-reset-${name}','reset-password:${token}','smoke-operator','${new Date(Date.now() + (name === "expired" ? -60_000 : 3600_000)).toISOString()}','${new Date().toISOString()}','${new Date().toISOString()}');`).join("\n") : ""}
   ${setupTeam || setupSeed || setupChoices ? `INSERT INTO app_setting(id,orgId,key,value) VALUES
     ('smoke-setup-start','display-smoke','onboarding-started','2026-11-06T00:00:00.000Z');
@@ -219,6 +226,12 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
       await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state,
         "--command", "DROP TRIGGER fixture_chat_notification_failure");
     };
+    const removeInvitationMembership = async () => {
+      assert.ok(invitationResponses, "Only invitation fixtures can remove this membership");
+      assert.ok(!worker || worker.exitCode !== null || worker.signalCode !== null, "Stop the Worker before fixture mutation");
+      await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state,
+        "--command", "DELETE FROM member WHERE organizationId='display-other' AND userId='smoke-operator'");
+    };
     const configureEmail = async mode => {
       assert.ok(captureEmail && ["success", "fail"].includes(mode));
       await writeFile(join(directory, "email-mode"), mode);
@@ -227,7 +240,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
       assert.ok(captureEmail);
       return (await readFile(join(directory, "emails.jsonl"), "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
     };
-    await check({ restoreChatNotifications, configureEmail, capturedEmails, origin, orgId, date, browser, pass, crewChatPass, planningChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, resetTokens: passwordReset ? resetTokens : undefined, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
+    await check({ removeInvitationMembership, restoreChatNotifications, configureEmail, capturedEmails, origin, orgId, date, browser, pass, crewChatPass, planningChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, resetTokens: passwordReset ? resetTokens : undefined, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
   } catch (error) {
     // Configuration contains only disposable fixture secrets; redact them anyway.
     console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]").replaceAll(companionSecret, "[fixture secret]").replaceAll(encryptionSecret, "[fixture secret]"));
