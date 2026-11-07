@@ -1,7 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Activity, Captions, ChevronLeft, ChevronRight, CircleStop, Clock3, ExternalLink, MonitorOff, MonitorUp, Play, RadioTower, RotateCcw, TimerReset, Wifi, WifiOff } from "lucide-react";
-import { getLiveInputStatus } from "@/lib/stream";
+import { useLiveInputHealth } from "@/hooks/useLiveInputHealth";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { getTmControlState, runTmControl, type TmControlAction, type TmControlState } from "@/lib/tm-operations";
 import { useShowEndConfirmation } from "@/hooks/useShowEndConfirmation";
 
@@ -26,51 +27,22 @@ export function TmOperations(props: { orgId: string; slug: string; inputs: Input
   );
 }
 
-function StreamHealthPanel({ orgId, slug, inputs, destinations, compact }: { orgId: string; slug: string; inputs: Input[]; destinations: Destination[]; compact: boolean }) {
-  const [statuses, setStatuses] = useState<Record<string, string>>(() => Object.fromEntries(inputs.map((item) => [item.id, item.status])));
-  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
-  useEffect(() => {
-    if (!inputs.length) return;
-    let active = true;
-    let polling = false;
-    const poll = async () => {
-      if (document.visibilityState !== "visible" || polling) return;
-      polling = true;
-      try {
-        const results = await Promise.all(inputs.map(async (input) => {
-          try { return [input.id, (await getLiveInputStatus({ data: { orgId, inputId: input.id } }))?.status ?? input.status] as const; }
-          catch { return [input.id, input.status] as const; }
-        }));
-        if (active) { setStatuses(Object.fromEntries(results)); setUpdatedAt(Date.now()); }
-      } finally {
-        polling = false;
-      }
-    };
-    void poll();
-    const timer = window.setInterval(poll, 10_000);
-    const pollWhenVisible = () => {
-      if (document.visibilityState === "visible") void poll();
-    };
-    document.addEventListener("visibilitychange", pollWhenVisible);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", pollWhenVisible);
-    };
-  }, [inputs, orgId]);
-  const live = inputs.filter((input) => statuses[input.id] === "streaming").length;
-  const enabled = destinations.filter((destination) => destination.enabled);
-  const connected = enabled.filter((destination) => destination.connected).length;
-  const healthy = inputs.length > 0 && live > 0 && (enabled.length === 0 || connected === enabled.length);
+export function StreamHealthPanel({ orgId, slug, inputs, destinations, compact }: { orgId: string; slug: string; inputs: Input[]; destinations: Destination[]; compact: boolean }) {
+  const health = useLiveInputHealth(orgId, inputs);
+  const status = (id: string) => health.error ? "unknown" : health.value[id]?.status ?? "unknown";
+  const live = inputs.filter(input => status(input.id) === "streaming").length;
+  const enabled = destinations.filter(destination => destination.enabled);
+  const connected = enabled.filter(destination => destination.connected).length;
+  const healthy = live > 0 && !health.failure;
   const hasRows = inputs.length > 0 || enabled.length > 0;
-  const telemetryTime = updatedAt
-    ? new Date(updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-    : "Waiting";
+  const telemetryTime = health.confirmedAt ? new Date(health.confirmedAt).toLocaleTimeString() : "No confirmed check";
+  const telemetry = !inputs.length ? "No inputs" : health.failure ? "Unknown" : health.confirmedAt ? "Checked" : health.refreshing ? "Checking" : "Unknown";
   return <section className={`overflow-hidden rounded-xl border border-board-border bg-board-card ${compact ? "lg:grid lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]" : ""}`}>
-    <header className={`flex items-center gap-3 px-4 py-3 ${compact ? "border-b border-board-border lg:border-b-0 lg:border-r" : "border-b border-board-border"}`}><span className={`w-9 h-9 rounded-lg flex items-center justify-center ${healthy ? "bg-green-500/10 text-green-400" : "bg-yellow-400/10 text-yellow-300"}`}><Activity className="w-4 h-4" /></span><div><h2 className="text-xs font-semibold text-board-text">Live stream</h2><p className="text-[11px] text-board-muted mt-0.5">{compact && !hasRows ? "No inputs or destinations configured" : "Inputs and delivery · refreshes every 10 seconds"}</p></div><Link to={`/${slug}/streaming/health` as never} className="ml-auto inline-flex items-center gap-1 text-[11px] text-board-muted hover:text-board-text">Diagnostics <ExternalLink className="w-3 h-3" /></Link></header>
+    <header className={`flex items-center gap-3 px-4 py-3 ${compact ? "border-b border-board-border lg:border-b-0 lg:border-r" : "border-b border-board-border"}`}><span className={`w-9 h-9 rounded-lg flex items-center justify-center ${healthy ? "bg-green-500/10 text-green-400" : "bg-yellow-400/10 text-yellow-300"}`}><Activity className="w-4 h-4" /></span><div><h2 className="text-xs font-semibold text-board-text">Live stream</h2><p className="text-[11px] text-board-muted mt-0.5">{compact && !hasRows ? "No inputs or destinations configured" : "Input health and saved destination configuration"}</p></div><Link to={`/${slug}/streaming/health` as never} className="ml-auto min-h-11 inline-flex items-center gap-1 text-[11px] text-board-muted hover:text-board-text">Diagnostics <ExternalLink className="w-3 h-3" /></Link></header>
     <div>
-      <div className={`grid grid-cols-3 ${hasRows ? "border-b border-board-border" : ""}`}><HealthMetric label="Inputs live" value={`${live}/${inputs.length}`} good={live > 0} /><HealthMetric label="Destinations" value={`${connected}/${enabled.length}`} good={enabled.length === 0 || connected === enabled.length} /><HealthMetric label="Telemetry" value="Online" good detail={telemetryTime} /></div>
-      {hasRows ? <div className="divide-y divide-board-border/60">{inputs.map((input) => <HealthRow key={input.id} name={input.name} detail="Live input" status={statuses[input.id] ?? input.status} />)}{enabled.map((destination) => <HealthRow key={destination.id} name={destination.name} detail={destination.platform} status={destination.connected ? "connected" : "idle"} />)}</div> : null}
+      <div className={`grid grid-cols-1 sm:grid-cols-3 ${hasRows ? "border-b border-board-border" : ""}`}><HealthMetric label="Inputs live" value={`${live}/${inputs.length}`} good={live > 0} /><HealthMetric label="Configured outputs" value={`${connected}/${enabled.length}`} good={enabled.length === 0 || connected === enabled.length} /><HealthMetric label="Input check" value={telemetry} good={!!health.confirmedAt && !health.failure} detail={telemetryTime} /></div>
+      <ReadFailureNotice error={health.failure} refreshing={health.refreshing} retry={health.retry} label="Retry input health" />
+      {hasRows ? <div className="divide-y divide-board-border/60">{inputs.map((input) => <HealthRow key={input.id} name={input.name} detail="Live input" status={status(input.id)} />)}{enabled.map((destination) => <HealthRow key={destination.id} name={destination.name} detail={destination.platform} status={destination.connected ? "configured" : "not configured"} />)}</div> : null}
     </div>
   </section>;
 }

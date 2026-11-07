@@ -1,3 +1,4 @@
+import { getD1 } from "./d1";
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { getPrisma } from "@/lib/db";
 import { env } from "cloudflare:workers";
@@ -229,18 +230,13 @@ export const getOutputStatuses = createServerFn({ method: "GET" })
 // active live input; resolveOrgLiveInput mirrors that.
 
 /** The org's active live input (oldest), or null when none is configured. */
-export async function resolveOrgLiveInput(
+export const resolveOrgLiveInput = createServerOnlyFn(async (
   orgId: string,
-): Promise<{ id: string; cfInputId: string } | null> {
-  const prisma = getPrisma();
-  const li = await prisma.liveInput.findFirst({
-    where: { orgId },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, cfInputId: true },
-  });
-  if (!li || !li.cfInputId) return null;
-  return { id: li.id, cfInputId: li.cfInputId };
-}
+): Promise<{ id: string; cfInputId: string } | null> => {
+  return getD1().prepare(`SELECT i.id,i.cfInputId FROM live_input i WHERE i.orgId=? AND i.cfInputId<>'' AND i.cfInputId NOT LIKE 'pending:%'
+    AND NOT EXISTS(SELECT 1 FROM stream_input_lifecycle l WHERE l.orgId=i.orgId AND l.inputId=i.id AND (l.desired<>'active' OR l.phase<>'ready'))
+    ORDER BY i.createdAt ASC,i.id ASC LIMIT 1`).bind(orgId).first<{id:string;cfInputId:string}>();
+});
 
 /** Caller gates current authority; receipt replay does not bypass that check. */
 export const connectDestinationsForOrg = createServerOnlyFn(async (

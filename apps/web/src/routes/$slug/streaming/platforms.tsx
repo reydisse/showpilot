@@ -157,7 +157,8 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
   const [reviewingOutputs, setReviewingOutputs] = useState(false);
   const activeCount = destinations.filter((d) => d.enabled).length;
   const connectedCount = destinations.filter((d) => d.cfOutputId).length;
-  const hasInputs = inputs.length > 0;
+  const readyInputs = inputs.filter(input => input.setupState === "ready");
+  const hasInputs = readyInputs.length > 0;
   const outputKey = JSON.stringify([orgId, destinations.map(destination => [destination.id, destination.cfOutputId, destination.liveInputId])]);
   const readOutputs = useCallback((signal: AbortSignal) => getOutputStatuses({ data: { orgId }, signal }), [orgId]);
   const outputRead = useOperatorRead<Record<string, StreamOutputStatus>>({
@@ -212,7 +213,7 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
   const handleGoLive = async () => {
     if (!hasInputs || controlsDisabled) return;
     const selected = destinations.filter(destination => destination.enabled);
-    const liveInput = inputs[0];
+    const liveInput = readyInputs[0];
     const targets = selected.map(destination => ({ id: destination.id, version: destination.outputVersion }));
     if (!await confirm({ title: "Go live to these destinations?", description: `${liveInput.name} will forward to ${selected.map(destination => destination.name).join(", ")}. Check that your encoder is sending the intended program.`, confirmLabel: "Go Live", variant: "warning" })) return;
     void outputWrites.start({

@@ -6667,13 +6667,13 @@ async function mobileStreaming(
     canManage: hasAny(access.identity, ["stream_health:manage"]),
     inputs: inputRows.map((row, index) => ({
       ...row,
-      ...(liveStatuses[index] ?? {}),
+      ...(liveStatuses[index] ?? { status: "unknown", error: "This input is no longer available. Refresh streaming." }),
     })),
     destinations: (destinations.results ?? []).map((row) => ({
       ...row,
       enabled: Boolean(row.enabled),
       connected:
-        typeof row.cfOutputId === "string" && row.cfOutputId.length > 0,
+        typeof row.cfOutputId === "string" && row.cfOutputId.length > 0 && !row.cfOutputId.startsWith("pending:"),
       hasStreamKey: Boolean(row.hasStreamKey),
     })),
   });
@@ -7008,7 +7008,7 @@ async function mobileDashboard(
     destinations: (destinations.results ?? []).map((row) => ({
       ...row,
       enabled: Boolean(row.enabled),
-      connected: Boolean(row.cfOutputId),
+      connected: typeof row.cfOutputId === "string" && row.cfOutputId.length > 0 && !row.cfOutputId.startsWith("pending:"),
     })),
     devices: (devices.results ?? []).map((row) => ({
       ...row,

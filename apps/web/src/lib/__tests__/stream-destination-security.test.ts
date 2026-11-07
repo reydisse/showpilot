@@ -45,6 +45,6 @@ describe("stream destination security", () => {
 
   it("fails closed when Cloudflare refuses live-input deletion", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ errors: [{ message: "live input still active" }] }), { status: 409 }));
-    await expect(deleteCfLiveInput("cf-input-1")).rejects.toThrow("live input still active");
+    await expect(deleteCfLiveInput("cf-input-1")).rejects.toThrow("The streaming provider did not confirm this request");
   });
 });

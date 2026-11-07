@@ -19,11 +19,12 @@ function requiresFragments(path, fragments) {
 test("screen-bound web polling pauses while hidden and cannot overlap", () => {
   const contracts = [
     ["apps/web/src/hooks/useProPresenter.ts", ["document.visibilityState", "request !== current", "controller.abort()"]],
-    ["apps/web/src/components/dashboard/tm-operations.tsx", ["document.visibilityState", "polling", "refreshInFlightRef"]],
+    ["apps/web/src/components/dashboard/tm-operations.tsx", ["document.visibilityState", "useLiveInputHealth", "refreshInFlightRef"]],
     ["apps/web/src/components/layout/NotificationCenter.tsx", ["document.visibilityState", "refreshInFlightRef"]],
     ["apps/web/src/components/layout/LiveRundownBar.tsx", ["document.visibilityState", "refreshing"]],
     ["apps/web/src/routes/$slug/schedule.tsx", ["document.visibilityState", "refreshing"]],
-    ["apps/web/src/routes/$slug/streaming/health.tsx", ["document.visibilityState", "polling"]],
+    ["apps/web/src/routes/$slug/streaming/health.tsx", ["useLiveInputHealth", "useOperatorRead"]],
+    ["apps/web/src/hooks/useLiveInputHealth.ts", ["useOperatorRead", "signal", "key", "intervalMs: 10_000"]],
     ["apps/web/src/routes/$slug/streaming/platforms.tsx", ["useOperatorRead", "signal", "key: outputKey"]],
     ["apps/web/src/routes/$slug/show.tsx", ["useOperatorRead", "signal", "key: `${orgId}:${today}`"]],
     ["apps/web/src/hooks/useOperatorRead.ts", ["document.visibilityState", "request !== current", "controller.abort()"]],
