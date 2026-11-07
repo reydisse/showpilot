@@ -63,9 +63,14 @@ export function redactStreamDestination<T extends { streamKey: string }>(
   return { ...safeDestination, hasStreamKey: streamKey.trim().length > 0 };
 }
 
-export function normalizeCfOutputStatus(output: { enabled?: boolean } | null | undefined): { status: string } {
+export type StreamOutputStatus =
+  | { status: "enabled" | "disabled" | "missing" | "unconfirmed" }
+  | { status: "unknown"; error: string };
+
+export function normalizeCfOutputStatus(output: { enabled?: boolean } | null | undefined): StreamOutputStatus {
   if (!output) return { status: "missing" };
-  return { status: output.enabled === true ? "enabled" : "disabled" };
+  if (typeof output.enabled !== "boolean") return { status: "unknown", error: "The provider did not report whether this output is enabled." };
+  return { status: output.enabled ? "enabled" : "disabled" };
 }
 
 export const addStreamDestination = createServerFn({ method: "POST" })
@@ -326,67 +331,80 @@ async function deleteCfOutput(cfInputId: string, cfOutputId: string): Promise<vo
   }
 }
 
-/** Check Stream Connect output status for all connected destinations */
+const outputListSchema = z.object({
+  success: z.literal(true).optional(),
+  result: z.array(z.object({ uid: z.string().min(1), enabled: z.boolean().optional() })),
+});
+
+async function readCfOutputStates(cfInputId: string): Promise<z.infer<typeof outputListSchema>["result"]> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      (async () => {
+        const response = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${getAccountId()}/stream/live_inputs/${encodeURIComponent(cfInputId)}/outputs`,
+          { headers: getCfHeaders(), signal: controller.signal },
+        );
+        if (!response.ok) throw new Error("Output status is unavailable. Retry to check the provider.");
+        const parsed = outputListSchema.safeParse(await response.json());
+        if (!parsed.success) throw new Error("The provider returned an unreadable output status. Retry to check again.");
+        return parsed.data.result;
+      })(),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error("Output status did not arrive within five seconds. Retry to check the provider."));
+        }, 5_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
+  }
+}
+
+/** Read each input once. A slow or failed provider read cannot fabricate live state. */
 export const getOutputStatuses = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
-  .handler(async ({ data }) => {
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
+  .handler(async ({ data }): Promise<Record<string, StreamOutputStatus>> => {
     await assertOrgPermission(data.orgId, "stream_health:view");
     const prisma = getPrisma();
     const destinations = await prisma.streamDestination.findMany({
       where: { orgId: data.orgId, cfOutputId: { not: "" } },
+      select: { id: true, cfOutputId: true, liveInputId: true },
     });
-
-    if (destinations.length === 0) return {};
-
-    const accountId = getAccountId();
-    const headers = getCfHeaders();
-    const statuses: Record<string, { status: string; error?: string }> = {};
-
-    for (const dest of destinations) {
-      const liveInput = await prisma.liveInput.findFirst({
-        where: { id: dest.liveInputId, orgId: data.orgId },
-      });
-      if (!liveInput?.cfInputId || !dest.cfOutputId) {
-        statuses[dest.id] = { status: "unknown" };
+    if (!destinations.length) return {};
+    const inputs = await prisma.liveInput.findMany({
+      where: { orgId: data.orgId, id: { in: [...new Set(destinations.map(destination => destination.liveInputId))] } },
+      select: { id: true, cfInputId: true },
+    });
+    const states: Record<string, StreamOutputStatus> = {};
+    const groups = new Map<string, typeof destinations>();
+    for (const destination of destinations) {
+      if (destination.cfOutputId.startsWith(OUTPUT_PENDING_PREFIX)) {
+        states[destination.id] = { status: "unconfirmed" };
         continue;
       }
-
-      try {
-        // Fetch the specific output to check its connection status
-        const res = await fetch(
-          `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/live_inputs/${liveInput.cfInputId}/outputs`,
-          { headers }
-        );
-
-        if (!res.ok) {
-          statuses[dest.id] = { status: "unknown" };
-          continue;
-        }
-
-        const cfData = (await res.json()) as {
-          result: Array<{
-            uid: string;
-            url: string;
-            enabled?: boolean;
-          }>;
-        };
-
-        const output = cfData.result?.find((o) => o.uid === dest.cfOutputId);
-        if (!output) {
-          statuses[dest.id] = { status: "missing" };
-          continue;
-        }
-
-        // Cloudflare's documented output contract exposes configuration and
-        // enabled state, not destination connection health. Never infer Live
-        // or Connecting from fields the provider does not promise.
-        statuses[dest.id] = normalizeCfOutputStatus(output);
-      } catch {
-        statuses[dest.id] = { status: "unknown" };
+      const input = inputs.find(input => input.id === destination.liveInputId);
+      if (!input?.cfInputId) {
+        states[destination.id] = { status: "unknown", error: "The configured live input is unavailable. Review the saved destination." };
+        continue;
       }
+      const group = groups.get(input.cfInputId) ?? [];
+      group.push(destination);
+      groups.set(input.cfInputId, group);
     }
-
-    return statuses;
+    await Promise.all([...groups].map(async ([cfInputId, group]) => {
+      try {
+        const outputs = await readCfOutputStates(cfInputId);
+        for (const destination of group) states[destination.id] = normalizeCfOutputStatus(outputs.find(output => output.uid === destination.cfOutputId));
+      } catch {
+        // Do not forward arbitrary provider/network text, which may contain credentials.
+        for (const destination of group) states[destination.id] = { status: "unknown", error: "Could not confirm this output's status. Retry to check the provider." };
+      }
+    }));
+    return states;
   });
 
 // ─── Reusable cores (no session auth — caller gates access) ──
