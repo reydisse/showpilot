@@ -3258,3 +3258,31 @@ not a full page reload. The server revision check protects request preparation;
 it is not a client revision protocol for long-lived concurrent/offline edits.
 Other product-wide mutation/confirmation requirements and the Phase 2 gate
 remain open. No production migration, deployment or native release was run.
+
+
+## Empty library entry actions (2026-11-07)
+
+Stream, Audio, Devices and Multi-Platform now show their header creation action
+only when their list has entries. An empty library keeps its single in-context
+primary action; Multi-Platform also hides the unusable Go Live control until a
+destination exists. Songs and Lower Thirds already used this header rule. Shared
+empty-state buttons now have a 44px minimum height and visible keyboard focus.
+Board's Add Team Members link goes directly to Team instead of the admin alias.
+
+After building the web app, run:
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-library-empty-actions.mjs`
+
+The rehearsal uses actual Chrome, local authentication and a disposable D1. It
+opens the populated graphic editor, confirms removal of the last fixture graphic,
+then checks all seven empty screens at 320/768/1440px. It counts their primary
+entry actions, checks target size and hit-testing, opens/closes their actual
+forms and follows Board to the rendered Team screen. The pre-change audit
+reproduced duplicate controls on the four repaired screens. No Stream creation
+is submitted, no paid ingest is provisioned, and no real organization is changed.
+The three phone screenshots inspected for Stream, Audio and Multi-Platform show
+one reachable primary action. This verifies the empty entry points, not the
+remaining product-wide dialog, mutation, keyboard or responsive requirements.
+
+Full web validation passed 2,176 unit tests and 843 Worker tests, along with
+typecheck and the production build. No deployment or native release was run.

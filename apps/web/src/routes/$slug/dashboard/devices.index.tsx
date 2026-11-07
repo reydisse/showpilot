@@ -134,16 +134,18 @@ function DevicesPage() {
               Manage connected devices and integrations
             </p>
           </div>
-          <button
-            onClick={() => {
-              setEditDevice(null);
-              setShowForm(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-fire-500 text-black text-sm font-semibold hover:bg-fire-600 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add Device
-          </button>
+          {devices.length > 0 && (
+            <button
+              onClick={() => {
+                setEditDevice(null);
+                setShowForm(true);
+              }}
+              className="flex min-h-11 items-center gap-2 px-4 py-2 rounded-xl bg-fire-500 text-black text-sm font-semibold hover:bg-fire-600 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Add Device
+            </button>
+          )}
         </div>
       </div>
 
