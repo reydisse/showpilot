@@ -1,18 +1,11 @@
-// Download buttons stay inert until the Worker confirms a published R2
-// release. This prevents private GitHub links and half-uploaded artifacts
-// from becoming public 404s.
+// Static links work without this script. The Worker checks publication before
+// streaming an artifact or redirecting to an official store. This request only
+// adds version/availability details; failure must never disable the links.
 (function () {
   var buttons = Array.prototype.slice.call(
     document.querySelectorAll("[data-download-id]"),
   );
   if (!buttons.length) return;
-
-  buttons.forEach(function (button) {
-    button.addEventListener("click", function (event) {
-      if (button.getAttribute("aria-disabled") === "true")
-        event.preventDefault();
-    });
-  });
 
   function formatBytes(bytes) {
     if (!Number.isFinite(bytes) || bytes <= 0) return "DOWNLOAD";
@@ -21,11 +14,18 @@
     );
   }
 
-  fetch("/downloads/manifest.json", { headers: { Accept: "application/json" } })
-    .then(function (response) {
-      if (!response.ok) throw new Error("release manifest unavailable");
-      return response.json();
-    })
+  var controller = new AbortController();
+  var timeout = setTimeout(function () { controller.abort(); }, 8000);
+  Promise.race([
+    fetch("/downloads/manifest.json", { headers: { Accept: "application/json" }, signal: controller.signal })
+      .then(function (response) {
+        if (!response.ok) throw new Error("release manifest unavailable");
+        return response.json();
+      }),
+    new Promise(function (_, reject) {
+      controller.signal.addEventListener("abort", function () { reject(new Error("release check timed out")); }, { once: true });
+    }),
+  ])
     .then(function (manifest) {
       var releases = Array.isArray(manifest.releases) ? manifest.releases : [];
       var byId = new Map(
@@ -37,12 +37,9 @@
         var release = byId.get(button.getAttribute("data-download-id"));
         var meta = button.querySelector("small");
         if (!release || typeof release.downloadUrl !== "string") {
-          if (meta) meta.textContent = "NOT YET PUBLIC";
+          if (meta) meta.textContent = "NOT YET PUBLIC · VIEW OPTIONS";
           return;
         }
-        button.href = release.downloadUrl;
-        button.classList.remove("is-unavailable");
-        button.removeAttribute("aria-disabled");
         if (meta)
           meta.textContent =
             String(release.version).toUpperCase() +
@@ -97,7 +94,8 @@
         });
       buttons.forEach(function (button) {
         var meta = button.querySelector("small");
-        if (meta) meta.textContent = "CHECK BACK SOON";
+        if (meta) meta.textContent = "CHECK AVAILABILITY";
       });
-    });
+    })
+    .finally(function () { clearTimeout(timeout); });
 })();
