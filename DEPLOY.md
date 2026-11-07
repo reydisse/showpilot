@@ -480,6 +480,23 @@ missing entities, service rejection, timeout/late reply, kill switch and Bridge
 handoff. The command-golden requirement is verified; the remaining Phase 2
 requirements and hardware acceptance are still open.
 
+### Relay failure tests
+
+The isolated Worker test configuration binds both lower-thirds and cue-sheet
+fault wrappers. Successful requests still use the production relays, authority
+checks, sockets and persistent revision state. Test-only endpoints are exported
+only from `src/test/worker-entry.ts`, never from the deployed Worker.
+
+The timecode execution suite verifies actual lower-third dispatch and injected
+503 failures for Show and Clear, including the redacted failed display state.
+The cue-sheet regression keeps an injected broadcast outage across relay eviction,
+checks that it publishes no event and advances no revision, restores delivery,
+and then rejects a revoked member through the production permission check.
+
+With both wrappers bound, the full web suite passed 1,961 unit tests and 729
+Worker tests; web typecheck passed. This follow-up changes only tests and their
+configuration. The production build and browser verification above remain valid.
+
 ### Timecode label validation
 
 `parseTimecodeString` now requires the selected format. It rejects frame numbers
