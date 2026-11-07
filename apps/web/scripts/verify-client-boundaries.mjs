@@ -174,7 +174,7 @@ const serverPermissionContracts = [
   ["src/lib/data.ts", "updateMicAssignment", /assertEffectiveOrgPermission\(data\.orgId, "dashboard:tm"\)[\s\S]+WHERE id=\? AND orgId=\?[\s\S]+data\.id,\s*data\.orgId/],
   ["src/lib/data.ts", "deleteMicAssignment", /assertEffectiveOrgPermission\(data\.orgId, "dashboard:tm"\)[\s\S]+WHERE id=\? AND orgId=\?[\s\S]+data\.id,\s*data\.orgId/],
   ["src/lib/settings.ts", "getOrgSettings", /readMemberVisibleOrgSettings\(getD1\(\), data\.orgId\)/],
-  ["src/lib/lowerthirds.ts", "resetLowerThirdLibrary", /assertOrgPermission\(data\.orgId, "lowerthird:configure"\)/],
+  ["src/lib/lowerthirds.ts", "resetLowerThirdLibrary", /assertOrgPermission\(data\.orgId, "settings:danger_zone"\)/],
   ["src/lib/ontime.ts", "getOntimeState", /assertOrgPermission\(data\.orgId, "show:view"\)/],
   ["src/lib/ontime.ts", "testOntimeConnection", /assertOrgPermission\(data\.orgId, "settings:integrations"\)/],
   ["src/lib/chat-proxy.ts", "testChatConnection", /assertOrgPermission\(data\.orgId, "settings:integrations"\)/],

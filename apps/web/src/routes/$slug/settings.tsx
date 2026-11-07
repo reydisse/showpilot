@@ -71,7 +71,7 @@ import { testChatConnection } from "@/lib/chat-proxy";
 import { testProPresenterConnection } from "@/lib/rundown";
 import { testOntimeConnection } from "@/lib/ontime";
 import { deleteOrganization } from "@/lib/org-deletion";
-import { resetLowerThirdLibrary } from "@/lib/lowerthirds";
+import { ResetSavedGraphics } from "@/components/settings/ResetSavedGraphics";
 import { hasAnyPermission, hasPermission, isAdminTier } from "@/lib/app-permissions";
 import { ROLE_META } from "@/lib/permissions";
 import {
@@ -1782,9 +1782,6 @@ function DangerSection({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<null | "lowerthirds">(null);
-  const [confirmingDangerAction, setConfirmingDangerAction] = useState<null | "lowerthirds">(null);
-  const [dangerActionError, setDangerActionError] = useState<string | null>(null);
   const handleDeleteOrganization = async () => {
     setDeleting(true);
     setDeleteError(null);
@@ -1803,20 +1800,6 @@ function DangerSection({
     }
   };
 
-  const handleResetLowerThirds = async () => {
-    setBusy("lowerthirds");
-    setDangerActionError(null);
-    try {
-      await resetLowerThirdLibrary({ data: { orgId: org.id } });
-      setConfirmingDangerAction(null);
-    } catch (error) {
-      setDangerActionError(error instanceof Error ? error.message : "Lower thirds could not be reset.");
-    } finally {
-      setBusy(null);
-    }
-  };
-
-
   return (
     <div>
       <SectionHeader
@@ -1824,52 +1807,11 @@ function DangerSection({
         description="Irreversible and destructive actions"
       />
       <div className="space-y-4">
-        {/* Invite form */}
-        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-board-text">
-                Reset all lower thirds
-              </p>
-              <p className="text-xs text-board-muted">
-                Clear all saved graphic templates
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setDangerActionError(null);
-                setConfirmingDangerAction("lowerthirds");
-              }}
-              disabled={busy !== null}
-              className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className="w-3 h-3" />
-              Reset
-            </button>
-          </div>
-          {confirmingDangerAction === "lowerthirds" ? (
-            <div role="alertdialog" aria-labelledby="confirm-reset-lower-thirds" className="mt-4 border-t border-red-500/20 pt-4">
-              <p id="confirm-reset-lower-thirds" className="text-xs leading-5 text-board-muted">
-                This removes every saved lower-third template. Continue?
-              </p>
-              {dangerActionError ? (
-                <p role="alert" className="mt-2 text-xs text-red-400">{dangerActionError}</p>
-              ) : null}
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end">
-                <button type="button" disabled={busy !== null} onClick={() => setConfirmingDangerAction(null)} className="rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-muted transition-colors hover:bg-board-border/50 disabled:opacity-50">Cancel</button>
-                <button type="button" disabled={busy !== null} onClick={() => void handleResetLowerThirds()} className="flex items-center justify-center gap-1.5 rounded-lg bg-red-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-50">
-                  <RefreshCw className={`w-3 h-3 ${busy === "lowerthirds" ? "animate-spin" : ""}`} />
-                  {busy === "lowerthirds" ? "Resetting..." : "Reset lower thirds"}
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
+        <ResetSavedGraphics orgId={org.id} orgName={org.name} userId={user.id} disabled={deleting} />
 
-        <ClearChatHistory orgId={org.id} orgName={org.name} userId={user.id} disabled={busy !== null || deleting} />
+        <ClearChatHistory orgId={org.id} orgName={org.name} userId={user.id} disabled={deleting} />
 
-        <ShowReportExport key={org.id} orgId={org.id} slug={org.slug} disabled={busy !== null || deleting} />
+        <ShowReportExport key={org.id} orgId={org.id} slug={org.slug} disabled={deleting} />
 
         {/* Invite form */}
         <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4">
