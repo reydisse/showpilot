@@ -119,7 +119,7 @@ export async function withRealBrowser({ origin, cookie }, check) {
     const target = targets.find((target) => target.type === "page");
     assert.ok(target);
     page = await connect(target.webSocketDebuggerUrl);
-    for (const entry of cookie.split(";")) {
+    for (const entry of cookie ? cookie.split(";") : []) {
       const index = entry.indexOf("=");
       assert.ok(index > 0);
       const result = await page.send("Network.setCookie", {

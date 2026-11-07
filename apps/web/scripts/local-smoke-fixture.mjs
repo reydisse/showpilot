@@ -12,7 +12,7 @@ import { hashPassword } from "better-auth/crypto";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, unverifiedOperator = false, paidPlan = false, damagedGraphicScenes = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, paidPlan = false, damagedGraphicScenes = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "showpilot-display-smoke-"));
   const session = `display-smoke-${process.pid}`;
   const secret = randomUUID();
@@ -116,6 +116,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     const seed = `
   INSERT INTO organization (id,name,slug,createdAt) VALUES ('display-smoke','Display fixture','display-smoke',CURRENT_TIMESTAMP), ('display-other','Other fixture','display-other',CURRENT_TIMESTAMP);
   ${damagedScenesSeed}
+  ${publicCheckInMembers ? "INSERT INTO crew_member(id,orgId,memberId,name,role,email,photoUrl,isOnline) VALUES ('fixture-attendance-one','display-smoke','TD3917','Previous fixture person','Director','','',0),('fixture-attendance-two','display-smoke','CAM42','Next fixture person','Camera','','',0),('fixture-attendance-other','display-other','TD3917','Other organization person','Director','','',0);" : ""}
   ${dateOnlyIncident ? "INSERT INTO incident(id,orgId,category,severity,description,reportedBy,serviceDate) VALUES ('smoke-date-incident','display-smoke','audio','high','Date-only fixture incident','Mobile fixture','2000-01-01');" : ""}
   ${paidPlan ? "UPDATE organization SET plan = 'pro' WHERE id = 'display-smoke';" : ""}
   INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-operator','Fixture operator','operator@display-smoke.invalid',1,CURRENT_TIMESTAMP);

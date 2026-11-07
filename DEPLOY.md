@@ -366,6 +366,46 @@ locale and America/Toronto timezone. The organization Created date now uses an
 explicit locale and UTC, fixing a reproduced server/client hydration mismatch.
 Deployment and production verification remain pending.
 
+### Public check-in identity and attendance recovery
+
+Public `/checkin/:slug` no longer reads or restores a member ID from local
+storage. It removes the legacy saved ID when the page opens. Every visit requires
+a fresh member-ID lookup followed by an explicit name and attendance
+confirmation. Completed identity screens clear after 15 seconds; an abandoned
+confirmation clears after 60 seconds. Done and Not me clear the current identity
+immediately. A missing organization renders an explanation instead of redirecting
+to sign-in or Show Flow.
+
+Lookup and attendance writes have ten-second confirmation deadlines. Errors and
+timestamps persist with Retry, and a late response cannot replace the recovery
+screen. Leaving or starting over with an uncertain write requires confirmation.
+The existing public member-ID model and address/member rate limits remain in
+place; this change does not introduce a PIN or an authenticated kiosk session.
+
+Attendance writes now require a request ID and a revision from the fresh lookup.
+The revision covers the crew record identity, attendance and check-in/out times.
+D1 atomically records the outcome and conditionally changes attendance. Replaying
+a committed request returns its receipt and current attendance without repeating
+the change. Stale lookups and replaced crew records are rejected. Keep
+`public-attendance:*` receipts for the lifetime of the organization so an old
+request cannot become a new operation. Generic Settings cannot edit these keys.
+No schema migration or new secret is required. Old open check-in pages must
+reload after the client/Worker deployment because unconditional writes are rejected.
+The separate signed-in/mobile attendance APIs are unchanged.
+
+Run `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-public-checkin.mjs`
+after building. It creates disposable crew members and uses a browser without an
+auth cookie. The rehearsal checks legacy-storage privacy, explicit identity
+confirmation, lookup timeout/retry, a committed but lost check-in response,
+subsequent check-out, exact Retry, the next person's entry, discard cancellation,
+automatic identity clearing and missing/malformed organization links. It then inspects D1 for
+three unique receipts, correct final attendance and an unchanged second org.
+
+Local verification passed 1,899 unit tests, 706 Worker tests, typecheck, production
+build and the anonymous browser rehearsal. No browser errors occurred. Recovery
+controls passed at 320/768/1440px, and the actual 320px error and success screenshots
+were inspected. Deployment and production verification remain pending.
+
 ### Organization credential encryption
 
 Credential-valued organization settings now encrypt on write. The Settings
