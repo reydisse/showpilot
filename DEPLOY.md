@@ -4254,3 +4254,55 @@ or notification-provider call occurred. Phase 2 remains 46/79; the complete
 Settings-specific and product-wide gates remain open. Twenty necessary tracked
 Markdown files remain. Parent #200 at 48d81887c458b405e2690f78a6634864a3060ff1
 passed both jobs in GitHub run 42413363800 before this draft PR is opened.
+
+## Settings report export recovery and Settings-specific audit (2026-11-07, not deployed)
+
+The compiled browser reproduced an unbounded show-list spinner in Danger Zone
+export. Report preparation also had no deadline; its hand-built modal lacked
+Escape/focus management, the show select was unlabeled, and a missing selection
+could silently fall back to the first show. These are now handled by a dedicated
+ShowReportExport component using the shared Dialog and bounded read hook.
+
+Show-list reads finish with data or an eight-second error and Retry. Report reads
+and file encoding share a ten-second deadline. Failures preserve the selected
+show, format and sections. Close, Escape, route unmount and timeout cancel the
+request; late replies cannot start a download or dismiss a newer dialog. A show
+that disappears requires a new explicit selection. The copy describes selecting
+a saved show by name/date rather than implying a calendar picker or past-only
+filter. Form controls have labels, native radio/checkbox semantics and 44px
+click targets. The dialog scrolls within short/narrow windows and restores focus.
+
+File serialization is extracted without changing existing JSON/CSV/Excel section
+selection or spreadsheet-safe CSV escaping. Downloads now include the stable
+show ID in their filenames, and JSON/CSV metadata includes showId, so two shows
+on one date remain distinguishable. The server still checks organization access
+and the exact show/date; export performs reads and browser file generation.
+
+Validation: eight recovery component tests; full web suite 2,262 unit and 1,029
+Worker tests; web typecheck and production build all pass. Main bundle remains
+551,383 raw / 174,350 gzip bytes within the existing limits. The baseline compiled
+browser failed waiting for bounded list recovery; the final
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-settings-export.mjs`
+passes with real auth and disposable D1. It withholds list/report replies,
+recovers the selected same-date show, rejects late/canceled downloads, checks
+focus trapping/Escape/return, and measures controls at 320/768/1440px. Actual JSON,
+CSV and Excel files downloaded through Chrome were read from disk; their contents
+contain only the selected show's segment and omit the unchecked Crew section.
+The Excel ZIP's XML was inspected. Final fixture audit confirms both shows remain
+and the other org has no rundown rows. Phone screenshot inspected.
+
+The first layout check measured during the dialog animation; the browser script
+now waits for settled animations before measuring. A subsequent reopen clicked
+through a closing overlay; clicks now wait for hit testing to confirm the target
+is reachable. These were observation fixes, with no production timeout or target
+size relaxed. The final run also verifies unique Integration Connect accessible
+names, distinct general autosave/Confidence Apply guidance, the visible Webhook
+URL Save button, and the overlay/QR explanation through in-app section changes.
+Together with the Billing/timezone and notification browser evidence above, all
+eight clauses of the Settings-specific requirement are now verified. Phase 2 is
+47/79. Broader loading, mutation, confirmation and UX gates remain open, including
+Danger Zone destructive actions; this export fix does not certify those actions.
+
+No migration, deployment, native release, production data change or external
+provider call. Twenty necessary tracked Markdown files remain. Stacked on draft
+#201; do not open the export PR until #201 CI run 42415959635 passes.
