@@ -890,6 +890,56 @@ The production build passed its client budgets. Existing rundown recovery and
 team form rehearsals also passed against that build, including real local D1
 saves and captured invitation delivery. No deployment or external email occurred.
 
+### Setup Back, Exit and Resume
+
+Setup now has Back and Exit controls. Back keeps custom workspace fields and
+team rows in this tab. Revisiting the organization step shows its saved identity
+instead of a second creation form. The header reflects the six steps, including
+reviewing an existing rundown result. Exit describes saved versus unsaved data;
+Cancel retains drafts, while confirmation opens the workspace without marking
+setup complete. Browser Back uses the same confirmation for unsaved work, and
+closing or reloading a dirty tab uses the browser's unload warning.
+
+Owners can resume unfinished setup from Settings → Workspace. That link reads
+the selected organization's progress with an eight-second deadline, cancellation,
+and an explicit read-only retry. Completed setups and nonowners get no resume
+link. Reload resumes saved progress; it does not retain unsaved form entries.
+
+Late role/workspace replies cannot advance after Back or Exit. Team completion
+while a confirmation is open retains its result for explicit continuation.
+Organization creation keeps the current active organization until acknowledged.
+Leaving aborts its client requests; a reply arriving during Exit cannot activate
+the new workspace or start further setup writes. A canceled Exit can continue
+using the already-created organization. Requests already sent may still commit.
+Full lost-response recovery for organization creation remains separate work.
+
+After building, run:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-setup-navigation.mjs
+```
+
+The compiled Worker/Chrome rehearsal passed Back/return with workspace and crew
+drafts, a real role commit with its response held until after Back, Exit cancel
+and confirm, Settings Resume, a canceled native reload warning, and
+canceled/confirmed browser Back. It also
+created actual organizations with replies held through departure or delivered
+while the Exit dialog was open. Final D1 checks found one organization per
+creation attempt, unchanged active workspace, no unintended crew and no setup
+completion. The creation cases did not write a setup-start marker. No external
+email or browser errors occurred. Controls passed 320/768/1440px bounds, 44px
+minimum targets and hit tests; phone captures were checked after animations.
+
+Tests reproduced the pending-Exit activation race before its fix. All 31 focused
+navigation/team/resume tests passed, followed by 2,089 unit tests, 769 Worker
+tests, four coverage-gate tests, web typecheck and production build. This work
+requires matching web/Worker assets but no migration or native build. The wider
+Phase 2 gate remains incomplete. The existing choice, rundown, team-form and
+invitation/completion-recovery browser rehearsals also passed against this build,
+including actual local saves, captured email delivery, response loss and explicit
+continuation with unresolved invitations. Nothing has been deployed or released
+here.
+
 ### Timecode label validation
 
 `parseTimecodeString` now requires the selected format. It rejects frame numbers

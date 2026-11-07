@@ -1,6 +1,6 @@
 import { useSetupChoices } from "@/hooks/useSetupChoices";
 import { SetupChoiceStatus } from "@/components/onboarding/SetupChoiceStatus";
-import { parseSetupRole } from "@/lib/setup-choices-contract";
+import { parseSetupRole, setupChoiceConfirmed } from "@/lib/setup-choices-contract";
 import { useOnboardingSeed } from "@/hooks/useOnboardingSeed";
 import { SetupRundownResult } from "@/components/onboarding/SetupRundownResult";
 import { SetupTeam } from "@/components/onboarding/SetupTeam";
@@ -16,7 +16,8 @@ import {
 } from "@/lib/workspace/profile";
 import { archetypesForWorkspace } from "@/lib/workspace/archetypes";
 import { templatesForWorkspace } from "@/lib/workspace/templates";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect, useBlocker, useRouter } from "@tanstack/react-router";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -192,6 +193,7 @@ function SetupWizard() {
   const { progress, initialScene, initialWorkspace } = Route.useLoaderData();
   const { mode } = Route.useSearch();
   const navigate = Route.useNavigate();
+  const router = useRouter();
   const { user } = Route.useRouteContext() as {
     user: { id?: string; email: string; emailVerified?: boolean } | null;
   };
@@ -206,6 +208,35 @@ function SetupWizard() {
     : typeof progress.archetype === "string" && isOnboardingArchetype(progress.archetype) ? progress.archetype : null;
   const [flash, setFlash] = useState(false);
   const seed = useOnboardingSeed(org?.id ?? null);
+  const [teamVisited, setTeamVisited] = useState(initialScene === 5);
+  const [teamState, setTeamState] = useState({ busy: false, saved: false });
+  const [drafts, setDrafts] = useState({ organization: false, workspace: false, team: false });
+  const [finished, setFinished] = useState(false);
+  const [exitTarget, setExitTarget] = useState<string | null>(null);
+  const [navigationError, setNavigationError] = useState<string | null>(null);
+  const navigation = useRef({ mounted: true, version: 0, leaving: false, suspended: false });
+  const currentScene = useRef<SceneNumber>(initialScene);
+  const workspaceDraftVersion = useRef(0);
+  const workspaceRequestVersion = useRef<number | null>(null);
+  useEffect(() => {
+    if (choices.pending?.kind === "workspace" && choices.snapshot && setupChoiceConfirmed(choices.snapshot, choices.pending)
+      && workspaceRequestVersion.current === workspaceDraftVersion.current) setDrafts(value => ({ ...value, workspace: false }));
+  }, [choices.pending, choices.snapshot]);
+  const unsaved = useRef(false);
+  unsaved.current = drafts.organization || drafts.workspace || (drafts.team && !teamState.saved) || teamState.busy
+    || Boolean(choices.pending && (!choices.snapshot || !setupChoiceConfirmed(choices.snapshot, choices.pending)))
+    || Boolean(seed.requested && seed.snapshot?.status !== "saved" && seed.snapshot?.status !== "review");
+  const blocker = useBlocker({
+    shouldBlockFn: ({ current, next }) => {
+      if (navigation.current.leaving || !unsaved.current || current.pathname === next.pathname) return false;
+      navigation.current.suspended = true; navigation.current.version++;
+      return true;
+    },
+    enableBeforeUnload: () => !navigation.current.leaving && unsaved.current,
+    withResolver: true,
+  });
+  const exitOpen = exitTarget !== null || blocker.status === "blocked";
+  navigation.current.suspended = exitOpen;
 
   useEffect(() => {
     identifyAnalytics(user?.id ?? user?.email);
@@ -215,14 +246,33 @@ function SetupWizard() {
   }, []);
 
   const transition = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (transition.current) clearTimeout(transition.current); }, []);
+  useEffect(() => {
+    navigation.current.mounted = true;
+    return () => { navigation.current.mounted = false; navigation.current.version++; if (transition.current) clearTimeout(transition.current); };
+  }, []);
+
+  const leave = (href: string) => {
+    navigation.current.leaving = true; navigation.current.version++;
+    if (transition.current) clearTimeout(transition.current);
+    setCut(false); setNavigationError(null);
+    void router.navigate({ href }).catch(() => {
+      if (!navigation.current.mounted) return;
+      navigation.current.leaving = false; setFlash(false);
+      setNavigationError("Could not open that page. Your saved setup is kept. Try Exit setup again.");
+    });
+  };
+  const workspaceHref = org ? `/${org.slug}${archetypeLanding(archetype, workspace.modules)}` : mode === "new" ? "/" : "/invitations";
+  const currentRequest = (version: number) => navigation.current.mounted && !navigation.current.leaving && !navigation.current.suspended && navigation.current.version === version;
 
   // Broadcast cut between scenes: dip to black, 220ms, with a breath.
   const go = (next: SceneNumber) => {
+    navigation.current.version++;
+    currentScene.current = next;
     setCut(true);
     if (transition.current) clearTimeout(transition.current);
     transition.current = setTimeout(() => {
       setScene(next);
+      if (next === 5) setTeamVisited(true);
       setSkip(false);
       setCut(false);
     }, 220);
@@ -230,6 +280,13 @@ function SetupWizard() {
 
   return (
     <WorkspaceProvider profile={workspace}>
+      <ConfirmDialog open={exitOpen} title="Exit setup?" variant="warning" confirmLabel="Exit setup" cancelLabel="Keep setting up"
+        description={`Saved choices and people stay. Unsaved entries in this tab will be lost. Requests already sent may still finish. ${org ? "Resume unfinished setup from Settings → Workspace." : mode === "new" ? "You can create another organization from the workspace switcher later." : "You can return from Invitations by choosing Create your own organization."}`}
+        onOpenChange={open => { if (!open) { navigation.current.suspended = false; setExitTarget(null); if (blocker.status === "blocked" && !navigation.current.leaving) blocker.reset(); } }}
+        onConfirm={() => {
+          navigation.current.leaving = true; navigation.current.version++;
+          if (blocker.status === "blocked") blocker.proceed(); else if (exitTarget) leave(exitTarget);
+        }} />
       <div
       className="spob fixed inset-0 z-10 overflow-y-auto"
       data-skip={skip}
@@ -242,7 +299,7 @@ function SetupWizard() {
         {/* Persistent header */}
         <div className="absolute inset-x-0 top-0 z-[5] flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-6 py-[18px]">
         <Timecode />
-        <Slate scene={scene} />
+        <Slate scene={scene === 3 && (seed.snapshot?.status !== "empty" || seed.busy || seed.failure) ? 4 : scene} />
       </div>
 
         {/* Persistent header */}
@@ -250,25 +307,51 @@ function SetupWizard() {
           <div className="absolute inset-0 z-[9]" style={{ background: "#000" }} />
         )}
 
-        <div className="mx-auto max-w-[760px] px-6 pb-16 pt-[108px]">
-          {scene === 1 && (
+        <div className="mx-auto max-w-[760px] px-6 pb-16 pt-[108px]" onChangeCapture={() => {
+          if (scene === 1) setDrafts(value => ({ ...value, organization: true }));
+          if (scene === "1b") { workspaceDraftVersion.current++; setDrafts(value => ({ ...value, workspace: true })); }
+          if (scene === 5) setDrafts(value => ({ ...value, team: true }));
+        }}>
+          <nav aria-label="Setup navigation" className="flex flex-wrap items-center justify-between gap-3 pb-2">
+            {scene !== 1 && <button type="button" disabled={scene === 5 && teamState.busy && !finished} className="min-h-11 rounded-lg border border-white/20 px-4 py-2 text-sm focus-visible:outline-2 focus-visible:outline-amber-400 disabled:opacity-50"
+              onClick={() => go(scene === "1b" ? 1 : scene === 2 ? "1b" : scene === 5 ? 4 : 2)}>Back</button>}
+            <button type="button" className="min-h-11 rounded-lg px-4 py-2 text-sm underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-amber-400"
+              onClick={() => { navigation.current.suspended = true; navigation.current.version++; setExitTarget(workspaceHref); }}>Exit setup</button>
+          </nav>
+          <p className="text-sm text-slate-400">Back keeps your entries in this tab. You can exit now and resume saved progress later.</p>
+          {navigationError && <p role="alert" className="mt-3 text-sm text-red-300">{navigationError}</p>}
+          {scene === 1 && org && <section className="space-y-4 pt-10">
+            <h1 className="text-3xl font-bold">Your organization is saved</h1><p>{org.name}</p>
+            <p className="text-sm text-slate-300">You can change its name in Settings. Continuing uses this organization.</p>
+            <button type="button" className="min-h-11 rounded-lg bg-amber-400 px-4 py-2 text-black focus-visible:outline-2 focus-visible:outline-offset-2" onClick={() => go("1b")}>Continue with this organization</button>
+          </section>}
+          {scene === 1 && !org && (
             <SceneOrgCreate
               user={user}
               additional={mode === "new"}
+              canContinue={() => navigation.current.mounted && !navigation.current.leaving && !navigation.current.suspended}
               onCreated={async (created) => {
+                const version = navigation.current.version;
+                if (!currentRequest(version)) return;
                 await navigate({ search: { orgId: created.id }, replace: true });
+                if (!currentRequest(version)) return;
                 setOrg(created);
+                setDrafts(value => ({ ...value, organization: false }));
                 go("1b");
               }}
             />
           )}
-          {scene === "1b" && org && (
-            <div className="space-y-5 pt-10">
-              <SetupChoiceStatus choices={choices} step="workspace" onContinue={() => go(2)} />
+          {org && (
+            <div hidden={scene !== "1b"} className="space-y-5 pt-10">
+              {scene === "1b" && <SetupChoiceStatus choices={choices} step="workspace" onContinue={() => go(2)} />}
               {choices.snapshot && <WorkspacePicker busy={choices.busy}
                 initial={workspace.isExplicit ? { type: workspace.type, custom: parseWorkspaceCustom(choices.snapshot.settings["workspace-custom"]) ?? undefined, modules: workspace.modules } : undefined}
                 onSelect={async (type, custom, modules) => {
-                  if (await choices.workspace({ type, custom, modules })) {
+                  const version = navigation.current.version;
+                  workspaceRequestVersion.current = workspaceDraftVersion.current;
+                  const saved = await choices.workspace({ type, custom, modules });
+                  if (saved) setDrafts(value => ({ ...value, workspace: false }));
+                  if (saved && currentRequest(version)) {
                     track("workspace_type_selected", { type });
                     go(2);
                   }
@@ -281,7 +364,8 @@ function SetupWizard() {
               <SceneRole workspace={workspace} disabled={choices.busy || !choices.snapshot}
                 selected={choices.pending?.kind === "role" ? choices.pending.archetype : archetype}
                 onSelect={async selected => {
-                  if (await choices.role(selected)) {
+                  const version = navigation.current.version;
+                  if (await choices.role(selected) && currentRequest(version)) {
                     track("role_selected", { role: selected });
                     go(3);
                   }
@@ -298,13 +382,18 @@ function SetupWizard() {
           {org && (scene === 4 || (scene === 3 && (seed.snapshot?.status !== "empty" || seed.busy || seed.failure))) && (
             <SetupRundownResult seed={seed} onDone={() => go(5)} />
           )}
-          {scene === 5 && org && (
-            <SetupTeam key={org.id} orgId={org.id} onFinished={() => {
+          {teamVisited && org && !finished && <div hidden={scene !== 5}>
+            <SetupTeam key={org.id} orgId={org.id} onStateChange={setTeamState} onFinished={() => {
+              setFinished(true);
+              if (!navigation.current.mounted || navigation.current.suspended || navigation.current.leaving || currentScene.current !== 5) return;
               track("onboarding_completed", { archetype });
               setFlash(true);
-              window.location.href = `/${org.slug}${archetypeLanding(archetype, workspace.modules)}`;
+              leave(workspaceHref);
             }} />
-          )}
+          </div>}
+          {scene === 5 && finished && <section className="space-y-4 pt-8"><h1 className="text-3xl font-bold">Setup is complete</h1>
+            <p>Your saved results are kept. Open your workspace when you're ready.</p>
+            <button type="button" className="min-h-11 rounded-lg bg-amber-400 px-4 py-2 text-black focus-visible:outline-2 focus-visible:outline-offset-2" onClick={() => leave(workspaceHref)}>Open workspace</button></section>}
         </div>
       </div>
     </WorkspaceProvider>
@@ -477,10 +566,12 @@ function deriveSlug(name: string): string {
 function SceneOrgCreate({
   user,
   additional,
+  canContinue,
   onCreated,
 }: {
   user: { email: string; emailVerified?: boolean } | null;
   additional: boolean;
+  canContinue: () => boolean;
   onCreated: (org: WizardOrg) => Promise<void>;
 }) {
   const needsVerification = Boolean(user && !user.emailVerified);
@@ -494,11 +585,18 @@ function SceneOrgCreate({
   const [verificationSent, setVerificationSent] = useState(false);
   const [sendingVerification, setSendingVerification] = useState(false);
   const latestSlug = useRef("");
+  const lifetime = useRef(new AbortController());
+  useEffect(() => {
+    if (lifetime.current.signal.aborted) lifetime.current = new AbortController();
+    const controller = lifetime.current;
+    return () => controller.abort();
+  }, []);
 
   const slug = slugOverride ?? deriveSlug(orgName);
 
   // Debounced live uniqueness check with inline availability indicator.
   useEffect(() => {
+    const signal = lifetime.current.signal;
     latestSlug.current = slug;
     if (slug.length < 3) {
       setSlugState("idle");
@@ -507,12 +605,12 @@ function SceneOrgCreate({
     setSlugState("checking");
     const id = setTimeout(async () => {
       try {
-        const result = await checkOrgSlug({ data: { slug } });
-        if (latestSlug.current !== slug) return; // stale response
+        const result = await checkOrgSlug({ data: { slug }, signal });
+        if (signal.aborted || latestSlug.current !== slug) return;
         setSlugState(result.available ? "ok" : "taken");
         setSuggestion(result.suggestion);
       } catch {
-        if (latestSlug.current === slug) setSlugState("idle");
+        if (!signal.aborted && latestSlug.current === slug) setSlugState("idle");
       }
     }, 450);
     return () => clearTimeout(id);
@@ -520,32 +618,37 @@ function SceneOrgCreate({
 
   async function handleResendVerification() {
     if (!user?.email) return;
+    const signal = lifetime.current.signal;
     setSendingVerification(true);
     setError(null);
     try {
       const { error: sendError } = await authClient.sendVerificationEmail({
         email: user.email,
         callbackURL: "/verify-email",
+        fetchOptions: { signal, retry: 0 },
       });
+      if (signal.aborted) return;
       if (sendError) throw new Error(sendError.message);
       setVerificationSent(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send email");
+      if (!signal.aborted) setError(err instanceof Error ? err.message : "Failed to send email");
     } finally {
-      setSendingVerification(false);
+      if (!signal.aborted) setSendingVerification(false);
     }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if ((!createdOrg && slugState !== "ok") || creating || needsVerification) return;
+    const signal = lifetime.current.signal;
     setError(null);
     setCreating(true);
     try {
       let nextOrg = createdOrg;
       if (!nextOrg) {
         const name = orgName.trim();
-        const { data: created, error: createError } = await authClient.organization.create({ name, slug });
+        const { data: created, error: createError } = await authClient.organization.create({ name, slug, keepCurrentActiveOrganization: true, fetchOptions: { signal, retry: 0 } });
+        if (signal.aborted) return;
         if (createError || !created) {
           // Keep the name and let the operator retry or choose another slug.
           throw new Error(createError?.message ?? "Could not create your organization");
@@ -553,18 +656,22 @@ function SceneOrgCreate({
         nextOrg = { id: created.id, name, slug };
         setCreatedOrg(nextOrg);
       }
+      if (!canContinue()) return;
       const { error: activeError } = await authClient.organization.setActive({
         organizationId: nextOrg.id,
+        fetchOptions: { signal, retry: 0 },
       });
+      if (signal.aborted || !canContinue()) return;
       if (activeError) throw new Error(activeError.message);
 
-      await markOnboardingStarted({ data: { orgId: nextOrg.id } });
+      await markOnboardingStarted({ data: { orgId: nextOrg.id }, signal });
+      if (signal.aborted || !canContinue()) return;
       track("org_created", { slug: nextOrg.slug });
       await onCreated(nextOrg);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create organization");
+      if (!signal.aborted) setError(err instanceof Error ? err.message : "Failed to create organization");
     } finally {
-      setCreating(false);
+      if (!signal.aborted) setCreating(false);
     }
   }
 
@@ -572,7 +679,6 @@ function SceneOrgCreate({
 
   return (
     <form className="rise" onSubmit={handleSubmit}>
-      {additional && <a href="/" className="inline-flex min-h-11 items-center text-sm underline underline-offset-4">Back to workspace</a>}
       <h1 className="mb-2.5 mt-12 text-[40px] font-extrabold leading-tight tracking-[-0.02em]">
         {additional ? "Create another organization" : <>Let's get your first show<br />on the air.</>}
       </h1>
