@@ -1,7 +1,9 @@
 import { encryptSettingValue, maskSettingValue } from "./credential-settings.server";
 import { CREDENTIAL_MASK, isCredentialField } from "./credential-fields";
+import { EDITABLE_SETTING_KEYS, isEditableSettingKey, permissionForSettingKey, genericSettingKeySchema } from "./editable-settings";
+import { settingWriteSchema } from "./setting-writes";
+import { applySettingWrite } from "./setting-writes.server";
 import { CONFIDENCE_LAYOUT_KEY, confidenceLayoutSchema, readConfidenceLayout, DEFAULT_CONFIDENCE_LAYOUT, type ConfidenceLayout } from "@/lib/confidence-layout";
-import { WORKSPACE_SETTING_KEYS } from "@showpilot/shared";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest, getRequestHeaders } from "@tanstack/react-start/server";
 import { env } from "cloudflare:workers";
@@ -34,21 +36,16 @@ import { refreshOrgReadAuthority } from "./relay-read-invalidation.server";
 export { appendWebhookEvent, sanitizePayloadSummary } from "@/lib/webhook-events";
 export type { WebhookEventInput, WebhookEventLogItem } from "@/lib/webhook-events";
 
-// AppSetting values can be JSON blobs (templates, rundown snapshots) —
-// bound generously but finitely.
-const settingKeySchema = z.string().min(1).max(100);
+// Editable values include the confidence layout JSON; internal application
+// records in app_setting must use their own permission-checked commands.
 const settingValueSchema = z.string().max(200_000);
-const genericSettingKeySchema = settingKeySchema.refine(
-  (key) => key !== RUNDOWN_PIN_SETTING_KEY,
-  "Use the dedicated rundown PIN control.",
-).refine(key => key !== "api-key", "Use Bridge installation credentials.").refine(key => !WORKSPACE_SETTING_KEYS.includes(key), "Use Workspace settings to change names and features.");
 const rundownPinSchema = z.string().regex(/^\d{4,8}$/u, "PIN must contain 4 to 8 digits.");
 const rundownPinUpdateSchema = z.discriminatedUnion("action", [
   z.object({ orgId: idSchema, action: z.literal("set"), pin: rundownPinSchema }),
   z.object({ orgId: idSchema, action: z.literal("disable") }),
 ]);
 
-async function getOrgMemberRole(orgId: string) {
+async function getOrgMembership(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
   const auth = getAuth();
   const headers = getRequestHeaders();
@@ -62,7 +59,11 @@ async function getOrgMemberRole(orgId: string) {
   });
   const role = normalizeRole(member?.role ?? null);
   if (!role) throw new Error("Forbidden");
-  return role;
+  return { role, userId: session.user.id };
+}
+
+async function getOrgMemberRole(orgId: string) {
+  return (await getOrgMembership(orgId)).role;
 }
 
 async function assertOrgAccess(orgId: string) {
@@ -70,8 +71,9 @@ async function assertOrgAccess(orgId: string) {
 }
 
 async function assertOrgPermission(orgId: string, permission: Permission) {
-  const role = await getOrgMemberRole(orgId);
+  const { role, userId } = await getOrgMembership(orgId);
   if (!hasPermission(role, permission)) throw new Error("Forbidden");
+  return userId;
 }
 
 async function assertApiOrWebhookPermission(orgId: string) {
@@ -89,38 +91,6 @@ async function assertIntegrationPlanAllows(orgId: string, key: string, value: st
   if (!value || value === "native" || value === CREDENTIAL_MASK) return;
   const { requirePlanFeature } = await import("@/lib/plan-limits");
   await requirePlanFeature(orgId, "integrations");
-}
-
-function permissionForSettingKey(key: string): Permission {
-  if (key === "api-key") return "settings:api_keys";
-  if (key === "webhook-url") return "settings:webhooks";
-  if (key.startsWith("notify-")) return "settings:notifications";
-  if (key.startsWith("l3-")) return "settings:lowerthird_config";
-  if (
-    key === "chat-adapter" ||
-    key === "rundown-adapter" ||
-    key === "lyrics-output" ||
-    key.startsWith("slack-") ||
-    key.startsWith("mattermost-") ||
-    key.startsWith("teams-") ||
-    key.startsWith("discord-") ||
-    key.startsWith("ontime-") ||
-    key.startsWith("propresenter-") ||
-    key.startsWith("pco-") ||
-    key.startsWith("schedule-")
-  ) {
-    return "settings:integrations";
-  }
-  if (
-    key.startsWith("default-") ||
-    key === "clock-format" ||
-    key === "timezone-display" ||
-    key === "overtime-behavior"
-  ) {
-    return "settings:production_defaults";
-  }
-  if (key.startsWith("org-")) return "settings:organization";
-  return "settings:organization";
 }
 
 // ─── Org Settings (AppSetting table) ────────────────────────
@@ -143,12 +113,12 @@ export const getManageableOrgSettings = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const role = await getOrgMemberRole(data.orgId);
     const settings = await getPrisma().appSetting.findMany({
-      where: { orgId: data.orgId },
+      where: { orgId: data.orgId, key: { in: EDITABLE_SETTING_KEYS } },
       select: { key: true, value: true },
     });
     return Object.fromEntries(
       settings
-        .filter((setting) => setting.key !== RUNDOWN_PIN_SETTING_KEY && setting.key !== "api-key")
+        .filter((setting) => isEditableSettingKey(setting.key))
         .filter((setting) => hasPermission(role, permissionForSettingKey(setting.key)))
         .map((setting) => [setting.key, maskSettingValue(setting.key, setting.value)]),
     );
@@ -214,35 +184,12 @@ async function recordCredentialSettingChange(orgId: string, key: string, value: 
 }
 
 export const updateOrgSetting = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({ orgId: idSchema, key: genericSettingKeySchema, value: settingValueSchema }),
-      data,
-    ),
-  )
+  .inputValidator((data: unknown) => parseOrThrow(settingWriteSchema, data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, permissionForSettingKey(data.key));
+    const userId = await assertOrgPermission(data.orgId, permissionForSettingKey(data.key));
     if (data.key === CONFIDENCE_LAYOUT_KEY) confidenceLayoutSchema.parse(JSON.parse(data.value));
     await assertIntegrationPlanAllows(data.orgId, data.key, data.value);
-    const prisma = getPrisma();
-    const previousSetting = await prisma.appSetting.findUnique({
-      where: { orgId_key: { orgId: data.orgId, key: data.key } },
-      select: { value: true },
-    });
-    if (data.value === CREDENTIAL_MASK) {
-      if (!isCredentialField(data.key)) throw new Error("Invalid setting value.");
-      return { key: data.key, value: previousSetting ? maskSettingValue(data.key, previousSetting.value) : "" };
-    }
-    const storedValue = await encryptSettingValue(env.CREDENTIAL_ENCRYPTION_KEYS, data.orgId, data.key, data.value);
-    const result = await prisma.appSetting.upsert({
-      where: { orgId_key: { orgId: data.orgId, key: data.key } },
-      update: { value: storedValue },
-      create: { orgId: data.orgId, key: data.key, value: storedValue },
-    });
-
-    await recordCredentialSettingChange(data.orgId, data.key, data.value, Boolean(previousSetting?.value));
-
-    return { key: result.key, value: maskSettingValue(result.key, result.value) };
+    return applySettingWrite(getD1(), data, userId);
   });
 
 export const updateOrgCredential = createServerFn({ method: "POST" })
@@ -273,48 +220,6 @@ export const updateOrgCredential = createServerFn({ method: "POST" })
     });
     await recordCredentialSettingChange(data.orgId, data.key, value, Boolean(previousSetting?.value));
     return { key: data.key, value: maskSettingValue(data.key, storedValue) };
-  });
-
-export const bulkUpdateOrgSettings = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        settings: z
-          .array(z.object({ key: genericSettingKeySchema, value: settingValueSchema }))
-          .max(100),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    for (const setting of data.settings) {
-      await assertOrgPermission(data.orgId, permissionForSettingKey(setting.key));
-      if (setting.key === CONFIDENCE_LAYOUT_KEY) confidenceLayoutSchema.parse(JSON.parse(setting.value));
-      await assertIntegrationPlanAllows(data.orgId, setting.key, setting.value);
-    }
-    const prisma = getPrisma();
-    // Prepare encryption before any write so a missing key cannot half-save a form.
-    const prepared = await Promise.all(data.settings.map(async setting => ({
-      key: setting.key,
-      value: setting.value === CREDENTIAL_MASK ? null : await encryptSettingValue(env.CREDENTIAL_ENCRYPTION_KEYS, data.orgId, setting.key, setting.value),
-    })));
-    if (prepared.some(setting => setting.value === null && !isCredentialField(setting.key))) throw new Error("Invalid setting value.");
-    const results = [];
-    for (const s of prepared) {
-      if (s.value === null) {
-        const row = await prisma.appSetting.findUnique({ where: { orgId_key: { orgId: data.orgId, key: s.key } }, select: { value: true } });
-        results.push({ key: s.key, value: row ? maskSettingValue(s.key, row.value) : "" });
-        continue;
-      }
-      const r = await prisma.appSetting.upsert({
-        where: { orgId_key: { orgId: data.orgId, key: s.key } },
-        update: { value: s.value },
-        create: { orgId: data.orgId, key: s.key, value: s.value },
-      });
-      results.push({ key: r.key, value: maskSettingValue(r.key, r.value) });
-    }
-    return results;
   });
 
 export const getRecentWebhookEvents = createServerFn({ method: "GET" })
@@ -508,18 +413,6 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
   });
 
 // ─── Danger Zone ────────────────────────────────────────────
-
-export const deleteOrgSettings = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, keys: z.array(settingKeySchema).max(100) }), data),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "settings:danger_zone");
-    const prisma = getPrisma();
-    await prisma.appSetting.deleteMany({
-      where: { orgId: data.orgId, key: { in: data.keys } },
-    });
-  });
 
 // Cloud lower thirds feature flag (organization.cloud_enabled). Owner/admin
 // only — this is an org-wide feature/cost switch, not a per-operator setting.

@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ConfidenceSlide } from "@/components/confidence/ConfidenceSlide";
 import {
@@ -10,6 +10,9 @@ import {
   type ConfidenceSlideData,
 } from "@/lib/confidence-layout";
 import { updateOrgSetting } from "@/lib/settings";
+import { useSettingAutosave } from "./useSettingAutosave";
+import { SettingSaveNotice } from "./SettingSaveNotice";
+import type { SettingChange } from "@/lib/setting-writes";
 import { ConfidenceOutputs } from "@/components/settings/ConfidenceOutputs";
 
 const samples: Record<"lyrics" | "scripture", ConfidenceSlideData[]> = {
@@ -58,7 +61,7 @@ const samples: Record<"lyrics" | "scripture", ConfidenceSlideData[]> = {
   ],
 };
 const fieldClass =
-  "h-10 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm text-board-text";
+  "min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm text-board-text";
 
 export function ConfidenceSection({
   orgId,
@@ -66,11 +69,13 @@ export function ConfidenceSection({
   initialValue,
   onApplied,
   showOutputs = true,
+  onDirtyChange,
 }: {
   orgId: string;
   slug: string;
-  initialValue: string;
-  onApplied: (value: string) => void;
+  initialValue: string | undefined;
+  onApplied: (value: string | undefined) => void;
+  onDirtyChange?: (dirty: boolean) => void;
   showOutputs?: boolean;
 }) {
   const headingId = useId();
@@ -80,33 +85,45 @@ export function ConfidenceSection({
   );
   const [tab, setTab] = useState<"lyrics" | "scripture">("lyrics");
   const [sample, setSample] = useState(0);
-  const [saving, setSaving] = useState(false);
+  const persist = useCallback((change: SettingChange, signal: AbortSignal) => updateOrgSetting({ data: { orgId, ...change }, signal }), [orgId]);
+  const writes = useSettingAutosave({ initialSettings: initialValue === undefined ? {} : { [CONFIDENCE_LAYOUT_KEY]: initialValue }, persist });
+  const saving = writes.saveState.kind === "saving";
   const [feedback, setFeedback] = useState("");
-  const [error, setError] = useState("");
   const style = draft[tab];
   const dirty = JSON.stringify(draft) !== applied;
   const change = (patch: Partial<ConfidenceLayout["lyrics"]>) =>
     setDraft((value) => ({ ...value, [tab]: { ...value[tab], ...patch } }));
 
+  useEffect(() => { onDirtyChange?.(dirty || writes.hasUnsavedChanges); }, [dirty, writes.hasUnsavedChanges, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+  function confirmed(value: string | undefined) {
+    setApplied(JSON.stringify(readConfidenceLayout(value)));
+    onApplied(value);
+    setFeedback("Applied. Open screens will update within a few seconds.");
+  }
   async function apply() {
-    setSaving(true);
-    setError("");
     setFeedback("");
-    try {
-      const value = JSON.stringify(draft);
-      await updateOrgSetting({
-        data: { orgId, key: CONFIDENCE_LAYOUT_KEY, value },
-      });
-      setApplied(value);
-      onApplied(value);
-      setFeedback("Applied. Open screens will update within a few seconds.");
-    } catch {
-      setError(
-        "Could not apply the layout. Your preview is still here; try again.",
-      );
-    } finally {
-      setSaving(false);
+    const value = JSON.stringify(draft);
+    if (await writes.saveSetting(CONFIDENCE_LAYOUT_KEY, value)) confirmed(value);
+  }
+  async function retry(key: string) {
+    const failure = writes.saveState.kind === "error" ? writes.saveState.failures.find(item => item.key === key) : null;
+    if (!failure) return false;
+    const success = await writes.retrySetting(key);
+    if (success) confirmed(failure.attemptedValue);
+    return success;
+  }
+  async function resolveConflict(key: string, choice: "saved" | "mine") {
+    const failure = writes.saveState.kind === "error" ? writes.saveState.failures.find(item => item.key === key) : null;
+    if (!failure) return false;
+    const value = choice === "saved" ? failure.currentValue ?? undefined : JSON.stringify(draft);
+    if (choice === "mine") writes.editSetting(key, JSON.stringify(draft));
+    const success = await writes.resolveConflict(key, choice);
+    if (success) {
+      confirmed(value);
+      if (choice === "saved") { setDraft(readConfidenceLayout(value)); setFeedback("Saved layout loaded."); }
     }
+    return success;
   }
 
   return (
@@ -390,19 +407,21 @@ export function ConfidenceSection({
         </p>
       </details>
       <div className="flex flex-wrap items-center gap-3">
-        <Button disabled={!dirty || saving} onClick={() => void apply()}>
+        <Button className="min-h-11" disabled={!dirty || writes.saveState.kind !== "saved"} onClick={() => void apply()}>
           {saving ? "Applying…" : "Apply to screens"}
         </Button>
         <Button
+          className="min-h-11"
           variant="ghost"
-          disabled={saving}
+          disabled={writes.saveState.kind !== "saved"}
           onClick={() => setDraft(readConfidenceLayout(applied))}
         >
           Discard changes
         </Button>
         <Button
+          className="min-h-11"
           variant="ghost"
-          disabled={saving}
+          disabled={writes.saveState.kind !== "saved"}
           onClick={() => setDraft(DEFAULT_CONFIDENCE_LAYOUT)}
         >
           Reset preview
@@ -413,11 +432,7 @@ export function ConfidenceSection({
           {feedback}
         </p>
       )}
-      {error && (
-        <p role="alert" className="mt-3 text-sm text-red-400">
-          {error}
-        </p>
-      )}
+      <div className="mt-3"><SettingSaveNotice state={writes.saveState} retry={retry} resolveConflict={resolveConflict} showStatus={false} /></div>
       {showOutputs && <ConfidenceOutputs slug={slug} />}
     </section>
   );

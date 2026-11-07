@@ -302,6 +302,70 @@ the real native relay connection, proves an HTTP token is absent from wire
 messages while the device receives the correct Authorization header, and
 checks that replaying the settings envelope is rejected.
 
+### Editable organization settings boundary
+
+Generic Settings reads and writes accept only the 36 fields in
+`apps/web/src/lib/editable-settings.ts`. Internal `app_setting` records, including
+live rundown state, graphics selection, webhook history and operation receipts,
+are excluded. Workspace and schedule-provider configuration continue through
+their dedicated commands. Existing field permissions, credential encryption and
+masked responses still apply.
+
+This closes a reproduced bypass where a technical manager could overwrite
+internal records through `updateOrgSetting`. The credential editor rejects
+those keys too. The unused unconditional bulk-update and arbitrary-key delete
+RPCs have been removed. No data migration or new secret is required. Existing internal rows remain available to their owning server code.
+Future Settings fields must be added to the registry with an explicit permission.
+
+Run `node apps/web/scripts/smoke-settings-boundary.mjs` after building to exercise
+the compiled RPCs with real authentication and disposable D1 data. Deployment
+and production verification are still pending.
+
+### Settings save acknowledgement and recovery
+
+General Settings writes now carry the last confirmed value and a UUID request
+ID. The server checks current permissions and atomically records the result with
+the conditional setting write. A retry checks that same receipt and reports the
+current value; it cannot overwrite a later edit. Conflicts require the operator
+to choose the saved value or apply their edit against the reviewed value.
+
+Keep `setting-write:*` records for the lifetime of the organization. Deleting a
+receipt would allow an old request to be interpreted as a new operation. These
+internal records are excluded from editable Settings reads and writes. The
+unused bulk-update and arbitrary-key delete RPCs have no remaining callers.
+Old Settings tabs must reload after deployment because unconditional payloads
+are rejected. Deploy the web client and Worker together.
+
+Each field has a ten-second confirmation deadline, its own persistent error and
+timestamp, and an exact-request Retry. A newer edit waits until the uncertain
+write is resolved. ProPresenter Apply & test waits for confirmed setting saves.
+Confidence layout Apply uses the same protocol while preserving newer preview
+edits. Leaving an unsaved Settings page or closing a dirty confidence editor
+requires confirmation. The separate encrypted credential editor still uses its
+existing API and is not covered by this autosave recovery change.
+
+Run `node apps/web/scripts/smoke-settings-autosave.mjs` after building. It uses
+real authentication, two fixture operators, compiled RPCs, disposable D1 and
+Chrome to check lost responses, concurrent edits, conflict review, navigation,
+ProPresenter test blocking and confidence preview recovery. It also checks
+320px, 768px and 1440px widths, then inspects persisted values and receipts.
+
+If Wrangler's local ProxyWorker exits with `Network connection lost`, run the
+same script with `SHOWPILOT_SMOKE_RUNTIME=miniflare`. This opt-in fixture backend
+runs the same compiled Worker and local bindings through Wrangler's installed
+Miniflare/workerd without its development proxy. It uses the same disposable
+persistence as the D1 seed and inspection commands. It does not fix or hide a
+production Worker error, restart a failed process, or change authentication.
+The default fixture backend remains Wrangler. Both backends are local only.
+
+Local validation passed 1,891 unit tests, 695 Worker tests, typecheck and the
+production build. The direct-runtime browser rehearsal passed with 19 browser
+write attempts and exactly 18 total unique operation receipts, including fixture
+and second-operator writes. No browser errors occurred with an en-GB browser
+locale and America/Toronto timezone. The organization Created date now uses an
+explicit locale and UTC, fixing a reproduced server/client hydration mismatch.
+Deployment and production verification remain pending.
+
 ### Organization credential encryption
 
 Credential-valued organization settings now encrypt on write. The Settings

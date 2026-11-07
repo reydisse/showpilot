@@ -136,13 +136,15 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     await writeFile(sqlPath, `${schema}\n${seed}`);
     await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state, "--file", sqlPath);
     const startServer = async () => {
-      worker = spawn("pnpm", ["exec", "wrangler", "dev", "--local", "--config", configPath, "--persist-to", state, "--port", String(port), "--inspector-port", "0", "--ip", "127.0.0.1"], { cwd: web, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+      worker = process.env.SHOWPILOT_SMOKE_RUNTIME === "miniflare"
+        ? spawn(process.execPath, [join(web, "scripts/local-smoke-runtime.mjs"), configPath, state, String(port)], { cwd: web, detached: true, stdio: ["ignore", "pipe", "pipe"] })
+        : spawn("pnpm", ["exec", "wrangler", "dev", "--local", "--config", configPath, "--persist-to", state, "--port", String(port), "--inspector-port", "0", "--ip", "127.0.0.1"], { cwd: web, detached: true, stdio: ["ignore", "pipe", "pipe"] });
       worker.stdout.on("data", (chunk) => { workerLog += chunk; });
       worker.stderr.on("data", (chunk) => { workerLog += chunk; });
       let ready = false;
       for (let attempt = 0; attempt < 100; attempt++) {
         assert.equal(worker.exitCode, null, "Local Worker exited before becoming ready");
-        try { ready = (await fetch(`${origin}/api/overlay/${orgId}`)).status === 401; } catch { /* Starting. */ }
+        try { const response = await fetch(`${origin}/api/overlay/${orgId}`); ready = response.status === 401; await response.arrayBuffer(); } catch { /* Starting. */ }
         if (ready) break;
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
@@ -155,6 +157,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     assert.equal(login.status, 200, "Fixture operator login");
     const cookie = login.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
     assert.ok(cookie);
+    await login.arrayBuffer();
     const stage = await fetch(`${origin}/api/rundown/${orgId}/command?showId=smoke-show&serviceDate=${date}`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie, Origin: origin }, body: JSON.stringify({ action: "stage-message", payload: { message: "Fixture private stage message" } }) });
     assert.equal(stage.status, 200, "Fixture live stage message");
     assert.equal((await stage.json()).ok, true);

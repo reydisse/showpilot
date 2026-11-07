@@ -8,7 +8,7 @@ import { BridgeInstallationSettings } from "@/components/settings/BridgeInstalla
 import { ConfidenceSection } from "@/components/settings/ConfidenceSection";
 import { CONFIDENCE_LAYOUT_KEY } from "@/lib/confidence-layout";
 import { WorkspaceSettings } from "@/components/workspace/WorkspaceSettings";
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter, useBlocker } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { formatServicePickerLabel } from "@/lib/service-picker";
 import { lazy, Suspense, useState, useCallback, useEffect } from "react";
@@ -37,8 +37,6 @@ import {
   FlaskConical,
   ExternalLink,
   Gamepad2,
-  CircleCheck,
-  CircleAlert,
   LoaderCircle,
   Mail,
   MonitorSmartphone,
@@ -46,6 +44,10 @@ import {
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { IntegrationCard } from "@/components/settings/IntegrationCard";
+import { SettingSaveNotice, settingLabel } from "@/components/settings/SettingSaveNotice";
+import type { SettingChange } from "@/lib/setting-writes";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useSettingAutosave } from "@/components/settings/useSettingAutosave";
 import { KioskSection } from "@/components/settings/KioskSection";
 import { CompanionSection } from "@/components/settings/CompanionSection";
@@ -209,7 +211,8 @@ function OrganizationSettingsPage({
   loaderData: ReturnType<typeof Route.useLoaderData>;
 }) {
   const { settings, members, billing, orgId, slug, org, role, rundownPinEnabled } = loaderData;
-  const [confidenceLayoutValue, setConfidenceLayoutValue] = useState(settings[CONFIDENCE_LAYOUT_KEY] ?? "");
+  const [confidenceLayoutValue, setConfidenceLayoutValue] = useState<string | undefined>(settings[CONFIDENCE_LAYOUT_KEY]);
+  const [confidenceDirty, setConfidenceDirty] = useState(false);
   const { section } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
@@ -217,13 +220,18 @@ function OrganizationSettingsPage({
   const goBack = () => void router.navigate({ href: settingsReturnTo ?? `/${slug}/show` });
   const backLabel = settingsReturnTo ? "Back to previous page" : "Back to Show Flow";
   const persistSetting = useCallback(
-    (key: string, value: string) =>
-      updateOrgSetting({ data: { orgId, key, value } }),
+    (change: SettingChange, signal: AbortSignal) =>
+      updateOrgSetting({ data: { orgId, ...change }, signal }),
     [orgId],
   );
-  const { getSetting, saveSetting, saveState, acceptSavedSetting } = useSettingAutosave({
+  const { getSetting, editSetting, saveSetting, retrySetting, resolveConflict, saveState, hasUnsavedChanges, acceptSavedSetting } = useSettingAutosave({
     initialSettings: settings,
     persist: persistSetting,
+  });
+
+  const blocker = useBlocker({
+    shouldBlockFn: ({ current, next }) => confidenceDirty || (hasUnsavedChanges && current.pathname !== next.pathname),
+    enableBeforeUnload: hasUnsavedChanges || confidenceDirty, withResolver: true,
   });
 
   const saveCredential = useCallback(async (key: string, change: CredentialChange) => {
@@ -274,6 +282,7 @@ function OrganizationSettingsPage({
     role,
     org,
     getSetting,
+    editSetting,
     saveSetting,
     saveCredential,
     members,
@@ -356,16 +365,8 @@ function OrganizationSettingsPage({
 
       <div className="modern-scrollbar min-h-0 flex-1 overflow-y-auto">
         <div className="safe-area-bottom mx-auto max-w-5xl px-4 py-5 sm:px-6 sm:py-7 lg:px-10 lg:py-9">
-          <div className="mb-4 flex min-h-6 items-center justify-end">
-            {saveState.kind === "saving" ? (
-              <span className="inline-flex items-center gap-2 text-xs text-board-muted"><LoaderCircle className="size-4 animate-spin" />Saving changes</span>
-            ) : null}
-            {saveState.kind === "saved" ? (
-              <span className="inline-flex items-center gap-2 text-xs text-green-400"><CircleCheck className="size-4" />General settings save automatically</span>
-            ) : null}
-            {saveState.kind === "error" ? (
-              <span role="alert" title={saveState.message} className="inline-flex items-center gap-2 text-xs text-red-400"><CircleAlert className="size-4" />Save failed. Try again.</span>
-            ) : null}
+          <div className="mb-4 min-h-6">
+            <SettingSaveNotice state={saveState} retry={retrySetting} resolveConflict={resolveConflict} />
           </div>
           <div className="max-w-4xl">
             {resolvedSection === "workspace" && (
@@ -388,7 +389,7 @@ function OrganizationSettingsPage({
             <IntegrationsSection {...sectionProps} />
           )}
             {resolvedSection === "production" && (
-            <ProductionSection {...sectionProps} confidenceLayoutValue={confidenceLayoutValue} onConfidenceLayoutApplied={setConfidenceLayoutValue} />
+            <ProductionSection {...sectionProps} confidenceLayoutValue={confidenceLayoutValue} onConfidenceLayoutApplied={value => { setConfidenceLayoutValue(value); if (value !== undefined) acceptSavedSetting(CONFIDENCE_LAYOUT_KEY, value); }} onConfidenceDirtyChange={setConfidenceDirty} />
           )}
             {resolvedSection === "lowerthirds" && (
             <LowerThirdsSection {...sectionProps} />
@@ -409,6 +410,9 @@ function OrganizationSettingsPage({
           </div>
         </div>
       </div>
+      <Dialog open={blocker.status === "blocked"} onOpenChange={open => { if (!open) blocker.reset?.(); }}>
+        <DialogContent><DialogHeader><DialogTitle>Leave Settings?</DialogTitle><DialogDescription>An unconfirmed save may still complete. Leaving discards local edits and retry controls. Review the saved settings when you return.</DialogDescription></DialogHeader><DialogFooter><Button className="min-h-11" variant="outline" onClick={() => blocker.reset?.()}>Stay</Button><Button className="min-h-11" onClick={() => blocker.proceed?.()}>Leave Settings</Button></DialogFooter></DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -429,7 +433,8 @@ interface SectionProps {
     cloud_enabled: boolean;
   };
   getSetting: (key: string, fallback?: string) => string;
-  saveSetting: (key: string, value: string) => Promise<void>;
+  editSetting: (key: string, value: string) => void;
+  saveSetting: (key: SettingChange["key"], value: string) => Promise<boolean>;
   saveCredential: (key: string, change: CredentialChange) => Promise<void>;
   members: Array<{
     id: string;
@@ -509,24 +514,27 @@ function SettingInput({
   settingKey,
   placeholder,
   getSetting,
+  editSetting,
   saveSetting,
   type = "text",
 }: {
-  settingKey: string;
+  settingKey: SettingChange["key"];
   placeholder?: string;
   getSetting: SectionProps["getSetting"];
   saveSetting: SectionProps["saveSetting"];
+  editSetting: SectionProps["editSetting"];
   type?: string;
 }) {
-  const [value, setValue] = useState(getSetting(settingKey));
+  const value = getSetting(settingKey);
   return (
     <input
       type={type}
       value={value}
-      onChange={(e) => setValue(e.target.value)}
+      aria-label={settingLabel(settingKey)}
+      onChange={(e) => editSetting(settingKey, e.target.value)}
       onBlur={() => saveSetting(settingKey, value)}
       placeholder={placeholder}
-      className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+      className="min-h-11 w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
     />
   );
 }
@@ -541,7 +549,7 @@ function SettingToggle({
   description,
   row = false,
 }: {
-  settingKey: string;
+  settingKey: SettingChange["key"];
   label: string;
   getSetting: SectionProps["getSetting"];
   saveSetting: SectionProps["saveSetting"];
@@ -567,12 +575,11 @@ function SettingToggle({
           role="switch"
           aria-checked={enabled}
           aria-label={label}
-          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500 focus-visible:ring-offset-2 focus-visible:ring-offset-board-bg ${
-            enabled ? "bg-fire-500" : "bg-board-border"
-          }`}
+          className="relative h-11 w-11 shrink-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
         >
+          <span aria-hidden="true" className={`absolute inset-x-0 top-2.5 h-6 rounded-full ${enabled ? "bg-fire-500" : "bg-board-border"}`} />
           <span
-            className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform ${
+            className={`absolute left-0.5 top-3 size-5 rounded-full bg-white shadow-sm transition-transform ${
               enabled ? "translate-x-5" : ""
             }`}
           />
@@ -594,7 +601,7 @@ function SettingSelect({
   getSetting,
   saveSetting,
 }: {
-  settingKey: string;
+  settingKey: SettingChange["key"];
   options: { value: string; label: string }[];
   getSetting: SectionProps["getSetting"];
   saveSetting: SectionProps["saveSetting"];
@@ -603,8 +610,9 @@ function SettingSelect({
   return (
     <select
       value={value}
-      onChange={(e) => saveSetting(settingKey, e.target.value)}
-      className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text focus:outline-none focus:border-fire-500 transition-colors text-sm appearance-none"
+      aria-label={settingLabel(settingKey)}
+      onChange={(e) => void saveSetting(settingKey, e.target.value)}
+      className="min-h-11 w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text focus:outline-none focus:border-fire-500 transition-colors text-sm appearance-none"
     >
       {options.map((opt) => (
         <option key={opt.value} value={opt.value}>
@@ -675,9 +683,9 @@ function OrganizationSection({
           />
         </FieldGroup>
 
-        <FieldGroup label="Created">
+        <FieldGroup label="Created" description="Date in UTC.">
           <div className="px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-muted text-sm">
-            {new Date(org.createdAt).toLocaleDateString()}
+            {new Date(org.createdAt).toLocaleDateString("en-CA", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}
           </div>
         </FieldGroup>
 
@@ -1312,7 +1320,7 @@ function BillingSection({ org, billing }: SectionProps & { billing: OrgBillingIn
 
 // ─── INTEGRATIONS ───────────────────────────────────────────
 
-function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }: SectionProps) {
+function IntegrationsSection({ orgId, getSetting, editSetting, saveSetting, saveCredential }: SectionProps) {
   const chatAdapter = getSetting("chat-adapter", "native");
   const rundownAdapter = getSetting("rundown-adapter", "native");
 
@@ -1389,6 +1397,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }:
                   placeholder="C01234ABCDE"
                   getSetting={getSetting}
                   saveSetting={saveSetting}
+                  editSetting={editSetting}
                 />
               </FieldGroup>
               <FieldGroup
@@ -1427,6 +1436,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }:
                   placeholder="https://mattermost.example.com"
                   getSetting={getSetting}
                   saveSetting={saveSetting}
+                  editSetting={editSetting}
                 />
               </FieldGroup>
               <FieldGroup label="Bot Token">
@@ -1443,6 +1453,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }:
                   placeholder="Channel ID"
                   getSetting={getSetting}
                   saveSetting={saveSetting}
+                  editSetting={editSetting}
                 />
               </FieldGroup>
             </div>
@@ -1499,6 +1510,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }:
                   placeholder="Channel ID"
                   getSetting={getSetting}
                   saveSetting={saveSetting}
+                  editSetting={editSetting}
                 />
               </FieldGroup>
             </div>
@@ -1566,6 +1578,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }:
                   placeholder="http://localhost:4001"
                   getSetting={getSetting}
                   saveSetting={saveSetting}
+                  editSetting={editSetting}
                 />
               </FieldGroup>
               <SettingToggle
@@ -1595,11 +1608,12 @@ function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }:
             onTest={async () => {
               const host = getSetting("propresenter-host").trim();
               if (!host) throw new Error("Set ProPresenter host first");
-              await Promise.all([
+              const saved = await Promise.all([
                 saveSetting("propresenter-host", host),
                 saveSetting("propresenter-port", getSetting("propresenter-port") || "50001"),
                 saveSetting("propresenter-api-port", getSetting("propresenter-api-port") || "1025"),
               ]);
+              if (saved.some(confirmed => !confirmed)) throw new Error("Settings were not confirmed. Resolve the save notice before testing ProPresenter.");
               const result = await testProPresenterConnection({ data: { orgId } });
               if (!result.ok) throw new Error(result.error || "Connection failed");
             }}
@@ -1611,6 +1625,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }:
                   placeholder="192.168.1.100"
                   getSetting={getSetting}
                   saveSetting={saveSetting}
+                  editSetting={editSetting}
                 />
               </FieldGroup>
               <FieldGroup label="Port">
@@ -1619,6 +1634,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }:
                   placeholder="50001"
                   getSetting={getSetting}
                   saveSetting={saveSetting}
+                  editSetting={editSetting}
                 />
               </FieldGroup>
               <FieldGroup label="API Port (Remote Control)">
@@ -1627,6 +1643,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }:
                   placeholder="1025"
                   getSetting={getSetting}
                   saveSetting={saveSetting}
+                  editSetting={editSetting}
                 />
                 <p className="text-[9px] text-board-muted/40 mt-1">
                   Found in PP Preferences → Network → "Network Port". Different from Stage Display port.
@@ -1710,7 +1727,7 @@ function IntegrationsSection({ orgId, getSetting, saveSetting, saveCredential }:
 
 // ─── PRODUCTION DEFAULTS ────────────────────────────────────
 
-function ProductionSection({ orgId, slug, getSetting, saveSetting, confidenceLayoutValue, onConfidenceLayoutApplied }: SectionProps & { confidenceLayoutValue: string; onConfidenceLayoutApplied: (value: string) => void }) {
+function ProductionSection({ orgId, slug, getSetting, editSetting, saveSetting, confidenceLayoutValue, onConfidenceLayoutApplied, onConfidenceDirtyChange }: SectionProps & { confidenceLayoutValue: string | undefined; onConfidenceLayoutApplied: (value: string | undefined) => void; onConfidenceDirtyChange: (dirty: boolean) => void }) {
   return (
     <div>
       <SectionHeader
@@ -1728,7 +1745,8 @@ function ProductionSection({ orgId, slug, getSetting, saveSetting, confidenceLay
             getSetting={getSetting}
             saveSetting={saveSetting}
             type="number"
-          />
+                  editSetting={editSetting}
+                />
         </FieldGroup>
 
         <FieldGroup label="Default Countdown Duration (minutes)">
@@ -1738,7 +1756,8 @@ function ProductionSection({ orgId, slug, getSetting, saveSetting, confidenceLay
             getSetting={getSetting}
             saveSetting={saveSetting}
             type="number"
-          />
+                  editSetting={editSetting}
+                />
         </FieldGroup>
 
         <FieldGroup label="Default Timer Mode">
@@ -1792,7 +1811,7 @@ function ProductionSection({ orgId, slug, getSetting, saveSetting, confidenceLay
           />
         </FieldGroup>
       </div>
-      <ConfidenceSection orgId={orgId} slug={slug} initialValue={confidenceLayoutValue} onApplied={onConfidenceLayoutApplied} />
+      <ConfidenceSection orgId={orgId} slug={slug} initialValue={confidenceLayoutValue} onApplied={onConfidenceLayoutApplied} onDirtyChange={onConfidenceDirtyChange} />
     </div>
   );
 }
@@ -1872,7 +1891,7 @@ function CloudLowerThirdsToggle({
   );
 }
 
-function LowerThirdsSection({ orgId, slug, role, org, getSetting, saveSetting }: SectionProps) {
+function LowerThirdsSection({ orgId, slug, role, org, getSetting, editSetting, saveSetting }: SectionProps) {
   const [copiedUrl, setCopiedUrl] = useState(false);
   const overlayLink = useDisplayLink(slug, "overlay");
 
@@ -1933,7 +1952,8 @@ function LowerThirdsSection({ orgId, slug, role, org, getSetting, saveSetting }:
               getSetting={getSetting}
               saveSetting={saveSetting}
               type="number"
-            />
+                  editSetting={editSetting}
+                />
           </FieldGroup>
         )}
 
@@ -2516,7 +2536,7 @@ function DangerSection({
                     <select
                       value={selectedDate}
                       onChange={(e) => setSelectedDate(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text focus:outline-none focus:border-fire-500 transition-colors text-sm appearance-none"
+                      className="min-h-11 w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text focus:outline-none focus:border-fire-500 transition-colors text-sm appearance-none"
                     >
                       {availableDates.map((entry) => (
                         <option key={entry.showId} value={entry.showId}>
