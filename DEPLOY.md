@@ -1076,10 +1076,70 @@ screenshots were inspected. No browser errors or external email. Full validation
 passed 2,122 unit tests, 800 Worker tests, four coverage-gate tests, typecheck and
 the production build.
 
-Individual link revocation is not implemented by this change. Workspace removal
-is reported as unavailable, not revoked. The compound auth requirement remains
-open for revocation, organization invitation recovery and remaining landing work.
-This change requires no new migration or native release and is not deployed.
+Workspace removal is reported as unavailable, not revoked. The follow-up below
+adds individual link revocation. The compound auth requirement remains open for
+organization invitation recovery and remaining landing work. The invite-state
+change itself requires no new migration or native release and is not deployed.
+
+### Individual chat-link revocation
+
+Apply `0054_chat_pass_revocations.sql` before deploying the matching Worker and
+web assets. Keep the remote migration manifest unchanged until that migration
+is actually applied. This work is not deployed and requires no native release.
+
+Production leaders can use **Disable a chat link** in Chat to paste an existing
+crew pass or Planning invite, review its consequences and confirm. The command
+requires a fresh session, current leadership/chat access and a valid signed link
+from that workspace. It stores only an organization-scoped digest, expiry,
+revocation time and actor. Repeated commands keep the original receipt. Existing
+web/mobile links use the same check; issuance does not need to be rewritten.
+The digest covers authenticated signing input so equivalent base64 signature
+spellings cannot bypass revocation. Malformed token structure is rejected.
+
+The join pages distinguish revoked from invalid, expired and unavailable links.
+Crew socket upgrades, attachment reads/deletes and uploads consult the denylist.
+The Worker attaches the verified digest to guest sockets; each message checks
+current revocation. A committed revocation pushes a relay authorization refresh,
+closing affected guests while preserving other guests and members. Guest read
+leases expire after sixty seconds, with an earlier alarm refresh if the push is
+lost. Broadcasts continue to use synchronous lease checks without per-recipient
+D1 reads. Old socket attachments without a digest must reconnect through the
+gateway. Chat attachments use private/no-store responses.
+
+The client stops reconnecting a revoked guest token and displays the revoked
+notice. It also rechecks a link after connection failure. The management dialog
+bounds requests at ten seconds, retains unconfirmed input and offers explicit
+Retry. A missing relay acknowledgement is reported separately from the committed
+revocation. Revoking a Planning invite does not remove normal member access.
+
+Run after building:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-chat-revocation.mjs
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-chat-invites.mjs
+```
+
+The two-browser rehearsal withholds an actual committed revocation reply, checks
+that the guest disconnects, retries the same command and inspects final D1 rows.
+It verifies file read/delete/upload and new socket rejection, Planning's revoked
+notice, retained member access, revocation between loading the name form and
+joining, and zero external email. Controls pass bounds,
+hit tests and 44px targets at 320/768/1440px; phone screenshots are inspected.
+The earlier invite rehearsal still covers sign-in return, expiry, membership
+removal and read Retry. Both run against the compiled Worker with disposable data.
+
+Browser resizing also reproduced the composer changing its observed height
+inside ResizeObserver, raising Chrome's undelivered-notification error and the
+app's runtime-error banner. Height changes now run in a coalesced animation frame
+with unmount cleanup. A deterministic regression failed before the fix and passes
+after it. Mobile room/link controls occupy their own row, keeping the chat title
+readable. The final browser rehearsal has no runtime errors.
+
+Full validation passed 2,133 unit tests, 808 Worker tests, four coverage-gate
+tests, typecheck and the production build. Worker coverage includes revocation
+push/alarm/message checks after hibernation, stale read-lease cutoff, another
+unrevoked guest, cross-workspace denial, current leadership/session checks,
+idempotent receipts and equivalent signature spellings. Phase 2 remains open.
 
 ### Timecode label validation
 

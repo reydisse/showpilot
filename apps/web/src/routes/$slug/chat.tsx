@@ -3,6 +3,7 @@ import { useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Copy, QrCode, X, Clock3, Check, Users, Link2, LockKeyhole, Wifi, MessageSquare, UserRoundPlus, CalendarDays, Hash, Search, UserCheck } from "lucide-react";
 import { PageSkeleton } from "@/components/ui/Skeleton";
+import { ChatPassRevocation } from "@/components/chat/ChatPassRevocation";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 import { useChat } from "@/hooks/useChat";
 import { getOrgSettings } from "@/lib/settings";
@@ -57,6 +58,10 @@ function ChatPage() {
   const [selectedPlanningMembers, setSelectedPlanningMembers] = useState<string[]>([]);
   const [planningError, setPlanningError] = useState("");
   const canInvite = ["owner", "admin", "td", "pd", "pm", "sm", "stageManager", "tm"].includes(userRole);
+  const forgetRevokedLink = (token: string) => {
+    if (joinUrl.endsWith(encodeURIComponent(token))) { setJoinUrl(""); setExpiresAt(0); }
+    if (planningJoinUrl.endsWith(encodeURIComponent(token))) { setPlanningJoinUrl(""); setPlanningExpiresAt(0); }
+  };
   const openRoom = (nextRoom: string) => void navigate({ search: { room: nextRoom, message: undefined }, replace: true });
   const directRoomFor = (otherUserId: string) => `dm:${[userId, otherUserId].sort().join(":")}`;
   const visibleMembers = members.filter((member) => member.userId !== userId && member.name.toLowerCase().includes(memberSearch.toLowerCase())).slice(0, 8);
@@ -110,7 +115,19 @@ function ChatPage() {
 
   return (
     <div className="relative grid h-full min-h-0 overflow-hidden bg-board-card lg:grid-cols-[minmax(0,1fr)_17rem]">
-      <div className="min-h-0 border-board-border lg:border-r">
+      <div className="flex min-h-0 min-w-0 flex-col border-board-border lg:border-r">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-board-border p-2 lg:hidden">
+          {canInvite && <ChatPassRevocation orgId={orgId} onRevoked={forgetRevokedLink} />}
+          <div className="flex items-center gap-2 lg:hidden">
+            <select value={roomId} onChange={(event) => openRoom(event.target.value)} aria-label="Switch chat room" className="min-h-11 max-w-36 rounded-lg border border-board-border bg-board-bg px-2 py-2 text-[10px] font-medium text-board-text outline-none">
+              <option value="production">Production Chat</option>
+              <option value="planning">Planning Room</option>
+              {members.filter((member) => member.userId !== userId).map((member) => <option key={member.userId} value={directRoomFor(member.userId)}>DM · {member.name}</option>)}
+            </select>
+            {canInvite && roomId === "production" ? <button onClick={() => setShareOpen(true)} className="group flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg border border-board-border bg-board-bg/55 p-2 text-board-muted transition hover:border-fire-500/30 hover:text-board-text" title="Invite guest crew"><Users className="h-4 w-4 transition-colors group-hover:text-fire-400" /></button> : null}
+            {canInvite && roomId === "planning" ? <button onClick={openPlanningShare} className="group flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg border border-board-border bg-board-bg/55 p-2 text-board-muted transition hover:border-fire-500/30 hover:text-board-text" title="Share Planning Room"><UserCheck className="h-4 w-4 transition-colors group-hover:text-fire-400" /></button> : null}
+          </div>
+        </div>
         <ChatPanel
           key={`${orgId}:${roomId}`}
           messages={messages}
@@ -141,21 +158,14 @@ function ChatPage() {
           typingUsers={typingUsers}
           onTypingChange={setTyping}
           seenThrough={dmMember ? readReceipts[dmMember.userId] : undefined}
-          className="h-full"
+          className="min-h-0 flex-1"
           liveStatus={liveItem}
-          headerActions={<div className="flex items-center gap-2 lg:hidden">
-            <select value={roomId} onChange={(event) => openRoom(event.target.value)} aria-label="Switch chat room" className="max-w-36 rounded-lg border border-board-border bg-board-bg px-2 py-2 text-[10px] font-medium text-board-text outline-none">
-              <option value="production">Production Chat</option>
-              <option value="planning">Planning Room</option>
-              {members.filter((member) => member.userId !== userId).map((member) => <option key={member.userId} value={directRoomFor(member.userId)}>DM · {member.name}</option>)}
-            </select>
-            {canInvite && roomId === "production" ? <button onClick={() => setShareOpen(true)} className="group flex items-center gap-2 rounded-lg border border-board-border bg-board-bg/55 p-2 text-board-muted transition hover:border-fire-500/30 hover:text-board-text" title="Invite guest crew"><Users className="h-4 w-4 transition-colors group-hover:text-fire-400" /></button> : null}
-            {canInvite && roomId === "planning" ? <button onClick={openPlanningShare} className="group flex items-center gap-2 rounded-lg border border-board-border bg-board-bg/55 p-2 text-board-muted transition hover:border-fire-500/30 hover:text-board-text" title="Share Planning Room"><UserCheck className="h-4 w-4 transition-colors group-hover:text-fire-400" /></button> : null}
-          </div>}
+
         />
       </div>
 
       <aside className="hidden min-h-0 overflow-y-auto bg-board-bg/35 lg:block">
+        {canInvite && <div className="p-4"><ChatPassRevocation orgId={orgId} onRevoked={forgetRevokedLink} /></div>}
         <div className="border-b border-board-border px-5 py-[1.15rem]"><h2 className="text-sm font-semibold text-board-text">Room details</h2><p className="mt-0.5 truncate text-[10px] text-board-muted">{roomTitle}</p></div>
         <div className="space-y-6 p-5">
           <section>

@@ -795,13 +795,17 @@ export function ChatPanel({
     resize();
     if (typeof ResizeObserver === "undefined") return;
     let width = ta.clientWidth;
+    let frame: number | undefined;
     const observer = new ResizeObserver(() => {
       if (ta.clientWidth === width) return;
       width = ta.clientWidth;
-      resize();
+      // Writing the observed height during delivery creates a ResizeObserver
+      // loop error. Coalesce width changes outside that delivery frame.
+      if (frame !== undefined) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => { frame = undefined; resize(); });
     });
     observer.observe(ta);
-    return () => observer.disconnect();
+    return () => { observer.disconnect(); if (frame !== undefined) cancelAnimationFrame(frame); };
   }, [inputText]);
 
   // Separate pinned alerts from regular messages

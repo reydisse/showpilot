@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { MessageSquare } from "lucide-react";
 import { validateCrewChatPass } from "@/lib/crew-chat-pass";
+import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { useChat } from "@/hooks/useChat";
 import { ChatInviteNotice } from "@/components/chat/ChatInviteNotice";
-import type { CrewChatClaims } from "@/lib/chat-pass-token";
+import type { CrewChatClaims, CrewChatJoinState } from "@/lib/chat-pass-token";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 
 export const Route = createFileRoute("/join/chat/$token")({
@@ -23,6 +24,7 @@ function GuestChatJoinPage() {
 function GuestChatAccess({ token, pass }: { token: string; pass: CrewChatClaims }) {
   const [name, setName] = useState("");
   const [joinedName, setJoinedName] = useState("");
+  const [denied, setDenied] = useState<"revoked" | "invalid" | "expired" | "unavailable" | null>(null);
   const [expired, setExpired] = useState(false);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
@@ -34,6 +36,7 @@ function GuestChatAccess({ token, pass }: { token: string; pass: CrewChatClaims 
     check();
     return () => clearTimeout(timer);
   }, [pass.exp]);
+  if (denied) return <ChatInviteNotice kind="crew" status={denied} />;
   if (expired) return <ChatInviteNotice kind="crew" status="expired" />;
   if (!joinedName) return (
     <div className="flex min-h-[100dvh] items-center justify-center bg-board-bg p-4">
@@ -49,10 +52,19 @@ function GuestChatAccess({ token, pass }: { token: string; pass: CrewChatClaims 
     </div>
   );
 
-  return <GuestChatSession orgId={pass.orgId} token={token} name={joinedName} />;
+  return <GuestChatSession orgId={pass.orgId} token={token} name={joinedName} onDenied={setDenied} />;
 }
 
-function GuestChatSession({ orgId, token, name: joinedName }: { orgId: string; token: string; name: string }) {
+function GuestChatSession({ orgId, token, name: joinedName, onDenied }: { orgId: string; token: string; name: string; onDenied: (status: "revoked" | "invalid" | "expired" | "unavailable") => void }) {
   const chat = useChat({ orgId, isVisible: true, senderName: joinedName, senderRole: "Guest", guestToken: token });
-  return <div className="h-[100dvh] bg-board-bg p-2 sm:p-4"><div className="mx-auto h-full max-w-4xl overflow-hidden rounded-xl border border-board-border bg-board-card"><ChatPanel messages={chat.messages} connectionStatus={chat.connectionStatus} unreadCount={chat.unreadCount} onSendMessage={chat.sendMessage} onUploadAttachment={chat.uploadAttachment} onDiscardAttachment={chat.discardAttachment} typingUsers={chat.typingUsers} onTypingChange={chat.setTyping} attachmentAccessToken={token} currentUserName={joinedName} title="Team Chat" subtitle={`${joinedName} · Guest crew`} allowOperationalMessages={false} className="h-full" gatewayStatus={chat.gatewayStatus} hydrated={chat.hydrated} hasOlderMessages={chat.hasOlderMessages} loadingOlderMessages={chat.loadingOlderMessages} olderMessagesError={chat.olderMessagesError} onLoadOlderMessages={chat.loadOlderMessages} onRetryQueuedMessage={chat.retryQueuedMessage} onCancelQueuedMessage={chat.cancelQueuedMessage} /></div></div>;
+  const read = useCallback((signal: AbortSignal) => validateCrewChatPass({ data: token, signal }), [token]);
+  const access = useOperatorRead<CrewChatJoinState | null>({ key: token, initialValue: null, read,
+    errorMessage: "Could not recheck this crew link. Try again.",
+    enabled: chat.connectionStatus === "error" || chat.connectionStatus === "disconnected" });
+  useEffect(() => {
+    if (chat.guestAccessRevoked) onDenied("revoked");
+    else if (access.value && access.value.status !== "valid") onDenied(access.value.status);
+  }, [chat.guestAccessRevoked, access.value, onDenied]);
+  return <div className="flex h-[100dvh] flex-col bg-board-bg p-2 sm:p-4">
+    {access.error && <div role="alert" className="mx-auto w-full max-w-4xl shrink-0 p-3 text-sm text-red-300"><p>{access.error.message}</p><button className="min-h-11 rounded-lg border border-board-border px-4" onClick={access.retry} disabled={access.refreshing}>Recheck link</button></div>}<div className="mx-auto min-h-0 w-full max-w-4xl flex-1 overflow-hidden rounded-xl border border-board-border bg-board-card"><ChatPanel messages={chat.messages} connectionStatus={chat.connectionStatus} unreadCount={chat.unreadCount} onSendMessage={chat.sendMessage} onUploadAttachment={chat.uploadAttachment} onDiscardAttachment={chat.discardAttachment} typingUsers={chat.typingUsers} onTypingChange={chat.setTyping} attachmentAccessToken={token} currentUserName={joinedName} title="Team Chat" subtitle={`${joinedName} · Guest crew`} allowOperationalMessages={false} className="h-full" gatewayStatus={chat.gatewayStatus} hydrated={chat.hydrated} hasOlderMessages={chat.hasOlderMessages} loadingOlderMessages={chat.loadingOlderMessages} olderMessagesError={chat.olderMessagesError} onLoadOlderMessages={chat.loadOlderMessages} onRetryQueuedMessage={chat.retryQueuedMessage} onCancelQueuedMessage={chat.cancelQueuedMessage} /></div></div>;
 }

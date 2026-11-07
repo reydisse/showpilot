@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 
-type Failure = "invalid" | "expired" | "unavailable" | "wrong-account" | "access-removed";
+type Failure = "revoked" | "invalid" | "expired" | "unavailable" | "wrong-account" | "access-removed";
 export function ChatInviteShell({ children }: { children: ReactNode }) {
   return <main className="flex min-h-dvh items-center justify-center bg-board-bg p-4 sm:p-6"><div className="w-full max-w-sm rounded-2xl border border-board-border bg-board-card p-6 text-center shadow-2xl sm:p-7">{children}</div></main>;
 }
@@ -10,6 +10,7 @@ export function ChatInviteNotice({ kind, status }: { kind: "planning" | "crew"; 
   const label = kind === "planning" ? "Planning invite" : "crew pass";
   const message = (() => {
     switch (status) {
+      case "revoked": return { title: `This ${label} was revoked`, detail: "A production leader disabled this link. Ask the sender for a new one." };
       case "invalid": return { title: `This ${label} is invalid`, detail: "The link is incomplete or could not be verified. Ask the sender for a new link." };
       case "expired": return { title: `This ${label} has expired`, detail: "Its access period has ended. Ask the sender for a new link." };
       case "unavailable": return { title: `This ${label} is no longer available`, detail: "The workspace for this link is no longer available. Contact the sender." };

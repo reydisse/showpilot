@@ -49,7 +49,7 @@ export class NativeChatAdapter implements ChatAdapter {
   private messageHistory: ChatMessage[] = [];
   private pendingMutations = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
-  constructor(orgId: string, private guest?: { token: string; name: string }, private roomId = "production", private outboxIdentity = "unscoped", private currentUserId?: string) {
+  constructor(orgId: string, private guest?: { token: string; name: string; onRevoked?: () => void }, private roomId = "production", private outboxIdentity = "unscoped", private currentUserId?: string) {
     this.orgId = orgId;
     this.messageQueue = readChatOutbox(this.outboxIdentity, this.orgId, this.roomId);
   }
@@ -135,7 +135,11 @@ export class NativeChatAdapter implements ChatAdapter {
           }
         };
 
-        this.ws.onclose = () => {
+        this.ws.onclose = (event) => {
+          if (this.guest && event.code === 4403 && event.reason === "Guest pass revoked") {
+            this.intentionalClose = true;
+            this.guest.onRevoked?.();
+          }
           this.ws = null;
           this.messageQueue = this.messageQueue.map((item) => item.status === "sending" ? { ...item, status: "waiting" } : item);
           this.persistAndNotifyOutbox();
