@@ -50,7 +50,8 @@ import {
 import { createServiceForOrg } from "./service-creation.server";
 import { PlanLimitError } from "./plan-limits";
 import { isValidServiceDate } from "./validation";
-import { signToken } from "./kiosk-token";
+import { issueChatPass, CHAT_PASS_CREATORS, ChatPassCreationError, chatPassCreationMessage } from "./chat-pass-issuance.server";
+import { chatPassCommandSchema } from "./chat-pass-creation";
 import { MOBILE_REPORT_SUMMARY_SQL } from "./mobile-report-summary";
 import {
   createChecklistTemplateId,
@@ -340,15 +341,7 @@ interface MobileChatMemberRow {
   image: string | null;
 }
 
-const CHAT_PASS_CREATORS = new Set<Role>([
-  "owner",
-  "admin",
-  "td",
-  "pd",
-  "pm",
-  "sm",
-  "tm",
-]);
+
 
 interface MobileDeviceRow {
   id: string;
@@ -6097,146 +6090,21 @@ async function notifyMobileChatReaction(
   return json({ notified });
 }
 
-async function createMobileCrewChatPass(
-  request: Request,
-  url: URL,
-  env: MobileApiEnvironment,
-): Promise<Response> {
+async function createMobileChatPass(request: Request, url: URL, env: MobileApiEnvironment, scope: "crew-chat" | "planning-chat"): Promise<Response> {
   const access = await authorize(request, url, env.DB, ["chat:access"]);
   if (access instanceof Response) return access;
-  if (!CHAT_PASS_CREATORS.has(access.identity.role))
-    return json(
-      { error: "Only production leaders can invite guest crew." },
-      403,
-    );
-  if (!env.KIOSK_SECRET)
-    return json({ error: "Guest chat invitations are not configured." }, 503);
+  if (!env.KIOSK_SECRET) return json({ error: "Chat invitations are not configured." }, 503);
+  const session = await getAuth().api.getSession({ headers: request.headers, query: { disableCookieCache: true } });
+  if (!session || session.user.id !== access.identity.userId) return json({ error: "Sign in to create a chat link." }, 401);
   const body = await readJson(request);
-  const hours =
-    typeof body?.hours === "number" && Number.isInteger(body.hours)
-      ? body.hours
-      : 0;
-  if (hours < 1 || hours > 24)
-    return json({ error: "Choose an expiry between 1 and 24 hours." }, 400);
-  const organization = await env.DB.prepare(
-    "SELECT slug FROM organization WHERE id = ? LIMIT 1",
-  )
-    .bind(access.orgId)
-    .first<{ slug: string }>();
-  if (!organization) return json({ error: "Organization not found." }, 404);
-  const now = Math.floor(Date.now() / 1_000);
-  const expiresAt = (now + hours * 3_600) * 1_000;
-  const token = `chat_${await signToken(
-    {
-      scope: "crew-chat",
-      orgId: access.orgId,
-      orgSlug: organization.slug,
-      exp: expiresAt / 1_000,
-      iat: now,
-    },
-    env.KIOSK_SECRET,
-  )}`;
-  return json({
-    token,
-    expiresAt,
-    joinUrl: `${url.origin}/join/chat/${encodeURIComponent(token)}`,
-  });
-}
-
-async function createMobilePlanningChatPass(
-  request: Request,
-  url: URL,
-  env: MobileApiEnvironment,
-): Promise<Response> {
-  const access = await authorize(request, url, env.DB, ["chat:access"]);
-  if (access instanceof Response) return access;
-  if (!CHAT_PASS_CREATORS.has(access.identity.role))
-    return json(
-      { error: "Only production leaders can share the Planning Room." },
-      403,
-    );
-  if (!env.KIOSK_SECRET)
-    return json(
-      { error: "Planning Room invitations are not configured." },
-      503,
-    );
-  const body = await readJson(request);
-  const hours =
-    typeof body?.hours === "number" && Number.isInteger(body.hours)
-      ? body.hours
-      : 0;
-  const requestedUserIds = Array.isArray(body?.targetUserIds)
-    ? [...new Set(body.targetUserIds.filter(validId))]
-    : [];
-  if (
-    hours < 1 ||
-    hours > 24 ||
-    requestedUserIds.length < 1 ||
-    requestedUserIds.length > 50
-  ) {
-    return json(
-      { error: "Choose members and an expiry between 1 and 24 hours." },
-      400,
-    );
-  }
-  const [organization, targetResult] = await Promise.all([
-    env.DB.prepare("SELECT slug FROM organization WHERE id = ? LIMIT 1")
-      .bind(access.orgId)
-      .first<{ slug: string }>(),
-    env.DB.prepare(
-      `SELECT userId FROM member WHERE organizationId = ? AND userId IN (${requestedUserIds.map(() => "?").join(",")})`,
-    )
-      .bind(access.orgId, ...requestedUserIds)
-      .all<{ userId: string }>(),
-  ]);
-  if (!organization) return json({ error: "Organization not found." }, 404);
-  const targetUserIds = [
-    ...new Set((targetResult.results ?? []).map((target) => target.userId)),
-  ];
-  if (targetUserIds.length !== requestedUserIds.length)
-    return json(
-      { error: "Every selected person must be an organization member." },
-      400,
-    );
-  const now = Math.floor(Date.now() / 1_000);
-  const expiresAt = (now + hours * 3_600) * 1_000;
-  const token = `planning_chat_${await signToken(
-    {
-      scope: "planning-chat",
-      roomId: "planning",
-      orgId: access.orgId,
-      orgSlug: organization.slug,
-      targetUserIds,
-      exp: expiresAt / 1_000,
-      iat: now,
-    },
-    env.KIOSK_SECRET,
-  )}`;
+  const parsed = chatPassCommandSchema.safeParse({ ...body, orgId: access.orgId, scope });
+  if (!parsed.success) return json({ error: "Choose valid members and an expiry between 1 and 24 hours." }, 400);
   try {
-    const { notifyOperationalEvent } =
-      await import("./operational-notifications.server");
-    await notifyOperationalEvent({
-      orgId: access.orgId,
-      actorId: access.identity.userId,
-      recipientIds: targetUserIds,
-      category: "chat",
-      type: "chat-planning-invite",
-      title: `${access.identity.name} shared the Planning Room with you`,
-      message:
-        "Open the invite to join the targeted Planning Room conversation.",
-      actionUrl: "chat?room=planning",
-      source: `planning-chat:${crypto.randomUUID()}`,
-      pushTag: `planning-chat-invite-${access.orgId}`,
-    });
-  } catch {
-    // The signed pass remains usable when notification delivery fails.
-  }
-  return json({
-    token,
-    expiresAt,
-    targetCount: targetUserIds.length,
-    joinUrl: `${url.origin}/join/chat/planning/${encodeURIComponent(token)}`,
-  });
+    const pass = await issueChatPass(env.DB, env.KIOSK_SECRET, { userId: session.user.id, name: session.user.name }, parsed.data);
+    return json({ token: pass.token, expiresAt: pass.expiresAt, notifications: pass.notifications,
+      ...(scope === "planning-chat" ? { targetCount: pass.targetCount } : {}),
+      joinUrl: `${url.origin}/join/chat/${scope === "planning-chat" ? "planning/" : ""}${encodeURIComponent(pass.token)}` });
+  } catch (error) { return json({ error: chatPassCreationMessage(error) }, error instanceof ChatPassCreationError ? error.status : 503); }
 }
 
 async function pushToken(
@@ -7705,12 +7573,12 @@ export async function handleMobileApi(
     url.pathname === "/api/mobile/v1/chat/passes/crew" &&
     request.method === "POST"
   )
-    return createMobileCrewChatPass(request, url, env);
+    return createMobileChatPass(request, url, env, "crew-chat");
   if (
     url.pathname === "/api/mobile/v1/chat/passes/planning" &&
     request.method === "POST"
   )
-    return createMobilePlanningChatPass(request, url, env);
+    return createMobileChatPass(request, url, env, "planning-chat");
   if (url.pathname === "/api/mobile/v1/checkin" && request.method === "GET")
     return checkIn(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/show-board" && request.method === "GET")

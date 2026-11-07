@@ -30,10 +30,13 @@ function fakeDatabase(input: {
   notificationsEnabled?: boolean;
   memberIds?: string[];
 } = {}): MobileApiDatabase {
+  const receipts = new Map<string, { fingerprint: string; payload: string }>();
   function statement(sql: string, params: unknown[]): MobileApiStatement {
     input.calls?.push({ sql, params });
     return {
       async first<T>() {
+        if (sql.startsWith("SELECT fingerprint,payload FROM chat_pass_creation_receipt")) return (receipts.get(JSON.stringify(params)) ?? null) as T | null;
+        if (sql.startsWith("SELECT COUNT(DISTINCT userId) AS count FROM notification")) return { count: params.length-2 } as T;
         if (sql.startsWith("SELECT id FROM organization WHERE id = ?")) return { id: "org-1" } as T;
         if (sql.startsWith("SELECT slug FROM organization WHERE id = ?")) return { slug: "faithfire-production" } as T;
         if (sql.includes("key = 'notify-app-chat'")) {
@@ -64,6 +67,10 @@ function fakeDatabase(input: {
         return { results: [] as T[] };
       },
       async run() {
+        if (sql.startsWith("INSERT INTO chat_pass_creation_receipt")) {
+          const key = JSON.stringify(params.slice(0,3));
+          if (!receipts.has(key)) receipts.set(key, { fingerprint: String(params[3]), payload: String(params[4]) });
+        }
         return { success: true, meta: { changes: 1 } };
       },
     };

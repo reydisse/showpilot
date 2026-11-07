@@ -1092,7 +1092,8 @@ crew pass or Planning invite, review its consequences and confirm. The command
 requires a fresh session, current leadership/chat access and a valid signed link
 from that workspace. It stores only an organization-scoped digest, expiry,
 revocation time and actor. Repeated commands keep the original receipt. Existing
-web/mobile links use the same check; issuance does not need to be rewritten.
+web/mobile links use the same check. The creation recovery below adds a unique
+nonce to newly issued grants while preserving existing links.
 The digest covers authenticated signing input so equivalent base64 signature
 spellings cannot bypass revocation. Malformed token structure is rejected.
 
@@ -1140,6 +1141,61 @@ tests, typecheck and the production build. Worker coverage includes revocation
 push/alarm/message checks after hibernation, stale read-lease cutoff, another
 unrevoked guest, cross-workspace denial, current leadership/session checks,
 idempotent receipts and equivalent signature spellings. Phase 2 remains open.
+
+### Chat-link creation and share recovery
+
+Apply `0055_chat_pass_creation_receipts.sql` after migration 0054 and before
+releasing matching web and Worker assets. The remote manifest is unchanged;
+this work is not deployed. The receipt stores signed claims without the bearer
+signature or signing secret, scoped by workspace, actor and request ID.
+
+New creations have a unique nonce, including two creations within the same
+second. The previous issuer could recreate an already-revoked token. Retrying
+with the same request ID and choices recovers the same token and original expiry;
+changed choices, expired grants and revoked grants cannot reuse that request.
+Current leadership, chat permission, session and selected membership are checked
+again. Web and mobile API issuance share this implementation. Older mobile
+clients without a request ID still work and receive distinct new grants; their
+native share UI does not yet offer the web dialog's recovery controls.
+
+Both web share forms use the shared Dialog with Escape, focus containment,
+labelled inputs and 44px controls. Requests have ten-second deadlines. Closing
+preserves entered choices and an unconfirmed request; reopening offers explicit
+Retry. Late responses cannot replace newer state. Starting a new link is an
+explicit choice and does not revoke an earlier link. Ready links expose a QR,
+selectable text, expiry and bounded copy with visible error and Retry. Links
+above the QR byte budget keep a text/copy fallback instead of crashing the
+encoder; the long-link regression failed with `Data too long` before this fix. Known
+expired or locally revoked links stop displaying as ready.
+
+Planning notifications use the creation nonce as their deduplication key. The
+result reports confirmed inbox rows separately from link creation. Failed or
+partially saved notifications can be retried against the same link without
+resetting read/dismissed notifications or pushing duplicate inbox inserts. A
+confirmed inbox save does not claim device push delivery.
+
+After building, run:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-chat-creation.mjs
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-chat-invites.mjs
+```
+
+The creation rehearsal uses real auth, a compiled Worker and disposable D1. It
+withholds actual committed responses, exercises identical Retry and closing
+while pending, injects a real notification insert failure, restores it, and
+checks final receipt/notification counts. Clipboard denial leaves a selectable
+link. Controls pass bounds and hit tests at 320/768/1440px; phone screenshots are
+inspected. These are foreground rehearsals; focus emulation prevents macOS
+window occlusion from suspending animation-frame measurements. No production
+data or external email is used.
+
+Full validation passed 2,143 unit tests, 815 Worker tests and four coverage-gate
+tests, plus typecheck and production build. Real Worker tests cover concurrent
+requests, committed receipt read failure, original expiry, revocation, current
+authority, actor/workspace isolation, partial notifications and web/mobile
+parity. Organization invitation recovery, remaining auth/landing work and the
+wider Phase 2 gate remain open.
 
 ### Timecode label validation
 
