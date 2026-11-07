@@ -32,6 +32,7 @@ function makeDeps(opts: {
   lowerThird?: LowerThirdPayload | null;
   kioskBlanked?: boolean;
   stream?: { connected: number; total: number };
+  stop?: { id: string; success: boolean; error?: string }[];
   goLive?: { status: number; results?: { id: string; success: boolean; error?: string }[]; error?: string };
 }) {
   const commands: RecordedCommand[] = [];
@@ -88,6 +89,7 @@ function makeDeps(opts: {
     },
     async streamStop(orgId) {
       record("streamStop", orgId);
+      return opts.stop ?? [];
     },
     async streamStatus() {
       return opts.stream ?? { connected: 0, total: 0 };
@@ -239,13 +241,20 @@ describe("kiosk blank + stream + state", () => {
       ] },
     });
     const r = await streamGoLive(deps, "org-1");
-    expect(r.body).toMatchObject({ ok: true, connected: 1, total: 2 });
+    expect(r.status).toBe(502);
+    expect(r.body).toMatchObject({ ok: false, connected: 1, total: 2 });
   });
 
   it("streamGoLive bubbles the 409 no-input case", async () => {
     const { deps } = makeDeps({ goLive: { status: 409, error: "No live input configured" } });
     const r = await streamGoLive(deps, "org-1");
     expect(r.status).toBe(409);
+  });
+
+  it("streamStop reports a partial provider failure instead of acknowledging success", async () => {
+    const results = [{ id: "one", success: true }, { id: "two", success: false, error: "Unconfirmed" }];
+    const { deps } = makeDeps({ stop: results });
+    expect(await streamStop(deps, "org-1")).toEqual({ status: 502, body: { ok: false, stopped: 1, total: 2, destinations: results, error: expect.any(String) } });
   });
 
   it("streamStop disconnects", async () => {

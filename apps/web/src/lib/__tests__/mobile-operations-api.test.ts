@@ -256,6 +256,7 @@ describe("mobile operations API", () => {
       "org-1",
       "dest-1",
       true,
+      { actorId: "operator-1", requestId: undefined },
     );
   });
 

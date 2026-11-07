@@ -63,7 +63,7 @@ export interface CompanionDeps {
   getKioskBlank(orgId: string): Promise<boolean>;
   /** Stream go-live / stop / status (COMP-5). */
   streamGoLive(orgId: string): Promise<StreamGoLiveResult>;
-  streamStop(orgId: string): Promise<void>;
+  streamStop(orgId: string): Promise<{ id: string; success: boolean; error?: string }[]>;
   streamStatus(orgId: string): Promise<StreamStatus>;
 }
 
@@ -226,14 +226,18 @@ export async function streamGoLive(deps: CompanionDeps, orgId: string): Promise<
   const results = result.results ?? [];
   const connected = results.filter((r) => r.success).length;
   return {
-    status: 200,
-    body: { ok: true, connected, total: results.length, destinations: results },
+    status: connected === results.length ? 200 : 502,
+    body: { ok: connected === results.length, connected, total: results.length, destinations: results,
+      ...(connected === results.length ? {} : { error: "Some destinations could not be started. Review their results before retrying." }) },
   };
 }
 
 export async function streamStop(deps: CompanionDeps, orgId: string): Promise<CompanionResult> {
-  await deps.streamStop(orgId);
-  return { status: 200, body: { ok: true } };
+  const results = await deps.streamStop(orgId);
+  const stopped = results.filter(result => result.success).length;
+  const ok = stopped === results.length;
+  return { status: ok ? 200 : 502, body: { ok, stopped, total: results.length, destinations: results,
+    ...(ok ? {} : { error: "Some destinations could not be stopped. Retry to reconcile their outputs." }) } };
 }
 
 // ─── State (button feedback) ─────────────────────────────────
