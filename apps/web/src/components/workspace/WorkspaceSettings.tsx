@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "@tanstack/react-router";
+import { ResumeSetup } from "@/components/onboarding/ResumeSetup";
 import {
   WORKSPACE_TYPES,
   WORKSPACE_DEFINITIONS,
@@ -18,9 +19,11 @@ import {
 export function WorkspaceSettings({
   orgId,
   canManage,
+  canResumeSetup = false,
 }: {
   orgId: string;
   canManage: boolean;
+  canResumeSetup?: boolean;
 }) {
   const workspace = useWorkspace();
   const router = useRouter();
@@ -70,6 +73,7 @@ export function WorkspaceSettings({
           Names and features for your team.
         </p>
       </header>
+      {canResumeSetup && <ResumeSetup orgId={orgId} />}
       {error && (
         <p role="alert" className="text-red-400">
           {error}

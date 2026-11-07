@@ -13,6 +13,7 @@ vi.mock("@/lib/onboarding", () => ({ checkOrgSlug: vi.fn(), getOnboardingProgres
 vi.mock("@/lib/setup-save", () => ({ getSetupTeam: async () => ({ batch: null, invitations: [], completed: false }), saveSetupTeam: vi.fn(), sendSetupInvitation: vi.fn(), finishSetupTeam: vi.fn() }));
 vi.mock("@/lib/workspace/profile", () => ({ getWorkspaceProfile: vi.fn(), setWorkspaceModules: vi.fn() }));
 vi.mock("@tanstack/react-router", () => ({
+  useRouter: () => ({ navigate: vi.fn(async () => {}) }), useBlocker: () => ({ status: "idle" }),
   createFileRoute: () => (options: unknown) => ({ options,
     useSearch: () => ({}), useNavigate: () => vi.fn(),
     useRouteContext: () => ({ user: { id: "fixture-owner", email: "owner@example.test", emailVerified: true } }),
@@ -21,6 +22,16 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers(); });
 function openTeam() { return render(<SetupTeamForm taking={false} onGoLive={submitTeam} />); }
+it("keeps entered crew when returning from the saved rundown review", async () => {
+  vi.useFakeTimers();
+  const Wizard = Route.options.component; if (!Wizard) throw new Error("Missing wizard");
+  await act(async () => render(<Wizard />));
+  fireEvent.change(screen.getByLabelText("Crew 1 name"), { target: { value: "Preserved crew" } });
+  fireEvent.click(screen.getByRole("button", { name: "Back" })); await act(async () => vi.advanceTimersByTimeAsync(300));
+  expect(screen.getByRole("heading", { name: "Continue with your workspace" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Get your team in" })); await act(async () => vi.advanceTimersByTimeAsync(300));
+  expect(screen.getByRole("textbox", { name: "Crew 1 name" })).toHaveProperty("value", "Preserved crew");
+});
 async function submit() { await act(async () => fireEvent.click(screen.getByRole("button", { name: "Finish setup" }))); }
 const fill = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
 it("preserves invalid rows and prevents submission", async () => {

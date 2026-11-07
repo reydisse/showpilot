@@ -372,6 +372,7 @@ function OrganizationSettingsPage({
             {resolvedSection === "workspace" && (
               <WorkspaceSettings
                 orgId={orgId}
+                canResumeSetup={role === "owner"}
                 canManage={canViewOrganization && (role === "owner" || role === "admin")}
               />
             )}
