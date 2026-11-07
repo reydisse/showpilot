@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet, redirect, isRedirect, useRouterState } from "@tanstack/react-router";
 import { getSessionWithOrg, listUserOrgs, setActiveOrg } from "@/lib/session";
+import { safeAuthReturnTo, verificationHref } from "@/lib/auth-navigation";
 import { AuthSkeleton } from "@/components/ui/Skeleton";
 
 export const Route = createFileRoute("/_auth")({
@@ -12,6 +13,13 @@ export const Route = createFileRoute("/_auth")({
     // Session check failed — allow access to auth pages
     if (!result?.user) {
       return { user: null };
+    }
+
+    if (location.pathname === "/login") {
+      const search = new URLSearchParams(location.searchStr);
+      const returnTo = safeAuthReturnTo(search.get("returnTo"));
+      if (search.get("verify") === "1") throw redirect({ href: verificationHref(returnTo) });
+      if (returnTo) throw redirect({ href: returnTo });
     }
 
     // Pages a logged-in user should still be able to reach directly.

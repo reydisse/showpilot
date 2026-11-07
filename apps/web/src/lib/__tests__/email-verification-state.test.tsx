@@ -4,11 +4,17 @@ import type { ReactNode } from "react";
 const fixture = vi.hoisted(() => ({
   user: { email: "unverified@example.test", emailVerified: false },
   linkError: undefined as string | undefined,
+  returnTo: undefined as string | undefined,
   getSession: vi.fn(), sendVerificationEmail: vi.fn(),
 }));
 vi.mock("@tanstack/react-router", () => ({
-  createFileRoute: () => (options: unknown) => ({ options, useSearch: () => ({ error: fixture.linkError }), useRouteContext: () => ({ user: fixture.user }) }),
-  Link: ({ to, children }: { to: string; children: ReactNode }) => <a href={to}>{children}</a>,
+  createFileRoute: () => (options: unknown) => ({ options, useSearch: () => ({ error: fixture.linkError, returnTo: fixture.returnTo }), useRouteContext: () => ({ user: fixture.user }) }),
+  Link: ({ to, search, children }: { to: string; search?: { verify?: number; returnTo?: string }; children: ReactNode }) => {
+    const query = new URLSearchParams();
+    if (search?.verify) query.set("verify", String(search.verify));
+    if (search?.returnTo) query.set("returnTo", search.returnTo);
+    return <a href={to + (query.size ? `?${query}` : "")}>{children}</a>;
+  },
 }));
 vi.mock("../auth-client", () => ({ authClient: { getSession: fixture.getSession, sendVerificationEmail: fixture.sendVerificationEmail } }));
 import { Route } from "@/routes/_auth/verify-email";
@@ -21,7 +27,7 @@ function pending<T>() {
   return { promise, resolve };
 }
 beforeEach(() => {
-  vi.resetAllMocks(); fixture.user.emailVerified = false; fixture.linkError = undefined;
+  vi.resetAllMocks(); fixture.user.emailVerified = false; fixture.linkError = undefined; fixture.returnTo = undefined;
   fixture.getSession.mockResolvedValue(unverified());
   fixture.sendVerificationEmail.mockResolvedValue({ data: { status: true }, error: null });
 });
@@ -51,7 +57,7 @@ it("requires sign-in for an anonymous visitor without exposing a stale identity"
   fixture.getSession.mockResolvedValueOnce({ data: null, error: null });
   render(<Page />);
   await screen.findByRole("heading", { name: "Sign in to check verification" });
-  expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login");
+  expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login?verify=1");
   expect(screen.queryByText(fixture.user.email, { exact: false })).toBeNull();
   expect(screen.queryByRole("button", { name: "Resend verification email" })).toBeNull();
 });
@@ -120,4 +126,21 @@ it("aborts the active status request when leaving the page", () => {
   const page = render(<Page />);
   const signal = fixture.getSession.mock.calls[0][0].fetchOptions.signal;
   page.unmount(); expect(signal.aborted).toBe(true);
+});
+
+it("carries a deep link through anonymous recovery, resend and verified Continue", async () => {
+  fixture.returnTo = "/venue/chat?room=planning";
+  fixture.getSession.mockResolvedValueOnce({ data: null, error: null });
+  const page = render(<Page />);
+  await screen.findByRole("link", { name: "Sign in" });
+  expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login?verify=1&returnTo=%2Fvenue%2Fchat%3Froom%3Dplanning");
+  page.unmount(); render(<Page />);
+  await screen.findByRole("heading", { name: "Check your inbox" });
+  fireEvent.click(screen.getByRole("button", { name: "Resend verification email" }));
+  await screen.findByText("Verification email sent. Check your inbox.");
+  expect(fixture.sendVerificationEmail.mock.calls[0][0].callbackURL).toBe("/verify-email?returnTo=%2Fvenue%2Fchat%3Froom%3Dplanning");
+  fixture.getSession.mockResolvedValueOnce(verified());
+  fireEvent.click(screen.getByRole("button", { name: "I've verified my email" }));
+  await screen.findByRole("link", { name: "Continue" });
+  expect(screen.getByRole("link", { name: "Continue" }).getAttribute("href")).toBe(fixture.returnTo);
 });
