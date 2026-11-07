@@ -1,4 +1,6 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { act, fireEvent, render as renderUI, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotificationInbox } from "../NotificationCenter";
 
@@ -28,6 +30,11 @@ vi.mock("@/lib/desktop-runtime", () => ({
   isDesktopRuntime: () => mocks.isDesktop,
 }));
 
+function render(ui: ReactNode) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return renderUI(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
+
 describe("NotificationInbox", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -36,7 +43,7 @@ describe("NotificationInbox", () => {
 
   beforeEach(() => {
     mocks.getPreferences.mockResolvedValue([]);
-    mocks.updatePreference.mockResolvedValue({ preference: {} });
+    mocks.updatePreference.mockResolvedValue({ outcome: "applied", preference: { category: "schedule", deviceAlerts: false } });
   });
 
   it("keeps long assignment responses readable and clears unread state", async () => {
@@ -58,7 +65,7 @@ describe("NotificationInbox", () => {
     mocks.markAllRead.mockResolvedValue({ ok: true });
     const onUnreadChange = vi.fn();
 
-    render(<NotificationInbox orgId="org-1" slug="launch-audit" onUnreadChange={onUnreadChange} />);
+    render(<NotificationInbox userId="fixture-user" orgId="org-1" slug="launch-audit" onUnreadChange={onUnreadChange} />);
 
     expect(await screen.findByText("Assignment declined")).not.toBe(undefined);
     const message = screen.getByText(longMessage);
@@ -76,7 +83,7 @@ describe("NotificationInbox", () => {
   it("shows a useful empty state", async () => {
     mocks.getNotifications.mockResolvedValue({ notifications: [], unread: 0 });
 
-    render(<NotificationInbox orgId="org-1" slug="launch-audit" />);
+    render(<NotificationInbox userId="fixture-user" orgId="org-1" slug="launch-audit" />);
 
     expect(await screen.findByText("Nothing waiting for you.")).not.toBe(undefined);
     expect(screen.getByText(/Assignments, mentions, and operational alerts/)).not.toBe(undefined);
@@ -116,7 +123,7 @@ describe("NotificationInbox", () => {
         }],
       });
 
-    render(<NotificationInbox orgId="org-1" slug="launch-audit" />);
+    render(<NotificationInbox userId="fixture-user" orgId="org-1" slug="launch-audit" />);
     fireEvent.click(await screen.findByRole("button", { name: "Load older notifications" }));
 
     await waitFor(() => expect(mocks.getNotifications).toHaveBeenLastCalledWith({
@@ -142,7 +149,7 @@ describe("NotificationInbox", () => {
     const page = { notifications: [notification], unread: 1, nextCursor: null };
     mocks.getNotifications.mockResolvedValueOnce(page);
     mocks.markAllRead.mockResolvedValue({ ok: true });
-    render(<NotificationInbox orgId="org-1" slug="launch-audit" />);
+    render(<NotificationInbox userId="fixture-user" orgId="org-1" slug="launch-audit" />);
     await screen.findByText("Crew call");
     let finishRefresh: (value: typeof page) => void = () => {};
     mocks.getNotifications.mockReturnValueOnce(new Promise<typeof page>((resolve) => { finishRefresh = resolve; }));
@@ -157,7 +164,7 @@ describe("NotificationInbox", () => {
     mocks.getNotifications.mockResolvedValue({ notifications: [], unread: 0 });
     mocks.getPreferences.mockResolvedValue([{ category: "schedule", deviceAlerts: true }]);
 
-    render(<NotificationInbox orgId="org-1" slug="launch-audit" />);
+    render(<NotificationInbox userId="fixture-user" orgId="org-1" slug="launch-audit" />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Preferences" }));
     expect(screen.getByText(/Everything stays in your inbox/)).not.toBe(undefined);
@@ -166,7 +173,8 @@ describe("NotificationInbox", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Schedule device alerts" }));
 
     await waitFor(() => expect(mocks.updatePreference).toHaveBeenCalledWith({
-      data: { orgId: "org-1", category: "schedule", deviceAlerts: false },
+      data: { orgId: "org-1", category: "schedule", deviceAlerts: false, expectedDeviceAlerts: true, requestId: expect.any(String) },
+      signal: expect.any(AbortSignal),
     }));
   });
 
@@ -177,7 +185,7 @@ describe("NotificationInbox", () => {
       .mockResolvedValueOnce({ notifications: [], unread: 2 });
     const intervalSpy = vi.spyOn(window, "setInterval");
 
-    render(<NotificationInbox orgId="org-1" slug="launch-audit" />);
+    render(<NotificationInbox userId="fixture-user" orgId="org-1" slug="launch-audit" />);
     await waitFor(() => expect(mocks.getNotifications).toHaveBeenCalledTimes(1));
     expect(intervalSpy.mock.calls.some(([, delay]) => delay === 20_000)).toBe(false);
 

@@ -385,7 +385,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
 
           {accountView === "notifications" ? (
             <Suspense fallback={<AccountPanelFallback />}>
-              <NotificationInbox key={orgId} orgId={orgId} slug={slug} onUnreadChange={setUnread} onNavigate={() => setAccountOpen(false)} />
+              <NotificationInbox key={`${orgId}:${localUser.id}`} orgId={orgId} userId={localUser.id} slug={slug} onUnreadChange={setUnread} onNavigate={() => setAccountOpen(false)} />
             </Suspense>
           ) : null}
 

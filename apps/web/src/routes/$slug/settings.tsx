@@ -1,3 +1,4 @@
+import { NotificationPreferences } from "@/components/settings/NotificationPreferences";
 import { TimezoneSetting } from "@/components/settings/TimezoneSetting";
 import { SettingsTeamInvitations } from "@/components/admin/SettingsTeamInvitations";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
@@ -1627,7 +1628,8 @@ function LowerThirdsSection({ orgId, slug, role, org, getSetting, editSetting, s
 
 // ─── NOTIFICATIONS ──────────────────────────────────────────
 
-function NotificationsSection({ getSetting, saveSetting }: SectionProps) {
+function NotificationsSection({ orgId, getSetting, saveSetting }: SectionProps) {
+  const { user } = Route.useRouteContext();
   return (
     <div>
       <SectionHeader
@@ -1637,7 +1639,11 @@ function NotificationsSection({ getSetting, saveSetting }: SectionProps) {
       <div className="space-y-4">
         <SettingsGroup title="Organization policy" description="Workspace owners can disable chat alerts for everyone. Personal choices still apply to every enabled category." icon={Bell}>
           <SettingToggle row settingKey="notify-app-chat" label="Allow chat notifications" description="Permit personal alerts for direct messages, mentions, invitations, and reactions." defaultEnabled getSetting={getSetting} saveSetting={saveSetting} />
-          <NotificationPolicyRow label="Personal categories" description="Members can switch schedule, incident, chat, report, and admin alerts on or off without changing anyone else’s account." status="Per member" />
+
+        </SettingsGroup>
+
+        <SettingsGroup title="Your notification categories" description="Choose which alerts can interrupt you." icon={Bell}>
+          <div className="p-4"><NotificationPreferences orgId={orgId} userId={user.id} /></div>
         </SettingsGroup>
 
         <SettingsGroup title="Delivery" description="Every notification remains available in ShowPilot. Members choose which categories may also interrupt them on a device." icon={MonitorSmartphone}>
