@@ -1,10 +1,10 @@
 import { RundownRelay } from "../durable-objects/RundownRelay";
 import { TimecodeRelay } from "../durable-objects/TimecodeRelay";
 import { LowerThirdsRelay } from "../durable-objects/LowerThirdsRelay";
+import { CueSheetRelay } from "../durable-objects/CueSheetRelay";
 
 export { BridgeRelay } from "../durable-objects/BridgeRelay";
 export { ChatRelay } from "../durable-objects/ChatRelay";
-export { CueSheetRelay } from "../durable-objects/CueSheetRelay";
 
 // Hold one real D1 batch to exercise concurrent lifecycle requests deterministically.
 export class TestRundownRelay extends RundownRelay {
@@ -83,6 +83,25 @@ export class TestLowerThirdsRelay extends LowerThirdsRelay {
     if (new URL(request.url).pathname === "/internal/trigger") {
       const delay = await this.ctx.storage.get<number>("test-delay");
       if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+    return super.fetch(request);
+  }
+}
+
+// Keep real authorization, sockets and revision storage. Inject only the
+// broadcast outage; readers can still reconnect and inspect confirmed state.
+export class TestCueSheetRelay extends CueSheetRelay {
+  async fetch(request: Request): Promise<Response> {
+    const path = new URL(request.url).pathname;
+    if (path === "/test/status") {
+      const status = Number(await request.text());
+      if (!Number.isInteger(status) || status < 200 || status > 599) return new Response("Invalid test status", { status: 400 });
+      await this.ctx.storage.put("test-status", status);
+      return new Response("Configured");
+    }
+    if (path === "/broadcast") {
+      const status = await this.ctx.storage.get<number>("test-status");
+      if (status && status >= 400) return new Response("Injected cue-sheet broadcast failure", { status });
     }
     return super.fetch(request);
   }
