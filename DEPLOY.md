@@ -3489,3 +3489,9 @@ Remaining streaming work includes confirmation and bounded recovery for Go Live,
 Stop All, selection, destination creation/edit/deletion and ingest mutations.
 The old destination form also still needs the shared Dialog and retained drafts.
 This status-read repair does not claim those paths are complete.
+
+### 2026-11-07: stream-status CI follow-up
+
+Run 42375622195 passed Native Rust and all typechecks but timed out in the first Audio receipt test. A local coverage timing probe measured 1,976 ms of real-auth fixture setup versus 61 ms for the concurrent saves. Move authenticated fixture setup into `beforeEach`, retaining the mutation assertions and their default five-second deadline. No production code, timeout setting, or permission check changed.
+
+Validation: the clean full `test:coverage` run passes 2,186 unit tests, 863 Worker tests, the boundary/migration/coverage checks, and all coverage thresholds; web typecheck passes. An earlier full local run timed out in the separate same-day timecode scoping case. That case completed in 84 ms when instrumented, then passed an instrumented full Worker run and the clean full coverage run; no timecode code or test change is retained. GitHub CI must confirm the pushed revision before the next PR.
