@@ -5,7 +5,7 @@ import { appendFile, readFile, readdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 
-const [configPath, state, portArgument, emailCaptureDirectory] = process.argv.slice(2);
+const [configPath, state, portArgument, emailCaptureDirectory, streamOutputDirectory] = process.argv.slice(2);
 const port = Number(portArgument);
 assert.ok(configPath && state && Number.isInteger(port) && port > 0 && port <= 65535);
 const require = createRequire(new URL("../package.json", import.meta.url));
@@ -36,6 +36,26 @@ if (emailCaptureDirectory) {
     assert.ok(mode === "success" || mode === "fail");
     await appendFile(join(emailCaptureDirectory, "emails.jsonl"), JSON.stringify({ ...email, delivered: mode === "success" }) + "\n");
     return Response.json(mode === "success" ? { id: "fixture-email" } : { message: "Fixture provider unavailable" }, { status: mode === "success" ? 200 : 503 });
+  };
+}
+if (streamOutputDirectory) {
+  assert.equal(resolve(streamOutputDirectory), resolve(dirname(configPath)), "Stream status is confined to the disposable fixture");
+  assert.equal(options.bindings?.CLOUDFLARE_STREAM_API_TOKEN, "local-stream-status-only");
+  assert.equal(Boolean(emailCaptureDirectory), false);
+  // No fallthrough to the network, and no provider mutation is accepted.
+  options.outboundService = async request => {
+    assert.equal(request.url, "https://api.cloudflare.com/client/v4/accounts/fixture-account/stream/live_inputs/fixture-input/outputs", "Unexpected Stream request");
+    assert.equal(request.method, "GET", "This fixture must never create or modify provider resources");
+    const mode = (await readFile(join(streamOutputDirectory, "stream-output-mode"), "utf8")).trim();
+    assert.ok(["success", "error", "slow", "malformed"].includes(mode));
+    await appendFile(join(streamOutputDirectory, "stream-output-requests.jsonl"), JSON.stringify({ method: request.method, mode }) + "\n");
+    if (mode === "slow") await new Promise(resolve => setTimeout(resolve, 12_000));
+    if (mode === "error") return Response.json({ success: false }, { status: 503 });
+    if (mode === "malformed") return Response.json({ result: "unreadable" });
+    return Response.json({ success: true, result: [
+      { uid: "fixture-output-enabled", enabled: true, streamKey: "fixture-private-provider-key" },
+      { uid: "fixture-output-disabled", enabled: false },
+    ] });
   };
 }
 const runtime = new Miniflare(convertV4MiniflareOptions({

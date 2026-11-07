@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { SELF } from "cloudflare:test";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { hashPassword } from "better-auth/crypto";
 import { getPrisma } from "../db";
 import { addMicAssignment, updateMicAssignment, deleteMicAssignment, getMicAssignments } from "../data";
@@ -38,8 +38,13 @@ async function fixture() {
   return { prisma, orgId, userId, input };
 }
 
+// Authenticate through the real endpoint before timing each mutation test.
+// Cold Worker/auth startup has its own hook deadline; writes keep Vitest's 5s limit.
+let authenticated: Awaited<ReturnType<typeof fixture>>;
+beforeEach(async () => { authenticated = await fixture(); });
+
 it("concurrent retries create one channel and one receipt", async () => {
-  const f = await fixture(); const data = { ...f.input, requestId: crypto.randomUUID() };
+  const f = authenticated; const data = { ...f.input, requestId: crypto.randomUUID() };
   const [first, second] = await Promise.all([addMicAssignment({ data }), addMicAssignment({ data })]);
   expect(first.id).toBe(second.id);
   expect(await f.prisma.micAssignment.count({ where: { orgId: f.orgId } })).toBe(1);
@@ -48,7 +53,7 @@ it("concurrent retries create one channel and one receipt", async () => {
   expect((await getMicAssignments({ data: f.input }))[0].label).toBe("Lectern");
 });
 it("replaying an update never overwrites a later edit", async () => {
-  const f = await fixture(); const row = await addMicAssignment({ data: f.input });
+  const f = authenticated; const row = await addMicAssignment({ data: f.input });
   const data = { orgId: f.orgId, id: row.id, requestId: crypto.randomUUID(), updates: { muted: true, notes: "First" } };
   await updateMicAssignment({ data });
   await updateMicAssignment({ data: { orgId: f.orgId, id: row.id, updates: { muted: false, notes: "Later" } } });
@@ -57,7 +62,7 @@ it("replaying an update never overwrites a later edit", async () => {
   await expect(updateMicAssignment({ data: { ...data, updates: { muted: false } } })).rejects.toThrow("different channel changes");
 });
 it("delete replay succeeds without recreating a removed channel", async () => {
-  const f = await fixture(); const creation = { ...f.input, requestId: crypto.randomUUID() };
+  const f = authenticated; const creation = { ...f.input, requestId: crypto.randomUUID() };
   const row = await addMicAssignment({ data: creation });
   const data = { orgId: f.orgId, id: row.id, requestId: crypto.randomUUID() };
   await deleteMicAssignment({ data }); await deleteMicAssignment({ data });
@@ -65,7 +70,7 @@ it("delete replay succeeds without recreating a removed channel", async () => {
   expect(await f.prisma.micAssignment.count({ where: { orgId: f.orgId } })).toBe(0);
 });
 it("rolls back the receipt with a rejected mutation, then retries the same command", async () => {
-  const f = await fixture(); const row = await addMicAssignment({ data: f.input });
+  const f = authenticated; const row = await addMicAssignment({ data: f.input });
   const data = { orgId: f.orgId, id: row.id, requestId: crypto.randomUUID(), updates: { label: "Saved after retry", muted: true } };
   await env.DB.prepare(`CREATE TRIGGER fixture_audio_failure BEFORE UPDATE ON mic_assignment WHEN NEW.orgId='${f.orgId}' BEGIN SELECT RAISE(ABORT,'fixture failure'); END;`).run();
   try {
@@ -77,7 +82,7 @@ it("rolls back the receipt with a rejected mutation, then retries the same comma
   expect(await f.prisma.micAssignment.findUnique({ where: { id: row.id } })).toMatchObject({ label: "Saved after retry", muted: true });
 });
 it("rejects foreign or date-mismatched shows before committing a receipt", async () => {
-  const f = await fixture(); const otherOrg = crypto.randomUUID();
+  const f = authenticated; const otherOrg = crypto.randomUUID();
   await f.prisma.organization.create({ data: { id: otherOrg, slug: otherOrg, name: "Other", createdAt: new Date() } });
   await f.prisma.rundown.create({ data: { id: "foreign-audio-show", orgId: otherOrg, serviceDate: f.input.serviceDate } });
   await expect(addMicAssignment({ data: { ...f.input, showId: "foreign-audio-show" } })).rejects.toThrow("no longer available");
@@ -86,7 +91,7 @@ it("rejects foreign or date-mismatched shows before committing a receipt", async
   expect(await env.DB.prepare("SELECT requestId FROM audio_write_receipt WHERE orgId=?").bind(f.orgId).first()).toBeNull();
 });
 it("cannot update or remove another organization's channel", async () => {
-  const f = await fixture(); const otherOrg = crypto.randomUUID();
+  const f = authenticated; const otherOrg = crypto.randomUUID();
   await f.prisma.organization.create({ data: { id: otherOrg, slug: otherOrg, name: "Other", createdAt: new Date() } });
   const row = await f.prisma.micAssignment.create({ data: { ...f.input, orgId: otherOrg, showId: null } });
   await expect(updateMicAssignment({ data: { orgId: f.orgId, id: row.id, updates: { label: "Changed" } } })).rejects.toThrow("no longer available");
@@ -94,13 +99,13 @@ it("cannot update or remove another organization's channel", async () => {
   expect(await f.prisma.micAssignment.findUnique({ where: { id: row.id } })).toMatchObject({ label: "Lectern" });
 });
 it("rechecks membership before replaying an acknowledged creation", async () => {
-  const f = await fixture(); const data = { ...f.input, requestId: crypto.randomUUID() };
+  const f = authenticated; const data = { ...f.input, requestId: crypto.randomUUID() };
   await addMicAssignment({ data });
   await f.prisma.member.deleteMany({ where: { organizationId: f.orgId, userId: f.userId } });
   await expect(addMicAssignment({ data })).rejects.toThrow("Forbidden");
 });
 it("binds channel text and strips unknown update fields", async () => {
-  const f = await fixture(); const row = await addMicAssignment({ data: f.input });
+  const f = authenticated; const row = await addMicAssignment({ data: f.input });
   const updates = { label: `Lectern's \"mic\"; DROP TABLE mic_assignment; --`, orgId: "not-an-org", id: "not-a-channel" };
   await updateMicAssignment({ data: { orgId: f.orgId, id: row.id, updates } });
   expect(await f.prisma.micAssignment.findUnique({ where: { id: row.id } })).toMatchObject({ orgId: f.orgId, label: updates.label });

@@ -2,7 +2,10 @@ import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState, useEffect, useRef } from "react";
+import { useState, useCallback } from "react";
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
+import { RouteError } from "@/components/ui/RouteRecovery";
 import {
   Radio,
   Plus,
@@ -13,7 +16,6 @@ import {
   Zap,
   ZapOff,
   Loader2,
-  CheckCircle2,
   XCircle,
   X,
   Link,
@@ -28,6 +30,7 @@ import {
   connectDestinationsToInput,
   disconnectAllDestinations,
   getOutputStatuses,
+  type StreamOutputStatus,
 } from "@/lib/stream-destinations";
 import { getLiveInputs } from "@/lib/stream";
 
@@ -61,12 +64,13 @@ const PLATFORM_CONFIG: Record<
 
 export const Route = createFileRoute("/$slug/streaming/platforms")({
   pendingComponent: () => <PageSkeleton />,
-  loader: async ({ context }) => {
+  errorComponent: RouteError,
+  loader: async ({ context, abortController }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "streaming_suite:access", context.slug, context.orgId);
     const [destinations, inputs] = await Promise.all([
-      getStreamDestinations({ data: { orgId: context.orgId } }),
-      getLiveInputs({ data: { orgId: context.orgId } }),
+      getStreamDestinations({ data: { orgId: context.orgId }, signal: abortController.signal }),
+      getLiveInputs({ data: { orgId: context.orgId }, signal: abortController.signal }),
     ]);
     return { destinations, inputs, orgId: context.orgId };
   },
@@ -83,53 +87,25 @@ function PlatformsPage() {
   const [goingLive, setGoingLive] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [outputStatuses, setOutputStatuses] = useState<Record<string, { status: string; error?: string }>>({});
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
   const activeCount = destinations.filter((d) => d.enabled).length;
   const connectedCount = destinations.filter((d) => d.cfOutputId).length;
   const hasInputs = inputs.length > 0;
-
-  // Poll output statuses when there are connected destinations
-  useEffect(() => {
-    if (connectedCount === 0) {
-      setOutputStatuses({});
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-      return;
-    }
-
-    let polling = false;
-    const poll = async () => {
-      if (document.visibilityState !== "visible" || polling) return;
-      polling = true;
-      try {
-        const statuses = await getOutputStatuses({ data: { orgId } });
-        setOutputStatuses(statuses);
-      } catch {
-        // Silently continue
-      } finally {
-        polling = false;
-      }
-    };
-
-    void poll(); // Immediate first poll
-    pollRef.current = setInterval(poll, 5000); // Then every 5s
-    const pollWhenVisible = () => {
-      if (document.visibilityState === "visible") void poll();
-    };
-    document.addEventListener("visibilitychange", pollWhenVisible);
-
-    return () => {
-      document.removeEventListener("visibilitychange", pollWhenVisible);
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-  }, [connectedCount, orgId]);
+  const outputKey = JSON.stringify([orgId, destinations.map(destination => [destination.id, destination.cfOutputId, destination.liveInputId])]);
+  const readOutputs = useCallback((signal: AbortSignal) => getOutputStatuses({ data: { orgId }, signal }), [orgId]);
+  const outputRead = useOperatorRead<Record<string, StreamOutputStatus>>({
+    key: outputKey,
+    initialValue: {},
+    read: readOutputs,
+    enabled: connectedCount > 0,
+    intervalMs: 5_000,
+    errorMessage: "Output status could not be refreshed. Last confirmed values are kept; verify the broadcast on each destination platform.",
+  });
+  const outputStatuses = outputRead.value;
+  const unknownCount = Object.values(outputStatuses).filter(state => state.status === "unknown").length;
+  const outputFailure = outputRead.error ?? (unknownCount && outputRead.confirmedAt !== null ? {
+    message: `Could not confirm ${unknownCount} output${unknownCount === 1 ? "" : "s"}. Retry output status or check the destination platform.`,
+    occurredAt: outputRead.confirmedAt,
+  } : null);
 
   const handleToggle = async (id: string, currentEnabled: boolean) => {
     setActionError(null);
@@ -244,31 +220,15 @@ function PlatformsPage() {
       </div>
 
       <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
-        {/* Status banner */}
+        <ReadFailureNotice error={outputFailure} refreshing={outputRead.refreshing} retry={outputRead.retry} label="Retry output status" />
         {connectedCount > 0 && (() => {
-          const liveOutputs = Object.values(outputStatuses).filter((s) => s.status === "connected").length;
-          const connectingOutputs = connectedCount - liveOutputs;
-          return (
-            <div className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3 rounded-xl ${
-              liveOutputs > 0 ? "bg-green-500/10 border border-green-500/20" : "bg-amber-500/10 border border-amber-500/20"
-            }`}>
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full animate-pulse ${liveOutputs > 0 ? "bg-green-500" : "bg-amber-500"}`} />
-                <span className={`text-sm font-medium ${liveOutputs > 0 ? "text-green-400" : "text-amber-400"}`}>
-                  {liveOutputs > 0
-                    ? `Live on ${liveOutputs} platform${liveOutputs !== 1 ? "s" : ""}${connectingOutputs > 0 ? ` (${connectingOutputs} connecting...)` : ""}`
-                    : `Connecting to ${connectingOutputs} platform${connectingOutputs !== 1 ? "s" : ""}...`}
-                </span>
-              </div>
-              <button
-                onClick={handleStopAll}
-                disabled={stopping}
-                className="text-xs text-red-400 hover:text-red-300 font-medium transition-colors"
-              >
-                Stop All
-              </button>
-            </div>
-          );
+          const enabled = Object.values(outputStatuses).filter(state => state.status === "enabled").length;
+          const checked = Object.keys(outputStatuses).length > 0;
+          return <section aria-label="Output status" className="space-y-2 rounded-xl border border-board-border bg-board-card px-4 py-3 text-sm text-board-text">
+            <p>{outputRead.error ? "Last confirmed: " : ""}{checked ? `${enabled} output${enabled === 1 ? "" : "s"} enabled${unknownCount ? ` · ${unknownCount} status${unknownCount === 1 ? "" : "es"} unavailable` : ""}` : outputRead.refreshing ? "Checking output status…" : "Output status unavailable"}</p>
+            <p className="text-xs text-board-muted">Enabled means forwarding is configured. Verify the broadcast on each destination platform.</p>
+            {outputRead.confirmedAt !== null && <p className="text-xs text-board-muted">Checked <time dateTime={new Date(outputRead.confirmedAt).toISOString()}>{new Date(outputRead.confirmedAt).toLocaleTimeString()}</time>{outputRead.refreshing ? " · Refreshing…" : ""}</p>}
+          </section>;
         })()}
 
         {/* No input warning */}
@@ -310,7 +270,7 @@ function PlatformsPage() {
           </span>
           {connectedCount > 0 && (
             <span className="text-xs text-fire-500 font-medium">
-              {connectedCount} connected
+              {connectedCount} configured output{connectedCount !== 1 ? "s" : ""}
             </span>
           )}
         </div>
@@ -339,105 +299,29 @@ function PlatformsPage() {
                 PLATFORM_CONFIG[dest.platform as Platform] ?? PLATFORM_CONFIG.custom;
               const isConnected = !!dest.cfOutputId;
               const outputStatus = outputStatuses[dest.id];
-              const isLive = outputStatus?.status === "connected";
-              const isConnecting = outputStatus?.status === "connecting" || outputStatus?.status === "reconnecting";
-              const isProviderEnabled = outputStatus?.status === "enabled";
+              const outputLabel = outputStatus?.status === "enabled" ? "Output enabled"
+                : outputStatus?.status === "disabled" ? "Output disabled"
+                : outputStatus?.status === "missing" ? "Output missing at provider"
+                : outputStatus?.status === "unconfirmed" ? "Connection unconfirmed"
+                : outputStatus?.status === "unknown" || outputRead.error ? "Output status unavailable"
+                : outputRead.confirmedAt !== null || !outputRead.refreshing ? "Output status unavailable" : "Checking output status…";
+              const outputError = outputStatus?.status === "unknown" ? outputStatus.error : null;
 
               return (
-                <div
-                  key={dest.id}
-                  className={`rounded-xl border p-5 transition-all ${
-                    isLive
-                      ? "bg-green-500/5 border-green-500/20"
-                      : isConnecting
-                        ? "bg-amber-500/5 border-amber-500/20"
-                        : isConnected
-                          ? "bg-fire-500/5 border-fire-500/20"
-                          : dest.enabled
-                            ? "bg-board-card border-board-border"
-                            : "bg-board-card/50 border-board-border/50 opacity-60"
-                  }`}
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2.5">
-                      <span
-                        className={`text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded border ${platformCfg.color}`}
-                      >
-                        {platformCfg.label}
-                      </span>
-                      <p className="text-sm font-semibold text-board-text">
-                        {dest.name}
-                      </p>
-                      {isConnected && (
-                        <span className={`flex items-center gap-1 text-[10px] font-medium ${
-                          isLive ? "text-green-400" : isConnecting ? "text-amber-400" : outputStatus?.error ? "text-red-400" : "text-fire-500"
-                        }`}>
-                          {isLive ? (
-                            <>
-                              <CheckCircle2 className="w-3 h-3" />
-                              Live
-                            </>
-                          ) : isConnecting ? (
-                            <>
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                              Connecting to {platformCfg.label}...
-                            </>
-                          ) : outputStatus?.error ? (
-                            <>
-                              <XCircle className="w-3 h-3" />
-                              {outputStatus.error}
-                            </>
-                          ) : isProviderEnabled ? (
-                            <>
-                              <CheckCircle2 className="w-3 h-3" />
-                              Sending · verify on {platformCfg.label}
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle2 className="w-3 h-3" />
-                              Relay ready
-                            </>
-                          )}
-                        </span>
-                      )}
+                <div key={dest.id} className={`rounded-xl border p-5 ${dest.enabled ? "bg-board-card border-board-border" : "bg-board-card/50 border-board-border/50"}`}>
+                  <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <span className={`inline-block rounded border px-2 py-1 text-xs font-medium ${platformCfg.color}`}>{platformCfg.label}</span>
+                      <p className="break-words text-sm font-semibold text-board-text">{dest.name}</p>
+                      {isConnected && <p className="text-xs text-board-muted">{outputRead.error && outputStatus ? "Last confirmed: " : ""}{outputLabel}</p>}
+                      {outputError && <p className="text-xs text-amber-200">{outputError}</p>}
                     </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => handleToggle(dest.id, dest.enabled)}
-                        className={`p-1.5 rounded-lg transition-colors ${
-                          dest.enabled
-                            ? "text-green-400 hover:bg-green-500/10"
-                            : "text-board-muted hover:bg-board-border/50"
-                        }`}
-                        title={dest.enabled ? "Disable" : "Enable"}
-                      >
-                        {dest.enabled ? (
-                          <ToggleRight className="w-5 h-5" />
-                        ) : (
-                          <ToggleLeft className="w-5 h-5" />
-                        )}
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button onClick={() => handleToggle(dest.id, dest.enabled)} className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted outline-none hover:bg-board-border/50 focus-visible:ring-2 focus-visible:ring-fire-500" aria-label={`${dest.enabled ? "Disable" : "Enable"} ${dest.name}`}>
+                        {dest.enabled ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditDest(dest);
-                          setShowForm(true);
-                        }}
-                        aria-label={`Edit ${dest.name}`}
-                        title={`Edit ${dest.name}`}
-                        className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(dest.id)}
-                        aria-label={`Delete ${dest.name}`}
-                        title={`Delete ${dest.name}`}
-                        className="p-1.5 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <button type="button" onClick={() => { setEditDest(dest); setShowForm(true); }} aria-label={`Edit ${dest.name}`} className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted outline-none hover:bg-board-border/50 focus-visible:ring-2 focus-visible:ring-fire-500"><Pencil className="h-4 w-4" /></button>
+                      <button type="button" onClick={() => handleDelete(dest.id)} aria-label={`Delete ${dest.name}`} className="min-h-11 min-w-11 rounded-lg p-2 text-red-400 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-fire-500"><Trash2 className="h-4 w-4" /></button>
                     </div>
                   </div>
 
@@ -449,7 +333,7 @@ function PlatformsPage() {
 
                   {dest.hasStreamKey && (
                     <p className="text-[11px] text-board-muted/60">
-                      Stream key stored securely · enter a new key to replace it
+                      Stream key saved · enter a new key to replace it
                     </p>
                   )}
                 </div>
@@ -463,9 +347,7 @@ function PlatformsPage() {
           <div className="px-4 py-3 rounded-xl bg-blue-500/5 border border-blue-500/15">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-400 mb-1">YouTube Timing</p>
             <p className="text-xs text-board-muted">
-              After ShowPilot shows "Live", YouTube still needs 1-3 minutes to process the incoming stream before viewers see it.
-              Make sure your YouTube stream is set to "Go Live" in YouTube Studio <strong className="text-board-text">before</strong> you
-              click Go Live here — otherwise YouTube may reject the incoming stream until you start the broadcast on their end.
+              An enabled output confirms the forwarding configuration. Check the incoming video and broadcast state in YouTube Studio before telling viewers the stream is live.
             </p>
           </div>
         )}
