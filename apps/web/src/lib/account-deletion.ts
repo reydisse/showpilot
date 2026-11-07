@@ -16,6 +16,7 @@ export const getAccountDeletionStatus = createServerFn({ method: "GET" }).handle
   return {
     signedIn: true as const,
     email: session.user.email,
+    userId: session.user.id,
     blockers,
   };
 });

@@ -268,6 +268,11 @@ function createFakeDb(targets: OrgDeletionTarget[]): FakeDb {
       const rows = tables.get("organization") ?? [];
       const keep = rows.filter((r) => r.id !== where.id);
       tables.set("organization", keep);
+      // Model the schema's atomic ON DELETE CASCADE for the final org rows.
+      for (const target of targets) {
+        tables.set(target.delegate, (tables.get(target.delegate) ?? []).filter(row => row[target.orgField] !== where.id));
+        if (["Member", "Invitation", "AppSetting"].includes(target.model)) log.push(`cascade:${target.delegate}`);
+      }
       return { count: rows.length - keep.length };
     },
   };
@@ -425,7 +430,8 @@ describe("deleteOrganizationCore", () => {
     const r2Index = db.log.indexOf(`r2:delete:${ORG_A}`);
     for (const model of AUTH_ORG_MODELS) {
       const delegate = model.charAt(0).toLowerCase() + model.slice(1);
-      expect(db.log.indexOf(`deleteMany:${delegate}`)).toBeGreaterThan(r2Index);
+      expect(db.log.indexOf(`cascade:${delegate}`)).toBeGreaterThan(r2Index);
+      expect(db.log).not.toContain(`deleteMany:${delegate}`);
     }
     expect(db.log.indexOf("deleteMany:organization")).toBeGreaterThan(r2Index);
   });

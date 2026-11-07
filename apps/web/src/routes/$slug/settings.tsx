@@ -27,7 +27,6 @@ import {
   Copy,
   Check,
   RefreshCw,
-  Trash2,
   MessageSquare,
   Clock,
   Shield,
@@ -70,7 +69,7 @@ import { ClearChatHistory } from "@/components/settings/ClearChatHistory";
 import { testChatConnection } from "@/lib/chat-proxy";
 import { testProPresenterConnection } from "@/lib/rundown";
 import { testOntimeConnection } from "@/lib/ontime";
-import { deleteOrganization } from "@/lib/org-deletion";
+import { DeleteOrganization } from "@/components/settings/DeleteOrganization";
 import { ResetSavedGraphics } from "@/components/settings/ResetSavedGraphics";
 import { hasAnyPermission, hasPermission, isAdminTier } from "@/lib/app-permissions";
 import { ROLE_META } from "@/lib/permissions";
@@ -1778,28 +1777,6 @@ function DangerSection({
   org,
 }: SectionProps & { router: ReturnType<typeof useRouter> }) {
   const { user } = Route.useRouteContext();
-  const [deleteConfirm, setDeleteConfirm] = useState("");
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const handleDeleteOrganization = async () => {
-    setDeleting(true);
-    setDeleteError(null);
-    try {
-      await deleteOrganization({
-        data: { orgId: org.id, confirmName: deleteConfirm },
-      });
-      // The acting session was revoked server-side — full reload to the
-      // confirmation page clears all client state.
-      window.location.href = "/org-deleted";
-    } catch (err) {
-      setDeleteError(
-        err instanceof Error ? err.message : "Failed to delete organization",
-      );
-      setDeleting(false);
-    }
-  };
-
   return (
     <div>
       <SectionHeader
@@ -1807,77 +1784,14 @@ function DangerSection({
         description="Irreversible and destructive actions"
       />
       <div className="space-y-4">
-        <ResetSavedGraphics orgId={org.id} orgName={org.name} userId={user.id} disabled={deleting} />
+        <ResetSavedGraphics orgId={org.id} orgName={org.name} userId={user.id} />
 
-        <ClearChatHistory orgId={org.id} orgName={org.name} userId={user.id} disabled={deleting} />
+        <ClearChatHistory orgId={org.id} orgName={org.name} userId={user.id} />
 
-        <ShowReportExport key={org.id} orgId={org.id} slug={org.slug} disabled={deleting} />
+        <ShowReportExport key={org.id} orgId={org.id} slug={org.slug} />
 
-        {/* Invite form */}
-        <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="text-sm font-medium text-red-400">
-                Delete organization
-              </p>
-              <p className="text-xs text-board-muted">
-                Permanently delete this organization and all its data. This
-                cannot be undone.
-              </p>
-            </div>
-          </div>
-
-          {!showDeleteConfirm ? (
-              <button
-                onClick={() => setShowDeleteConfirm(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
-              >
-              <Trash2 className="w-3 h-3" />
-              Delete Organization
-            </button>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-xs text-board-muted">
-                Type{" "}
-                <span className="font-mono text-red-400 font-medium">
-                  {org.name}
-                </span>{" "}
-                to confirm:
-              </p>
-              <input
-                type="text"
-                value={deleteConfirm}
-                onChange={(e) => setDeleteConfirm(e.target.value)}
-                placeholder={org.name}
-                className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-red-500/30 text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-red-500 transition-colors text-sm"
-              />
-              {deleteError && (
-                <p className="text-xs text-red-400">{deleteError}</p>
-              )}
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setShowDeleteConfirm(false);
-                    setDeleteConfirm("");
-                    setDeleteError(null);
-                  }}
-                  disabled={deleting}
-                  className="px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:bg-board-border/50 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDeleteOrganization}
-                  disabled={deleteConfirm !== org.name || deleting}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500 text-white text-xs font-medium hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  {deleting ? "Deleting..." : "Permanently Delete"}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        <DeleteOrganization orgId={org.id} orgName={org.name} userId={user.id}
+          onDeleted={() => { window.location.href = "/org-deleted"; }} />
       </div>
     </div>
   );
