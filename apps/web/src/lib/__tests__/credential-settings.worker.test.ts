@@ -16,7 +16,7 @@ vi.mock("@tanstack/react-start", () => {
   };
   return { createServerFn: builder, createMiddleware: builder, createServerOnlyFn: <T>(fn: T): T => fn };
 });
-import { updateOrgSetting, updateOrgCredential, bulkUpdateOrgSettings, getManageableOrgSettings, getRecentWebhookEvents } from "../settings";
+import { updateOrgSetting, updateOrgCredential, getManageableOrgSettings, getRecentWebhookEvents } from "../settings";
 const secret = "fixture-password-do-not-return";
 const key = "propresenter-password";
 const binding = env.CREDENTIAL_ENCRYPTION_KEYS;
@@ -44,8 +44,9 @@ it("encrypts real settings writes, masks every generic read/save response and pr
   const vault = await CredentialVault.fromSecret(binding);
   expect(await vault.decrypt({ kind: "setting", orgId, key }, encrypted!)).toBe(secret);
   expect(await getManageableOrgSettings({ data: { orgId } })).toHaveProperty(key, CREDENTIAL_MASK);
-  expect(await updateOrgSetting({ data: { orgId, key: "slack-token", value: secret } })).toEqual({ key: "slack-token", value: CREDENTIAL_MASK });
-  expect(await bulkUpdateOrgSettings({ data: { orgId, settings: [{ key: "slack-channel", value: "production" }, { key: "mattermost-token", value: secret }] } })).toEqual([{ key: "slack-channel", value: "production" }, { key: "mattermost-token", value: CREDENTIAL_MASK }]);
+  expect(await updateOrgCredential({ data: { orgId, key: "slack-token", change: { action: "replace", value: secret } } })).toEqual({ key: "slack-token", value: CREDENTIAL_MASK });
+  await updateOrgSetting({ data: { orgId, key: "slack-channel", value: "production", expectedValue: null, requestId: crypto.randomUUID() } });
+  expect(await updateOrgCredential({ data: { orgId, key: "mattermost-token", change: { action: "replace", value: secret } } })).toEqual({ key: "mattermost-token", value: CREDENTIAL_MASK });
   expect(await stored(orgId, "slack-channel")).toBe("production");
   expect(await stored(orgId, "mattermost-token")).toMatch(/^spenc:v1:/);
 });
@@ -56,8 +57,7 @@ it("keeps the latest saved credential without rewriting it, accepts explicit rep
   await updateOrgCredential({ data: { orgId, key, change: { action: "replace", value: "rotated" } } });
   const rotated = await stored(orgId);
   await updateOrgCredential({ data: { orgId, key, change: { action: "keep" } } });
-  await updateOrgSetting({ data: { orgId, key, value: CREDENTIAL_MASK } });
-  await bulkUpdateOrgSettings({ data: { orgId, settings: [{ key, value: CREDENTIAL_MASK }] } });
+  await expect(updateOrgSetting({ data: { orgId, key, value: CREDENTIAL_MASK, expectedValue: null, requestId: crypto.randomUUID() } })).rejects.toThrow("dedicated credential editor");
   expect(await stored(orgId)).toBe(rotated);
   expect(await updateOrgCredential({ data: { orgId, key, change: { action: "clear" } } })).toEqual({ key, value: "" });
   expect(await stored(orgId)).toBe("");
@@ -67,21 +67,20 @@ it("enforces organization membership and settings permission before accessing a 
   const first = await fixture(); const second = await fixture();
   await expect(updateOrgCredential({ data: { orgId: first.orgId, key, change: { action: "replace", value: secret } } })).rejects.toThrow("Forbidden");
   await env.DB.prepare("UPDATE member SET role='member' WHERE organizationId=? AND userId=?").bind(second.orgId, second.userId).run();
-  await expect(updateOrgSetting({ data: { orgId: second.orgId, key, value: secret } })).rejects.toThrow("Forbidden");
+  await expect(updateOrgCredential({ data: { orgId: second.orgId, key, change: { action: "replace", value: secret } } })).rejects.toThrow("Forbidden");
   await expect(updateOrgCredential({ data: { orgId: second.orgId, key, change: { action: "clear" } } })).rejects.toThrow("Forbidden");
   expect(await stored(first.orgId)).toBeNull();
   expect(await stored(second.orgId)).toBeNull();
 });
 
-it("fails closed without encryption keys before bulk writes, while allowing nonsecret changes and credential removal", async () => {
+it("fails closed without encryption keys, while allowing nonsecret changes and credential removal", async () => {
   const { orgId } = await fixture();
   await seed(orgId, key, secret);
   env.CREDENTIAL_ENCRYPTION_KEYS = undefined;
-  await expect(updateOrgSetting({ data: { orgId, key, value: "new-secret" } })).rejects.toThrow("CREDENTIAL_ENCRYPTION_KEYS");
-  await expect(bulkUpdateOrgSettings({ data: { orgId, settings: [{ key: "org-timezone", value: "should-not-write" }, { key, value: "new-secret" }] } })).rejects.toThrow("CREDENTIAL_ENCRYPTION_KEYS");
+  await expect(updateOrgCredential({ data: { orgId, key, change: { action: "replace", value: "new-secret" } } })).rejects.toThrow("CREDENTIAL_ENCRYPTION_KEYS");
   expect(await stored(orgId, "org-timezone")).toBeNull();
   expect(await stored(orgId)).toBe(secret);
-  await updateOrgSetting({ data: { orgId, key: "org-timezone", value: "allowed" } });
+  await updateOrgSetting({ data: { orgId, key: "org-timezone", value: "UTC", expectedValue: null, requestId: crypto.randomUUID() } });
   await updateOrgCredential({ data: { orgId, key, change: { action: "clear" } } });
   expect(await stored(orgId)).toBe("");
 });
@@ -165,12 +164,11 @@ it("hides internal application state from manageable settings", async () => {
 });
 
 it.each(["rundown-items:fixture-show", "webhook-events", "incident-write:fixture-operation", "propresenter-internal-state", "unknown-token", "schedule-provider", "rundown-items-storage:fixture-show", "constructor", "__proto__"])(
-  "rejects internal or unknown setting %s through every generic write path", async (settingKey) => {
+  "rejects internal or unknown setting %s through both setting write paths", async (settingKey) => {
     const { orgId, userId } = await fixture();
     await env.DB.prepare("UPDATE member SET role='tm' WHERE organizationId=? AND userId=?").bind(orgId, userId).run();
     await seed(orgId, settingKey, "protected-value");
-    await expect(updateOrgSetting({ data: { orgId, key: settingKey, value: "overwritten" } })).rejects.toThrow("Choose a supported organization setting");
-    await expect(bulkUpdateOrgSettings({ data: { orgId, settings: [{ key: "org-timezone", value: "UTC" }, { key: settingKey, value: "overwritten" }] } })).rejects.toThrow("Choose a supported organization setting");
+    await expect(updateOrgSetting({ data: { orgId, key: settingKey, value: "overwritten", expectedValue: "protected-value", requestId: crypto.randomUUID() } })).rejects.toThrow("Choose a supported organization setting");
     await expect(updateOrgCredential({ data: { orgId, key: settingKey, change: { action: "clear" } } })).rejects.toThrow("Choose a supported organization setting");
     expect(await stored(orgId, settingKey)).toBe("protected-value");
     expect(await stored(orgId, "org-timezone")).toBeNull();
@@ -191,11 +189,11 @@ it("keeps explicit setting permissions, organization scoping and credential mask
     "org-timezone": "America/Toronto", "slack-token": CREDENTIAL_MASK,
   });
   for (const settingKey of ["webhook-url", "l3-auto-clear"]) {
-    await expect(updateOrgSetting({ data: { orgId, key: settingKey, value: "" } })).rejects.toThrow("Forbidden");
+    await expect((settingKey === "webhook-url" ? updateOrgCredential({ data: { orgId, key: settingKey, change: { action: "clear" } } }) : updateOrgSetting({ data: { orgId, key: settingKey, value: "", expectedValue: "true", requestId: crypto.randomUUID() } }))).rejects.toThrow("Forbidden");
   }
   await expect(getManageableOrgSettings({ data: { orgId: first.orgId } })).rejects.toThrow("Forbidden");
-  await expect(updateOrgSetting({ data: { orgId: first.orgId, key: "org-timezone", value: "UTC" } })).rejects.toThrow("Forbidden");
-  await updateOrgSetting({ data: { orgId, key: "org-timezone", value: "UTC" } });
+  await expect(updateOrgSetting({ data: { orgId: first.orgId, key: "org-timezone", value: "UTC", expectedValue: "Pacific/Auckland", requestId: crypto.randomUUID() } })).rejects.toThrow("Forbidden");
+  await updateOrgSetting({ data: { orgId, key: "org-timezone", value: "UTC", expectedValue: "America/Toronto", requestId: crypto.randomUUID() } });
   expect(await stored(orgId, "org-timezone")).toBe("UTC");
   expect(await stored(first.orgId, "org-timezone")).toBe("Pacific/Auckland");
 });

@@ -17,8 +17,8 @@ interface IntegrationCardProps {
   description: string;
   connected: boolean;
   status?: ConnectionStatus;
-  onConnect: () => void | Promise<void>;
-  onDisconnect: () => void | Promise<void>;
+  onConnect: () => void | boolean | Promise<void | boolean>;
+  onDisconnect: () => void | boolean | Promise<void | boolean>;
   onTest?: () => Promise<{ ok: boolean; error?: string } | void>;
   testLabel?: string;
   disabled?: boolean;
@@ -71,6 +71,8 @@ export function IntegrationCard({
     setConnecting(true);
     try {
       await onConnect();
+    } catch (error) {
+      setTestError(error instanceof Error ? error.message : "Could not connect.");
     } finally {
       setConnecting(false);
     }
@@ -80,6 +82,8 @@ export function IntegrationCard({
     setConnecting(true);
     try {
       await onDisconnect();
+    } catch (error) {
+      setTestError(error instanceof Error ? error.message : "Could not disconnect.");
     } finally {
       setConnecting(false);
     }
@@ -145,12 +149,13 @@ export function IntegrationCard({
           )}
 
           {/* Action buttons */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {!connected ? (
               <button
                 onClick={handleConnect}
+                aria-label={`Connect ${name}`}
                 disabled={disabled || connecting}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {connecting ? (
                   <Loader2 className="w-3 h-3 animate-spin" />
@@ -163,8 +168,9 @@ export function IntegrationCard({
               <>
                 <button
                   onClick={handleDisconnect}
+                  aria-label={`Disconnect ${name}`}
                   disabled={connecting}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                  className="flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors disabled:opacity-50"
                 >
                   {connecting ? (
                     <Loader2 className="w-3 h-3 animate-spin" />
@@ -178,7 +184,7 @@ export function IntegrationCard({
                     onClick={handleTest}
                     title={testLabel}
                     disabled={testing}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50 ${
+                    className={`flex min-h-11 items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors disabled:opacity-50 ${
                       testResult === "success"
                         ? "border-green-500/30 text-green-400 bg-green-500/10"
                         : testResult === "error"
