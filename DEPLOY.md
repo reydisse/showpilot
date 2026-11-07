@@ -412,6 +412,20 @@ build and the anonymous browser rehearsal. No browser errors occurred. Recovery
 controls passed at 320/768/1440px, and the actual 320px error and success screenshots
 were inspected. Deployment and production verification remain pending.
 
+### Timecode label validation
+
+`parseTimecodeString` now requires the selected format. It rejects frame numbers
+outside that rate, clock labels outside a 24-hour day and skipped 29.97 drop-frame
+labels. Both colon and semicolon separators remain accepted; the selected format
+controls validation. Event editing, internal start positions, song saves and cue
+nudges all pass their actual format. SMPTE conversion algorithms are unchanged.
+
+The regression reproduced `01:00:00:99` being accepted at 30 fps. Tests now cover
+all supported rates, drop-frame minute boundaries and an editor draft retained
+while its format changes. Full web verification passed 1,926 unit tests and 718
+Worker tests, typecheck and the production build. No migration or native release
+is required. The broader Phase 2 gate remains open.
+
 ### Signed-in crew attendance recovery
 
 Crew check-in now keeps failed row, member-ID and bulk changes visible with a

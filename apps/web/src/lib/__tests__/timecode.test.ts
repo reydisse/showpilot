@@ -107,27 +107,58 @@ describe("timecodeToString", () => {
 });
 
 describe("parseTimecodeString", () => {
+  it.each([fmt24, fmt25, { frameRate: 29.97, dropFrame: "ndf" }, fmt2997df, fmt30] satisfies TimecodeFormat[])(
+    "enforces the nominal frame boundary at $frameRate $dropFrame", format => {
+      const last = Math.round(format.frameRate) - 1;
+      expect(parseTimecodeString(`23:59:59:${last}`, format)).toEqual(tc(23, 59, 59, last));
+      expect(parseTimecodeString(`00:00:00:${last + 1}`, format)).toBeNull();
+    },
+  );
+
+  it("rejects skipped drop-frame labels but keeps tenth-minute and NDF labels", () => {
+    for (let minute = 0; minute < 60; minute++) {
+      for (const frame of [0, 1, 2]) {
+        const text = `01:${minute}:00;${frame}`;
+        const value = tc(1, minute, 0, frame);
+        expect(parseTimecodeString(text, fmt2997df)).toEqual(minute % 10 !== 0 && frame < 2 ? null : value);
+        expect(parseTimecodeString(text, fmt30)).toEqual(value);
+      }
+    }
+  });
+
+  it.each(["24:00:00:00", "00:60:00:00", "00:00:60:00", "00:00:00:-1", "00:00:00:1.5", "999999999999999999999999:00:00:00"])(
+    "rejects an invalid clock label %s", text => expect(parseTimecodeString(text, fmt30)).toBeNull(),
+  );
+
+  it("rejects an unsupported drop-frame format", () => {
+    expect(parseTimecodeString("00:00:00:00", { frameRate: 25, dropFrame: "df" })).toBeNull();
+  });
+
+  it("rejects frame overflow before converting a label into a cue", () => {
+    expect(parseTimecodeString("01:00:00:99", fmt30)).toBeNull();
+  });
+
   it("parses HH:MM:SS:FF (NDF)", () => {
-    expect(parseTimecodeString("01:02:03:04")).toEqual(tc(1, 2, 3, 4));
+    expect(parseTimecodeString("01:02:03:04", fmt30)).toEqual(tc(1, 2, 3, 4));
   });
 
   it("parses HH:MM:SS;FF (DF)", () => {
-    expect(parseTimecodeString("01:02:03;04")).toEqual(tc(1, 2, 3, 4));
+    expect(parseTimecodeString("01:02:03;04", fmt2997df)).toEqual(tc(1, 2, 3, 4));
   });
 
   it("returns null for invalid format", () => {
-    expect(parseTimecodeString("not a timecode")).toBeNull();
-    expect(parseTimecodeString("")).toBeNull();
-    expect(parseTimecodeString("1:2:3")).toBeNull();
+    expect(parseTimecodeString("not a timecode", fmt30)).toBeNull();
+    expect(parseTimecodeString("", fmt30)).toBeNull();
+    expect(parseTimecodeString("1:2:3", fmt30)).toBeNull();
   });
 
   it("parses single-digit values", () => {
-    expect(parseTimecodeString("0:0:0:0")).toEqual(tc(0, 0, 0, 0));
+    expect(parseTimecodeString("0:0:0:0", fmt30)).toEqual(tc(0, 0, 0, 0));
   });
 
   it("rejects out-of-range clock fields", () => {
-    expect(parseTimecodeString("00:60:00:00")).toBeNull();
-    expect(parseTimecodeString("00:00:60:00")).toBeNull();
+    expect(parseTimecodeString("00:60:00:00", fmt30)).toBeNull();
+    expect(parseTimecodeString("00:00:60:00", fmt30)).toBeNull();
   });
 });
 

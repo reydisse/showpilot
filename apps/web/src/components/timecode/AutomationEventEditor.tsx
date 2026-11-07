@@ -17,7 +17,7 @@ import { Plus } from "lucide-react";
 import type {
   AutomationActionType, AutomationEvent,
 } from "@/types/timecode";
-import { timecodeToString, isSafeAutomationWebhookUrl, isValidTimecode, isValidTimecodeTolerance, parseTimecodeString } from "@/lib/timecode";
+import { timecodeToString, isSafeAutomationWebhookUrl, isValidTimecodeTolerance, parseTimecodeString } from "@/lib/timecode";
 
 interface AutomationEventEditorProps {
   onAdd: (event: NewAutomationEvent) => Promise<void>;
@@ -121,8 +121,8 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
   const timecodeId = useId();
   const labelId = useId();
   const actionId = useId();
-  const parsedTimecode = parseTimecodeString(tcString);
-  const timecodeValid = parsedTimecode !== null && isValidTimecode(parsedTimecode, format);
+  const parsedTimecode = parseTimecodeString(tcString, format);
+  const timecodeValid = parsedTimecode !== null;
   const formatLabel = `${format.frameRate} fps ${format.dropFrame.toUpperCase()}`;
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -135,8 +135,8 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
     if (!toleranceValid) { setError(toleranceError); return; }
     if (!leadValid) { setError(leadError); return; }
 
-    const tc = parseTimecodeString(tcString);
-    if (!tc || !isValidTimecode(tc, format)) {
+    const tc = parseTimecodeString(tcString, format);
+    if (!tc) {
       setError(`Invalid timecode for ${formatLabel}.`);
       return;
     }
