@@ -644,8 +644,47 @@ is needed. A reported Wrangler proxy exit can trigger one fixture restart, but
 only after its process has actually terminated; browser state is preserved and
 read Retry must recover without repeating a write. A failure while the server is
 still running is not retried by the fixture. This does not complete the product-wide loading/mutation audit:
-Checklist, Incidents, remaining Settings reads and write confirmation/recovery
-still require follow-up.
+Checklist recovery is covered below. Incidents, remaining Settings reads and
+write confirmation/recovery still require follow-up.
+
+### Checklist confirmation and recovery
+
+Checklist and smart-draft reads use eight-second deadlines, cancellation and
+separate read-only Retry. The list retains confirmed checks during an outage;
+changing shows hides the previous show's entries until the new read completes.
+Failures do not render a false empty state. Suggestions remain selected across
+refreshes, and leaving a draft or uncertain save requires an explicit choice.
+
+Web checklist add, completion, department, removal and smart-draft application
+now use one captured operation with a request ID. Confirmation expires after ten
+seconds; Retry reuses that exact operation. An atomic D1 receipt and conditional
+writes prevent duplicate additions, stale edits and recreation after deletion.
+Smart-draft entries and templates commit together or roll back together. Every
+retry checks permission again. Receipt rows use the existing app_setting table;
+there is no migration. Do not prune these receipts while clients may retry them.
+
+Department edits made through the mobile API also advance the shared revision,
+so changing a category away and back cannot make an old web edit look current.
+The mobile API's request shape is unchanged; this does not add receipts to its
+separate mutation endpoints. Web saves finish on acknowledgement and invalidate
+any older read. A failed follow-up refresh cannot turn that success into another
+save attempt. Checklist controls have labels, visible delete actions and 44px
+hit targets, with wrapping rows and forms at narrow widths.
+
+After building, run `node apps/web/scripts/smoke-checklist-recovery.mjs`. It uses
+real authentication, local D1 and Chrome with disposable data, loses responses
+after actual writes, retries captured operations, replays an old add after
+removal, checks draft/navigation and show isolation, and measures controls at
+320/768/1440px. It inspects persisted entries and receipts after stopping the
+server. The verified run completed without proxy restarts or browser errors.
+The fixture permits at most one restart only after a confirmed terminal local
+proxy process, never to hide a timeout while the server remains running.
+
+Deploy browser and Worker together and reload cached clients: the five old web
+checklist mutation RPCs were removed after migrating their only caller. No native
+binary is required. Feature-branch pushes do not deploy this change. Incidents
+and the remaining product-wide loading, mutation and accessibility audits remain
+open.
 
 ### Workspace and Settings navigation
 

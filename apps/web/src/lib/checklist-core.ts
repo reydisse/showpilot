@@ -1,15 +1,6 @@
 import { normalizeChecklistLabel } from "@/lib/smart-checklist-rules";
 import type { DepartmentKey } from "@/lib/departments";
 
-export interface ChecklistEntryIdentity {
-  id: string;
-  orgId: string;
-}
-
-export interface ChecklistEntryDeleteStore {
-  deleteMany: (where: ChecklistEntryIdentity) => Promise<{ count: number }>;
-}
-
 export interface ChecklistTemplateIdentity {
   id: string;
   label: string;
@@ -47,17 +38,4 @@ export async function createChecklistTemplateId(orgId: string, label: string): P
     byte.toString(16).padStart(2, "0"),
   ).join("");
   return `checklist-${fingerprint}`;
-}
-
-/** Delete one visible service entry without touching its reusable template. */
-export async function deleteChecklistEntryCore({
-  store,
-  entry,
-}: {
-  store: ChecklistEntryDeleteStore;
-  entry: ChecklistEntryIdentity;
-}) {
-  const result = await store.deleteMany(entry);
-  if (result.count === 0) throw new Error("Checklist entry not found");
-  return { ok: true as const };
 }
