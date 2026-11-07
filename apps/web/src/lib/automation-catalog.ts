@@ -4,12 +4,11 @@ import type { ModuleAction, ModuleActionParam } from "./device-modules/types";
 export type AutomationDeviceAction = Omit<ModuleAction, "params"> & {
   params: (Omit<ModuleActionParam, "default"> & { default?: string | number | boolean })[];
 };
-export interface AutomationDeviceTarget {
+export type AutomationDeviceTarget = {
   id: string;
   label: string;
   category: string;
-  actions: AutomationDeviceAction[];
-}
+} & ({ actionSource: "static"; actions: AutomationDeviceAction[] } | { actionSource: "homeassistant" });
 export type CueDetails = { status: "ready"; payload: Record<string, unknown> } | { status: "invalid"; message: string };
 
 export interface AutomationDeviceName { id: string; label: string; enabled: boolean }
