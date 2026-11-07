@@ -159,3 +159,20 @@ it("aborts history when unmounted and clears typing timers", async () => {
   expect(fetcher.mock.calls[0][1].signal.aborted).toBe(true);
   expect(vi.getTimerCount()).toBe(0);
 });
+
+it("replaces cleared history and discards an in-flight old history page", async () => {
+  const older = deferred<Response>();vi.stubGlobal("fetch",vi.fn(()=>older.promise));
+  const {result}=mount();let loading!:Promise<void>;
+  act(()=>{loading=result.current.loadOlderMessages();});
+  await act(async()=>{Socket.instances[0].receive({type:"hydrate",historyCleared:true,messages:[message("after-clear",300)],readReceipts:{user:250}});await loading;});
+  expect(result.current.messages.map(m=>m.id)).toEqual(["after-clear"]);
+  expect(result.current.loadingOlderMessages).toBe(false);expect(result.current.olderMessagesError).toBeNull();
+  await act(async()=>{older.resolve(page("before-clear"));await Promise.resolve();});
+  expect(result.current.messages.map(m=>m.id)).toEqual(["after-clear"]);
+});
+
+it("discards history on reconnect when a clear happened while the socket was offline", () => {
+  const {result}=mount();
+  act(()=>Socket.instances[0].receive({type:"hydrate",historyClearVersion:1,messages:[message("after-offline-clear",300)],readReceipts:{}}));
+  expect(result.current.messages.map(m=>m.id)).toEqual(["after-offline-clear"]);
+});

@@ -66,7 +66,7 @@ import {
   getOrgBilling,
 } from "@/lib/billing";
 import { BillingSection } from "@/components/settings/BillingSection";
-import { clearChatHistory } from "@/lib/chat";
+import { ClearChatHistory } from "@/components/settings/ClearChatHistory";
 import { testChatConnection } from "@/lib/chat-proxy";
 import { testProPresenterConnection } from "@/lib/rundown";
 import { testOntimeConnection } from "@/lib/ontime";
@@ -1777,12 +1777,13 @@ function ApiSection({ orgId, role, getSetting, saveCredential }: SectionProps) {
 function DangerSection({
   org,
 }: SectionProps & { router: ReturnType<typeof useRouter> }) {
+  const { user } = Route.useRouteContext();
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<null | "lowerthirds" | "chat">(null);
-  const [confirmingDangerAction, setConfirmingDangerAction] = useState<null | "lowerthirds" | "chat">(null);
+  const [busy, setBusy] = useState<null | "lowerthirds">(null);
+  const [confirmingDangerAction, setConfirmingDangerAction] = useState<null | "lowerthirds">(null);
   const [dangerActionError, setDangerActionError] = useState<string | null>(null);
   const handleDeleteOrganization = async () => {
     setDeleting(true);
@@ -1810,19 +1811,6 @@ function DangerSection({
       setConfirmingDangerAction(null);
     } catch (error) {
       setDangerActionError(error instanceof Error ? error.message : "Lower thirds could not be reset.");
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const handleClearChat = async () => {
-    setBusy("chat");
-    setDangerActionError(null);
-    try {
-      await clearChatHistory({ data: { orgId: org.id } });
-      setConfirmingDangerAction(null);
-    } catch (error) {
-      setDangerActionError(error instanceof Error ? error.message : "Chat history could not be cleared.");
     } finally {
       setBusy(null);
     }
@@ -1879,48 +1867,7 @@ function DangerSection({
           ) : null}
         </div>
 
-        {/* Invite form */}
-        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-board-text">
-                Clear chat history
-              </p>
-              <p className="text-xs text-board-muted">
-                Remove all chat messages from native chat
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setDangerActionError(null);
-                setConfirmingDangerAction("chat");
-              }}
-              disabled={busy !== null}
-              className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-medium hover:bg-red-500/10 transition-colors disabled:opacity-50"
-            >
-              <Trash2 className="w-3 h-3" />
-              Clear
-            </button>
-          </div>
-          {confirmingDangerAction === "chat" ? (
-            <div role="alertdialog" aria-labelledby="confirm-clear-chat" className="mt-4 border-t border-red-500/20 pt-4">
-              <p id="confirm-clear-chat" className="text-xs leading-5 text-board-muted">
-                This permanently removes the organization’s native chat history. Continue?
-              </p>
-              {dangerActionError ? (
-                <p role="alert" className="mt-2 text-xs text-red-400">{dangerActionError}</p>
-              ) : null}
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:justify-end">
-                <button type="button" disabled={busy !== null} onClick={() => setConfirmingDangerAction(null)} className="rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-muted transition-colors hover:bg-board-border/50 disabled:opacity-50">Cancel</button>
-                <button type="button" disabled={busy !== null} onClick={() => void handleClearChat()} className="flex items-center justify-center gap-1.5 rounded-lg bg-red-500 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-red-600 disabled:opacity-50">
-                  <Trash2 className="w-3 h-3" />
-                  {busy === "chat" ? "Clearing..." : "Clear chat history"}
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
+        <ClearChatHistory orgId={org.id} orgName={org.name} userId={user.id} disabled={busy !== null || deleting} />
 
         <ShowReportExport key={org.id} orgId={org.id} slug={org.slug} disabled={busy !== null || deleting} />
 

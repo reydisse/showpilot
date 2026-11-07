@@ -74,6 +74,8 @@ export interface ChatReadReceipt {
 }
 
 export interface ChatHydrationState {
+  /** A clear replaces confirmed history while preserving unsent outbox entries. */
+  clearedMessages?: ChatMessage[];
   readReceipts: Record<string, number>;
 }
 

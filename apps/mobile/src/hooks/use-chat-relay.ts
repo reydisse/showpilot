@@ -90,6 +90,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
   const pendingMutationsRef = useRef(new Map<string, PendingMutation>());
   const typingTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const roomGenerationRef = useRef(0);
+  const historyGenerationRef = useRef(0);
 
   const flush = useCallback(() => {
     const socket = socketRef.current;
@@ -192,6 +193,14 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
               const message = parseChatMessage(candidate);
               return message ? [message] : [];
             });
+            // Every hydration replaces the native snapshot, including reconnect
+            // after a clear while offline. Older requests cannot merge into it.
+            historyGenerationRef.current++;
+            setLoadingOlder(false);
+            if("historyCleared" in payload && payload.historyCleared === true) {
+              setLastError(null);
+              void queryClient.invalidateQueries({queryKey:["mobile-chat-unread"]});
+            }
             setMessages(hydratedMessages);
             const oldest = hydratedMessages[0];
             setHistoryCursor(oldest ? { timestamp: oldest.timestamp, id: oldest.id } : null);
@@ -350,18 +359,19 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
   const loadOlder = useCallback(async () => {
     if (!orgId || !historyCursor || loadingOlder || !hasOlder) return;
     const requestedGeneration = roomGenerationRef.current;
+    const historyGeneration = historyGenerationRef.current;
     setLoadingOlder(true);
     try {
       const nativeCookieHeader = await getNativeCookieHeader();
-      if (roomGenerationRef.current !== requestedGeneration) return;
+      if (roomGenerationRef.current !== requestedGeneration || historyGenerationRef.current !== historyGeneration) return;
       const response = await expoFetch(historyUrl(orgId, roomId, historyCursor), {
         credentials: getAuthenticatedFetchCredentials(),
         headers: { Accept: "application/json", ...nativeCookieHeader },
       });
-      if (roomGenerationRef.current !== requestedGeneration) return;
+      if (roomGenerationRef.current !== requestedGeneration || historyGenerationRef.current !== historyGeneration) return;
       if (!response.ok) throw new Error(`Earlier messages could not be loaded (${response.status}).`);
       const payload: unknown = await response.json();
-      if (roomGenerationRef.current !== requestedGeneration) return;
+      if (roomGenerationRef.current !== requestedGeneration || historyGenerationRef.current !== historyGeneration) return;
       const page = parseChatHistoryPage(payload);
       if (!page) {
         throw new Error("ShowPilot returned an invalid chat history page.");
@@ -375,11 +385,11 @@ export function useChatRelay(orgId: string | undefined, roomId = "production") {
       setHasOlder(page.nextCursor !== null);
       setLastError(null);
     } catch (error) {
-      if (roomGenerationRef.current === requestedGeneration) {
+      if (roomGenerationRef.current === requestedGeneration && historyGenerationRef.current === historyGeneration) {
         setLastError(error instanceof Error ? error.message : "Earlier messages could not be loaded.");
       }
     } finally {
-      if (roomGenerationRef.current === requestedGeneration) setLoadingOlder(false);
+      if (roomGenerationRef.current === requestedGeneration && historyGenerationRef.current === historyGeneration) setLoadingOlder(false);
     }
   }, [hasOlder, historyCursor, loadingOlder, orgId, roomId]);
 
