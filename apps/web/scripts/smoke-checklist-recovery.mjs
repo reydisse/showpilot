@@ -127,8 +127,13 @@ await withLocalSmokeFixture(async({origin,orgId,operatorCookie,stopServer,startS
       await observe(()=>evaluate(width<1024?`!!document.querySelector('button[aria-label="Open menu"]')`:`!document.querySelector('button[aria-label="Open menu"]')`),'item layout');
       const controls=['button[aria-label^="Mark complete:"]','button[aria-label^="Remove "]','select[id^="cat-"]','#checklist-new-label','#new-category','button[aria-label="Add checklist item"]'];
       for(const selector of controls){
-        const bounds=await evaluate(`(async()=>{const node=document.querySelector(${JSON.stringify(selector)});node.scrollIntoView({block:'center'});await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));const r=node.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,height:r.height,opacity:getComputedStyle(node).opacity,hit:node.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))};})()`);
-        assert.ok(bounds.left>=0&&bounds.right<=width&&bounds.height>=44&&(selector==='button[aria-label="Add checklist item"]'||bounds.opacity==='1')&&bounds.hit,JSON.stringify({width,selector,bounds}));
+        // A show-menu close animation can still cover a hydrated row. Require
+        // actual reachability after layout settles; never accept an obscured target.
+        let bounds;
+        await observe(async()=>{
+          bounds=await evaluate(`(async()=>{const node=document.querySelector(${JSON.stringify(selector)});node.scrollIntoView({block:'center'});await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));const r=node.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,height:r.height,opacity:getComputedStyle(node).opacity,hit:node.contains(hit),covering:hit?.tagName};})()`);
+          return bounds.left>=0&&bounds.right<=width&&bounds.height>=44&&(selector==='button[aria-label="Add checklist item"]'||bounds.opacity==='1')&&bounds.hit;
+        },`settled ${width}px ${selector}`);
       }
       if(width===320){await evaluate(`document.querySelector('button[aria-label^="Mark complete:"]').scrollIntoView({block:'center'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))`);const shot=await page('Page.captureScreenshot',{format:'png'});await writeFile('/tmp/showpilot-checklist-items-320.png',Buffer.from(shot.data,'base64'));}
     }

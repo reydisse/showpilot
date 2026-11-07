@@ -644,7 +644,7 @@ is needed. A reported Wrangler proxy exit can trigger one fixture restart, but
 only after its process has actually terminated; browser state is preserved and
 read Retry must recover without repeating a write. A failure while the server is
 still running is not retried by the fixture. This does not complete the product-wide loading/mutation audit:
-Checklist recovery is covered below. Incidents, remaining Settings reads and
+Checklist and Incident recovery are covered below. Remaining Settings reads and
 write confirmation/recovery still require follow-up.
 
 ### Checklist confirmation and recovery
@@ -682,9 +682,73 @@ proxy process, never to hide a timeout while the server remains running.
 
 Deploy browser and Worker together and reload cached clients: the five old web
 checklist mutation RPCs were removed after migrating their only caller. No native
-binary is required. Feature-branch pushes do not deploy this change. Incidents
-and the remaining product-wide loading, mutation and accessibility audits remain
-open.
+binary is required. Feature-branch pushes do not deploy this change. Incident
+recovery is covered below; remaining product-wide loading, mutation and
+accessibility audits remain open.
+
+### Incident confirmation and discussion recovery
+
+The web Incident Log reads incidents, comments and reactions as one org/show
+snapshot. Reads expire after eight seconds and show timestamped, read-only Retry.
+Confirmed discussion and local drafts remain visible during same-show failures;
+changing shows hides the previous discussion. Loading never accompanies a false
+empty state. Relay hydration waits for the same pending read instead of issuing
+a second snapshot request. Recovery controls remain in the sticky header, and
+inside the report dialog while it is open.
+
+Report, comment, reaction and delete commands capture an operation and request
+ID before sending. After ten seconds without acknowledgement, Retry sends that
+same operation. D1 commits its receipt and conditional mutations atomically;
+permission is checked again on every retry. Replaying a report after deletion
+acknowledges the old save without recreating it. Reactions send desired state
+and the last observed own-reaction ID, so Retry cannot toggle twice or overwrite
+a newer reaction intent. Deletion compares the current incident fields and
+comment count before removing the incident, discussion and related reactions.
+A stale edit requires reviewing the refreshed log before trying again.
+Existing mobile incidents without a show keep their discussion and delete
+controls. Their reads and commands match only date-only rows for that organization
+and date; they cannot touch another show's incident. Creating a new web report
+still requires selecting a show. Database and built-browser tests cover this path.
+
+Acknowledgement completes a save independently of the subsequent refresh.
+Retrying a failed read never repeats that write. A newer comment draft survives
+confirmation of the older comment. Drafts and uncertain saves require an explicit
+choice before leaving. Report fields are labelled and use the shared focus-trapped
+Dialog. Delete actions are visible without hover; discussion controls and
+reaction chips have 44px targets, with a bounded reaction picker on phones.
+
+Only the request that claims a new applied receipt schedules its notification.
+Cloudflare waitUntil preserves the existing best-effort inbox/push delivery
+without holding the save response open. This is not a durable notification
+outbox. The separate mobile mutation endpoints retain their current behavior.
+
+After building, run `node apps/web/scripts/smoke-incident-recovery.mjs`. The
+rehearsal uses real authentication, local D1 and Chrome with disposable data. It
+withholds real write responses, retries exact operations, checks navigation and
+show isolation, measures discussion/form controls, and inspects persisted
+reports, receipts, notification recipients and deletion cleanup after stopping
+the local server. The verified run retained one report, ten write receipts and
+exactly four expected notifications, with no browser errors or document reload.
+Controls passed at 320/768/1440px and the report dialog at 320x480; screenshots
+were inspected. The full suite passed 1879 unit and 674 Worker tests, typecheck
+and production build. The initial full run timed out in an existing five-second
+timecode isolation test; the rerun passed without changing that test or timeout.
+Run the checklist recovery rehearsal too when changing the shared operator-read
+hook. On this build, two diagnostic runs completed the Checklist browser
+assertions, but a complete browser-plus-D1 rerun remains unverified. Several
+runs stopped after Wrangler ProxyWorker reported Network connection lost and
+the CLI exited with code 1. The fixture still permits only one restart after
+confirmed terminal process state. Debug logging cannot pollute JSON query output
+now, and the query helper passed a direct fixture check. Responsive target checks
+wait for reachability without changing required dimensions or app deadlines.
+The proxy failure remains a separate verification follow-up.
+
+Deploy browser and Worker together and reload cached clients: the old web
+incident/comment/reaction RPCs were removed after migrating their sole caller,
+and the build permission contracts now check their replacements. No migration
+or native binary is required. Keep incident-write receipts while clients may
+retry them. Feature-branch pushes do not deploy this change; remaining Settings
+writes and product-wide recovery/accessibility audits remain open.
 
 ### Workspace and Settings navigation
 
