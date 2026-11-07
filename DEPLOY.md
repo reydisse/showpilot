@@ -4521,3 +4521,60 @@ remains 47/79; the broader product confirmation/error gates remain incomplete.
 The Kiosk org-chart/roster editors still have unbounded writes and unconfirmed
 removal, and the technical dashboard's output controls need further review.
 Twenty necessary tracked Markdown files remain; no new Markdown file was added.
+
+## Kiosk org-chart recovery (2026-11-07, not deployed)
+
+Five real-auth Worker baselines reproduced duplicate teams after a lost create
+reply, adding a user outside the organization, a failed promotion demoting the
+previous lead, a rejected final DELETE stripping team members, and an already
+completed deletion failing on retry. Two component baselines reproduced deletion
+without confirmation and creation staying busy without bounded recovery.
+
+Migration 0070 adds a team revision and org/actor/request receipts. The single
+writeKioskTeam command replaces all five old write wrappers and their callers.
+A D1 batch commits the receipt and mutation together, including lead replacement
+and FK-cascaded team deletion. Exact retries return the original acknowledgement
+without rewriting newer data. Reviewed revisions reject stale edits; current
+session, permission, membership revision and organization-deletion state are
+checked at commit. A target who leaves the org before commit produces a recorded
+conflict rather than a permanently locked retry. Existing CSS color values remain
+supported. Organization/user deletion cascades the new receipts.
+
+Team metadata and members are read from one SQLite snapshot. Admin and kiosk
+projections exclude departed org members. A further Worker baseline proved the
+old kiosk projection kept showing a departed lead; its org-scoped membership join
+now removes that stale person from the displayed org chart. The public payload
+still contains display data only and does not expose command receipts or revisions.
+
+The editor has explicit Save, named color/people controls, and confirmation for
+team deletion, member removal and lead changes. Writes time out after ten seconds
+with a timestamp and exact Retry. Drafts and pending commands survive section
+navigation in an account/org cache. Read failure retries only the read after a
+confirmed write. Conflicts preserve edits and require explicit review of the new
+team revision. A late-acknowledgement remount regression exposed stale local form
+state; synchronous cache subscription now updates both controlled inputs and a
+remounted editor. No blur-triggered write remains.
+
+Final verification: 14 real-auth Worker cases and eight editor cases, plus the
+existing settings/display/token cases. Full web suite passes 2,292 unit and 1,080
+Worker tests. Typecheck and production build pass; main bundle 551,432 raw /
+174,364 gzip bytes. These include storage rollback, concurrent duplicate and
+competing commands, org/actor isolation, target departure, revoked sessions and
+commit-time access changes, receipt cascades and preservation of CSS colors.
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-kiosk-team-recovery.mjs`
+passes against compiled Chrome with real auth/D1. It withholds a successful create
+reply, edits that team from another request, navigates away/back and retries the
+same create without duplication or overwriting the newer name. It then exercises
+explicit rename, refresh-only recovery, member add, confirmed promotion and team
+deletion. Cancel sends no write. Six receipts remain, with no team/member rows,
+foreign-org receipt or outgoing email. Controls and dialogs fit at 320/768/1440px.
+Screenshot review found squeezed member names on phones; the row now stacks and
+the browser check requires readable name width as well as 44px control bounds.
+The final phone screenshot was inspected. No runtime errors were captured.
+
+Stacked on #206, whose CI run 42422075613 is green. Keep this PR draft. Migration
+0070 has only run in disposable local fixtures; no production migration,
+deployment, native release or real-org/provider mutation. Phase 2 remains 47/79:
+on-duty roster writes and broader confirmation/error/UX gates are still open.
+Twenty necessary tracked Markdown files remain; no new Markdown file was added.

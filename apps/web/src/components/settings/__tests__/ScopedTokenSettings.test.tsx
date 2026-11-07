@@ -1,3 +1,4 @@
+vi.mock("../KioskTeamEditor", () => ({ KioskTeamEditor: () => null }));
 vi.mock("../KioskDisplayControl", () => ({ KioskDisplayControl: () => null }));
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";

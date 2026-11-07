@@ -6,7 +6,6 @@ import { useState, useCallback } from "react";
 import {
   Plus,
   Trash2,
-  Crown,
   X,
   Users,
   CalendarDays,
@@ -15,11 +14,6 @@ import {
 import {
   getKioskTeams,
   getRosterRoles,
-  createTeam,
-  updateTeam,
-  deleteTeam,
-  setTeamMember,
-  removeTeamMember,
   seedRosterRoles,
   createRosterRole,
   deleteRosterRole,
@@ -33,14 +27,10 @@ import {
   listKioskTokens,
   revokeKioskToken,
 } from "@/lib/kiosk";
+import { KioskTeamEditor } from "./KioskTeamEditor";
 import { KioskDisplayControl } from "./KioskDisplayControl";
 
 type Member = { id: string; name: string; image: string | null };
-
-const TEAM_COLORS = [
-  "#22d3ee", "#3b82f6", "#8b5cf6", "#ec4899",
-  "#f43f5e", "#f59e0b", "#10b981", "#64748b",
-];
 
 function snapSunday(dateStr: string): string {
   const d = new Date(`${dateStr}T00:00:00Z`);
@@ -125,7 +115,7 @@ export function KioskSection({
         {loading ? (
           <div className="py-10 text-center text-sm text-board-muted">Loading kiosk organization…</div>
         ) : organizationRead.value === null ? null : tab === "org" ? (
-          <OrgChartTab key={orgId} orgId={orgId} teams={teams} members={members} onChange={reload} />
+          <KioskTeamEditor key={`${orgId}:${userId}`} orgId={orgId} userId={userId} teams={teams} members={members} onChange={reload} readFailed={Boolean(organizationRead.error)} />
         ) : (
           <RosterTab key={orgId} orgId={orgId} roles={roles} members={members} onChange={reload} />
         )}
@@ -255,191 +245,6 @@ function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
             );
           })}
         </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Org Chart ───────────────────────────────────────────────
-
-function OrgChartTab({
-  orgId,
-  teams,
-  members,
-  onChange,
-}: {
-  orgId: string;
-  teams: AdminTeam[];
-  members: Member[];
-  onChange: () => void;
-}) {
-  const [newName, setNewName] = useState("");
-  const [newColor, setNewColor] = useState(TEAM_COLORS[0]);
-  const [busy, setBusy] = useState(false);
-
-  const addTeam = async () => {
-    if (!newName.trim()) return;
-    setBusy(true);
-    await createTeam({ data: { orgId, name: newName.trim(), color: newColor } });
-    setNewName("");
-    setBusy(false);
-    onChange();
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 rounded-xl border border-board-border bg-board-card p-3">
-        <div className="flex items-center gap-1">
-          {TEAM_COLORS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setNewColor(c)}
-              className="w-5 h-5 rounded-full border-2"
-              style={{ background: c, borderColor: newColor === c ? "white" : "transparent" }}
-            />
-          ))}
-        </div>
-        <input
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addTeam()}
-          placeholder="New team name (e.g. Audio)"
-          className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500"
-        />
-        <button
-          onClick={addTeam}
-          disabled={busy || !newName.trim()}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50"
-        >
-          <Plus className="w-3.5 h-3.5" /> Add Team
-        </button>
-      </div>
-
-      {teams.length === 0 ? (
-        <div className="text-center py-10 text-sm text-board-muted">
-          No teams yet — add one above to build the org chart.
-        </div>
-      ) : (
-        teams.map((team) => (
-          <TeamCard key={team.id} orgId={orgId} team={team} members={members} onChange={onChange} />
-        ))
-      )}
-    </div>
-  );
-}
-
-function TeamCard({
-  orgId,
-  team,
-  members,
-  onChange,
-}: {
-  orgId: string;
-  team: AdminTeam;
-  members: Member[];
-  onChange: () => void;
-}) {
-  const memberIds = new Set(team.members.map((m) => m.userId));
-  const available = members.filter((m) => !memberIds.has(m.id));
-
-  const rename = async (name: string) => {
-    if (name.trim() && name.trim() !== team.name) {
-      await updateTeam({ data: { orgId, id: team.id, name: name.trim(), color: team.color } });
-      onChange();
-    }
-  };
-  const recolor = async (color: string) => {
-    await updateTeam({ data: { orgId, id: team.id, name: team.name, color } });
-    onChange();
-  };
-  const addMember = async (userId: string) => {
-    if (!userId) return;
-    await setTeamMember({ data: { orgId, teamId: team.id, userId, role: "member" } });
-    onChange();
-  };
-  const toggleLead = async (userId: string, isLead: boolean) => {
-    await setTeamMember({ data: { orgId, teamId: team.id, userId, role: isLead ? "member" : "lead" } });
-    onChange();
-  };
-  const remove = async (userId: string) => {
-    await removeTeamMember({ data: { orgId, teamId: team.id, userId } });
-    onChange();
-  };
-
-  return (
-    <div className="rounded-xl border border-board-border bg-board-card p-4" style={{ borderLeft: `3px solid ${team.color}` }}>
-      <div className="flex items-center gap-2 mb-3">
-        <div className="flex items-center gap-1">
-          {TEAM_COLORS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => recolor(c)}
-              className="w-4 h-4 rounded-full border-2"
-              style={{ background: c, borderColor: team.color === c ? "white" : "transparent" }}
-            />
-          ))}
-        </div>
-        <input
-          key={team.name}
-          defaultValue={team.name}
-          onBlur={(e) => rename(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-          className="flex-1 bg-transparent text-sm font-semibold text-board-text focus:outline-none focus:border-b focus:border-fire-500"
-        />
-        <button
-          onClick={() => deleteTeam({ data: { orgId, id: team.id } }).then(onChange)}
-          className="p-1.5 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10"
-          title="Delete team"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
-
-      <div className="space-y-1.5">
-        {team.members.map((m) => {
-          const isLead = m.role === "lead";
-          return (
-            <div key={m.userId} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-board-bg">
-              <span className="text-sm text-board-text flex-1 truncate">{m.name}</span>
-              <button
-                onClick={() => toggleLead(m.userId, isLead)}
-                className={`flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide transition-colors ${
-                  isLead
-                    ? "bg-amber-500/15 text-amber-400 border border-amber-500/25"
-                    : "text-board-muted border border-board-border hover:text-board-text"
-                }`}
-                title={isLead ? "Lead — click to make member" : "Make lead"}
-              >
-                <Crown className="w-2.5 h-2.5" />
-                {isLead ? "Lead" : "Member"}
-              </button>
-              <button
-                type="button"
-                onClick={() => remove(m.userId)}
-                aria-label={`Remove ${m.name} from kiosk team`}
-                title={`Remove ${m.name} from kiosk team`}
-                className="p-1 rounded text-board-muted hover:text-red-400"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
-      {available.length > 0 && (
-        <select
-          value=""
-          onChange={(e) => addMember(e.target.value)}
-          className="mt-2 w-full px-3 py-2 rounded-lg bg-board-bg border border-board-border text-xs text-board-muted focus:outline-none focus:border-fire-500"
-        >
-          <option value="">+ Add member…</option>
-          {available.map((m) => (
-            <option key={m.id} value={m.id}>{m.name}</option>
-          ))}
-        </select>
       )}
     </div>
   );
