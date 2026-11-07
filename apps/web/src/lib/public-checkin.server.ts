@@ -1,22 +1,10 @@
 import type { PublicAttendanceResult, PublicAttendanceWrite, PublicCrewMember } from "./public-checkin";
 
-type Database = Pick<D1Database, "prepare" | "batch">;
-interface MemberRow {
-  id: string; memberId: string; name: string; photoUrl: string; role: string;
-  isOnline: number; lastCheckIn: string | number | null; lastCheckOut: string | number | null;
-}
-async function digest(value: unknown) {
-  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value))))]
-    .map(byte => byte.toString(16).padStart(2, "0")).join("");
-}
-async function readMember(db: Database, orgId: string, memberId: string) {
-  return db.prepare(`SELECT id,memberId,name,photoUrl,role,isOnline,lastCheckIn,lastCheckOut
-    FROM crew_member WHERE orgId=? AND memberId=?`).bind(orgId, memberId).first<MemberRow>();
-}
+import { attendanceDigest as digest, readAttendanceByMemberId as readMember, attendanceMember, attendanceChangeTime, type AttendanceDatabase as Database, type AttendanceRow as MemberRow } from "./attendance-state.server";
 async function publicMember(row: MemberRow | null): Promise<PublicCrewMember | null> {
   if (!row) return null;
-  const { id, isOnline, lastCheckIn, lastCheckOut, memberId, name, photoUrl, role } = row;
-  return { memberId, name, photoUrl, role, isOnline: Boolean(isOnline), revision: await digest({ id, isOnline, lastCheckIn, lastCheckOut }) };
+  const { id: _id, ...member } = await attendanceMember(row);
+  return member;
 }
 export async function getPublicAttendanceMember(db: Database, orgId: string, memberId: string) {
   return publicMember(await readMember(db, orgId, memberId));
@@ -43,12 +31,7 @@ export async function applyPublicAttendanceIntent(db: Database, orgId: string, i
   const token = crypto.randomUUID();
   const applied = JSON.stringify({ fingerprint, token, outcome: "applied" });
   const conflict = JSON.stringify({ fingerprint, token, outcome: "conflict" });
-  // Keep successive attendance changes distinct even within the same millisecond.
-  const timestamps = [row?.lastCheckIn, row?.lastCheckOut].map(value => {
-    const time = typeof value === "number" ? value : value ? new Date(value).getTime() : 0;
-    return Number.isFinite(time) ? time : 0;
-  });
-  const changedAt = Math.max(Date.now(), ...timestamps.map(time => time + 1));
+  const changedAt = attendanceChangeTime(row ? [row] : []);
   const desiredOnline = intent === "check-in" ? 1 : 0;
   await db.batch([
     db.prepare(`INSERT INTO app_setting(id,orgId,key,value) VALUES (?,?,?,

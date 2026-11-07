@@ -391,7 +391,8 @@ the change. Stale lookups and replaced crew records are rejected. Keep
 request cannot become a new operation. Generic Settings cannot edit these keys.
 No schema migration or new secret is required. Old open check-in pages must
 reload after the client/Worker deployment because unconditional writes are rejected.
-The separate signed-in/mobile attendance APIs are unchanged.
+Signed-in crew attendance uses the recovery flow below. Mobile attendance keeps
+its existing API contract.
 
 Run `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-public-checkin.mjs`
 after building. It creates disposable crew members and uses a browser without an
@@ -405,6 +406,45 @@ Local verification passed 1,899 unit tests, 706 Worker tests, typecheck, product
 build and the anonymous browser rehearsal. No browser errors occurred. Recovery
 controls passed at 320/768/1440px, and the actual 320px error and success screenshots
 were inspected. Deployment and production verification remain pending.
+
+### Signed-in crew attendance recovery
+
+Crew check-in now keeps failed row, member-ID and bulk changes visible with a
+timestamp and Retry. Entering an ID selects a person; a separate action confirms
+check-in or check-out. Requests expire after ten seconds without acknowledgement.
+Switching between entry and roster views preserves recovery, and leaving with an
+uncertain change requires confirmation.
+
+Each request captures the intended attendance, selected record revisions and a
+UUID. An atomic D1 batch records the outcome and changes only those crew records.
+Retry returns the original outcome without repeating a completed write. Bulk
+confirmation captures the full roster, including people outside the search; one
+stale or removed member rejects the entire selection. Crew added afterwards are
+excluded. Every retry checks current permission and binds the receipt to its actor.
+
+Roster reads have an eight-second deadline and pause while the tab is hidden.
+A successful write invalidates earlier reads. If its refresh fails, the page says
+the change was saved and offers a read-only Retry. New changes stay disabled until
+attendance is confirmed. Public and signed-in attendance share revision semantics;
+the public API and existing receipt fingerprints remain compatible.
+
+Keep `attendance-write:*` receipts for the organization's lifetime. Deploy browser
+and Worker together and reload old check-in tabs: `toggleCheckIn`,
+`setAllCrewCheckIn` and `checkInByMemberId` were removed after migrating every caller.
+No migration or secret is required. Mobile attendance is unchanged.
+
+After building, run
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-crew-attendance.mjs`.
+The disposable two-operator rehearsal loses real committed responses, retries the
+exact request, preserves subsequent attendance changes, rejects stale bulk edits
+without partial writes and verifies that read Retry never sends a write. It checks
+320/768/1440px controls, browser errors and final D1 attendance, including another
+organization. Expected receipts: seven, including one rejected conflict.
+
+Verification passed 1,911 unit tests, 718 Worker tests, web typecheck and the
+production build. Both the crew rehearsal and anonymous public check-in regression
+passed. Final phone screenshots were inspected. No deployment or migration was
+performed; the broader Phase 2 gate remains incomplete.
 
 ### Organization credential encryption
 
