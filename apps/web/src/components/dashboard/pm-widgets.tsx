@@ -1,3 +1,7 @@
+import { useDutyRoster } from "@/hooks/useDutyRoster";
+import { DutyRosterFeedback } from "@/components/settings/DutyRosterFeedback";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import type { DutyRosterCommand } from "@/lib/duty-roster-contract";
 import { workspaceCopy, type WorkspaceTerms } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 /**
@@ -28,7 +32,6 @@ import {
   type WidgetDefinition,
 } from "./widget";
 import { formatDuration } from "@/lib/rundown-timing";
-import { initialsFor } from "@/lib/pm-dashboard-derive";
 import type {
   AttentionItem,
   CrewPosition,
@@ -56,6 +59,8 @@ export interface PmWidgetModel {
   slug: string;
   orgId: string;
   showId: string | null;
+  userId: string;
+  canManageDuty: boolean;
 }
 
 type PmWidget = WidgetDefinition<PmWidgetModel>;
@@ -1187,101 +1192,161 @@ const dutyWidget: PmWidget = {
   render: (widgetModel) => <DutyCard {...widgetModel} />,
 };
 
-function DutyCard({ model, orgId }: PmWidgetModel) {
-  const router = useRouter();
-  const [busy, setBusy] = useState<string | null>(null);
-
-  const [error, setError] = useState<string | null>(null);
-
-  async function assign(duty: "pm" | "tm", userId: string) {
-    setBusy(duty);
-    setError(null);
-    try {
-      const { setDutyOfficer } = await import("@/lib/pm-actions");
-      await setDutyOfficer({
-        data: {
-          orgId,
-          weekStart: model.dutyWeekStart,
-          duty,
-          userId: userId || null,
-        },
-      });
-      await router.invalidate();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save");
-    } finally {
-      setBusy(null);
-    }
-  }
-
+function DutyCard(props: PmWidgetModel) {
   return (
     <WidgetCard title="On duty">
-      <ul className="space-y-3">
-        {model.duty.map((officer) => {
-          const config = CREW_STATUS[officer.status];
-          const selected = officer.userId ?? "";
-          return (
+      {props.canManageDuty ? (
+        <EditableDutyOfficers {...props} />
+      ) : (
+        <ul className="space-y-3">
+          {props.model.duty.map((officer) => (
             <li key={officer.key}>
-              <div className="flex items-center gap-2.5">
+              <p className="text-xs text-board-muted">{officer.label}</p>
+              <p className="text-sm text-board-text">
+                {officer.name ?? "Not assigned"}
+              </p>
+              {officer.name ? (
                 <span
-                  className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-[9px] font-medium ${
-                    officer.name
-                      ? "bg-board-bg text-board-muted"
-                      : "border border-dashed border-board-border text-board-muted/60"
-                  }`}
-                  aria-hidden="true"
+                  className={`text-xs ${CREW_STATUS[officer.status].className}`}
                 >
-                  {officer.name ? initialsFor(officer.name) : "—"}
+                  {CREW_STATUS[officer.status].label}
                 </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted">
-                    {officer.label}
-                  </p>
-                  <label className="sr-only" htmlFor={`duty-${officer.key}`}>
-                    {officer.label}
-                  </label>
-                  <select
-                    id={`duty-${officer.key}`}
-                    value={selected}
-                    disabled={busy !== null}
-                    onChange={(event) =>
-                      void assign(officer.key, event.target.value)
-                    }
-                    className="mt-0.5 w-full text-xs bg-transparent border border-board-border/60 rounded px-1.5 py-1 text-board-text hover:border-board-border disabled:opacity-50 transition-colors"
-                  >
-                    <option value="">Not assigned</option>
-                    {model.orgMembers.map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {member.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {officer.name && officer.status !== "confirmed" && (
-                  <span
-                    className={`text-[10px] shrink-0 self-end pb-1.5 ${config.className}`}
-                  >
-                    {config.label}
-                  </span>
-                )}
-              </div>
+              ) : null}
             </li>
-          );
-        })}
-      </ul>
-      {error && <p className="text-[10px] text-red-400 mt-2">{error}</p>}
-      <p className="text-[10px] text-board-muted/70 mt-3 pt-2.5 border-t border-board-border/60">
+          ))}
+        </ul>
+      )}
+      <p className="text-xs text-board-muted mt-3 pt-2.5 border-t border-board-border/60">
         Week of{" "}
-        {new Date(`${model.dutyWeekStart}T12:00:00`).toLocaleDateString(
+        {new Date(`${props.model.dutyWeekStart}T12:00:00`).toLocaleDateString(
           "en-US",
-          {
-            month: "short",
-            day: "numeric",
-          },
+          { month: "short", day: "numeric" },
         )}
         , from the org roster.
       </p>
     </WidgetCard>
+  );
+}
+
+export function EditableDutyOfficers({
+  model,
+  orgId,
+  userId,
+}: {
+  model: Pick<PmDashboardModel, "duty" | "dutyWeekStart">;
+  orgId: string;
+  userId: string;
+}) {
+  const roster = useDutyRoster(orgId, userId, model.dutyWeekStart),
+    snapshot = roster.read.data;
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
+  const [confirming, setConfirming] = useState(false);
+  const tm = snapshot?.roles.find((role) => role.code.toLowerCase() === "tm");
+  const locked =
+    Boolean(roster.unfinished) ||
+    confirming ||
+    !snapshot ||
+    roster.read.isError;
+  async function assign(duty: "pm" | "tm", userId: string, previous: string) {
+    if (locked || !snapshot || userId === previous) return;
+    const command: DutyRosterCommand = {
+      action: "set-officer",
+      orgId,
+      requestId: crypto.randomUUID(),
+      weekStart: model.dutyWeekStart,
+      rolesRevision: snapshot.rolesRevision,
+      weekRevision: snapshot.weekRevision,
+      duty,
+      userId: userId || null,
+    };
+    if (previous) {
+      setConfirming(true);
+      const accepted = await confirm({
+        title: "Change the duty officer?",
+        description: `This replaces or clears the ${duty.toUpperCase()} assignment for ${model.dutyWeekStart}. Affected members receive an assignment notification.`,
+        confirmLabel: "Change assignment",
+        variant: "warning",
+      });
+      setConfirming(false);
+      if (!accepted) return;
+    }
+    roster.send(command);
+  }
+  return (
+    <div className="space-y-3">
+      {ConfirmDialogEl}
+      <DutyRosterFeedback roster={roster} />
+      {!snapshot && !roster.read.isError ? (
+        <p role="status" className="text-sm text-board-muted">
+          Loading roster week…
+        </p>
+      ) : null}
+      {snapshot ? (
+        <ul className="space-y-3">
+          {model.duty.map((officer) => {
+            const selected =
+              officer.key === "pm"
+                ? (snapshot.pmUserId ?? "")
+                : tm
+                  ? (snapshot.tech[tm.id] ?? "")
+                  : "";
+            const member = snapshot.members.find(
+              (person) => person.id === selected,
+            );
+            const attendanceCurrent = selected && selected === officer.userId;
+            return (
+              <li key={officer.key} className="min-w-0 space-y-1">
+                <label
+                  className="block text-xs text-board-muted"
+                  htmlFor={`duty-${officer.key}`}
+                >
+                  {officer.label}
+                </label>
+                <select
+                  id={`duty-${officer.key}`}
+                  value={selected}
+                  disabled={locked || (officer.key === "tm" && !tm)}
+                  onChange={(event) =>
+                    void assign(officer.key, event.target.value, selected)
+                  }
+                  className="min-h-11 w-full min-w-0 rounded border border-board-border bg-board-bg px-2 text-sm text-board-text disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2"
+                >
+                  <option value="">Not assigned</option>
+                  {selected && !member ? (
+                    <option value={selected}>
+                      Unavailable member — choose again
+                    </option>
+                  ) : null}
+                  {snapshot.members.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.name}
+                    </option>
+                  ))}
+                </select>
+                {officer.key === "tm" && !tm ? (
+                  <p className="text-xs text-board-muted">
+                    Add the TM role in Settings → Kiosk → On-Duty Roster.
+                  </p>
+                ) : null}
+                {attendanceCurrent ? (
+                  <span
+                    className={`text-xs ${CREW_STATUS[officer.status].className}`}
+                  >
+                    {CREW_STATUS[officer.status].label}
+                  </span>
+                ) : selected ? (
+                  <span className="text-xs text-board-muted">
+                    {member
+                      ? "Assigned; attendance awaiting refresh"
+                      : "This person is no longer a member."}
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 

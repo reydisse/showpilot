@@ -1,3 +1,4 @@
+import { hasPermission } from "@/lib/app-permissions";
 import { RelaySyncNotice } from "@/components/RelaySyncNotice";
 import { useTerms } from "@/components/workspace/WorkspaceProvider";
 import {
@@ -96,7 +97,10 @@ function ProdManagerPage() {
     return () => clearInterval(id);
   }, [model.phase, router]);
 
+  const {user,role} = Route.useRouteContext();
   const widgetModel: PmWidgetModel = {
+    userId: user.id,
+    canManageDuty: hasPermission(role,"settings:members"),
     terms: useTerms(),
     model,
     rundownState,

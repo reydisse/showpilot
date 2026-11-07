@@ -1,3 +1,4 @@
+vi.mock("../KioskDutyRoster", () => ({ KioskDutyRoster: () => null }));
 import {
   act,
   cleanup,
@@ -13,13 +14,7 @@ const rpc = vi.hoisted(() => ({ teams: vi.fn(), write: vi.fn() }));
 vi.mock("../KioskDisplayControl", () => ({ KioskDisplayControl: () => null }));
 vi.mock("@/lib/kiosk-admin", () => ({
   getKioskTeams: rpc.teams,
-  getRosterRoles: async () => [],
-  getRosterWeek: vi.fn(),
   writeKioskTeam: rpc.write,
-  seedRosterRoles: vi.fn(),
-  createRosterRole: vi.fn(),
-  deleteRosterRole: vi.fn(),
-  saveRosterWeek: vi.fn(),
 }));
 vi.mock("@/lib/kiosk", () => ({
   listKioskTokens: async () => [],

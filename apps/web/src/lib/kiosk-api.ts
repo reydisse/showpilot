@@ -248,6 +248,7 @@ export async function getRoster(orgId: string, month?: string | null) {
         .prepare(
           `SELECT a.weekStart AS weekStart, a.kind AS kind, a.roleId AS roleId, u.id AS userId, u.name AS name
            FROM roster_assignment a JOIN user u ON u.id = a.userId
+           JOIN member m ON m.organizationId = a.orgId AND m.userId = a.userId
            WHERE a.orgId = ? AND a.weekStart >= ? AND a.weekStart <= ?
            ORDER BY a.weekStart`,
         )

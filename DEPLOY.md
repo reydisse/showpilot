@@ -4516,3 +4516,58 @@ Stacked on #206, whose CI run 42422075613 is green. Keep this PR draft. Migratio
 deployment, native release or real-org/provider mutation. Phase 2 remains 47/79:
 on-duty roster writes and broader confirmation/error/UX gates are still open.
 Twenty necessary tracked Markdown files remain; no new Markdown file was added.
+
+## Duty roster command recovery (2026-11-07, not deployed)
+
+Six real-auth Worker baselines reproduced partial default roles, silently ignored
+role-code conflicts, failed deletion erasing assignments, lost-save replay
+replacing a newer PM assignment, old week saves clearing newly added roles, and
+assignment notification failure becoming permanent. Three editor baselines
+reproduced unconfirmed role deletion, indefinite saves and lost week drafts.
+
+Migration 0071 adds roster/catalog revisions, org/actor/request command receipts,
+and durable duty notification jobs. Settings and the Production Manager dashboard
+now use one strict command path; the old roster write wrappers and save helper
+are removed. The receipt, assignments, role changes and notification jobs commit
+in one D1 batch. Current session, role, membership revision, target membership and
+organization-deletion state are checked at commit. A role deletion also checks
+its assignment revision across weeks. Exact replay recovers the original outcome
+and reads current state without replacing a newer decision. Commands normalize at
+the execution boundary so equivalent parsed/internal inputs have the same receipt
+fingerprint. A 100-role regression verifies bounded statement parameters.
+
+Both editors expose bounded reads/writes, timestamped errors and exact Retry.
+Unsent week/role drafts and uncertain commands survive account/org-scoped section
+navigation. Changed revisions retain selections and require review before an
+existing assignment is replaced. Role deletion and assignment replacement use the
+shared confirmation dialog. Read Retry remains visibly pending through a first-
+load retry, rather than losing its error notice. Background refresh preserves
+unsaved selections. The PM card shows confirmed assignments without attaching the
+previous person's attendance to a newly selected person; viewers without roster
+management permission retain their summary.
+
+Assignment notifications are retried independently from roster commands, including
+by the existing scheduled duty-reminder job. Inbox delivery is durable and uses
+once-only notification IDs. Push remains best effort and is not replayed for an
+existing inbox item. Delivery respects current membership and alert preferences,
+skips superseded assignments and survives storage failures. Further baselines
+proved departed members remained visible on kiosk/PM duty projections and a PM
+read failure appeared as an empty roster; those paths now filter membership and
+report read errors.
+
+Final checks pass: 24 Worker roster/notification cases and 12 editor cases;
+full web suite 2,303 unit and 1,100 Worker tests; typecheck and production build.
+Main bundle is 551,534 raw / 174,416 gzip bytes. The compiled Chrome/auth/D1
+`smoke-duty-roster-recovery.mjs` rehearsal confirms lost-reply recovery after an
+intervening PM change, exact retry across section navigation, week draft retention,
+confirmed replacement/deletion, both editors, seven receipts and seven distinct
+notifications. Controls and dialogs fit at 320/768/1440px; the phone screenshot
+was inspected. No runtime errors or outgoing emails were captured. The migrated
+`smoke-settings-list-recovery.mjs` also passes against the compiled build, including
+read timeouts, late replies, retained drafts and token recovery without replay.
+
+Stacked on #207, whose CI run 42423815285 is green. Keep this PR draft. Migration
+0071 ran only in disposable local fixtures; no production migration, deployment,
+native release or real-org/provider mutation. Phase 2 remains 47/79: the technical
+dashboard control pad and broader confirmation/error/UX gates remain open.
+Twenty necessary tracked Markdown files remain; no new Markdown file was added.

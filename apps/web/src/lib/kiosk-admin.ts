@@ -6,9 +6,8 @@ import { hasPermission, normalizeRole } from "@/lib/app-permissions";
 import { z } from "zod";
 import { kioskTeamCommandSchema } from "./kiosk-team-contract";
 import { executeKioskTeamCommand } from "./kiosk-team-command.server";
-import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
+import { idSchema, parseOrThrow } from "@/lib/validation";
 
-const weekStartSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
 
 // ─────────────────────────────────────────────────────────────
 // Admin CRUD for the kiosk Org Chart (teams) and On-Duty roster.
@@ -18,7 +17,6 @@ const weekStartSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-M
 // ─────────────────────────────────────────────────────────────
 
 const db = () => getD1();
-const uid = () => crypto.randomUUID();
 
 async function getOrgMemberRole(orgId: string) {
   const { getAuth } = await import("@/lib/auth");
@@ -95,143 +93,4 @@ export const writeKioskTeam = createServerFn({ method: "POST" })
     const session = await getAuth().api.getSession({ headers: getRequestHeaders(), query: { disableCookieCache: true } });
     if (!session) throw new Error("Sign in before editing kiosk teams.");
     return executeKioskTeamCommand(data, { userId: session.user.id, sessionId: session.session.id });
-  });
-
-// ─── Roster roles ────────────────────────────────────────────
-
-export interface RosterRole {
-  id: string;
-  code: string;
-  name: string;
-  short: string;
-  sortOrder: number;
-}
-
-const DEFAULT_ROSTER_ROLES: { code: string; name: string; short: string }[] = [
-  { code: "tm", name: "Technical Manager", short: "TM" },
-  { code: "audio", name: "Audio / FOH", short: "Audio" },
-  { code: "cam1", name: "Camera 1", short: "Cam 1" },
-  { code: "cam2", name: "Camera 2", short: "Cam 2" },
-  { code: "pro", name: "ProPresenter", short: "Pro" },
-  { code: "stream", name: "Stream", short: "Stream" },
-];
-
-export const getRosterRoles = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
-  .handler(async ({ data }): Promise<RosterRole[]> => {
-    await assertKioskAdmin(data.orgId);
-    return (
-      (
-        await db()
-          .prepare("SELECT id, code, name, short, sortOrder FROM roster_role WHERE orgId = ? ORDER BY sortOrder, code")
-          .bind(data.orgId)
-          .all<RosterRole>()
-      ).results ?? []
-    );
-  });
-
-export const seedRosterRoles = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
-  .handler(async ({ data }) => {
-    await assertKioskAdmin(data.orgId);
-    const existing = await db()
-      .prepare("SELECT COUNT(*) AS c FROM roster_role WHERE orgId = ?")
-      .bind(data.orgId)
-      .first<{ c: number }>();
-    if ((existing?.c ?? 0) > 0) return;
-    let i = 1;
-    for (const r of DEFAULT_ROSTER_ROLES) {
-      await db()
-        .prepare("INSERT INTO roster_role (id, orgId, code, name, short, sortOrder) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(uid(), data.orgId, r.code, r.name, r.short, i++)
-        .run();
-    }
-  });
-
-export const createRosterRole = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        code: z.string().max(50),
-        name: labelSchema,
-        short: z.string().max(10),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertKioskAdmin(data.orgId);
-    const code = data.code.trim().toLowerCase().replace(/\s+/g, "-");
-    if (!code) throw new Error("Role code required");
-    const next = await db()
-      .prepare("SELECT COALESCE(MAX(sortOrder), 0) + 1 AS n FROM roster_role WHERE orgId = ?")
-      .bind(data.orgId)
-      .first<{ n: number }>();
-    await db()
-      .prepare(
-        "INSERT OR IGNORE INTO roster_role (id, orgId, code, name, short, sortOrder) VALUES (?, ?, ?, ?, ?, ?)",
-      )
-      .bind(uid(), data.orgId, code, data.name.trim() || code, data.short.trim() || code, next?.n ?? 1)
-      .run();
-  });
-
-export const deleteRosterRole = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
-  )
-  .handler(async ({ data }) => {
-    await assertKioskAdmin(data.orgId);
-    await db().prepare("DELETE FROM roster_assignment WHERE orgId = ? AND roleId = ?").bind(data.orgId, data.id).run();
-    await db().prepare("DELETE FROM roster_role WHERE id = ? AND orgId = ?").bind(data.id, data.orgId).run();
-  });
-
-// ─── Roster week assignments ─────────────────────────────────
-
-export const getRosterWeek = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string; weekStart: string }) => data)
-  .handler(async ({ data }) => {
-    await assertKioskAdmin(data.orgId);
-    const rows =
-      (
-        await db()
-          .prepare("SELECT kind, roleId, userId FROM roster_assignment WHERE orgId = ? AND weekStart = ?")
-          .bind(data.orgId, data.weekStart)
-          .all<{ kind: string; roleId: string | null; userId: string }>()
-      ).results ?? [];
-    const tech: Record<string, string> = {};
-    let pmUserId: string | null = null;
-    for (const r of rows) {
-      if (r.kind === "pm") pmUserId = r.userId;
-      else if (r.roleId) tech[r.roleId] = r.userId;
-    }
-    return { tech, pmUserId };
-  });
-
-export const saveRosterWeek = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        weekStart: weekStartSchema,
-        tech: z.array(z.object({ roleId: idSchema, userId: idSchema })).max(100),
-        pmUserId: idSchema.nullable(),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertKioskAdmin(data.orgId);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(data.weekStart)) throw new Error("Invalid week");
-    const { saveDutySlots } = await import("@/lib/duty-roster.server");
-    const roles = await db().prepare("SELECT id FROM roster_role WHERE orgId = ?")
-      .bind(data.orgId).all<{ id: string }>();
-    const requested = new Map(data.tech.map((slot) => [slot.roleId, slot.userId]));
-    if (requested.size !== data.tech.length) throw new Error("Duplicate duty role");
-    const validRoles = new Set(roles.results.map((role) => role.id));
-    if (data.tech.some((slot) => !validRoles.has(slot.roleId))) throw new Error("Duty role not found");
-    await saveDutySlots(db(), data.orgId, data.weekStart, [
-      { kind: "pm", roleId: null, userId: data.pmUserId },
-      ...roles.results.map((role) => ({ kind: "tech" as const, roleId: role.id, userId: requested.get(role.id) ?? null })),
-    ]);
   });
