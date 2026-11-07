@@ -1,3 +1,6 @@
+import { z } from "zod";
+import { WORKSPACE_SETTING_KEYS } from "@showpilot/shared";
+import { RUNDOWN_PIN_SETTING_KEY } from "./rundown-pin";
 import type { Permission } from "./permissions";
 
 // app_setting also holds live state, access controls and operation receipts.
@@ -52,3 +55,9 @@ export function permissionForSettingKey(key: string): Permission {
   if (!isEditableSettingKey(key)) throw new Error("Choose a supported organization setting.");
   return EDITABLE_SETTING_PERMISSIONS[key];
 }
+
+export const genericSettingKeySchema = z.string().min(1).max(100)
+  .refine(key => key !== RUNDOWN_PIN_SETTING_KEY, "Use the dedicated rundown PIN control.")
+  .refine(key => key !== "api-key", "Use Bridge installation credentials.")
+  .refine(key => !WORKSPACE_SETTING_KEYS.includes(key), "Use Workspace settings to change names and features.")
+  .refine(isEditableSettingKey, "Choose a supported organization setting.");
