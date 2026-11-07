@@ -15,7 +15,8 @@ describe("normalizeLiveInputStatus", () => {
   });
 
   it("does not report disabled or unknown inputs as live", () => {
+    expect(normalizeLiveInputStatus("connected", false)).toBe("disabled");
     expect(normalizeLiveInputStatus("idle", false)).toBe("disabled");
-    expect(normalizeLiveInputStatus("unexpected")).toBe("idle");
+    expect(normalizeLiveInputStatus("unexpected")).toBe("unknown");
   });
 });

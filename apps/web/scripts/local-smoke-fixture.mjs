@@ -109,7 +109,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
       config.vars.CLOUDFLARE_ACCOUNT_ID = "fixture-account";
       config.vars.CLOUDFLARE_STREAM_API_TOKEN = "local-stream-status-only";
       await writeFile(join(directory, "stream-output-mode"), "success");
-      await writeFile(join(directory, "stream-output-fixture-kind"), streamOutputs === "commands" ? "commands" : "status");
+      await writeFile(join(directory, "stream-output-fixture-kind"), streamOutputs === "inputs" ? "inputs" : streamOutputs === "commands" ? "commands" : "status");
       await writeFile(join(directory, "stream-output-snapshot.json"), "[]");
       await writeFile(join(directory, "stream-output-requests.jsonl"), "");
     }
@@ -179,7 +179,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
       WHEN NEW.orgId='display-smoke' AND NEW.userId='smoke-second-operator' AND NEW.type='chat-planning-invite'
       BEGIN SELECT RAISE(ABORT, 'fixture notification failure'); END;` : "";
     const sqlPath = join(directory, "fixture.sql");
-    const streamSeed = streamOutputs ? `
+    const streamSeed = streamOutputs && streamOutputs !== "inputs" ? `
       INSERT INTO live_input(id,orgId,name,cfInputId) VALUES('smoke-input','display-smoke','Fixture ingest','fixture-input');
       ${(streamOutputs === "commands" ? ["alpha","beta"] : ["enabled","disabled","missing","pending"]).map(kind => `INSERT INTO stream_destination(id,orgId,name,platform,rtmpUrl,streamKey,enabled,cfOutputId,liveInputId) VALUES('smoke-${kind}','display-smoke','Fixture ${kind}','custom','rtmp://fixture.invalid/live','${streamOutputs === "commands" ? `fixture-${kind}-key` : "fixture-stream-key"}',1,'${streamOutputs === "commands" ? "" : kind === "pending" ? "pending:1:fixture" : `fixture-output-${kind}`}','${streamOutputs === "commands" ? "" : "smoke-input"}');`).join("\n")}
     ` : "";
@@ -250,7 +250,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
       await writeFile(join(directory, "email-mode"), mode);
     };
     const configureStreamOutputs = async mode => {
-      assert.ok(streamOutputs && ["success", "error", "slow", "malformed", ...(streamOutputs === "commands" ? ["lose-create", "slow-create", "fail-delete"] : [])].includes(mode));
+      assert.ok(streamOutputs && ["success", "error", "slow", "malformed", ...(streamOutputs === "inputs" ? ["lose-create", "lose-delete", "lose-enable"] : streamOutputs === "commands" ? ["lose-create", "slow-create", "fail-delete"] : [])].includes(mode));
       await writeFile(join(directory, "stream-output-mode"), mode);
     };
     const streamOutputRequests = async () => {
@@ -258,7 +258,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
       return (await readFile(join(directory, "stream-output-requests.jsonl"), "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
     };
     const streamOutputSnapshot = async () => {
-      assert.equal(streamOutputs, "commands");
+      assert.ok(streamOutputs === "commands" || streamOutputs === "inputs");
       return JSON.parse(await readFile(join(directory,"stream-output-snapshot.json"),"utf8"));
     };
     const capturedEmails = async () => {

@@ -42,13 +42,40 @@ if (streamOutputDirectory) {
   assert.equal(resolve(streamOutputDirectory), resolve(dirname(configPath)), "Stream status is confined to the disposable fixture");
   assert.equal(options.bindings?.CLOUDFLARE_STREAM_API_TOKEN, "local-stream-status-only");
   assert.equal(Boolean(emailCaptureDirectory), false);
-  const commands = (await readFile(join(streamOutputDirectory,"stream-output-fixture-kind"),"utf8")).trim() === "commands";
+  const fixtureKind = (await readFile(join(streamOutputDirectory,"stream-output-fixture-kind"),"utf8")).trim();
+  const commands = fixtureKind === "commands";
+  const liveInputs = new Map();
   const outputs = new Map(); let sequence = 0; let snapshotWrite = Promise.resolve();
-  // Both fixtures block external network access. Only the explicit command
-  // fixture accepts writes, and those mutate this disposable in-memory map.
+  // Every provider fixture blocks external network access. Explicit input and
+  // output command fixtures accept writes only to their disposable maps.
   options.outboundService = async request => {
     const url = new URL(request.url), base = "/client/v4/accounts/fixture-account/stream/live_inputs/fixture-input/outputs";
     assert.equal(url.origin,"https://api.cloudflare.com");
+    if (fixtureKind === "inputs") {
+      const inputBase="/client/v4/accounts/fixture-account/stream/live_inputs";
+      assert.ok(url.pathname===inputBase || /^\/client\/v4\/accounts\/fixture-account\/stream\/live_inputs\/fixture-ingest-\d+$/.test(url.pathname),"Unexpected input fixture request");
+      const mode=(await readFile(join(streamOutputDirectory,"stream-output-mode"),"utf8")).trim();
+      assert.ok(["success","error","slow","malformed","lose-create","lose-delete","lose-enable"].includes(mode));
+      await appendFile(join(streamOutputDirectory,"stream-output-requests.jsonl"),JSON.stringify({method:request.method,mode,path:url.pathname})+"\n");
+      if(mode==="slow")await new Promise(resolve=>setTimeout(resolve,12_000));
+      if(mode==="error")return Response.json({success:false},{status:503});
+      if(mode==="malformed")return Response.json({success:true,result:{}});
+      const persist=()=>snapshotWrite=snapshotWrite.then(async()=>{
+        const path=join(streamOutputDirectory,"stream-output-snapshot.json");
+        await writeFile(`${path}.pending`,JSON.stringify([...liveInputs.values()].map(({uid,enabled,meta})=>({uid,enabled,meta}))));await rename(`${path}.pending`,path);
+      });
+      if(request.method==="POST") {
+        assert.equal(url.pathname,inputBase);const body=await request.json();assert.equal(body.enabled,false);assert.equal(typeof body.meta.showpilotInputId,"string");
+        const input={uid:`fixture-ingest-${++sequence}`,enabled:false,meta:body.meta,rtmps:{url:"rtmps://fixture.invalid/live",streamKey:"fixture-input-key"},srt:{url:"srt://fixture.invalid/live"},status:"connected"};
+        liveInputs.set(input.uid,input);await persist();return mode==="lose-create"?Response.json({success:false},{status:503}):Response.json({success:true,result:input});
+      }
+      if(request.method==="GET"&&url.pathname===inputBase)return Response.json({success:true,result:{liveInputs:[...liveInputs.values()].map(({uid,enabled,meta})=>({uid,enabled,meta}))}});
+      const input=liveInputs.get(url.pathname.slice(inputBase.length+1));if(!input)return new Response(null,{status:404});
+      if(request.method==="GET")return Response.json({success:true,result:input});
+      if(request.method==="DELETE") {liveInputs.delete(input.uid);await persist();return mode==="lose-delete"?Response.json({success:false},{status:503}):new Response(null,{status:204});}
+      assert.equal(request.method,"PUT");const body=await request.json();assert.equal(body.enabled,true);input.enabled=true;await persist();
+      return mode==="lose-enable"?Response.json({success:false},{status:503}):Response.json({success:true,result:input});
+    }
     assert.ok(url.pathname === base || (commands && url.pathname.startsWith(`${base}/`)), "Unexpected Stream request");
     if (!commands) assert.equal(request.method,"GET","Status rehearsal cannot mutate provider resources");
     const mode = (await readFile(join(streamOutputDirectory, "stream-output-mode"), "utf8")).trim();

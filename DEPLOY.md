@@ -3594,3 +3594,103 @@ used. Twenty necessary tracked Markdown files remain. Phase 2 stays 46/79:
 ingest mutation recovery, native/Companion client request retention and the
 remaining product-wide/catalog/gate checks are still outstanding. Phase 3 has
 not started.
+
+## Live input recovery, health honesty and operator recovery
+
+Real-auth/D1 baseline tests reproduce repeated creation making two provider
+inputs, plaintext ingest keys in storage/write replies, a successful-but-lost
+DELETE stuck on its next 404, and malformed provider health reported as Idle.
+
+A receipt around the existing POST cannot recover an unknown provider outcome.
+A request marker in Cloudflare metadata alone does not serialize competing
+attempts or protect deletion. Use command receipts plus a per-input lifecycle,
+with an immediately visible local placeholder and a durable provider phase.
+Create the provider input disabled with a unique ShowPilot input ID in metadata;
+recover unknown creation through List followed by Retrieve, never another POST.
+Encrypt the retrieved RTMP key before enabling the identified input. Preserve
+existing plaintext keys until replaced; credential disclosure remains restricted
+to explicit manage-authorized reads. A pending card must support Resume after a
+reload, so recovery does not depend on the original browser retaining its request.
+
+Deletion records its intent before contacting the provider, converges through
+404, and retains a tombstone/receipt. Its admission and Go Live admission must
+exclude one another atomically. Check both stored destination bindings and
+pending output intents, including the interval before an output ID exists.
+A lease protects each provider transition; deletion supersedes pending setup
+without allowing a late reply to enable the input. Missing/ambiguous unknown
+creations remain visible and retryable instead of guessed absent.
+
+Health reads need their own bounded provider/body deadline, strict status parsing,
+last-confirmed UI values and read-only Retry. Newer checks must own cache updates;
+a delayed old response cannot replace newer health. The Stream page and TM health
+panel must not present cached or failed telemetry as current Online/Live. Use the
+existing bounded read/write hooks and shared dialogs, retaining editor drafts and
+protecting navigation. Creation/deletion, health polling and clipboard operations
+must show errors and recovery. Provider and browser fixtures remain isolated from
+real accounts, inputs and broadcasts.
+
+Implemented in `fix/stream-input-recovery`, stacked on #194. Migration
+`0062_stream_input_lifecycle.sql` adds atomic command receipts, retained input
+lifecycle records and ownership of cached health checks. Apply it after 0061
+before deploying this build. Existing inputs remain usable without lifecycle
+records. New RTMP keys use the existing credential-vault configuration; old
+plaintext keys remain readable and are not backfilled by this change.
+
+Create and delete commands retain org/actor request IDs. Pending inputs appear
+immediately and can resume after reload. Inputs are enabled only after their
+credentials are stored, and an unreadable enable response stays pending. Removal
+and output admission exclude one another in a D1 batch, including before an
+output ID exists. Expired leases can be reclaimed; late former owners cannot
+write newer state. The oldest ready input is used by automatic selection, and
+Multi-Platform excludes pending/deleting inputs. Missing or ambiguous creation
+results remain explicitly unconfirmed; no repeated POST guesses at absence.
+
+Stream uses the shared bounded read/write hooks and Dialog, with named deletion
+confirmation, retained failed drafts, exact-request Retry, refresh-only Retry
+once acknowledged, navigation protection, and Resume/Retry removal after reload.
+Copy waits for clipboard completion and exposes failure with Retry. Controls
+have labels, keyboard focus and 44px targets. Health calls include network/body
+deadlines and guarded cache writes; provider reasons and unknown states are not
+echoed. TM starts with unknown input health, offers Retry and labels destination
+records as configuration, not proof of delivery. Pending output markers no
+longer count as connected in TM/mobile summaries; a removed mobile input is
+unknown rather than falling back to cached Live.
+
+Verification:
+- The four initial real-auth/D1 regressions failed for duplicate creation,
+  plaintext keys, lost-delete recovery and invented Idle. All now pass.
+- Twenty-one input Worker tests cover lost creates/deletes/enables, reload Resume,
+  absent/ambiguous provider matches, changed requests, removed rows, revoked
+  authority/org scope, missing encryption, transactional rollback, stale health,
+  response-body deadlines, both admission orders, deletion during creation and
+  expired-lease recovery. Nine component cases cover exact Retry, acknowledged
+  refresh, confirmation, Resume, health deadlines/late replies, truthful TM,
+  clipboard rejection, hidden tabs/coalescing and input replacement.
+- Full web checks passed 2,201 unit and 917 Worker tests, migration/client
+  boundaries and the four coverage-gate tests. After the final disabled-status
+  redaction and concurrency cases, coverage passed all 2,201 unit and 920 Worker
+  tests and existing thresholds. Typecheck and production build passed. The main
+  client bundle is 512,295 raw / 162,277 gzip bytes, within both budgets.
+- `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-stream-input-recovery.mjs`
+  passed real Chrome/auth/compiled Worker/disposable D1 with an isolated provider.
+  It withholds committed replies, retries identical requests, resumes after a
+  reload, converges provider deletion through 404, checks malformed/slow health,
+  clipboard failure, draft retention, navigation Stay, Tab/Enter/Escape and
+  320/768/1440px controls. The phone screenshot was inspected. Two provider
+  creations finish with zero inputs, four completed receipts and two deleted
+  lifecycle records. The test now accounts for CSS-uppercase text and accepts
+  the real beforeunload warning when deliberately reloading a pending request.
+- The existing stream-output-command browser regression passed on this build:
+  five provider creations, nine command receipts, partial Stop and late creation
+  cancellation, with no remaining provider outputs.
+
+The provider contract was checked against Cloudflare's official
+[Create](https://developers.cloudflare.com/api/resources/stream/subresources/live_inputs/methods/create/),
+[List](https://developers.cloudflare.com/api/resources/stream/subresources/live_inputs/methods/list/),
+[Retrieve](https://developers.cloudflare.com/api/resources/stream/subresources/live_inputs/methods/get/)
+and [Update](https://developers.cloudflare.com/api/resources/stream/subresources/live_inputs/methods/update/)
+API references. All provider mutations during verification used isolated fake
+resources; no real organization, provider, production migration, deployment or
+native release was changed. The 20 necessary tracked Markdown files remain.
+Phase 2 remains 46/79; remaining UI sweeps, native/Companion request retention,
+MIDI/LTC/local-mode/catalog verification and phase gates still need completion.
