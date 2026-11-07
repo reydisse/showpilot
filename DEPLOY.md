@@ -497,6 +497,47 @@ With both wrappers bound, the full web suite passed 1,961 unit tests and 729
 Worker tests; web typecheck passed. This follow-up changes only tests and their
 configuration. The production build and browser verification above remain valid.
 
+### Coverage gate
+
+Run `pnpm --filter @showpilot/web test:coverage` for the same web checks as CI:
+migration and client boundaries, coverage-gate regressions, then all unit and
+Worker tests with Istanbul instrumentation. The installed Cloudflare test plugin
+requires Istanbul because its Worker runtime does not expose V8 coverage.
+See the [Vitest coverage guide](https://vitest.dev/guide/coverage.html).
+
+`coverage.config.ts` selects timecode helpers/sources, every Durable Object and
+device modules. Both pools use the same selection and produce separate maps.
+`scripts/check-coverage.mjs` merges execution counters before measuring each
+group, so a line exercised by both pools is counted once. The checker compares
+each pool against the source-file inventory and rejects empty or incomplete
+reports. Tests and declarations are excluded; the TypeScript compiler identifies
+the three type-only files with no executable output.
+
+Initial local measurements across 38 executable files were:
+
+| Group | Statements | Branches | Functions | Lines |
+| --- | ---: | ---: | ---: | ---: |
+| Timecode | 92.44% | 90.57% | 91.56% | 95.09% |
+| Relays | 85.92% | 83.25% | 90.17% | 91.42% |
+| Device modules | 64.55% | 49.66% | 62.90% | 67.19% |
+
+The checked-in `coverage-baseline.json` floors each measured percentage to a
+whole number. Every metric in every group must meet that threshold; a strong
+group cannot hide a regression in another. To raise thresholds after adding
+tests, run `pnpm --filter @showpilot/web coverage:ratchet`. This reruns the full
+coverage command, refuses decreases and writes only equal or higher thresholds.
+Review and commit the resulting baseline. CI never edits it automatically.
+
+Reports under `apps/web/coverage/` are ignored by Git. The runner clears old
+reports before starting either pool and does not run the gate after a failed
+suite. CI uploads the reports as `web-coverage`, retained for seven days. The
+combined JSON and group summary remain available after a threshold failure.
+
+Local verification passed 1,961 unit tests, 729 Worker tests, four gate tests,
+web typecheck, production build and frozen-lockfile installation. A negative
+probe using the real reports exited 1 for an unmet threshold, then the baseline
+was restored byte-for-byte. GitHub execution of the new gate remains pending.
+
 ### Timecode label validation
 
 `parseTimecodeString` now requires the selected format. It rejects frame numbers

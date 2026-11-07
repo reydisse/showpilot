@@ -1,8 +1,10 @@
 import { defineConfig } from "vitest/config";
 import path from "path";
+import { coverageOptions } from "./coverage.config";
 
 export default defineConfig({
   test: {
+    coverage: coverageOptions("unit"),
     environment: "jsdom",
     globals: true,
     // Native adapter tests use JavaScript to keep React Native ambient globals
