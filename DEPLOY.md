@@ -3870,3 +3870,102 @@ six Team command receipts, one remaining owner, correct cancellation/moderation,
 newer role preservation, exact and refresh-only retries, keyboard/navigation and
 320/768/1440px controls. Its geometry check excludes the now-preserved, hidden
 invitation form; enabled visible controls retain the same minimum-size checks.
+
+## Crew roster recovery: implementation in progress
+
+Four real-auth/D1 baseline failures reproduce duplicate-creation errors after a
+lost acknowledgement, old edit retries overwriting newer crew details, removal
+retries failing after a committed delete, and stale drafts saving over new names.
+The roster's stable database ID differs from its reusable check-in badge ID.
+Profile writes exist in web and mobile; Setup and CSV import also create crew,
+while public/signed-in check-in updates attendance and sometimes the profile
+photo. Preserve those identities and do not make every check-in invalidate a
+profile edit. CSV import has its own plan check, while direct roster creation
+currently has none; this change does not infer a new pricing rule from that
+inconsistency.
+
+The form currently owns an unbounded request and closes through a custom overlay;
+the list has an alert-only delete failure and fire-and-forget refresh. Team
+unmounts the Crew tab, which loses the editor and pending request. Native roster
+writes use separate SQL paths. History eb218a9 reduced MemberForm motion; it did
+not add transaction receipts or revision checks.
+
+A UI-only retry cannot distinguish a committed create/delete or protect a newer
+profile. Reusing the device receipt helper would mix credential-specific hashing
+and device ownership with crew rules. The chosen contract is one crew command
+boundary for create/update/delete, an atomic request receipt, and a profile
+revision incremented by a database trigger for profile fields. Attendance fields
+stay independent. Use current member/session authority and commit-time guards;
+return a receipt identity, then refresh current roster data. An old create replay
+must not recreate a deleted record, and an old remove must never affect someone
+who later reuses the same badge ID.
+
+Web/native callers supply a stable request ID and the displayed profile revision
+for edits/removal. Team owns the pending write across tabs, the shared Dialog owns
+focus/Escape, and the form keeps its draft until confirmation or explicit discard.
+A read failure after acknowledgement retries only the read. Tests cover real
+D1/auth boundaries, concurrent/late requests, attendance independence and actual
+compiled-browser form/delete/refresh recovery. Access grants are a separate next
+slice with on-duty authority and notification/relay-refresh semantics to preserve.
+
+## Crew roster recovery: implementation and verification
+
+Migration 0065 adds a crew profile revision and an atomic command receipt. The
+trigger covers every profile writer, including public photo updates, without
+invalidating a profile draft when attendance alone changes. Web and native API
+create, update and removal use the same command boundary. Current session and
+member-management authority are checked before receipt recovery and again in the
+transaction. Retrying a committed request acknowledges its original identity;
+it cannot restore an old name, recreate a deleted profile or delete a new holder
+of a reused badge ID. Native's existing 128-character badge limit is preserved,
+and whitespace-only badges are rejected after trimming.
+
+Team owns the pending web request across tabs. The Crew editor uses the shared
+Dialog, retains drafts when closed, confirms discard and deletion, restores
+focus, labels fields and exposes visible 44px actions. After acknowledgement,
+Retry refresh repeats only the read. Photo preparation has a deadline and cancels
+on editor close. The responsive browser check caught and fixed a remaining 40px
+Add button. A component test also caught retained fields when switching from a
+discarded new-person draft to an existing profile; editor identity now resets
+that draft correctly.
+
+Native requests carry their exact command UUID and displayed revision. Failed
+commands survive screen navigation in the signed-in mutation cache, with Retry
+and explicit review/discard controls. Reads and writes have a ten-second deadline
+including response parsing. Photo conversion is bounded separately. The screen
+is keyed by account and organization, protects unsaved navigation, and refreshes
+a confirmed change without replaying it. Native API and cache behavior were
+verified; no simulator or physical-device UI run is claimed.
+
+Verification:
+
+- The four initial real-D1 failures pass after the fix. Fourteen Crew Worker
+  regressions cover exact/concurrent retries, rollback, badge reuse, current
+  authority and target races, profile/attendance independence, native/web
+  interoperability, stale revisions and expired sessions. Seven earlier native
+  mocked-SQL tests were migrated to real-auth/D1 Worker tests.
+- Full web tests pass with 2,233 unit and 987 Worker tests. The final coverage run,
+  including the additional badge-boundary regression, passes 2,233 unit and 988
+  Worker tests and all existing coverage thresholds.
+- Web and mobile typechecks pass. Production build passes, with 524,916 raw and
+  166,556 gzip bytes in the main client bundle. The client-boundary verifier now
+  follows Crew authorization into the shared command function and checks its
+  member-management permission, tenant/revision guard and commit-time authority.
+- `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-crew-roster.mjs`
+  passes against the compiled app, real Chrome, real authentication and disposable
+  D1. It verifies lost create/edit/delete replies, a newer native edit surviving an
+  older retry, refresh-only recovery, retained drafts, navigation protection,
+  focus/Escape and 320/768/1440px controls. Database evidence is five receipts and
+  the two untouched seed crew members. The 320px editor screenshot was inspected.
+
+Apply 0065 after 0064 before deploying these web/native callers. Older callers
+can omit revision and request ID for compatibility; displayed-revision protection
+and client retry recovery require the updated callers. No production migration,
+deployment, native release, real organization mutation or external email occurred.
+Phase 2 stays 46/79; Access management and the wider native/product gates remain
+open. Twenty necessary tracked Markdown files remain. PR #197's exact-head CI
+run 42406977373 is green for both main CI and Native Rust tests.
+
+The existing `smoke-team-recovery.mjs` also passes against this build: six Team
+receipts, one remaining owner, exact and refresh-only retries, newer role
+preservation, cancellation/moderation, keyboard/navigation and 320/768/1440px.

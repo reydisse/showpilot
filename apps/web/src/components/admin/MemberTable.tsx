@@ -1,12 +1,14 @@
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { Pencil, Trash2, UserPlus, Users, Search, X } from "lucide-react";
-import { useRouter } from "@tanstack/react-router";
 import { deleteCrewMember } from "@/lib/data";
-import { MemberForm } from "./MemberForm";
+import { MemberForm, type CrewChange } from "./MemberForm";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
-import type { Member } from "@/types";
+import {
+  crewProfileResultSchema,
+  type CrewRosterMember as Member,
+} from "@/lib/crew-roster-contract";
 import {
   DEPARTMENTS,
   getDepartment,
@@ -45,7 +47,7 @@ function MemberCard({
   const config = DEPARTMENTS[dept];
 
   return (
-    <div className="group flex items-center gap-4 p-4 rounded-xl bg-board-card border border-board-border hover:border-fire-500/20 transition-all duration-200">
+    <div className="group flex flex-wrap items-center gap-3 p-3 rounded-xl bg-board-card border border-board-border hover:border-fire-500/20 transition-all duration-200">
       <div className="relative w-11 h-11 rounded-full overflow-hidden bg-board-border shrink-0">
         {member.photoUrl ? (
           <img
@@ -65,20 +67,20 @@ function MemberCard({
         />
       </div>
 
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="font-medium text-sm text-board-text truncate">
+      <div className="flex-1 min-w-24">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="font-medium text-sm text-board-text break-words">
             {member.name}
           </p>
           {member.memberId && (
-            <span className="text-[10px] font-mono text-board-muted bg-board-bg px-1.5 py-0.5 rounded border border-board-border tracking-wider">
+            <span className="text-xs font-mono text-board-muted bg-board-bg px-1.5 py-0.5 rounded border border-board-border tracking-wider">
               {member.memberId}
             </span>
           )}
         </div>
         <div className="flex items-center gap-2 mt-0.5">
           <span
-            className={`text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded border ${config.color}`}
+            className={`text-xs font-medium uppercase tracking-wider px-1.5 py-0.5 rounded border ${config.color}`}
           >
             {member.role}
           </span>
@@ -86,33 +88,37 @@ function MemberCard({
       </div>
 
       {canManage ? (
-        <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity duration-150 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-within:opacity-100">
-        <button
-          type="button"
-          onClick={() => onEdit(member)}
-          aria-label={`Edit ${member.name}`}
-          title={`Edit ${member.name}`}
-          className="p-2 rounded-lg hover:bg-board-border transition-colors text-board-muted hover:text-board-text"
-        >
-          <Pencil className="w-3.5 h-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={() => onDelete(member)}
-          aria-label={`Remove ${member.name}`}
-          title={`Remove ${member.name}`}
-          disabled={deleting}
-          className="p-2 rounded-lg hover:bg-red-500/20 transition-colors text-board-muted hover:text-red-400 disabled:opacity-50"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-      </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={() => onEdit(member)}
+            aria-label={`Edit ${member.name}`}
+            title={`Edit ${member.name}`}
+            className="min-h-11 min-w-11 flex items-center justify-center p-2 rounded-lg disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-fire-500 hover:bg-board-border transition-colors text-board-muted hover:text-board-text"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(member)}
+            aria-label={`Remove ${member.name}`}
+            title={`Remove ${member.name}`}
+            disabled={deleting}
+            className="min-h-11 min-w-11 flex items-center justify-center p-2 rounded-lg disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-fire-500 hover:bg-red-500/20 transition-colors text-board-muted hover:text-red-400 disabled:opacity-50"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
       ) : null}
     </div>
   );
 }
 
-function EmptyState({ onAdd, canManage }: {
+function EmptyState({
+  onAdd,
+  canManage,
+}: {
   onAdd: () => void;
   canManage: boolean;
 }) {
@@ -138,15 +144,15 @@ function EmptyState({ onAdd, canManage }: {
 
       {canManage ? (
         <button
-        onClick={onAdd}
-        className="flex items-center gap-2.5 px-6 py-3 rounded-xl font-[family-name:var(--font-display)] font-semibold text-black transition-all duration-200 hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
-        style={{
-          background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
-        }}
-      >
-        <UserPlus className="w-5 h-5" />
-        Add Your First Member
-      </button>
+          onClick={onAdd}
+          className="flex items-center gap-2.5 px-6 py-3 rounded-xl font-[family-name:var(--font-display)] font-semibold text-black transition-all duration-200 hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
+          style={{
+            background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
+          }}
+        >
+          <UserPlus className="w-5 h-5" />
+          Add your first crew member
+        </button>
       ) : null}
 
       <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-lg">
@@ -170,8 +176,10 @@ function EmptyState({ onAdd, canManage }: {
               {item.step}
             </span>
             <div>
-              <p className="text-xs font-medium text-board-text">{item.title}</p>
-              <p className="text-[11px] text-board-muted">{item.desc}</p>
+              <p className="text-xs font-medium text-board-text">
+                {item.title}
+              </p>
+              <p className="text-sm text-board-muted">{item.desc}</p>
             </div>
           </div>
         ))}
@@ -184,21 +192,72 @@ interface MemberTableProps {
   members: Member[];
   orgId: string;
   canManage: boolean;
+  disabled: boolean;
+  change: (change: CrewChange) => void;
+  onDirtyChange: (dirty: boolean) => void;
 }
 
-export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
-  const router = useRouter();
+export function MemberTable({
+  members,
+  orgId,
+  canManage,
+  disabled,
+  change,
+  onDirtyChange,
+}: MemberTableProps) {
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const root = useRef<HTMLDivElement | null>(null);
+  const openForm = () => {
+    returnFocus.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    setShowForm(true);
+  };
+  const restoreFocus = () => {
+    const target = returnFocus.current;
+    if (target?.isConnected && !target.matches(":disabled")) target.focus();
+    else root.current?.focus();
+  };
   const [showForm, setShowForm] = useState(false);
-  const [editingMember, setEditingMember] = useState<Member | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [editor, setEditor] = useState<{ member: Member | null } | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const saved = () => {
+    setEditor(null);
+    setShowForm(false);
+    setDirty(false);
+    onDirtyChange(false);
+  };
+  const discard = async () => {
+    if (disabled) return false;
+    if (
+      dirty &&
+      !(await confirm({
+        title: "Discard crew draft?",
+        description: "Your unsaved crew profile changes will be lost.",
+        confirmLabel: "Discard draft",
+        cancelLabel: "Keep draft",
+      }))
+    )
+      return false;
+    saved();
+    return true;
+  };
   const [activeFilter, setActiveFilter] = useState<ViewFilter>("all");
   const [search, setSearch] = useState("");
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
   const grouped = useMemo(() => {
     const groups: Record<RoleDepartment, Member[]> = {
-      leadership: [], production: [], camera: [], audio: [],
-      visuals: [], lighting: [], streaming: [], technical: [], other: [],
+      leadership: [],
+      production: [],
+      camera: [],
+      audio: [],
+      visuals: [],
+      lighting: [],
+      streaming: [],
+      technical: [],
+      other: [],
     };
     members.forEach((m) => {
       const dept = getDepartment(m.role);
@@ -209,7 +268,9 @@ export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: members.length };
-    DEPARTMENT_ORDER.forEach((dept) => { c[dept] = grouped[dept].length; });
+    DEPARTMENT_ORDER.forEach((dept) => {
+      c[dept] = grouped[dept].length;
+    });
     return c;
   }, [members, grouped]);
 
@@ -228,32 +289,40 @@ export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
   }, [activeFilter, members, grouped, search]);
 
   const handleDelete = async (member: Member) => {
-    const ok = await confirm({
-      title: "Remove team member",
-      description: `Remove ${member.name} from the production board? This action cannot be undone.`,
-      confirmLabel: "Remove",
+    if (
+      disabled ||
+      !(await confirm({
+        title: "Remove crew member?",
+        description: `Remove ${member.name} from the roster and clear their scheduled assignments? Their account access is unchanged. This cannot be undone.`,
+        confirmLabel: "Remove crew member",
+      }))
+    )
+      return;
+    change({
+      label: `Remove crew member ${member.name}`,
+      write: async (requestId, signal) =>
+        crewProfileResultSchema.parse(
+          await deleteCrewMember({
+            data: {
+              orgId,
+              id: member.id,
+              expectedRevision: member.profileRevision,
+              requestId,
+            },
+            signal,
+          }),
+        ),
     });
-    if (!ok) return;
-    setDeleting(member.id);
-    try {
-      await deleteCrewMember({ data: { orgId, id: member.id } });
-      router.invalidate();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete.");
-    } finally {
-      setDeleting(null);
-    }
   };
-
-  const handleEdit = (member: Member) => {
-    setEditingMember(member);
-    setShowForm(true);
+  const beginEditor = async (member: Member | null) => {
+    if (disabled) return;
+    if (editor && editor.member?.id !== member?.id && !(await discard()))
+      return;
+    if (!editor || editor.member?.id !== member?.id) setEditor({ member });
+    openForm();
   };
-
-  const handleAdd = () => {
-    setEditingMember(null);
-    setShowForm(true);
-  };
+  const handleEdit = (member: Member) => void beginEditor(member);
+  const handleAdd = () => void beginEditor(null);
 
   const filterTabs: {
     key: ViewFilter;
@@ -271,16 +340,40 @@ export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
   const onlineCount = members.filter((m) => m.isOnline).length;
 
   return (
-    <div>
+    <div ref={root} tabIndex={-1}>
+      {editor && !showForm && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-board-border p-3">
+          <p className="text-sm text-board-text">
+            Crew draft: {editor.member?.name || "New crew member"}
+          </p>
+          <button
+            type="button"
+            onClick={openForm}
+            className="min-h-11 min-w-11 rounded-lg border border-board-border px-3 text-sm text-board-text focus-visible:ring-2 focus-visible:ring-fire-500"
+          >
+            Resume draft
+          </button>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => void discard()}
+            className="min-h-11 min-w-11 rounded-lg border border-board-border px-3 text-sm text-board-text disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-fire-500"
+          >
+            Discard draft
+          </button>
+        </div>
+      )}
       {/* Header */}
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold font-[family-name:var(--font-display)] text-board-text">
-            Team
+            Crew roster
           </h1>
           {members.length > 0 && (
             <p className="text-board-muted text-sm mt-1 flex items-center gap-2">
-              <span>{members.length} member{members.length !== 1 ? "s" : ""}</span>
+              <span>
+                {members.length} member{members.length !== 1 ? "s" : ""}
+              </span>
               <span className="text-board-border">&middot;</span>
               <span className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
@@ -292,19 +385,20 @@ export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
         {canManage && members.length > 0 && (
           <button
             onClick={handleAdd}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-black transition-all duration-200 hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
+            disabled={disabled}
+            className="min-h-11 min-w-11 focus-visible:ring-2 focus-visible:ring-fire-500 flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-black transition-all duration-200 hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
             style={{
               background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
             }}
           >
             <UserPlus className="w-4 h-4" />
-            Add Member
+            Add crew member
           </button>
         )}
       </div>
 
       {members.length === 0 ? (
-        <EmptyState onAdd={handleAdd} canManage={canManage} />
+        <EmptyState onAdd={handleAdd} canManage={canManage && !disabled} />
       ) : (
         <>
           {/* Search + filters */}
@@ -313,6 +407,7 @@ export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-board-muted pointer-events-none" />
               <input
                 type="text"
+                aria-label="Search crew by name, role, or badge ID"
                 placeholder="Search by name, role, or ID..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -324,7 +419,7 @@ export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
                   onClick={() => setSearch("")}
                   aria-label="Clear crew search"
                   title="Clear crew search"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded-md hover:bg-board-border transition-colors text-board-muted"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 min-h-11 min-w-11 flex items-center justify-center rounded-md hover:bg-board-border transition-colors text-board-muted"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -336,7 +431,8 @@ export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
                 <button
                   key={tab.key}
                   onClick={() => setActiveFilter(tab.key)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all duration-150 ${
+                  aria-pressed={activeFilter === tab.key}
+                  className={`min-h-11 min-w-11 focus-visible:ring-2 focus-visible:ring-fire-500 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all duration-150 ${
                     activeFilter === tab.key
                       ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
                       : "text-board-muted hover:text-board-text hover:bg-board-border/50 border border-transparent"
@@ -344,7 +440,7 @@ export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
                 >
                   {tab.label}
                   <span
-                    className={`text-[10px] tabular-nums px-1.5 py-0.5 rounded-full ${
+                    className={`text-xs tabular-nums px-1.5 py-0.5 rounded-full ${
                       activeFilter === tab.key
                         ? "bg-fire-500/20 text-fire-400"
                         : "bg-board-border text-board-muted"
@@ -375,11 +471,11 @@ export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
                   <div key={dept}>
                     <div className="flex items-center gap-2 mb-2 pl-1">
                       <span
-                        className={`text-[10px] font-medium uppercase tracking-widest px-2 py-0.5 rounded-md border ${config.color}`}
+                        className={`text-xs font-medium uppercase tracking-widest px-2 py-0.5 rounded-md border ${config.color}`}
                       >
                         {config.label}
                       </span>
-                      <span className="text-[10px] text-board-muted tabular-nums">
+                      <span className="text-xs text-board-muted tabular-nums">
                         {deptMembers.length}
                       </span>
                     </div>
@@ -390,7 +486,7 @@ export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
                           member={member}
                           onEdit={handleEdit}
                           onDelete={handleDelete}
-                          deleting={deleting === member.id}
+                          deleting={disabled}
                           canManage={canManage}
                         />
                       ))}
@@ -407,7 +503,7 @@ export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
                   member={member}
                   onEdit={handleEdit}
                   onDelete={handleDelete}
-                  deleting={deleting === member.id}
+                  deleting={disabled}
                   canManage={canManage}
                 />
               ))}
@@ -416,12 +512,21 @@ export function MemberTable({ members, orgId, canManage }: MemberTableProps) {
         </>
       )}
 
-      {canManage && showForm && (
+      {canManage && editor && (
         <MemberForm
+          key={editor.member?.id ?? "new-crew"}
           orgId={orgId}
-          member={editingMember}
+          member={editor.member}
+          open={showForm}
+          restoreFocus={restoreFocus}
+          disabled={disabled}
+          change={change}
+          onDirtyChange={(value) => {
+            setDirty(value);
+            onDirtyChange(value);
+          }}
           onClose={() => setShowForm(false)}
-          onSaved={() => router.invalidate()}
+          onSaved={saved}
         />
       )}
       {ConfirmDialogEl}

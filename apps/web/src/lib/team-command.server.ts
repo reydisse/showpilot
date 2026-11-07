@@ -4,6 +4,9 @@ import { hasPermission } from "./app-permissions";
 import { markDatabaseWrite } from "./request-database.server";
 
 type Database = Pick<D1Database, "prepare" | "batch">;
+export interface TeamAuthorityDatabase {
+  prepare(sql: string): { bind(...params: unknown[]): { first<T>(): Promise<T | null> } };
+}
 type Actor = { userId: string; sessionId: string };
 type Options = { orgId: string; requestId?: string };
 type Command = Options &
@@ -66,7 +69,7 @@ const roles = (role: string) =>
 const permissionsSchema = z.record(z.string(), z.array(z.string()));
 // This stable SQL expression is also the commit guard for dynamic-role edits.
 const policySql = `(SELECT COALESCE(json_group_array(json_object('id',id,'role',role,'permission',permission)),'[]') FROM (SELECT id,role,permission FROM organizationRole WHERE organizationId=? ORDER BY id))`;
-export async function readTeamAuthority(db: Database, actor: Actor, command: { orgId: string; kind: Command["kind"] | "invite" }) {
+export async function readTeamAuthority(db: TeamAuthorityDatabase, actor: Actor, command: { orgId: string; kind: Command["kind"] | "invite" | "crew" }) {
   const member = await db
     .prepare(
       `SELECT m.* FROM member m JOIN session s ON s.userId=m.userId
@@ -80,10 +83,11 @@ export async function readTeamAuthority(db: Database, actor: Actor, command: { o
       403,
       "You no longer have access to manage this team.",
     );
-  const policy = await db
+  const policyRow = await db
     .prepare(`SELECT ${policySql} AS policy`)
     .bind(command.orgId)
-    .first<string>("policy");
+    .first<{ policy: string }>();
+  const policy = policyRow?.policy ?? null;
   if (policy === null)
     throw new TeamCommandError(
       500,
@@ -110,7 +114,7 @@ export async function readTeamAuthority(db: Database, actor: Actor, command: { o
   // Match Better Auth: one role must grant the action; dynamic permissions add
   // to that role's static statements. App moderation keeps its app permission.
   const allowed =
-    command.kind === "report"
+    (command.kind === "report" || command.kind === "crew")
       ? hasPermission(member.role, "settings:members")
       : (command.kind === "role" && owner) ||
         actorRoles.some((role) => {

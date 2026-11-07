@@ -1,3 +1,4 @@
+import { crewReceiptSchema, type CrewCommand } from "./crew-recovery";
 import { invitationDeliverySchema } from "./invitation-recovery";
 import { workspaceSchema, type MobileWorkspace } from "./workspace-schema";
 export { workspaceSchema, type MobileWorkspace } from "./workspace-schema";
@@ -450,7 +451,7 @@ const showWorkspaceSchema = z.object({
 
 const checkInStatusSchema = z.object({ member: checkInMemberSchema });
 
-const teamCrewMemberSchema = checkInMemberSchema.extend({ email: z.string() });
+const teamCrewMemberSchema = checkInMemberSchema.extend({ email: z.string(), profileRevision: z.number().int().nonnegative() });
 const teamCrewSchema = z.object({ members: z.array(teamCrewMemberSchema) });
 
 const teamAccessMemberSchema = z.object({
@@ -1988,53 +1989,19 @@ export async function removeMobileTeamMember(input: {
 }
 
 export async function getMobileTeamCrew(orgId: string) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/team/crew?orgId=${encodeURIComponent(orgId)}`,
-  );
-  return teamCrewSchema.parse(await response.json());
+  return withTeamRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/team/crew?orgId=${encodeURIComponent(orgId)}`, { signal });
+    return teamCrewSchema.parse(await response.json());
+  });
 }
-
-export interface MobileTeamCrewWrite {
-  orgId: string;
-  memberId: string;
-  name: string;
-  role: string;
-  email: string;
-  photoUrl: string;
-}
-
-export async function createMobileTeamCrewMember(input: MobileTeamCrewWrite) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/team/crew?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
-  );
-  return z
-    .object({ ok: z.literal(true), id: z.string() })
-    .parse(await response.json());
-}
-
-export async function updateMobileTeamCrewMember(
-  input: MobileTeamCrewWrite & { id: string },
-) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/team/crew/${encodeURIComponent(input.id)}/update?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify(input) },
-  );
-  return okSchema.parse(await response.json());
-}
-
-export async function removeMobileTeamCrewMember(input: {
-  orgId: string;
-  id: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/team/crew/${encodeURIComponent(input.id)}/remove?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify({}) },
-  );
-  return okSchema.parse(await response.json());
+export async function executeMobileCrewCommand(input: CrewCommand) {
+  return withTeamRequestDeadline(async signal => {
+    const suffix = input.kind === "create" ? "" : `/${encodeURIComponent(input.id)}/${input.kind === "update" ? "update" : "remove"}`;
+    const response = await authenticatedFetch(`/api/mobile/v1/team/crew${suffix}?orgId=${encodeURIComponent(input.orgId)}`, {
+      method: "POST", signal, body: JSON.stringify(input),
+    });
+    return crewReceiptSchema.parse(await response.json());
+  });
 }
 
 export async function getMobileChecklist(

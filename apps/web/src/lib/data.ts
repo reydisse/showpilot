@@ -1,3 +1,5 @@
+import { createCrewProfileSchema, updateCrewProfileSchema, deleteCrewProfileSchema } from "./crew-roster-contract";
+import { crewActor, readCrewRoster, writeCrewProfile } from "./crew-roster.server";
 import { env } from "cloudflare:workers";
 import { runAudioWrite } from "./audio-write.server";
 import { runDeviceWrite } from "./device-write.server";
@@ -29,12 +31,6 @@ import { enforcePublicCheckInRateLimit } from "@/lib/public-checkin-rate-limit.s
 
 const nameSchema = z.string().min(1).max(200);
 const longTextSchema = z.string().max(10_000);
-// Photos arrive as data URLs; the public flow re-checks decoded byte size.
-const photoUrlSchema = z.string().max(2_100_000);
-const optionalCrewEmailSchema = z.union([
-  z.literal(""),
-  z.email("Enter a valid email address").max(254),
-]);
 
 async function assertOrgPermission(
   orgId: string,
@@ -46,96 +42,23 @@ async function assertOrgPermission(
 // ─── Crew Members ───────────────────────────────────────────
 
 export const getCrewMembers = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgId: string }) => data)
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "show:view");
-    const prisma = getPrisma();
-    return await prisma.crewMember.findMany({
-      where: { orgId: data.orgId },
-      orderBy: { name: "asc" },
-    });
+    return readCrewRoster(getD1(), data.orgId);
   });
 
 export const addCrewMember = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        memberId: idSchema,
-        name: nameSchema,
-        role: z.string().max(100),
-        email: optionalCrewEmailSchema.optional(),
-        photoUrl: photoUrlSchema.optional(),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "settings:members");
-    const prisma = getPrisma();
-    return await prisma.crewMember.create({
-      data: {
-        orgId: data.orgId,
-        memberId: data.memberId,
-        name: data.name,
-        role: data.role,
-        email: data.email?.trim().toLowerCase() ?? "",
-        photoUrl: data.photoUrl ?? "",
-      },
-    });
-  });
+  .inputValidator((data: unknown) => parseOrThrow(createCrewProfileSchema, data))
+  .handler(async ({ data }) => writeCrewProfile(getD1(), await crewActor(getRequestHeaders()), { ...data, kind: "create" }));
 
 export const updateCrewMember = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        id: idSchema,
-        updates: z
-          .object({
-            memberId: idSchema,
-            name: nameSchema,
-            role: z.string().max(100),
-            email: optionalCrewEmailSchema,
-            photoUrl: photoUrlSchema,
-            isOnline: z.boolean(),
-          })
-          .partial(),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "settings:members");
-    const prisma = getPrisma();
-    const existing = await prisma.crewMember.findFirst({
-      where: { id: data.id, orgId: data.orgId },
-      select: { id: true },
-    });
-    if (!existing) throw new Error("Crew member not found");
-    return await prisma.crewMember.update({
-      where: { id: data.id },
-      data: {
-        ...data.updates,
-        ...(data.updates.email !== undefined
-          ? { email: data.updates.email.trim().toLowerCase() }
-          : {}),
-      },
-    });
-  });
+  .inputValidator((data: unknown) => parseOrThrow(updateCrewProfileSchema, data))
+  .handler(async ({ data }) => writeCrewProfile(getD1(), await crewActor(getRequestHeaders()), { ...data, kind: "update" }));
 
 export const deleteCrewMember = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "settings:members");
-    const prisma = getPrisma();
-    const result = await prisma.crewMember.deleteMany({
-      where: { id: data.id, orgId: data.orgId },
-    });
-    if (result.count === 0) throw new Error("Crew member not found");
-  });
+  .inputValidator((data: unknown) => parseOrThrow(deleteCrewProfileSchema, data))
+  .handler(async ({ data }) => writeCrewProfile(getD1(), await crewActor(getRequestHeaders()), { ...data, kind: "delete" }));
 
 export const getPublicCheckInOrg = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(publicCheckInOrgSchema, data))

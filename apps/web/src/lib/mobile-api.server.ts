@@ -1,3 +1,5 @@
+import { crewActor, writeCrewProfile } from "./crew-roster.server";
+import { crewProfileCommandSchema } from "./crew-roster-contract";
 import { teamInvitationSchema, retryInvitationDeliverySchema } from "./team-invitation-contract";
 import { listTeamInvitations } from "./team-invitation.server";
 import { assertTeamCommandSuccess, TeamCommandError } from "./team-command.server";
@@ -4833,129 +4835,44 @@ async function teamCrew(
   if (access instanceof Response) return access;
   const result = await db
     .prepare(
-      `SELECT id, memberId, name, role, email, photoUrl, isOnline, lastCheckIn, lastCheckOut
+      `SELECT id, memberId, name, role, email, photoUrl, isOnline, lastCheckIn, lastCheckOut, profileRevision
      FROM crew_member WHERE orgId = ? ORDER BY name ASC, id ASC`,
     )
     .bind(access.orgId)
-    .all<MobileCheckInMemberRow & { email: string }>();
-  return json({ members: (result.results ?? []).map(serializeCheckInMember) });
+    .all<MobileCheckInMemberRow & { email: string; profileRevision: number }>();
+  return json({ members: (result.results ?? []).map(row => ({ ...serializeCheckInMember(row), profileRevision: row.profileRevision })) });
 }
 
-function crewMutationStatus(error: unknown): number {
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
-  return message.includes("unique") || message.includes("constraint")
-    ? 409
-    : 400;
-}
-
-async function createTeamCrewMember(
-  request: Request,
-  url: URL,
-  db: MobileApiDatabase,
+async function changeTeamCrewMember(
+  request: Request, url: URL, db: MobileApiDatabase,
+  target: { kind: "create" } | { kind: "update" | "delete"; id: string },
 ): Promise<Response> {
   const access = await authorize(request, url, db, ["settings:members"]);
   if (access instanceof Response) return access;
-  const input = parseCrewMemberWrite(await readJson(request));
-  if (!input)
-    return json(
-      { error: "Enter a valid member ID, name, role, email, and photo." },
-      400,
-    );
-  const id = crypto.randomUUID();
+  const body = await readJson(request);
+  const input = target.kind === "delete" ? null : parseCrewMemberWrite(body);
+  if (target.kind !== "delete" && !input)
+    return json({ error: "Enter a valid member ID, name, role, email, and photo." }, 400);
+  const common = { orgId: access.orgId, requestId: body?.requestId, expectedRevision: body?.expectedRevision };
+  const parsed = crewProfileCommandSchema.safeParse(target.kind === "create"
+    ? { ...common, ...input, kind: "create" }
+    : target.kind === "update" ? { ...common, ...target, updates: input } : { ...common, ...target });
+  if (!parsed.success) return json({ error: "The crew request or profile revision is invalid. Refresh the roster and try again." }, 400);
   try {
-    const result = await db
-      .prepare(
-        `INSERT INTO crew_member (id, orgId, memberId, name, role, email, photoUrl, isOnline, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP)`,
-      )
-      .bind(
-        id,
-        access.orgId,
-        input.memberId,
-        input.name,
-        input.role,
-        input.email,
-        input.photoUrl,
-      )
-      .run();
-    if (!changedExactlyOneRow(result))
-      return json({ error: "Crew member was not created." }, 409);
-    return json({ ok: true, id }, 201);
+    const result = await writeCrewProfile(db, await crewActor(request.headers), parsed.data);
+    return json({ ok: true, ...result }, target.kind === "create" ? 201 : 200);
   } catch (error) {
-    return json(
-      {
-        error:
-          crewMutationStatus(error) === 409
-            ? "That member ID is already in use."
-            : "Unable to create this crew member.",
-      },
-      crewMutationStatus(error),
-    );
+    return json({ error: error instanceof Error ? error.message : "The crew change could not be confirmed. Retry the same request." }, membershipMutationStatus(error));
   }
 }
-
-async function updateTeamCrewMember(
-  request: Request,
-  url: URL,
-  memberId: string,
-  db: MobileApiDatabase,
-): Promise<Response> {
-  const access = await authorize(request, url, db, ["settings:members"]);
-  if (access instanceof Response) return access;
-  const input = parseCrewMemberWrite(await readJson(request));
-  if (!input)
-    return json(
-      { error: "Enter a valid member ID, name, role, email, and photo." },
-      400,
-    );
-  try {
-    const result = await db
-      .prepare(
-        `UPDATE crew_member
-       SET memberId = ?, name = ?, role = ?, email = ?, photoUrl = ?
-       WHERE id = ? AND orgId = ?`,
-      )
-      .bind(
-        input.memberId,
-        input.name,
-        input.role,
-        input.email,
-        input.photoUrl,
-        memberId,
-        access.orgId,
-      )
-      .run();
-    if (!changedExactlyOneRow(result))
-      return json({ error: "Crew member not found." }, 404);
-    return json({ ok: true });
-  } catch (error) {
-    return json(
-      {
-        error:
-          crewMutationStatus(error) === 409
-            ? "That member ID is already in use."
-            : "Unable to update this crew member.",
-      },
-      crewMutationStatus(error),
-    );
-  }
+function createTeamCrewMember(request: Request, url: URL, db: MobileApiDatabase) {
+  return changeTeamCrewMember(request, url, db, { kind: "create" });
 }
-
-async function removeTeamCrewMember(
-  request: Request,
-  url: URL,
-  memberId: string,
-  db: MobileApiDatabase,
-): Promise<Response> {
-  const access = await authorize(request, url, db, ["settings:members"]);
-  if (access instanceof Response) return access;
-  const result = await db
-    .prepare("DELETE FROM crew_member WHERE id = ? AND orgId = ?")
-    .bind(memberId, access.orgId)
-    .run();
-  return changedExactlyOneRow(result)
-    ? json({ ok: true })
-    : json({ error: "Crew member not found." }, 404);
+function updateTeamCrewMember(request: Request, url: URL, id: string, db: MobileApiDatabase) {
+  return changeTeamCrewMember(request, url, db, { kind: "update", id });
+}
+function removeTeamCrewMember(request: Request, url: URL, id: string, db: MobileApiDatabase) {
+  return changeTeamCrewMember(request, url, db, { kind: "delete", id });
 }
 
 async function setCheckInStatus(
