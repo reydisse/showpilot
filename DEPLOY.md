@@ -3136,3 +3136,32 @@ recovery, clipboard denial and notification retry at all three widths, with
 three durable creation receipts and no external email.
 
 Landing PR #185 CI run 42363813340 passed both main CI and Native Rust tests.
+
+
+## Song Studio UI and narrow layout (2026-11-07)
+
+Song Studio shows Save all changes only for a dirty draft, explains the empty
+lyric preview, provides 44px section arrows and ordering instructions, and shows
+a no-match search state with Clear search. The library has one set of empty-state
+actions and spells out ProPresenter instead of PP. No schema change is involved.
+
+Run `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-song-studio.mjs`
+after the web build. It uses actual keyboard Enter, creates a two-section song,
+opens the Studio, moves a section, adds and removes a cue, checks every visible
+form control's horizontal bounds at 320/768/1440px, and tests empty preview and
+search recovery. Final D1 inspection confirms exact multiline lyrics and section
+order. `--audit` reports boolean findings for comparison instead of failing on
+those findings. The baseline exposed duplicate actions, conflicting save state,
+small ordering targets and missing preview/search messages; entry line breaks
+and create-dialog navigation already worked in that build.
+
+An initial screenshot also revealed nested horizontal scrolling despite a
+passing document-width check. Grid tracks/children now shrink and cue controls
+stack on phones. The stronger per-control check and inspected final phone image
+pass. The complete suite passed 2,168 unit tests, 829 Worker tests and four
+coverage-gate tests; web typecheck/build passed. No browser errors, production
+writes, deployment or release.
+
+Remaining persistence work: the rehearsal emitted Prisma's D1 non-transactional
+warning during song creation/reordering. Song mutation rollback, deadlines and
+retry recovery are still open; this UI result does not prove atomic writes.

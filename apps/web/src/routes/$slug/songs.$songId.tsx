@@ -478,7 +478,7 @@ function SongStudioPage() {
   };
 
   return (
-    <div className="min-h-full bg-board-bg p-4 sm:p-6">
+    <div className="min-h-full min-w-0 bg-board-bg p-4 sm:p-6">
       <div className="mx-auto max-w-7xl space-y-5">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
@@ -507,15 +507,15 @@ function SongStudioPage() {
                 >
                   {dirty ? "Unsaved changes" : "All changes saved"}
                 </span>
-                <button
+                {dirty && <button
                   type="button"
-                  disabled={busy || !dirty}
+                  disabled={busy}
                   onClick={() => void saveAll()}
-                  className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-fire-500 px-3 text-xs font-bold text-black disabled:opacity-40"
+                  className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-fire-500 px-3 text-xs font-bold text-black disabled:opacity-40"
                 >
                   <Save className="h-3.5 w-3.5" />
                   {busy ? "Saving…" : "Save all changes"}
-                </button>
+                </button>}
               </>
             ) : null}
             {song.ppPresentationUuid && canManage ? (
@@ -563,8 +563,8 @@ function SongStudioPage() {
             {notice}
           </p>
         ) : null}
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(22rem,.8fr)]">
-          <main className="space-y-5">
+        <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(22rem,.8fr)]">
+          <div className="min-w-0 space-y-5">
             <section className="rounded-2xl border border-board-border bg-board-card p-5">
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field
@@ -648,11 +648,11 @@ function SongStudioPage() {
               ) : null}
             </section>
             <section className="flex min-h-80 flex-col rounded-2xl border border-board-border bg-board-card p-5 xl:max-h-[calc(100dvh-22rem)]">
-              <div className="flex shrink-0 items-center justify-between gap-3">
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="font-semibold text-board-text">Arrangement</h2>
                   <p className="mt-1 text-xs text-board-muted">
-                    Drag sections into show order.
+                    Use the up/down arrows or drag to change the section order.
                   </p>
                 </div>
                 {canManage ? (
@@ -735,7 +735,7 @@ function SongStudioPage() {
                             aria-label="Move section up"
                             disabled={index === 0}
                             onClick={() => void moveSection(index, index - 1)}
-                            className="p-2 text-board-muted disabled:opacity-20"
+                            className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-fire-400 disabled:opacity-20"
                           >
                             <ChevronUp className="h-4 w-4" />
                           </button>
@@ -743,7 +743,7 @@ function SongStudioPage() {
                             aria-label="Move section down"
                             disabled={index === sections.length - 1}
                             onClick={() => void moveSection(index, index + 1)}
-                            className="p-2 text-board-muted disabled:opacity-20"
+                            className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-fire-400 disabled:opacity-20"
                           >
                             <ChevronDown className="h-4 w-4" />
                           </button>
@@ -912,8 +912,8 @@ function SongStudioPage() {
                 ))}
               </div>
             </section>
-          </main>
-          <aside className="space-y-5 xl:sticky xl:top-6 xl:self-start">
+          </div>
+          <aside className="min-w-0 space-y-5 xl:sticky xl:top-6 xl:self-start">
             <TimecodeShowPicker />
             <TimecodeControlNotice />
             <LyricsPreview
@@ -932,8 +932,8 @@ function SongStudioPage() {
             />
             {canManage ? (
               <section className="rounded-2xl border border-board-border bg-board-card p-5">
-                <div className="flex flex-wrap items-end gap-3">
-                  <label className="min-w-40 flex-1 text-xs text-board-muted">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="min-w-0 text-xs text-board-muted">
                     Cue map
                     <select
                       value={mapId}
@@ -956,7 +956,7 @@ function SongStudioPage() {
                     onChange={setMapName}
                   />
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2">
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
                   <label className="text-xs text-board-muted">
                     FPS
                     <select
@@ -1024,7 +1024,7 @@ function SongStudioPage() {
                   {cues.map((cue, index) => (
                     <div
                       key={`${index}-${cue.sectionId}`}
-                      className="grid grid-cols-[1fr_8rem_auto] gap-2"
+                      className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_auto]"
                     >
                       <select
                         aria-label={`Cue ${index + 1} section`}
@@ -1038,7 +1038,7 @@ function SongStudioPage() {
                             ),
                           )
                         }
-                        className="min-w-0 rounded-lg border border-board-border bg-board-bg p-2 text-xs text-board-text"
+                        className="col-span-2 min-w-0 sm:col-span-1 min-w-0 rounded-lg border border-board-border bg-board-bg p-2 text-xs text-board-text"
                       >
                         {sections.map((section) => (
                           <option key={section.id} value={section.id}>
@@ -1127,7 +1127,7 @@ function SongStudioPage() {
                     </button>
                   ) : null}
                 </div>
-                <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
+                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                   <select
                     value={target}
                     onChange={(event) =>
@@ -1311,7 +1311,7 @@ function LyricsPreview({
       </div>
       <div className="flex min-h-64 items-center justify-center p-7 text-center">
         <p className="whitespace-pre-line text-balance text-2xl font-semibold leading-tight text-white">
-          {lyrics}
+          {lyrics.trim() ? lyrics : "Add lyrics to a section to preview them here."}
         </p>
       </div>
       <div className="flex items-center justify-between border-t border-white/10 px-4 py-3 text-[10px] text-white/40">
