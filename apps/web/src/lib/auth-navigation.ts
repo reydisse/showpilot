@@ -1,6 +1,9 @@
 // Auth redirects may carry app paths, never an external origin or an API action.
 export function safeAuthReturnTo(value: unknown): string | undefined {
-  if (typeof value !== "string" || value.length > 2048 || !value.startsWith("/") || value.startsWith("//") || /[\\\u0000-\u0020\u007f]/.test(value)) return;
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//") || /[\\\u0000-\u0020\u007f]/.test(value)) return;
+  // Fifty-recipient Planning passes can exceed a normal app path. Allow only
+  // that bounded, query-free signed-link shape through the longer return path.
+  if (value.length > 2048 && (value.length > 8192 || !/^\/join\/chat\/planning\/planning_chat_[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value))) return;
   try {
     const url = new URL(value, "https://auth-return.invalid");
     const path = decodeURIComponent(url.pathname);

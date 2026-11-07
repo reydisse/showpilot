@@ -3,21 +3,19 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getAuth } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
 import { getKioskSecret } from "@/lib/kiosk";
-import { signToken, verifyToken } from "@/lib/kiosk-token";
+import { signToken } from "@/lib/kiosk-token";
 import { normalizeRole } from "@/lib/app-permissions";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 import { z } from "zod";
 
-const PASS_PREFIX = "chat_";
-const PLANNING_PASS_PREFIX = "planning_chat_";
+import { getD1 } from "./d1";
+import { resolveEffectiveAccess } from "./effective-access";
+import { CREW_CHAT_PREFIX as PASS_PREFIX, PLANNING_CHAT_PREFIX as PLANNING_PASS_PREFIX, inspectCrewChatPass, inspectPlanningChatPass, type CrewChatJoinState, type PlanningChatJoinState } from "./chat-pass-token";
 const PASS_CREATORS = new Set(["owner", "admin", "td", "pd", "pm", "sm", "tm"]);
 
 export async function verifyCrewChatPass(token: string, secret: string) {
-  if (!token.startsWith(PASS_PREFIX)) return null;
-  const payload = await verifyToken(token.slice(PASS_PREFIX.length), secret);
-  if (!payload || payload.scope !== "crew-chat" || typeof payload.orgId !== "string" || typeof payload.orgSlug !== "string"
-    || typeof payload.exp !== "number" || !Number.isFinite(payload.exp) || payload.exp * 1000 <= Date.now()) return null;
-  return { orgId: payload.orgId, orgSlug: payload.orgSlug, exp: payload.exp };
+  const result = await inspectCrewChatPass(token, secret);
+  return result.status === "valid" ? result.pass : null;
 }
 
 export const createCrewChatPass = createServerFn({ method: "POST" })
@@ -39,28 +37,14 @@ export const createCrewChatPass = createServerFn({ method: "POST" })
   });
 
 export const validateCrewChatPass = createServerFn({ method: "GET" })
-  .inputValidator((data: unknown) => parseOrThrow(z.string().min(20).max(4096), data))
-  .handler(async ({ data }) => verifyCrewChatPass(data, getKioskSecret()));
-
-export async function verifyPlanningChatPass(token: string, secret: string) {
-  if (!token.startsWith(PLANNING_PASS_PREFIX)) return null;
-  const payload = await verifyToken(token.slice(PLANNING_PASS_PREFIX.length), secret);
-  if (
-    !payload ||
-    payload.scope !== "planning-chat" ||
-    payload.roomId !== "planning" ||
-    typeof payload.orgId !== "string" ||
-    typeof payload.orgSlug !== "string" ||
-    !Array.isArray(payload.targetUserIds) ||
-    payload.targetUserIds.some((userId) => typeof userId !== "string")
-  ) return null;
-  return {
-    orgId: payload.orgId,
-    orgSlug: payload.orgSlug,
-    targetUserIds: payload.targetUserIds as string[],
-    exp: typeof payload.exp === "number" ? payload.exp : null,
-  };
-}
+  .inputValidator((data: unknown) => parseOrThrow(z.string().max(4096), data))
+  .handler(async ({ data }): Promise<CrewChatJoinState> => {
+    const result = await inspectCrewChatPass(data, getKioskSecret());
+    if (result.status !== "valid") return result;
+    const org = await getPrisma().organization.findUnique({ where: { id: result.pass.orgId }, select: { slug: true } });
+    if (!org) return { status: "unavailable" };
+    return { status: "valid", pass: { ...result.pass, orgSlug: org.slug } };
+  });
 
 export const createPlanningChatPass = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({
@@ -112,15 +96,17 @@ export const createPlanningChatPass = createServerFn({ method: "POST" })
   });
 
 export const validatePlanningChatPass = createServerFn({ method: "GET" })
-  .inputValidator((data: unknown) => parseOrThrow(z.string().min(20).max(8192), data))
-  .handler(async ({ data }) => {
-    const pass = await verifyPlanningChatPass(data, getKioskSecret());
-    if (!pass) return null;
-    const session = await getAuth().api.getSession({ headers: getRequestHeaders() }).catch(() => null);
-    return {
-      orgSlug: pass.orgSlug,
-      exp: pass.exp,
-      signedIn: Boolean(session),
-      authorized: Boolean(session && pass.targetUserIds.includes(session.user.id)),
-    };
+  .inputValidator((data: unknown) => parseOrThrow(z.string().max(8192), data))
+  .handler(async ({ data }): Promise<PlanningChatJoinState> => {
+    const result = await inspectPlanningChatPass(data, getKioskSecret());
+    if (result.status !== "valid") return result;
+    const { pass } = result;
+    const org = await getPrisma().organization.findUnique({ where: { id: pass.orgId }, select: { slug: true } });
+    if (!org) return { status: "unavailable" };
+    const session = await getAuth().api.getSession({ headers: getRequestHeaders(), query: { disableCookieCache: true } });
+    if (!session) return { status: "signed-out" };
+    if (!pass.targetUserIds.includes(session.user.id)) return { status: "wrong-account" };
+    const access = await resolveEffectiveAccess(getD1(), session.user.id, pass.orgId);
+    if (!access?.permissions.includes("chat:access")) return { status: "access-removed" };
+    return { status: "authorized", orgSlug: org.slug };
   });

@@ -1045,6 +1045,42 @@ tests, typecheck and the production build. All four browser scripts above passed
 against that build; final phone error screenshots were inspected. The focused
 suites cover 28 real HTTP/D1 creation cases and 18 setup component cases.
 
+### Chat invite outcomes and sign-in return
+
+Planning invites redirect from the route loader after checking the current
+session, intended recipient and current chat permission. They use the workspace's
+current address resolved from its signed ID. Authorized users no longer receive
+the wrong-member card in server-rendered HTML. Invalid signatures, authenticated
+expiry, unavailable workspaces, signed-out users, wrong accounts and removed
+access have distinct outcomes. Read failures use the existing bounded route
+error and Retry path; they are not presented as expired links.
+
+Chat tokens require validated scope and finite integer expiry. Existing kiosk
+callers retain their separate expiry policy. A narrowly bounded Planning-token
+path exception preserves links for up to fifty recipients through sign-in;
+ordinary return destinations retain the existing length and safety limits.
+Guests connect only after entering a name and joining. Token changes clear that
+identity, and expiry removes the guest chat and closes its connection.
+
+After building, run:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-chat-invites.mjs
+```
+
+The compiled Worker/Chrome rehearsal passed the authorized HTTP redirect without
+a wrong-member flash, actual long-link sign-in return, a held read followed by
+Retry, guest connection and expiry, and membership removal. Notice and recovery
+controls passed 320/768/1440px bounds and hit tests with 44px targets; phone
+screenshots were inspected. No browser errors or external email. Full validation
+passed 2,122 unit tests, 800 Worker tests, four coverage-gate tests, typecheck and
+the production build.
+
+Individual link revocation is not implemented by this change. Workspace removal
+is reported as unavailable, not revoked. The compound auth requirement remains
+open for revocation, organization invitation recovery and remaining landing work.
+This change requires no new migration or native release and is not deployed.
+
 ### Timecode label validation
 
 `parseTimecodeString` now requires the selected format. It rejects frame numbers
