@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { runAudioWrite } from "./audio-write.server";
+import { runDeviceWrite } from "./device-write.server";
 import { maskDeviceSettings, writeDeviceSettings } from "./device-settings.server";
 import { MAX_DEVICE_LATENCY_MS } from "./automation-timing";
 import { createServerFn } from "@tanstack/react-start";
@@ -290,7 +291,7 @@ export const getMicAssignments = createServerFn({ method: "GET" })
     });
   });
 
-const audioRequestIdSchema = z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/).optional();
+const writeRequestIdSchema = z.string().min(16).max(128).regex(/^[A-Za-z0-9_-]+$/).optional();
 
 const micAssignmentFieldsSchema = z.object({
   channel: z.number().int().min(0).max(10_000),
@@ -310,7 +311,7 @@ const micAssignmentFieldsSchema = z.object({
 export const addMicAssignment = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(
     micAssignmentFieldsSchema.partial().extend({
-      orgId: idSchema, requestId: audioRequestIdSchema,
+      orgId: idSchema, requestId: writeRequestIdSchema,
       channel: z.number().int().min(0).max(10_000), label: z.string().max(200),
       micType: z.string().max(100), serviceDate: serviceDateSchema, showId: idSchema,
     }), data,
@@ -334,7 +335,7 @@ export const addMicAssignment = createServerFn({ method: "POST" })
 
 export const updateMicAssignment = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({
-    orgId: idSchema, id: idSchema, requestId: audioRequestIdSchema, updates: micAssignmentFieldsSchema.partial(),
+    orgId: idSchema, id: idSchema, requestId: writeRequestIdSchema, updates: micAssignmentFieldsSchema.partial(),
   }), data))
   .handler(async ({ data }) => {
     const { user } = await assertEffectiveOrgPermission(data.orgId, "dashboard:tm");
@@ -352,7 +353,7 @@ export const updateMicAssignment = createServerFn({ method: "POST" })
   });
 
 export const deleteMicAssignment = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, id: idSchema, requestId: audioRequestIdSchema }), data))
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, id: idSchema, requestId: writeRequestIdSchema }), data))
   .handler(async ({ data }) => {
     const { user } = await assertEffectiveOrgPermission(data.orgId, "dashboard:tm");
     const { requestId, ...payload } = data;
@@ -522,6 +523,7 @@ export const addDevice = createServerFn({ method: "POST" })
     parseOrThrow(
       z.object({
         orgId: idSchema,
+        requestId: writeRequestIdSchema,
         name: nameSchema,
         category: z.string().max(100),
         adapterType: z.string().max(100).optional(),
@@ -533,29 +535,23 @@ export const addDevice = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "devices:access");
+    const { user } = await assertEffectiveOrgPermission(data.orgId, "devices:access");
+    const { requestId, ...payload } = data;
     const prisma = getPrisma();
-
-    const { checkPlanLimit } = await import("@/lib/plan-limits");
-    const deviceCount = await prisma.device.count({
-      where: { orgId: data.orgId },
+    const id = await runDeviceWrite({ orgId: data.orgId, actorId: user.id, requestId, kind: "create", payload }, async () => {
+      const { checkPlanLimit } = await import("@/lib/plan-limits");
+      const count = await prisma.device.count({ where: { orgId: data.orgId } });
+      await checkPlanLimit(data.orgId, "devices", count);
+      const identity = { id: crypto.randomUUID(), orgId: data.orgId, adapterType: data.adapterType ?? "" };
+      const settings = await writeDeviceSettings(env.CREDENTIAL_ENCRYPTION_KEYS, identity, data.settings ?? "{}");
+      return { deviceId: identity.id,
+        guard: "(SELECT COUNT(*) FROM device WHERE orgId=?)=?", guardValues: [data.orgId, count],
+        statement: getD1().prepare(`INSERT INTO device(id,orgId,name,category,adapterType,settings,enabled,latencyMs,updatedAt)
+          VALUES(?,?,?,?,?,?,?,?,?)`).bind(identity.id,data.orgId,data.name,data.category,identity.adapterType,settings,data.enabled === false ? 0 : 1,data.latencyMs ?? 0,new Date().toISOString()),
+      };
     });
-    await checkPlanLimit(data.orgId, "devices", deviceCount);
-
-    const identity = { id: crypto.randomUUID(), orgId: data.orgId, adapterType: data.adapterType ?? "" };
-    const settings = await writeDeviceSettings(env.CREDENTIAL_ENCRYPTION_KEYS, identity, data.settings ?? "{}");
-    const device = await prisma.device.create({
-      data: {
-        id: identity.id,
-        orgId: data.orgId,
-        name: data.name,
-        category: data.category,
-        adapterType: data.adapterType ?? "",
-        settings,
-        enabled: data.enabled ?? true,
-        latencyMs: data.latencyMs ?? 0,
-      },
-    });
+    const device = await prisma.device.findFirst({ where: { id, orgId: data.orgId } });
+    if (!device) throw new Error("The saved device was removed. Retrying will not recreate it.");
     return { ...device, settings: maskDeviceSettings(device) };
   });
 
@@ -564,6 +560,7 @@ export const updateDevice = createServerFn({ method: "POST" })
     parseOrThrow(
       z.object({
         orgId: idSchema,
+        requestId: writeRequestIdSchema,
         id: idSchema,
         clearCredentials: z.array(z.array(z.string().min(1).max(200)).min(1).max(16)).max(100).optional(),
         updates: z
@@ -581,30 +578,39 @@ export const updateDevice = createServerFn({ method: "POST" })
     ),
   )
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "devices:access");
-    const prisma = getPrisma();
-    const existing = await prisma.device.findFirst({ where: { id: data.id, orgId: data.orgId } });
-    if (!existing) throw new Error("Device not found.");
-    const adapterType = data.updates.adapterType ?? existing.adapterType;
-    const settings = await writeDeviceSettings(env.CREDENTIAL_ENCRYPTION_KEYS,
-      { ...existing, adapterType }, data.updates.settings ?? "{}",
-      adapterType === existing.adapterType ? existing.settings : "{}", data.clearCredentials);
-    const result = await prisma.device.updateMany({
-      where: { id: data.id, orgId: data.orgId, settings: existing.settings, adapterType: existing.adapterType, updatedAt: existing.updatedAt },
-      data: { ...data.updates, settings },
+    const { user } = await assertEffectiveOrgPermission(data.orgId, "devices:access");
+    const { requestId, ...payload } = data;
+    await runDeviceWrite({ orgId: data.orgId, actorId: user.id, requestId, kind: "update", payload }, async () => {
+      // Keep the exact stored timestamp representation for legacy D1 rows too.
+      const existing = await getD1().prepare("SELECT settings,adapterType,updatedAt FROM device WHERE id=? AND orgId=?")
+        .bind(data.id,data.orgId).first<{ settings: string; adapterType: string; updatedAt: string | number }>();
+      if (!existing) throw new Error("Device not found.");
+      const adapterType = data.updates.adapterType ?? existing.adapterType;
+      const settings = await writeDeviceSettings(env.CREDENTIAL_ENCRYPTION_KEYS,
+        { id: data.id, orgId: data.orgId, adapterType }, data.updates.settings ?? "{}",
+        adapterType === existing.adapterType ? existing.settings : "{}", data.clearCredentials);
+      // Keys come only from the parsed schema, and all values stay bound.
+      const fields = Object.entries({ ...data.updates, settings }).filter((entry): entry is [string, string | number | boolean] => entry[1] !== undefined);
+      return { deviceId: data.id,
+        guard: "EXISTS(SELECT 1 FROM device WHERE id=? AND orgId=? AND settings=? AND adapterType=? AND updatedAt=?)",
+        guardValues: [data.id,data.orgId,existing.settings,existing.adapterType,existing.updatedAt],
+        statement: getD1().prepare(`UPDATE device SET ${fields.map(([key]) => `"${key}"=?`).concat("updatedAt=?").join(",")} WHERE id=? AND orgId=?`)
+          .bind(...fields.map(([, value]) => typeof value === "boolean" ? Number(value) : value),new Date().toISOString(),data.id,data.orgId),
+      };
     });
-    if (result.count !== 1) throw new Error("Device changed elsewhere. Refresh and try again.");
-    return result;
+    return { count: 1 };
   });
 
 export const deleteDevice = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
+    parseOrThrow(z.object({ orgId: idSchema, requestId: writeRequestIdSchema, id: idSchema }), data),
   )
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "devices:access");
-    const prisma = getPrisma();
-    await prisma.device.deleteMany({
-      where: { id: data.id, orgId: data.orgId },
-    });
+    const { user } = await assertEffectiveOrgPermission(data.orgId, "devices:access");
+    const { requestId, ...payload } = data;
+    await runDeviceWrite({ orgId: data.orgId, actorId: user.id, requestId, kind: "delete", payload }, () => ({
+      deviceId: data.id,
+      guard: "EXISTS(SELECT 1 FROM device WHERE id=? AND orgId=?)", guardValues: [data.id,data.orgId],
+      statement: getD1().prepare("DELETE FROM device WHERE id=? AND orgId=?").bind(data.id,data.orgId),
+    }));
   });

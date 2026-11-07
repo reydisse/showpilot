@@ -3314,3 +3314,71 @@ and production build. Existing Song Studio and seven-screen empty-state browser
 rehearsals also passed. No real organization, physical mixer, production migration,
 deployment or native release was changed. Product-wide Phase 2 requirements remain
 in progress; this evidence covers Audio only.
+
+
+## Devices write recovery and mobile search, 2026-11-07
+
+Apply `apps/web/prisma/migrations/0059_device_write_receipts.sql` after 0058
+before deploying the matching web build. It adds only the scoped command receipt
+table. Receipts remain after device deletion and contain no settings or credential
+payload. The migration was applied only to disposable local and Worker-test
+databases; the production migration manifest is unchanged.
+
+The preceding Devices UI stayed on Saving or Removing after a lost successful
+reply and gave toggle failures no Retry. Search disappeared below the desktop
+breakpoint. The baseline compiled-app browser rehearsal reproduced all four.
+
+Creation, configuration changes, enable/disable and deletion now retain one exact
+request for bounded Retry. D1 commits its receipt and mutation in one atomic batch.
+The existing authentication secret keys an HMAC fingerprint of the command, so a
+database reader cannot guess low-entropy credentials from a plain payload hash.
+A changed payload is rejected. Authentication-secret rotation also invalidates
+old fingerprints; it cannot turn a recorded request into a fresh mutation.
+Current permissions are checked before every receipt lookup. Plan limits,
+credential encryption/masking and the existing preparation compare-and-set check
+remain enforced. A replay cannot duplicate a device, undo a later update or
+recreate a deleted device.
+
+The editor retains its fields and pending request across close/reopen while
+mounted. Stored-state review refreshes devices before unlocking that draft.
+Leaving the page warns before discarding unsaved or unconfirmed work. Full reload
+persistence is not provided. An acknowledged write retries only its failed list
+refresh. Device reads have eight-second deadlines, visible error/Retry, retained
+confirmed data and stale-response cancellation. Controls are unavailable while
+configuration changes are unconfirmed.
+
+Search filters both the mobile selector and desktop list, with an explicit
+no-match state and Clear search. Selection remains URL-owned and does not change
+a pending request's target. The editor uses the shared Dialog with labelled
+fields, focus trapping, Escape, a scrolling body and fixed footer. Removal names
+the device and warns about dependent cues; explicit credential clearing keeps
+its separate confirmation. Audio and Devices share the same recovery notice.
+
+Verification after the web build:
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-device-write-recovery.mjs`
+
+The final rehearsal passed actual Chrome, authentication, the compiled Worker
+and disposable D1. It withholds committed create, update, toggle, credential-clear
+and delete replies, checks exact Retry payloads and changes selection during a
+pending toggle. It also checks post-save refresh without another write, rejected
+validation with draft retention, credential masking/preservation, cancelled
+clear/delete, stale list replies after deletion, actual Tab/Escape/Enter and
+320/768/1440px layouts. Phone recovery and filtered-selector screenshots were
+inspected. Final D1 has six receipts and one encrypted device after three create
+attempts. All devices use fixture addresses/credentials; no venue Bridge or
+physical equipment is contacted.
+
+Eight authenticated Worker regressions cover retry races at the plan cap,
+changed credential requests, secret rotation, rollback, preparation conflicts,
+revocation and organization isolation. Ten existing credential tests remain
+green. Three component tests cover read deadlines, workspace changes and mobile
+filtering. Full validation passed 2,181 unit tests, 859 Worker tests, the four
+coverage-gate tests, typecheck and production build. Broader Phase 2 requirements
+remain open. Nothing was deployed or released.
+
+Existing Audio recovery and nested Devices/overlay navigation rehearsals also
+passed on this build. The older navigation test expected a bare `/login`; it now
+asserts the login pathname and the retained protected `returnTo` deep link. Actual
+anonymous access still reaches sign-in without overlay content, and a signed-in
+member without device permission cannot open device controls.

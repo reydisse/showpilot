@@ -65,7 +65,10 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   // These are disposable accounts in the fixture's isolated browser session.
   await browser('cookies', 'clear');
   await browser('open', `${origin}/${orgId}/streaming/graphics/overlay`);
-  await browser('wait', '--url', '**/login');
+  await browser('wait', '--fn', 'location.pathname === "/login"');
+  const loginReturn = await evaluate('new URL(location.href).searchParams.get("returnTo")');
+  assert.equal(loginReturn, `/${orgId}/streaming/graphics/overlay`, 'protected deep link is retained through sign-in');
+  console.log(JSON.stringify({ anonymousLoginPath: '/login', returnTo: loginReturn }));
   assert.equal(await evaluate('document.body.textContent.includes("Fixture overlay title")'), false);
   await browser('fill', '#email', 'second@display-smoke.invalid');
   await browser('fill', '#password', operatorPassword); await click('Sign in');
