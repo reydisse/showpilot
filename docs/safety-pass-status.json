@@ -1674,8 +1674,11 @@
       "phase": "2",
       "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
       "line": 256,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "2026-11-06 Installed the matching Vitest 4.1.11 Istanbul provider and measured both complete test pools over timecode helpers/sources, every relay and device modules. Shared scope covers 38 executable files; three type-only contracts are identified by compiler output. The gate merges counters once, rejects empty or missing executable-file reports in either pool, and checks statements/branches/functions/lines separately for each source family. Baseline thresholds floor the measured current percentages to whole numbers; the ratchet command reruns coverage and can only raise thresholds.",
+        "Local exact CI command passed migration/client boundaries, four gate tests, 1961 unit tests and 729 Worker tests; web typecheck, production build and frozen-lockfile installation passed. Measured statements/branches/functions/lines: timecode 92.44/90.57/91.56/95.09; relays 85.92/83.25/90.17/91.42; devices 64.55/49.66/62.90/67.19. Real-report negative probe exited 1 for a temporarily raised threshold; baseline restored byte-for-byte and the upward-only ratchet passed. CI now invokes test:coverage and uploads reports, but actual GitHub execution remains pending. Do not mark verified until that step passes remotely."
+      ]
     },
     {
       "id": "83b1dd9489650e62",

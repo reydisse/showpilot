@@ -63,8 +63,17 @@ jobs:
       - name: Typecheck mobile
         run: pnpm --filter @showpilot/mobile exec tsc --noEmit
 
-      - name: Test web
-        run: pnpm --filter @showpilot/web test
+      - name: Test web and enforce coverage
+        run: pnpm --filter @showpilot/web test:coverage
+
+      - name: Upload web coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-coverage
+          path: apps/web/coverage
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Test bridge
         run: pnpm --filter @showpilot/bridge test
