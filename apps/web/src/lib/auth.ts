@@ -1,6 +1,8 @@
 import { betterAuth } from "better-auth";
 import { createAuthEndpoint, getAuthoritativeSessionFromCtx } from "better-auth/api";
-import { createOrganizationAtomically } from "./organization-creation.server";
+import { createOrganizationAtomically, readOrganizationCreation, OrganizationCreationReceiptError } from "./organization-creation.server";
+import { z } from "zod";
+import { creationRequestIdSchema } from "./organization-creation-contract";
 import { orgSlugSchema } from "./validation";
 import { getD1 } from "./d1";
 import { expo } from "@better-auth/expo";
@@ -106,7 +108,7 @@ function showPilotOrganization() {
     endpoints: {
       ...plugin.endpoints,
       createOrganization: createAuthEndpoint(original.path, original.options, async ctx => {
-        const failure = (status: 400 | 401 | 403 | 500, code: string, message: string) => {
+        const failure = (status: 400 | 401 | 403 | 409 | 410 | 500, code: string, message: string) => {
           ctx.setStatus(status);
           return ctx.json({ code, message });
         };
@@ -119,18 +121,43 @@ function showPilotOrganization() {
         if (!name || name.length > 160 || !orgSlugSchema.safeParse(ctx.body.slug).success) {
           return failure(400, "INVALID_ORGANIZATION", "Enter an organization name and a valid workspace address.");
         }
+        const key = ctx.headers?.get("Idempotency-Key");
+        const setup = ctx.headers?.get("X-ShowPilot-Setup");
+        if ((key !== null && key !== undefined && !creationRequestIdSchema.safeParse(key).success)
+          || (setup !== null && setup !== undefined && (setup !== "1" || !key))) {
+          return failure(400, "INVALID_CREATION_REQUEST", "Use a valid creation request before continuing.");
+        }
         const db = getD1();
         let created;
         try {
-          created = await createOrganizationAtomically(db, { userId: session.user.id, sessionId: session.session.id }, { ...ctx.body, name });
+          created = await createOrganizationAtomically(db, { userId: session.user.id, sessionId: session.session.id }, { ...ctx.body, name }, { requestId: key ?? undefined, setup: setup === "1" });
         } catch (error) {
-          const taken = await db.prepare("SELECT id FROM organization WHERE slug = ?").bind(ctx.body.slug).first();
-          if (taken) return failure(400, "ORGANIZATION_ALREADY_EXISTS", "This workspace address is already in use.");
+          if (error instanceof OrganizationCreationReceiptError) {
+            return failure(error.code === "mismatch" ? 409 : error.code === "removed" ? 410 : 403,
+              `ORGANIZATION_CREATION_${error.code.toUpperCase()}`, error.message);
+          }
+          // Only the unique-address constraint proves a rolled-back conflict.
+          // A receipt read can fail after commit, when this address is already ours.
+          if (error instanceof Error && error.message.includes("UNIQUE constraint failed: organization.slug")) {
+            return failure(400, "ORGANIZATION_ALREADY_EXISTS", "This workspace address is already in use.");
+          }
           console.error("[auth] organization creation transaction failed", error);
           return failure(500, "ORGANIZATION_CREATION_UNCONFIRMED", "Organization creation was not confirmed. Check your workspaces before retrying.");
         }
         if (!created) return failure(401, "UNAUTHORIZED", "Your account changed. Sign in again before creating an organization.");
         return ctx.json(created);
+      }),
+      getOrganizationCreation: createAuthEndpoint("/organization/creation-result", {
+        method: "GET", query: z.object({ requestId: creationRequestIdSchema }),
+      }, async ctx => {
+        ctx.setHeader("Cache-Control", "private, no-store");
+        const session = await getAuthoritativeSessionFromCtx(ctx);
+        if (!session) { ctx.setStatus(401); return ctx.json({ code: "UNAUTHORIZED", message: "Sign in to check your workspace." }); }
+        try {
+          return ctx.json(await readOrganizationCreation(getD1(), session.user.id, ctx.query.requestId));
+        } catch {
+          ctx.setStatus(503); return ctx.json({ code: "CREATION_RESULT_UNAVAILABLE", message: "Could not check the saved workspace. Try again." });
+        }
       }),
     },
   };

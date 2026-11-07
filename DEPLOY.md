@@ -907,11 +907,11 @@ link. Reload resumes saved progress; it does not retain unsaved form entries.
 
 Late role/workspace replies cannot advance after Back or Exit. Team completion
 while a confirmation is open retains its result for explicit continuation.
-Organization creation keeps the current active organization until acknowledged.
+Organization creation keeps the current active organization throughout setup.
 Leaving aborts its client requests; a reply arriving during Exit cannot activate
 the new workspace or start further setup writes. A canceled Exit can continue
 using the already-created organization. Requests already sent may still commit.
-Full lost-response recovery for organization creation remains separate work.
+Creation receipt recovery is described below.
 
 After building, run:
 
@@ -926,8 +926,9 @@ canceled/confirmed browser Back. It also
 created actual organizations with replies held through departure or delivered
 while the Exit dialog was open. Final D1 checks found one organization per
 creation attempt, unchanged active workspace, no unintended crew and no setup
-completion. The creation cases did not write a setup-start marker. No external
-email or browser errors occurred. Controls passed 320/768/1440px bounds, 44px
+completion. Creation now commits the setup-start marker with the organization,
+so a lost reply still leaves resumable progress. No external email or browser
+errors occurred. Controls passed 320/768/1440px bounds, 44px
 minimum targets and hit tests; phone captures were checked after animations.
 
 Tests reproduced the pending-Exit activation race before its fix. All 31 focused
@@ -988,9 +989,61 @@ Expo origin, foreign-origin rejection and the ten-request rate limit passed.
 No browser errors or external email occurred. The error and retry control fit
 320/768/1440px with reachable 44px targets; the phone screenshot was inspected.
 
-No migration or native release is required. Nothing is deployed by this change.
-Bounded creation requests, durable lost-response recovery and the remaining
-Phase 2 auth/landing requirements are still open.
+The atomic-create change itself needs no migration or native release. The
+receipt recovery below adds a migration. Nothing has been deployed here.
+
+### Organization creation receipts and bounded recovery
+
+Apply `0053_organization_creation_receipts.sql` before deploying this Worker and
+web build together. Keep `applied-remote.txt` unchanged until production is
+actually migrated. Old mobile clients retain the existing creation API and
+activation behavior; no native release is required for the setup UI change.
+
+Setup saves an opaque request UUID in its URL before sending a creation request.
+The user-scoped receipt, organization, owner, trial and setup-start marker commit
+in one transaction. Retrying identical choices returns the same workspace.
+Different choices on an already-committed request require reviewing its saved
+result. Replays read current details without restoring names, trials, membership,
+checkpoints or active-session selection. Organization deletion leaves a receipt
+that prevents resurrection; account deletion removes its receipts.
+
+Creation, result checks, address checks, verification resend and continuation
+stop waiting after ten seconds. Failures retain the entered form and show a
+retry. A lost response offers **Check saved workspace** and **Retry creation**;
+retry sends the same identity and choices. A refresh reads the URL's receipt
+without writing and requires **Continue setup** before advancing. An empty read
+is explicitly not proof that an earlier request cannot still finish. Editing
+choices after an empty result retains the same identity, so a competing late
+commit cannot create a duplicate. Exit and unmount ignore late replies.
+
+The result endpoint requires a fresh session, scopes receipts to its user,
+checks current ownership and sends `Cache-Control: private, no-store`. Unknown
+errors after commit remain unconfirmed outcomes. Only the actual unique-address
+constraint is reported as an address conflict. A forced incompatible metadata
+write reproduced a committed organization being misreported as a conflict before
+this correction.
+
+After building, run:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-organization-recovery.mjs
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-organization-atomic.mjs
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-organization-creation.mjs
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-setup-navigation.mjs
+```
+
+The recovery rehearsal withholds replies after actual D1 commits, then exercises
+identical retry, refresh, a stalled result check and explicit continuation. It
+checks final organization, owner, receipt and checkpoint counts, no completed
+setup or external email, and controls at 320/768/1440px. The other rehearsals
+retain owner-insert rollback, ordinary mobile creation, auth policy, rate limits,
+Back/Exit/Resume and unchanged active-workspace coverage. Phase 2's broader
+acceptance gate remains open; these changes are not deployed or released.
+
+Final validation passed 2,097 unit tests, 794 Worker tests, four coverage-gate
+tests, typecheck and the production build. All four browser scripts above passed
+against that build; final phone error screenshots were inspected. The focused
+suites cover 28 real HTTP/D1 creation cases and 18 setup component cases.
 
 ### Timecode label validation
 

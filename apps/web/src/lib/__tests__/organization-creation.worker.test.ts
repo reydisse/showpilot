@@ -4,7 +4,7 @@ import { hashPassword } from "better-auth/crypto";
 import { afterEach, expect, it, vi } from "vitest";
 import { createOrganizationAtomically } from "../organization-creation.server";
 import { getPrisma } from "../db";
-import { getOnboardingProgress, markOnboardingStarted } from "../onboarding";
+import { getOnboardingProgress } from "../onboarding";
 
 // Keep real auth, cookie validation, database permissions and progress queries.
 // Auth calls use the actual Worker HTTP entry; progress assertions supply only
@@ -29,8 +29,8 @@ afterEach(() => { request.cookie = ""; });
 
 const origin = "https://app.showpilot.tech";
 const password = "Disposable-org-fixture-password-92!";
-const post = (path: string, body: unknown) => SELF.fetch(new Request(`${origin}/api/auth/${path}`, {
-  method: "POST", headers: { "Content-Type": "application/json", Origin: origin, Cookie: request.cookie, "cf-connecting-ip": `192.0.2.${++request.ip}` }, body: JSON.stringify(body),
+const post = (path: string, body: unknown, headers: Record<string, string> = {}) => SELF.fetch(new Request(`${origin}/api/auth/${path}`, {
+  method: "POST", headers: { "Content-Type": "application/json", Origin: origin, Cookie: request.cookie, "cf-connecting-ip": `192.0.2.${++request.ip}`, ...headers }, body: JSON.stringify(body),
 }));
 async function memberFixture() {
   const prisma = getPrisma();
@@ -51,23 +51,21 @@ it("lets an existing Member create a separate owned organization and resume its 
   const f = await memberFixture();
   expect(await getOnboardingProgress({ data: { mode: "new" } })).toMatchObject({ authenticated: true, hasOrg: false, org: null });
   expect(await getOnboardingProgress({ data: { mode: "resume" } })).toMatchObject({ org: { id: f.orgId }, isOwner: false });
-  const response = await post("organization/create", { name: "Separate team", slug: crypto.randomUUID() });
+  const response = await post("organization/create", { name: "Separate team", slug: crypto.randomUUID() }, { "Idempotency-Key": crypto.randomUUID(), "X-ShowPilot-Setup": "1" });
   expect(response.status).toBe(200);
   const created = await response.json<{ id: string }>();
-  await markOnboardingStarted({ data: { orgId: created.id } });
   expect(await getOnboardingProgress({ data: { mode: "resume", orgId: created.id } })).toMatchObject({ org: { id: created.id }, started: true, isOwner: true, completed: false });
   expect(await f.prisma.member.findFirst({ where: { userId: f.id, organizationId: f.orgId } })).toMatchObject({ role: "member" });
   expect(await f.prisma.appSetting.count({ where: { orgId: f.orgId } })).toBe(0);
   expect(await f.prisma.organization.findUnique({ where: { id: created.id } })).toMatchObject({ trialEndsAt: expect.any(Date) });
 }, 20_000);
 
-it("rejects progress reads for an unrelated org, invalid IDs, and member-only checkpoint writes", async () => {
+it("rejects progress reads for an unrelated org and invalid IDs", async () => {
   const f = await memberFixture();
   const otherId = crypto.randomUUID();
   await f.prisma.organization.create({ data: { id: otherId, name: "Unrelated", slug: otherId, createdAt: new Date() } });
   await expect(getOnboardingProgress({ data: { mode: "resume", orgId: otherId } })).rejects.toThrow("do not have access");
   await expect(getOnboardingProgress({ data: { mode: "resume", orgId: "x".repeat(65) } })).rejects.toThrow();
-  await expect(markOnboardingStarted({ data: { orgId: f.orgId } })).rejects.toThrow("Forbidden");
 }, 20_000);
 
 it("keeps new setup unauthenticated until sign-in", async () => {
@@ -194,4 +192,166 @@ it("keeps the previous first workspace when the active session has no selection"
   expect(await getOnboardingProgress({ data: { mode: "resume" } })).toMatchObject({ org: { id: f.orgId }, isOwner: false });
   const memberships = await f.prisma.member.findMany({ where: { userId: f.id }, orderBy: { createdAt: "asc" } });
   expect(memberships[0].organizationId).toBe(f.orgId);
+});
+
+
+it("returns the same creation result when a committed request is retried after response loss", async () => {
+  const f = await memberFixture();
+  const body = { name: "Retried creation", slug: crypto.randomUUID(), keepCurrentActiveOrganization: true };
+  const headers = { "Idempotency-Key": crypto.randomUUID() };
+  const first = await post("organization/create", body, headers);
+  expect(first.status).toBe(200); const created = await first.json<{ id: string }>();
+  const retry = await post("organization/create", body, headers);
+  expect(retry.status).toBe(200); expect(await retry.json()).toMatchObject({ id: created.id });
+  expect(await f.prisma.organization.count({ where: { slug: body.slug } })).toBe(1);
+  expect(await f.prisma.member.count({ where: { organizationId: created.id, userId: f.id } })).toBe(1);
+});
+
+const creationResult = (requestId: string) => SELF.fetch(new Request(`${origin}/api/auth/organization/creation-result?requestId=${encodeURIComponent(requestId)}`, {
+  headers: { Cookie: request.cookie, "cf-connecting-ip": `192.0.2.${++request.ip}` },
+}));
+
+it("commits the setup checkpoint with creation and exposes a read-only, caller-scoped receipt", async () => {
+  const f = await memberFixture();
+  const requestId = crypto.randomUUID();
+  const empty = await creationResult(requestId);
+  expect(empty.status).toBe(200); expect(await empty.json()).toEqual({ requestId, status: "empty" });
+  const response = await post("organization/create", { name: "Receipt fixture", slug: crypto.randomUUID(), keepCurrentActiveOrganization: true }, {
+    "Idempotency-Key": requestId, "X-ShowPilot-Setup": "1",
+  });
+  expect(response.status).toBe(200);
+  const created = await response.json<{ id: string; name: string; slug: string; creationRequestId: string }>();
+  expect(created.creationRequestId).toBe(requestId);
+  expect(await getOnboardingProgress({ data: { mode: "resume", orgId: created.id } })).toMatchObject({ started: true, completed: false });
+  const before = await f.prisma.appSetting.findMany({ where: { orgId: created.id } });
+  const result = await creationResult(requestId);
+  expect(result.status).toBe(200); expect(result.headers.get("cache-control")).toBe("private, no-store");
+  expect(await result.json()).toEqual({ requestId, status: "saved", organization: { id: created.id, name: created.name, slug: created.slug } });
+  expect(await f.prisma.appSetting.findMany({ where: { orgId: created.id } })).toEqual(before);
+  expect(await f.prisma.session.findFirst({ where: { userId: f.id } })).toMatchObject({ activeOrganizationId: null });
+  await memberFixture();
+  const other = await creationResult(requestId);
+  expect(other.status).toBe(200); expect(await other.json()).toEqual({ requestId, status: "empty" });
+  request.cookie = "";
+  const anonymous = await creationResult(requestId);
+  expect(anonymous.status).toBe(401); await anonymous.arrayBuffer();
+});
+
+it("collapses concurrent identical requests into one receipt, workspace, checkpoint and owner", async () => {
+  const f = await memberFixture();
+  const requestId = crypto.randomUUID();
+  const body = { name: "Concurrent receipt", slug: crypto.randomUUID(), keepCurrentActiveOrganization: true };
+  const headers = { "Idempotency-Key": requestId, "X-ShowPilot-Setup": "1" };
+  const replies = await Promise.all([post("organization/create", body, headers), post("organization/create", body, headers)]);
+  expect(replies.map(reply => reply.status)).toEqual([200, 200]);
+  const values = await Promise.all(replies.map(reply => reply.json<{ id: string; creationRequestId: string }>()));
+  expect(values[0].id).toBe(values[1].id); expect(values[0].creationRequestId).toBe(requestId);
+  expect(await f.prisma.organizationCreationReceipt.count({ where: { userId: f.id } })).toBe(1);
+  expect(await f.prisma.member.count({ where: { organizationId: values[0].id } })).toBe(1);
+  expect(await f.prisma.appSetting.count({ where: { orgId: values[0].id, key: "onboarding-started" } })).toBe(1);
+});
+
+it("rejects concurrent different choices on one request without creating a second workspace", async () => {
+  const f = await memberFixture(); const requestId = crypto.randomUUID();
+  const bodies = ["First", "Second"].map(name => ({ name, slug: crypto.randomUUID(), keepCurrentActiveOrganization: true }));
+  const replies = await Promise.all(bodies.map(body => post("organization/create", body, { "Idempotency-Key": requestId })));
+  expect(replies.map(reply => reply.status).sort()).toEqual([200, 409]);
+  const values = await Promise.all(replies.map(reply => reply.json()));
+  expect(values).toContainEqual(expect.objectContaining({ code: "ORGANIZATION_CREATION_MISMATCH" }));
+  expect(await f.prisma.organization.count({ where: { slug: { in: bodies.map(body => body.slug) } } })).toBe(1);
+  expect(await f.prisma.organizationCreationReceipt.count({ where: { userId: f.id } })).toBe(1);
+});
+
+it("rolls back the receipt, organization and owner when the setup checkpoint fails, then permits the same retry", async () => {
+  const f = await memberFixture(); const requestId = crypto.randomUUID();
+  const body = { name: "Checkpoint rollback", slug: crypto.randomUUID() };
+  const headers = { "Idempotency-Key": requestId, "X-ShowPilot-Setup": "1" };
+  await env.DB.prepare(`CREATE TRIGGER reject_setup_checkpoint BEFORE INSERT ON app_setting
+    WHEN NEW.key = 'onboarding-started' BEGIN SELECT RAISE(ABORT, 'forced checkpoint failure'); END`).run();
+  try {
+    const response = await post("organization/create", body, headers);
+    expect(response.status).toBe(500); await response.arrayBuffer();
+  } finally { await env.DB.prepare("DROP TRIGGER reject_setup_checkpoint").run(); }
+  expect(await f.prisma.organizationCreationReceipt.count({ where: { userId: f.id } })).toBe(0);
+  expect(await f.prisma.organization.findUnique({ where: { slug: body.slug } })).toBeNull();
+  expect(await f.prisma.member.count({ where: { userId: f.id } })).toBe(1);
+  expect(await f.prisma.session.findFirst({ where: { userId: f.id } })).toMatchObject({ activeOrganizationId: null });
+  const empty = await creationResult(requestId); expect(await empty.json()).toEqual({ requestId, status: "empty" });
+  const retry = await post("organization/create", body, headers);
+  expect(retry.status).toBe(200); const created = await retry.json<{ id: string }>();
+  expect(await getOnboardingProgress({ data: { mode: "resume", orgId: created.id } })).toMatchObject({ started: true, completed: false });
+});
+
+it("replays current workspace details without resetting edits, trial, setup or the active session", async () => {
+  const f = await memberFixture(); const requestId = crypto.randomUUID();
+  const body = { name: "Original name", slug: crypto.randomUUID(), metadata: { z: 2, nested: { b: 2, a: 1 } } };
+  const headers = { "Idempotency-Key": requestId, "X-ShowPilot-Setup": "1" };
+  const response = await post("organization/create", body, headers);
+  expect(response.status).toBe(200); const created = await response.json<{ id: string }>();
+  const laterSlug = crypto.randomUUID(); const trial = new Date("2026-01-01T00:00:00.000Z");
+  await f.prisma.organization.update({ where: { id: created.id }, data: { name: "Renamed", slug: laterSlug, trialEndsAt: trial, metadata: JSON.stringify({ newer: true }) } });
+  await f.prisma.appSetting.deleteMany({ where: { orgId: created.id, key: "onboarding-started" } });
+  await f.prisma.session.updateMany({ where: { userId: f.id }, data: { activeOrganizationId: f.orgId } });
+  const reordered = { ...body, metadata: { nested: { a: 1, b: 2 }, z: 2 } };
+  const retry = await post("organization/create", reordered, headers);
+  expect(retry.status).toBe(200); expect(await retry.json()).toMatchObject({ id: created.id, name: "Renamed", slug: laterSlug, metadata: { newer: true } });
+  expect(await f.prisma.organization.findUnique({ where: { id: created.id } })).toMatchObject({ trialEndsAt: trial });
+  expect(await f.prisma.appSetting.count({ where: { orgId: created.id } })).toBe(0);
+  expect(await f.prisma.session.findFirst({ where: { userId: f.id } })).toMatchObject({ activeOrganizationId: f.orgId });
+});
+
+it.each(["removed", "demoted", "membership-removed"])("never restores a workspace or ownership after %s", async change => {
+  const f = await memberFixture(); const requestId = crypto.randomUUID();
+  const body = { name: "Old receipt", slug: crypto.randomUUID() };
+  const headers = { "Idempotency-Key": requestId };
+  const response = await post("organization/create", body, headers);
+  expect(response.status).toBe(200); const created = await response.json<{ id: string }>();
+  if (change === "removed") await f.prisma.organization.delete({ where: { id: created.id } });
+  else if (change === "demoted") await f.prisma.member.updateMany({ where: { organizationId: created.id, userId: f.id }, data: { role: "member" } });
+  else await f.prisma.member.deleteMany({ where: { organizationId: created.id, userId: f.id } });
+  const snapshot = await creationResult(requestId);
+  expect(snapshot.status).toBe(200); expect(await snapshot.json()).toEqual({ requestId, status: change === "removed" ? "removed" : "forbidden" });
+  const retry = await post("organization/create", body, headers);
+  expect(retry.status).toBe(change === "removed" ? 410 : 403); await retry.arrayBuffer();
+  expect(await f.prisma.organizationCreationReceipt.count({ where: { userId: f.id, requestId } })).toBe(1);
+  expect(await f.prisma.member.count({ where: { organizationId: created.id, role: "owner" } })).toBe(0);
+  if (change === "removed") expect(await f.prisma.organization.findUnique({ where: { slug: body.slug } })).toBeNull();
+});
+
+it("rejects malformed creation identities and setup intents without any writes", async () => {
+  const f = await memberFixture();
+  const invalidHeaders: Record<string, string>[] = [{ "Idempotency-Key": "invalid" }, { "X-ShowPilot-Setup": "1" }, { "Idempotency-Key": crypto.randomUUID(), "X-ShowPilot-Setup": "false" }];
+  for (const headers of invalidHeaders) {
+    const response = await post("organization/create", { name: "Invalid request", slug: crypto.randomUUID() }, headers);
+    expect(response.status).toBe(400); expect(await response.json()).toMatchObject({ code: "INVALID_CREATION_REQUEST" });
+  }
+  expect(await f.prisma.organizationCreationReceipt.count({ where: { userId: f.id } })).toBe(0);
+  expect(await f.prisma.member.count({ where: { userId: f.id } })).toBe(1);
+  const invalid = await creationResult("invalid"); expect(invalid.status).toBe(400); await invalid.arrayBuffer();
+});
+
+it("removes creation receipts with the account and denies revoked-session reads", async () => {
+  const f = await memberFixture(); const requestId = crypto.randomUUID();
+  const response = await post("organization/create", { name: "Account deletion", slug: crypto.randomUUID() }, { "Idempotency-Key": requestId });
+  expect(response.status).toBe(200); await response.arrayBuffer();
+  await f.prisma.session.deleteMany({ where: { userId: f.id } });
+  const revoked = await creationResult(requestId); expect(revoked.status).toBe(401); await revoked.arrayBuffer();
+  await f.prisma.user.delete({ where: { id: f.id } });
+  expect(await f.prisma.organizationCreationReceipt.count({ where: { userId: f.id } })).toBe(0);
+});
+
+it("does not report an address conflict when reading the receipt fails after a successful commit", async () => {
+  const f = await memberFixture(); const requestId = crypto.randomUUID(); const slug = crypto.randomUUID();
+  // Simulate incompatible metadata from another writer between commit and reply.
+  await env.DB.prepare(`CREATE TRIGGER incompatible_metadata AFTER INSERT ON member
+    WHEN NEW.userId = '${f.id}' AND NEW.organizationId != '${f.orgId}'
+    BEGIN UPDATE organization SET metadata = '[]' WHERE id = NEW.organizationId; END`).run();
+  try {
+    const response = await post("organization/create", { name: "Unreadable receipt", slug }, { "Idempotency-Key": requestId });
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ code: "ORGANIZATION_CREATION_UNCONFIRMED" });
+  } finally { await env.DB.prepare("DROP TRIGGER incompatible_metadata").run(); }
+  const saved = await f.prisma.organization.findUniqueOrThrow({ where: { slug } });
+  expect(await f.prisma.organizationCreationReceipt.count({ where: { orgId: saved.id, requestId } })).toBe(1);
+  expect(await f.prisma.member.count({ where: { organizationId: saved.id, role: "owner" } })).toBe(1);
 });
