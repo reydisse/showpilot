@@ -17,3 +17,13 @@ it("keeps verification as the email landing page while carrying a safe deep link
   }
   expect(verificationHref("https://other.test")).toBe("/verify-email");
 });
+it("preserves a bounded Planning invite carrying fifty recipient IDs", async () => {
+  const { signToken } = await import("../kiosk-token");
+  const token = `planning_chat_${await signToken({ scope: "planning-chat", orgId: "org", orgSlug: "venue", roomId: "planning", exp: 2000000000, targetUserIds: Array.from({ length: 50 }, () => crypto.randomUUID()) }, "navigation-fixture")}`;
+  const destination = `/join/chat/planning/${token}`;
+  expect(destination.length).toBeGreaterThan(2048);
+  expect(safeAuthReturnTo(destination)).toBe(destination);
+});
+it.each(["/join/chat/planning/" + "a".repeat(3000), "/join/chat/planning/planning_chat_" + "a".repeat(8200) + ".b.c", "/join/chat/planning/planning_chat_" + "a".repeat(3000) + ".b.c?next=//elsewhere"])("rejects unbounded or ambiguous long invite destinations", path => {
+  expect(safeAuthReturnTo(path)).toBeUndefined();
+});
