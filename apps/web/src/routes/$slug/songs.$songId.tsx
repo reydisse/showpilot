@@ -369,7 +369,7 @@ function SongStudioPage() {
     );
   };
   const nudgeCue = (index: number, delta: number) => {
-    const parsed = parseTimecodeString(cues[index]?.triggerTc ?? "");
+    const parsed = parseTimecodeString(cues[index]?.triggerTc ?? "", format);
     if (!parsed) return;
     const frame = Math.max(0, timecodeToFrames(parsed, format) + delta);
     setCues((current) =>

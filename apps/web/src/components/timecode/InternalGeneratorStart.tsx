@@ -3,7 +3,6 @@ import { Play } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   framesToTimecode,
-  isValidTimecode,
   parseTimecodeString,
   timecodeToString,
 } from "@/lib/timecode";
@@ -40,8 +39,8 @@ export function InternalGeneratorStart({
   const [text, setText] = useState(() => initialCustom ? timecodeToString(framesToTimecode(clock.totalFrames, clock.format), clock.format.dropFrame === "df") : "");
   const [review, setReview] = useState<TimecodeStartPosition | null>(null);
   const id = useId();
-  const parsed = parseTimecodeString(text);
-  const valid = parsed !== null && isValidTimecode(parsed, clock.format);
+  const parsed = parseTimecodeString(text, clock.format);
+  const valid = parsed !== null;
   const held = timecodeToString(
     framesToTimecode(clock.totalFrames, clock.format),
     clock.format.dropFrame === "df",

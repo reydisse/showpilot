@@ -1654,8 +1654,10 @@
       "phase": "2",
       "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
       "line": 255,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06 Reproduced parseTimecodeString accepting 01:00:00:99 at 30 fps. The parser now requires the selected TimecodeFormat and returns null for invalid frame/clock labels, skipped 29.97 DF labels or unsupported format combinations. Migrated every production caller: event editor, internal start, song saves and cue nudges; removed redundant parse-then-validate checks. Tests cover nominal boundaries for all five supported formats, all 60 minute positions at DF labels 0/1/2, malformed/out-of-day values and a retained editor draft revalidated from 24 to 25 fps. Full web suite passed 1926 unit + 718 Worker tests, plus web typecheck and production build. Existing SMPTE conversion and relay tests remain green; conversion algorithms unchanged. No deployment or hardware claim."
+      ]
     },
     {
       "id": "c199f70e6d42cad8",
