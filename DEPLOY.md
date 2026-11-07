@@ -3986,3 +3986,14 @@ and the default five-second behavior timeout. No production code or test timeout
 setting changes. The targeted 14 tests, full 2,233 unit and 988 Worker tests,
 coverage thresholds, web typecheck and status-ledger check pass locally. The next
 GitHub run must confirm this on the CI runner before calling the failure closed.
+
+The follow-up GitHub run 42410688370 passed web coverage, all typechecks, Bridge
+and Desktop tests, and Native Rust. It then exposed a stale mobile source
+contract: `verify-mobile.mjs` still required three removed Crew wrapper names in
+`team-crew.tsx`. The screen now uses the shared `executeMobileCrewCommand`, parsed
+commands and retained mutation cache. Update the contract to follow that path,
+including create/update/delete schema variants and receipt validation. Local
+`pnpm --filter @showpilot/mobile verify` passes all three Expo exports, 18 Expo
+Doctor checks and the polling boundary check; five native Crew recovery tests
+also pass. This is JavaScript export/API/cache evidence, not native device UI
+acceptance. A new CI run is still required for the combined branch.
