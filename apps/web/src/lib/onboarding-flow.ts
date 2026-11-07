@@ -45,10 +45,12 @@ export function archetypeLanding(
 export function buildOnboardingRoleValue(
   archetype: OnboardingArchetype,
   modules?: readonly ModuleId[],
+  receipt?: { requestId: string; nonce: string },
 ): string {
   return JSON.stringify({
     archetype,
     landing: archetypeLanding(archetype, modules),
+    ...receipt,
   });
 }
 

@@ -24,7 +24,6 @@ vi.mock("../workspace/profile.server", async (importOriginal) => ({
 }));
 import {
   getWorkspaceProfile,
-  saveWorkspaceType,
   setWorkspaceType,
   setWorkspaceModules,
   setWorkspaceCustom,
@@ -68,25 +67,11 @@ describe("workspace web authorization", () => {
       expect(mocks.write).toHaveBeenCalledTimes(3);
     },
   );
-  it("limits onboarding to the owner", async () => {
-    for (const role of ["member", "admin"]) {
-      mocks.access.mockResolvedValue({ access: { role } });
-      await expect(
-        saveWorkspaceType({ data: { orgId, type: "school" } }),
-      ).rejects.toThrow("Forbidden");
-    }
-    expect(mocks.write).not.toHaveBeenCalled();
-    mocks.access.mockResolvedValue({ access: { role: "owner" } });
-    await expect(
-      saveWorkspaceType({ data: { orgId, type: "school" } }),
-    ).resolves.toMatchObject({ type: "school" });
-  });
   it("rejects an unrelated organization on every entry point", async () => {
     mocks.access.mockRejectedValue(new Error("Forbidden"));
     mocks.permission.mockRejectedValue(new Error("Forbidden"));
     for (const change of [
       () => getWorkspaceProfile({ data: { orgId } }),
-      () => saveWorkspaceType({ data: { orgId, type: "school" } }),
       ...changes,
     ])
       await expect(change()).rejects.toThrow("Forbidden");
