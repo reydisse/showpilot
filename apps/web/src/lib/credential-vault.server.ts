@@ -21,7 +21,8 @@ const envelopeSchema = z.object({
 export type CredentialScope =
   | { kind: "setting"; orgId: string; key: string }
   | { kind: "device"; orgId: string; deviceId: string; path: readonly string[] }
-  | { kind: "stream-destination"; orgId: string; destinationId: string };
+  | { kind: "stream-destination"; orgId: string; destinationId: string }
+  | { kind: "stream-input"; orgId: string; inputId: string };
 
 export class CredentialVaultError extends Error {
   constructor(message: string) { super(message); this.name = "CredentialVaultError"; }
@@ -44,6 +45,7 @@ function additionalData(scope: CredentialScope, purpose: "key" | "value", keyId:
     case "setting": identity = [scope.key]; break;
     case "device": identity = [scope.deviceId, scope.path]; break;
     case "stream-destination": identity = [scope.destinationId, "streamKey"]; break;
+    case "stream-input": identity = [scope.inputId, "rtmpKey"]; break;
   }
   if (!scope.orgId || identity.some(part => typeof part === "string" ? !part : !part.length || part.some(value => !value))) {
     throw new CredentialVaultError("Credential storage identity is missing.");

@@ -207,7 +207,7 @@ export const getTmDashboard = createServerFn({ method: "GET" })
         enabled: row.enabled,
         // Stream Connect gives an output id once the destination is
         // actually wired up. No id means configured but not connected.
-        connected: Boolean(row.cfOutputId),
+        connected: Boolean(row.cfOutputId) && !row.cfOutputId.startsWith("pending:"),
       })),
       liveInputs: liveInputs.map((row) => ({
         id: row.id,
@@ -277,7 +277,7 @@ export const getTmDashboard = createServerFn({ method: "GET" })
         enabled: row.enabled,
         // Stream Connect gives an output id once the destination is
         // actually wired up. No id means configured but not connected.
-        connected: Boolean(row.cfOutputId),
+        connected: Boolean(row.cfOutputId) && !row.cfOutputId.startsWith("pending:"),
       })),
       members: assignableMembers
         .map(({ member: row }) => ({

@@ -383,6 +383,15 @@ async function prepare(command: Command): Promise<Receipt> {
         .bind(command.orgId, `${id}:guard:${destinationId}`),
     );
   }
+  if (command.action === "live") {
+    // Atomic with the output intents: deletion checks those intents in its own
+    // batch, so exactly one side can admit a conflicting operation.
+    statements.push(db.prepare(`INSERT INTO stream_output_command(id,orgId,actorId,requestId,fingerprint,targets,createdAt,precondition)
+      VALUES(?,?,?,?,?,?,?,CASE WHEN EXISTS(SELECT 1 FROM live_input i WHERE i.orgId=? AND i.id=? AND i.cfInputId<>'' AND i.cfInputId NOT LIKE 'pending:%'
+      AND NOT EXISTS(SELECT 1 FROM stream_input_lifecycle l WHERE l.orgId=i.orgId AND l.inputId=i.id AND (l.desired<>'active' OR l.phase<>'ready'))) THEN 1 ELSE 0 END)`)
+      .bind(`${id}:input`,command.orgId,actorId,`${requestId}:input`,fingerprint,"[]",now,command.orgId,command.liveInputId ?? ""),
+      db.prepare("DELETE FROM stream_output_command WHERE orgId=? AND id=?").bind(command.orgId,`${id}:input`));
+  }
   statements.unshift(
     db
       .prepare(
@@ -406,7 +415,7 @@ async function prepare(command: Command): Promise<Receipt> {
     const raced = await find();
     if (raced) return validate(raced);
     throw new OutputError(
-      "The destinations changed while this command was being prepared. Refresh before retrying.",
+      "The destinations or live input changed while this command was being prepared. Confirm input setup is complete and removal is not pending, then refresh before retrying.",
       { cause: error },
     );
   }
