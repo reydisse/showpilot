@@ -164,10 +164,11 @@ export async function getOrgStructure(orgId: string, origin: string) {
           .prepare(
             `SELECT u.id AS id, u.name AS name, u.image AS image, tm.role AS role
              FROM team_member tm JOIN user u ON u.id = tm.userId
+             JOIN member m ON m.userId = tm.userId AND m.organizationId = ?
              WHERE tm.teamId = ?
              ORDER BY CASE tm.role WHEN 'lead' THEN 0 ELSE 1 END, tm.sortOrder, u.name`,
           )
-          .bind(t.id)
+          .bind(orgId, t.id)
           .all<PersonRow & { role: string }>()
       ).results ?? [];
 

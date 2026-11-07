@@ -4,9 +4,10 @@ import { getD1 } from "@/lib/d1";
 import { getPrisma } from "@/lib/db";
 import { hasPermission, normalizeRole } from "@/lib/app-permissions";
 import { z } from "zod";
+import { kioskTeamCommandSchema } from "./kiosk-team-contract";
+import { executeKioskTeamCommand } from "./kiosk-team-command.server";
 import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
 
-const colorSchema = z.string().max(30); // hex or css color token
 const weekStartSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
 
 // ─────────────────────────────────────────────────────────────
@@ -66,6 +67,7 @@ export interface AdminTeam {
   name: string;
   color: string;
   sortOrder: number;
+  revision: number;
   members: { userId: string; name: string; image: string | null; role: string }[];
 }
 
@@ -73,137 +75,26 @@ export const getKioskTeams = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
   .handler(async ({ data }): Promise<AdminTeam[]> => {
     await assertKioskAdmin(data.orgId);
-    const teams =
-      (
-        await db()
-          .prepare("SELECT id, name, color, sortOrder FROM team WHERE orgId = ? ORDER BY sortOrder, name")
-          .bind(data.orgId)
-          .all<{ id: string; name: string; color: string; sortOrder: number }>()
-      ).results ?? [];
-    const members =
-      (
-        await db()
-          .prepare(
-            `SELECT tm.teamId AS teamId, tm.userId AS userId, tm.role AS role, u.name AS name, u.image AS image
-             FROM team_member tm
-             JOIN team t ON t.id = tm.teamId
-             JOIN user u ON u.id = tm.userId
-             WHERE t.orgId = ?
-             ORDER BY CASE tm.role WHEN 'lead' THEN 0 ELSE 1 END, tm.sortOrder, u.name`,
-          )
-          .bind(data.orgId)
-          .all<{ teamId: string; userId: string; role: string; name: string; image: string | null }>()
-      ).results ?? [];
-    return teams.map((t) => ({
-      ...t,
-      members: members
-        .filter((m) => m.teamId === t.id)
-        .map((m) => ({ userId: m.userId, name: m.name, image: m.image, role: m.role })),
-    }));
+    // Read each team's revision and membership from one SQLite snapshot.
+    const teams = await db().prepare(`SELECT t.id,t.name,t.color,t.sortOrder,t.revision,
+      (SELECT json_group_array(json_object('userId',people.userId,'name',people.name,'image',people.image,'role',people.role)) FROM (
+        SELECT tm.userId,u.name,u.image,tm.role FROM team_member tm
+        JOIN user u ON u.id=tm.userId JOIN member m ON m.userId=tm.userId AND m.organizationId=t.orgId
+        WHERE tm.teamId=t.id ORDER BY CASE tm.role WHEN 'lead' THEN 0 ELSE 1 END,tm.sortOrder,u.name
+      ) people) AS members
+      FROM team t WHERE t.orgId=? ORDER BY t.sortOrder,t.name`).bind(data.orgId)
+      .all<{id:string;name:string;color:string;sortOrder:number;revision:number;members:string}>();
+    const membersSchema=z.array(z.object({userId:idSchema,name:z.string(),image:z.string().nullable(),role:z.string()}));
+    return teams.results.map(team=>({...team,members:membersSchema.parse(JSON.parse(team.members))}));
   });
 
-export const createTeam = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, name: labelSchema, color: colorSchema }), data),
-  )
+export const writeKioskTeam = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(kioskTeamCommandSchema, data))
   .handler(async ({ data }) => {
-    await assertKioskAdmin(data.orgId);
-    const next = await db()
-      .prepare("SELECT COALESCE(MAX(sortOrder), 0) + 1 AS n FROM team WHERE orgId = ?")
-      .bind(data.orgId)
-      .first<{ n: number }>();
-    const id = uid();
-    await db()
-      .prepare("INSERT INTO team (id, orgId, name, color, sortOrder) VALUES (?, ?, ?, ?, ?)")
-      .bind(id, data.orgId, data.name.trim() || "Team", data.color || "#3b82f6", next?.n ?? 1)
-      .run();
-    return { id };
-  });
-
-export const updateTeam = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({ orgId: idSchema, id: idSchema, name: z.string().max(200), color: colorSchema }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertKioskAdmin(data.orgId);
-    await db()
-      .prepare("UPDATE team SET name = ?, color = ? WHERE id = ? AND orgId = ?")
-      .bind(data.name.trim() || "Team", data.color || "#3b82f6", data.id, data.orgId)
-      .run();
-  });
-
-export const deleteTeam = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
-  )
-  .handler(async ({ data }) => {
-    await assertKioskAdmin(data.orgId);
-    const owns = await db()
-      .prepare("SELECT 1 AS ok FROM team WHERE id = ? AND orgId = ? LIMIT 1")
-      .bind(data.id, data.orgId)
-      .first<{ ok: number }>();
-    if (!owns) throw new Error("Team not found");
-    // Explicit child delete — D1 doesn't enforce FK cascades by default.
-    await db().prepare("DELETE FROM team_member WHERE teamId = ?").bind(data.id).run();
-    await db().prepare("DELETE FROM team WHERE id = ? AND orgId = ?").bind(data.id, data.orgId).run();
-  });
-
-export const setTeamMember = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        teamId: idSchema,
-        userId: idSchema,
-        role: z.enum(["lead", "member"]),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertKioskAdmin(data.orgId);
-    const owns = await db()
-      .prepare("SELECT 1 AS ok FROM team WHERE id = ? AND orgId = ? LIMIT 1")
-      .bind(data.teamId, data.orgId)
-      .first<{ ok: number }>();
-    if (!owns) throw new Error("Not found");
-    // Only one lead per team.
-    if (data.role === "lead") {
-      await db()
-        .prepare("UPDATE team_member SET role = 'member' WHERE teamId = ? AND role = 'lead'")
-        .bind(data.teamId)
-        .run();
-    }
-    const next = await db()
-      .prepare("SELECT COALESCE(MAX(sortOrder), 0) + 1 AS n FROM team_member WHERE teamId = ?")
-      .bind(data.teamId)
-      .first<{ n: number }>();
-    await db()
-      .prepare(
-        "INSERT OR REPLACE INTO team_member (teamId, userId, role, sortOrder) VALUES (?, ?, ?, ?)",
-      )
-      .bind(data.teamId, data.userId, data.role, next?.n ?? 1)
-      .run();
-  });
-
-export const removeTeamMember = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, teamId: idSchema, userId: idSchema }), data),
-  )
-  .handler(async ({ data }) => {
-    await assertKioskAdmin(data.orgId);
-    const owns = await db()
-      .prepare("SELECT 1 AS ok FROM team WHERE id = ? AND orgId = ? LIMIT 1")
-      .bind(data.teamId, data.orgId)
-      .first<{ ok: number }>();
-    if (!owns) return;
-    await db()
-      .prepare("DELETE FROM team_member WHERE teamId = ? AND userId = ?")
-      .bind(data.teamId, data.userId)
-      .run();
+    const { getAuth } = await import("./auth");
+    const session = await getAuth().api.getSession({ headers: getRequestHeaders(), query: { disableCookieCache: true } });
+    if (!session) throw new Error("Sign in before editing kiosk teams.");
+    return executeKioskTeamCommand(data, { userId: session.user.id, sessionId: session.session.id });
   });
 
 // ─── Roster roles ────────────────────────────────────────────
