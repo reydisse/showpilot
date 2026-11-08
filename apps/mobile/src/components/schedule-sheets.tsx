@@ -1,8 +1,11 @@
+import { useMobileAssignment } from "@/hooks/use-mobile-assignment";
+import { assignmentFieldsSchema, assignmentRetryable, type AssignmentDraft, type AssignmentRead, type ScheduleAssignmentCommand, type ScheduleAssignmentResult } from "@/lib/assignment-recovery";
+import { reminderMessage } from "@/lib/reminder-recovery";
 import { useMobileInventory } from "@/hooks/use-mobile-inventory";
 import type { InventoryCommand, InventoryResult, InventoryDraft } from "@/lib/inventory-recovery";
 import { workspaceCopy , WORKSPACE_DEFINITIONS } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms , useWorkspace } from "@/providers/workspace-provider";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Check from "lucide-react-native/icons/check";
 import Search from "lucide-react-native/icons/search";
 import X from "lucide-react-native/icons/x";
@@ -16,7 +19,6 @@ import { getServiceDateForTimeZone, isServiceDate, serviceWallTimeInput } from "
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 type Service = MobileSchedule["services"][number];
-type Assignment = MobileSchedule["assignments"][number];
 type Crew = MobileSchedule["crew"][number];
 
 export interface ScheduleServiceDraft {
@@ -30,17 +32,6 @@ export interface ScheduleServiceDraft {
   inventoryId?: string;
   copyFrom?: string;
   copyFromShowId?: string;
-}
-
-export interface ScheduleAssignmentDraft {
-  requestId: string;
-  showId: string;
-  role: string;
-  department: string;
-  crewMemberId: string | null;
-  callTime: string;
-  notes: string;
-  expectedUpdatedAt?: string;
 }
 
 export interface ScheduleTeamDraft {
@@ -205,7 +196,8 @@ export function ScheduleServiceSheet({ initialInventoryId, inventory, onClose, o
   );
 }
 
-function CrewPicker({ crew, selectedId, onSelect }: {
+function CrewPicker({ crew, selectedId, onSelect, disabled = false }: {
+  disabled?: boolean;
   crew: Crew[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
@@ -220,15 +212,16 @@ function CrewPicker({ crew, selectedId, onSelect }: {
   return (
     <View style={styles.picker}>
       <Text style={styles.fieldLabel}>ROSTER CONTACT</Text>
-      <View style={styles.search}><Search color={colors.textFaint} size={15} /><TextInput accessibilityLabel="Search roster" onChangeText={setSearch} placeholder="Search name or role" placeholderTextColor={colors.textFaint} style={styles.searchInput} value={search} /></View>
-      <Pressable accessibilityRole="radio" accessibilityState={{ checked: selectedId === null }} onPress={() => onSelect(null)} style={[styles.choice, selectedId === null && styles.choiceActive]}>
+      <View style={styles.search}><Search color={colors.textFaint} size={15} /><TextInput accessibilityLabel="Search roster" editable={!disabled} onChangeText={setSearch} placeholder="Search name or role" placeholderTextColor={colors.textFaint} style={styles.searchInput} value={search} /></View>
+      <Pressable accessibilityRole="radio" accessibilityState={{ checked: selectedId === null, disabled }} disabled={disabled} onPress={() => onSelect(null)} style={[styles.choice, selectedId === null && styles.choiceActive]}>
         <View style={styles.choiceCopy}><Text style={styles.choiceName}>Open position</Text><Text style={styles.choiceMeta}>Nobody assigned yet</Text></View>
         {selectedId === null ? (
           <Check color={colors.amberText} size={17} />
         ) : null}
       </Pressable>
+      {selectedId && !crew.some(person => person.id === selectedId) ? <Text style={styles.hint}>The selected roster contact is unavailable. Your selection is retained.</Text> : null}
       {filtered.map((person) => (
-        <Pressable accessibilityRole="radio" accessibilityState={{ checked: selectedId === person.id, disabled: !person.email }} disabled={!person.email} key={person.id} onPress={() => onSelect(person.id)} style={[styles.choice, selectedId === person.id && styles.choiceActive, !person.email && styles.choiceDisabled]}>
+        <Pressable accessibilityRole="radio" accessibilityState={{ checked: selectedId === person.id, disabled: disabled || !person.email }} disabled={disabled || !person.email} key={person.id} onPress={() => onSelect(person.id)} style={[styles.choice, selectedId === person.id && styles.choiceActive, !person.email && styles.choiceDisabled]}>
           <View style={styles.choiceCopy}><Text style={styles.choiceName}>{person.name}</Text><Text style={styles.choiceMeta}>{person.role || "Crew"}{person.email ? ` · ${person.email}` : " · Email required"}</Text></View>
           {selectedId === person.id ? (
             <Check color={colors.amberText} size={17} />
@@ -242,56 +235,385 @@ function CrewPicker({ crew, selectedId, onSelect }: {
   );
 }
 
-export function ScheduleAssignmentSheet({ assignment, crew, onClose, onSave, showId }: {
-  assignment: Assignment | null;
+export function ScheduleAssignmentSheet({
+  orgId,
+  userId,
+  active,
+  initial,
+  crew,
+  onClose,
+  onCommand,
+  onRead,
+  onRefresh,
+}: {
+  orgId: string;
+  userId: string;
+  active: boolean;
+  initial: AssignmentDraft;
   crew: Crew[];
   onClose: () => void;
-  onSave: (draft: ScheduleAssignmentDraft) => Promise<void>;
-  showId: string;
+  onCommand: (
+    command: ScheduleAssignmentCommand,
+    review: boolean,
+    signal: AbortSignal,
+  ) => Promise<ScheduleAssignmentResult>;
+  onRead: (
+    orgId: string,
+    id: string,
+    signal: AbortSignal,
+  ) => Promise<AssignmentRead>;
+  onRefresh: (signal: AbortSignal) => Promise<void>;
 }) {
   const styles = useStyles();
-  const [requestId] = useState(() => createLocalRequestId("assignment"));
-  const [role, setRole] = useState(assignment?.role ?? "");
-  const [department, setDepartment] = useState(assignment?.department ?? "Production");
-  const [crewMemberId, setCrewMemberId] = useState<string | null>(assignment?.crewMemberId ?? null);
-  const [callTime, setCallTime] = useState(assignment?.callTime ?? "");
-  const [notes, setNotes] = useState(assignment?.notes ?? "");
-  const [busy, setBusy] = useState(false);
-  const personChanged = crewMemberId !== (assignment?.crewMemberId ?? null);
-  const valid = role.trim().length > 0 && department.trim().length > 0 && (!callTime || /^([01]\d|2[0-3]):[0-5]\d$/.test(callTime));
-
-  const save = async () => {
-    await onSave({ requestId, showId, role: role.trim(), department: department.trim(), crewMemberId, callTime, notes: notes.trim(), expectedUpdatedAt: assignment?.updatedAt });
-    onClose();
+  const work = useMobileAssignment({ orgId, userId }, initial, {
+    active,
+    send: onCommand,
+    read: onRead,
+    refresh: onRefresh,
+  });
+  const { draft, attempt } = work;
+  const [confirm, setConfirm] = useState<"save" | "discard" | null>(null);
+  useEffect(() => {
+    setConfirm(null);
+  }, [active, orgId, userId, initial.editorId]);
+  const fields = draft.fields;
+  const removing = draft.mode === "delete";
+  const locked = work.locked || !!confirm || !active || removing;
+  const personChanged =
+    fields.crewMemberId !== (draft.base?.crewMemberId ?? null);
+  const replacingDecline = draft.base?.status === "declined" && personChanged;
+  const valid =
+    (removing || assignmentFieldsSchema.safeParse(fields).success) &&
+    (draft.mode === "create" || !!draft.base?.revision);
+  const change = <K extends keyof AssignmentDraft["fields"]>(
+    key: K,
+    value: AssignmentDraft["fields"][K],
+  ) => {
+    if (!locked)
+      work.setDraft((current) => ({
+        ...current,
+        fields: { ...current.fields, [key]: value },
+      }));
   };
   const submit = () => {
-    if (assignment?.status === "confirmed" && personChanged) {
-      Alert.alert("Replace confirmed crew member?", "Their confirmation will be cleared and the new person will receive a fresh invitation.", [
-        { text: "Cancel", style: "cancel" },
-        { text: "Replace", style: "destructive", onPress: () => runSave(save, setBusy) },
-      ]);
-      return;
-    }
-    runSave(save, setBusy);
+    if (!active || work.locked || !valid) return;
+    if (removing || (draft.base?.status === "confirmed" && personChanged))
+      setConfirm("save");
+    else work.submit();
   };
+  const result =
+    attempt?.kind === "confirmed" ? attempt.result : attempt?.previous;
+  const settled = attempt?.kind === "confirmed" && attempt.refresh === "done";
   return (
-    <ScheduleSheet eyebrow={assignment ? "EDIT ASSIGNMENT" : "NEW POSITION"} onClose={onClose} title={assignment?.role || "Add a position"}>
-      {assignment ? (
+    <ScheduleSheet
+      eyebrow={
+        removing
+          ? "REMOVE ASSIGNMENT"
+          : draft.mode === "edit"
+            ? "EDIT ASSIGNMENT"
+            : "NEW POSITION"
+      }
+      onClose={onClose}
+      title={draft.base ? fields.role : "Add a position"}
+    >
+      <Text style={styles.intro}>
+        {draft.showName} · {fields.serviceDate} · {fields.timeZone}
+      </Text>
+      <Text style={styles.assignmentCopy}>
+        Closing keeps this draft and any unconfirmed save until you return.
+        Signing out or restarting the app clears local drafts.
+      </Text>
+      {draft.base ? (
         <View style={styles.responseBox}>
-          <Text style={styles.responseLabel}>CURRENT RESPONSE</Text>
-          <Text style={styles.responseValue}>{assignment.crewMemberId ? assignment.status : "Open position"}</Text>
-          {assignment.responseNote ? (
-            <Text style={styles.responseNote}>{assignment.responseNote}</Text>
+          <Text style={styles.responseLabel}>LAST REVIEWED RESPONSE</Text>
+          <Text style={styles.responseValue}>
+            {draft.base.crewMemberId ? draft.base.status : "Open position"}
+          </Text>
+          {draft.base.responseNote ? (
+            <Text style={styles.responseNote}>{draft.base.responseNote}</Text>
           ) : null}
         </View>
       ) : null}
-      <AppField autoCapitalize="words" label="Position" maxLength={120} onChangeText={setRole} placeholder="Camera Operator" value={role} />
-      <AppField autoCapitalize="words" label="Department" maxLength={80} onChangeText={setDepartment} placeholder="Video" value={department} />
-      <CrewPicker crew={crew} onSelect={setCrewMemberId} selectedId={crewMemberId} />
-      <AppField autoCapitalize="none" error={callTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(callTime) ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Custom call time (optional)" maxLength={5} onChangeText={setCallTime} placeholder="08:15" value={callTime} />
-      <AppField autoCapitalize="sentences" label="Manager note (optional)" maxLength={500} multiline onChangeText={setNotes} placeholder="Arrival instructions or preparation notes" style={styles.notes} textAlignVertical="top" value={notes} />
-      <Text style={styles.hint}>{crewMemberId ? personChanged ? "Saving sends a new secure invitation and resets any earlier response." : "Role and note edits preserve the existing response." : "This remains visible as an open position."}</Text>
-      <AppButton disabled={!valid || busy} label={busy ? "Saving assignment…" : assignment ? "Save assignment" : crewMemberId ? "Add and send invitation" : "Add open position"} loading={busy} onPress={submit} />
+      <AppField
+        editable={!locked}
+        autoCapitalize="words"
+        label="Position"
+        maxLength={120}
+        onChangeText={(value) => change("role", value)}
+        placeholder="Camera Operator"
+        value={fields.role}
+      />
+      <AppField
+        editable={!locked}
+        autoCapitalize="words"
+        label="Department"
+        maxLength={80}
+        onChangeText={(value) => change("department", value)}
+        placeholder="Video"
+        value={fields.department}
+      />
+      <CrewPicker
+        disabled={locked}
+        crew={crew}
+        onSelect={(value) => change("crewMemberId", value)}
+        selectedId={fields.crewMemberId}
+      />
+      <AppField
+        editable={!locked}
+        autoCapitalize="none"
+        error={
+          fields.callTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(fields.callTime)
+            ? "Use 24-hour HH:mm."
+            : undefined
+        }
+        keyboardType="numbers-and-punctuation"
+        label="Custom call time (optional)"
+        maxLength={5}
+        onChangeText={(value) => change("callTime", value)}
+        placeholder="08:15"
+        value={fields.callTime}
+      />
+      <AppField
+        editable={!locked}
+        autoCapitalize="sentences"
+        label="Manager note (optional)"
+        maxLength={500}
+        multiline
+        onChangeText={(value) => change("notes", value)}
+        placeholder="Arrival instructions or preparation notes"
+        style={styles.notes}
+        textAlignVertical="top"
+        value={fields.notes}
+      />
+      {work.error ? (
+        <Text accessibilityRole="alert" style={styles.assignmentCopy}>
+          {work.error}
+        </Text>
+      ) : null}
+      {work.reading ? (
+        <Text style={styles.assignmentCopy}>Loading current position…</Text>
+      ) : null}
+      {!attempt && !confirm ? (
+        <>
+          <Text style={styles.assignmentCopy}>
+            {removing
+              ? "Removing this position closes its pending invitation. You will confirm before removal."
+              : replacingDecline
+                ? "Saving creates a replacement position and preserves the declined response."
+                : fields.crewMemberId
+                  ? personChanged
+                    ? "Saving sends a new secure invitation and resets any earlier response."
+                    : "Role and note edits preserve the existing response."
+                  : "This remains visible as an open position."}
+          </Text>
+          {draft.base && !draft.base.revision ? (
+            <AppButton
+              disabled={!active || work.reading}
+              label="Load current position"
+              onPress={work.loadCurrent}
+            />
+          ) : null}
+          <AppButton
+            disabled={!valid || work.locked || !active}
+            label={
+              removing
+                ? "Review removal"
+                : draft.mode === "edit"
+                  ? "Save assignment"
+                  : fields.crewMemberId
+                    ? "Add and send invitation"
+                    : "Add open position"
+            }
+            onPress={submit}
+          />
+          <AppButton
+            variant="secondary"
+            disabled={!active || work.locked}
+            label="Discard draft"
+            onPress={() => setConfirm("discard")}
+          />
+        </>
+      ) : null}
+      {confirm ? (
+        <View style={styles.responseBox}>
+          <Text style={styles.responseValue}>
+            {confirm === "discard"
+              ? "Discard this draft?"
+              : removing
+                ? "Remove this position?"
+                : "Replace confirmed crew member?"}
+          </Text>
+          <Text style={styles.assignmentCopy}>
+            {confirm === "discard"
+              ? "Your unsaved changes will be discarded. The shared schedule will stay as it is."
+              : removing
+                ? `${fields.role} will be removed from ${draft.showName} on ${fields.serviceDate}. Its pending invitation will close.`
+                : fields.crewMemberId
+                  ? "Their confirmation will be cleared and the new person will receive a fresh invitation."
+                  : "Their confirmation will be cleared and the position will become unassigned."}
+          </Text>
+          <AppButton
+            variant="danger"
+            disabled={!active || work.locked}
+            label={
+              confirm === "discard"
+                ? "Confirm discard"
+                : removing
+                  ? "Remove position"
+                  : fields.crewMemberId
+                    ? "Replace and invite"
+                    : "Make position open"
+            }
+            onPress={() => {
+              if (!active || !confirm) return;
+              if (confirm === "discard") {
+                if (work.discard()) onClose();
+              } else {
+                work.submit();
+                setConfirm(null);
+              }
+            }}
+          />
+          <AppButton
+            variant="secondary"
+            label="Cancel"
+            onPress={() => setConfirm(null)}
+          />
+        </View>
+      ) : null}
+      {attempt ? (
+        <View accessibilityLiveRegion="polite" style={styles.responseBox}>
+          {attempt.kind === "pending" ? (
+            <Text style={styles.assignmentCopy}>
+              Checking assignment save… You can close this editor and return to
+              check the result.
+            </Text>
+          ) : null}
+          {attempt.kind === "failed" ? (
+            <>
+              <Text accessibilityRole="alert" style={styles.assignmentCopy}>
+                {attempt.message}
+              </Text>
+              <Text style={styles.assignmentCopy}>
+                The original save may already have applied. Retry checks that
+                same save and invitation.
+              </Text>
+              <AppButton
+                disabled={!active}
+                label="Retry original save"
+                onPress={work.retry}
+              />
+              <Text style={styles.assignmentCopy}>
+                Review checks the original save. If it has not applied, review
+                cancels it before you edit. If it has applied, review checks
+                that same invitation.
+              </Text>
+              <AppButton
+                disabled={!active}
+                variant="secondary"
+                label="Review original request"
+                onPress={work.reviewOriginal}
+              />
+            </>
+          ) : null}
+          {result ? (
+            <>
+              {attempt.kind !== "confirmed" ? (
+                <Text style={styles.assignmentCopy}>
+                  Previous confirmed result:
+                </Text>
+              ) : null}
+              <Text style={styles.responseValue}>
+                {result.outcome === "applied"
+                  ? removing
+                    ? "Position removed."
+                    : replacingDecline
+                      ? "Replacement position saved. The original declined response is retained."
+                      : "Assignment saved."
+                  : result.outcome === "conflict"
+                    ? "This request was not applied. Review current details before saving again."
+                    : "This position changed after the original save. Your original request will not overwrite it."}
+              </Text>
+              {result.invitation ? (
+                <Text style={styles.assignmentCopy}>
+                  {reminderMessage(result.invitation, "invitation")}
+                </Text>
+              ) : null}
+            </>
+          ) : null}
+          {attempt.kind === "confirmed" ? (
+            <>
+              {attempt.refresh === "pending" ? (
+                <Text style={styles.assignmentCopy}>
+                  Save checked. Refreshing Schedule…
+                </Text>
+              ) : null}
+              {attempt.refresh === "idle" || attempt.refresh === "failed" ? (
+                <>
+                  {attempt.message ? (
+                    <Text
+                      accessibilityRole="alert"
+                      style={styles.assignmentCopy}
+                    >
+                      {attempt.message}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.assignmentCopy}>
+                    The result is retained. Refreshing does not save or send
+                    invitations again.
+                  </Text>
+                  <AppButton
+                    disabled={!active}
+                    label="Refresh Schedule"
+                    onPress={work.refresh}
+                  />
+                </>
+              ) : null}
+              {settled ? (
+                assignmentRetryable(attempt.result) ? (
+                  <AppButton
+                    disabled={!active}
+                    label="Retry original save"
+                    onPress={work.retry}
+                  />
+                ) : (
+                  <>
+                    {draft.mode === "create" &&
+                    attempt.result.outcome === "conflict" ? (
+                      <AppButton
+                        disabled={!active}
+                        label="Edit original draft"
+                        onPress={work.editUnapplied}
+                      />
+                    ) : null}
+                    {draft.mode !== "create" &&
+                    attempt.result.outcome !== "applied" ? (
+                      <>
+                        <Text style={styles.assignmentCopy}>
+                          Loading current details replaces the fields above.
+                          Review them before trying again.
+                        </Text>
+                        <AppButton
+                          disabled={!active || work.reading}
+                          label="Load current position"
+                          onPress={work.loadCurrent}
+                        />
+                      </>
+                    ) : null}
+                    <AppButton
+                      disabled={!active || work.reading}
+                      label="Finish and close"
+                      onPress={() => {
+                        if (work.finish()) onClose();
+                      }}
+                    />
+                  </>
+                )
+              ) : null}
+            </>
+          ) : null}
+        </View>
+      ) : null}
     </ScheduleSheet>
   );
 }
@@ -732,6 +1054,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   headerCopy: { flex: 1, gap: 4 },
   eyebrow: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.2 },
   title: { color: colors.text, fontFamily, fontSize: 21, fontWeight: "900" },
+  assignmentCopy: { color: colors.textMuted, fontFamily, fontSize: 13, lineHeight: 20 },
   close: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 13, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
   content: { gap: spacing.medium, paddingBottom: 40 },
   intro: { color: colors.textMuted, fontFamily, fontSize: 12, lineHeight: 19 },

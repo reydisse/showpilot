@@ -1,3 +1,6 @@
+import * as assignmentHook from "../../test/native-assignment-hook.js";
+import * as assignmentContract from "../../../../mobile/src/lib/assignment-recovery.ts";
+import * as reminderContract from "../../../../mobile/src/lib/reminder-recovery.ts";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import ts from "typescript";
@@ -34,6 +37,9 @@ function loadSheet(alert) {
     React.createElement("div", null, children);
   const modules = {
     "@/hooks/use-mobile-inventory": inventoryHook,
+    "@/hooks/use-mobile-assignment": assignmentHook,
+    "@/lib/assignment-recovery": assignmentContract,
+    "@/lib/reminder-recovery": reminderContract,
     react: React,
     "react/jsx-runtime": jsx,
     "@showpilot/shared": {
