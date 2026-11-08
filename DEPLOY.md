@@ -7916,3 +7916,23 @@ Stack gate update: #264 is green at 00dcd104 in run 42532247791: web CI 14m42s,
 Native Rust tests 4m25s. Draft timestamp PR #265 is now open at db426401, with
 run 42533504976 queued. The template deletion implementation is pushed at
 d3bb2fc7; its PR remains held until #265's current-head checks pass.
+
+### Phase 2 CI follow-up: isolate native PIN authority cases
+
+PR #265 run 42533504976 passed 2,791 unit tests and 1,550 Worker tests, but
+`native-rundown-details.worker.test.ts` timed out after 30 seconds in the test
+combining missing PIN, wrong PIN, valid read, valid save, and schedule denial.
+Native Rust passed in 4m36s. No next PR was opened after that failure.
+
+Split the independent authority paths into four integration cases. Each still
+uses real authentication and the production 210,000-iteration PIN verifier;
+valid read and save still traverse their actual HTTP/relay/database checks.
+The existing 30-second PIN-case deadlines remain unchanged. Rejected writes
+also assert that neither show metadata nor a receipt was written. This changes
+test organization only, not production authority or cryptographic work factors.
+
+Validation on the isolated #265 branch: full coverage run passes 2,791 unit
+and 1,554 Worker tests (4,345 total); web typecheck passes. All unchanged
+coverage floors pass: relays 86.51% statements / 84.25% branches / 90.16%
+functions / 92.01% lines. Evidence: /tmp/showpilot-pr265-coverage1.log and
+/tmp/showpilot-pr265-tsc1.log. The next PR remains held for GitHub's rerun.

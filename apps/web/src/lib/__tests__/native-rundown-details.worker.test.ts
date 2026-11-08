@@ -290,13 +290,31 @@ async function pinProtected(f: Awaited<ReturnType<typeof nativeFixture>>) {
     .bind(crypto.randomUUID(), f.orgId, storedPin)
     .run();
 }
-it("a technical manager uses the current PIN without gaining schedule management", async () => {
+// Keep independent authority paths in separate tests: each route performs
+// production-strength PIN checks. Combining all four paths exceeded 30 seconds
+// under CI coverage; the work factor and each test's deadline stay unchanged.
+it("a technical manager cannot read without a PIN or save with the wrong PIN", async () => {
   const f = await nativeFixture();
   await pinProtected(f);
   expect((await f.call("read")).status).toBe(401);
   expect((await f.call("save", f.command, "wrong")).status).toBe(401);
-  await f.read("2468");
+  expect(await f.receiptCount()).toBe(0);
+  expect(await f.row()).toMatchObject({ name: "Original" });
+}, 30000);
+it("a technical manager can read rundown details with the current PIN", async () => {
+  const f = await nativeFixture();
+  await pinProtected(f);
+  expect((await f.read("2468")).snapshot).toMatchObject({ name: "Original" });
+}, 30000);
+it("a technical manager can save rundown details with the current PIN", async () => {
+  const f = await nativeFixture();
+  await pinProtected(f);
   expect((await f.save(f.command, false, "2468")).outcome).toBe("applied");
+  expect(await f.row()).toMatchObject({ name: f.command.name });
+}, 30000);
+it("rundown PIN access does not grant a technical manager schedule management", async () => {
+  const f = await nativeFixture();
+  await pinProtected(f);
   await expect(
     saveShowDetailsRequest(
       f.headers,
@@ -304,7 +322,9 @@ it("a technical manager uses the current PIN without gaining schedule management
       env,
     ),
   ).rejects.toThrow("permission");
-}, 30000);
+  expect(await f.receiptCount()).toBe(0);
+  expect(await f.row()).toMatchObject({ name: "Original" });
+});
 it.each(["session", "role", "pin", "deleting"])(
   "native details check %s changes at commit",
   async (change) => {
