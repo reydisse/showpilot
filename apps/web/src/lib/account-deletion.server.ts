@@ -153,6 +153,12 @@ export async function beforeDeleteAccount(user: { id: string; email: string; ema
   await deleteUploadedChatFiles(user.id, orgIds);
   const cfEnv = env as unknown as AccountDeletionEnv;
   await cfEnv.STORAGE.delete(`avatars/${user.id}.jpg`);
+  let avatarCursor: string | undefined;
+  do {
+    const versions = await cfEnv.STORAGE.list({ prefix: `avatars/${user.id}/`, cursor: avatarCursor });
+    if (versions.objects.length) await cfEnv.STORAGE.delete(versions.objects.map(object => object.key));
+    avatarCursor = versions.truncated ? versions.cursor : undefined;
+  } while (avatarCursor);
   await preserveOrganizationAuditLinks(user.id, memberships);
   await deleteDatabaseUserContent(user.id, user.email, user.emailVerified);
 }

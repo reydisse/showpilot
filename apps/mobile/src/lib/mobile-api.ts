@@ -30,7 +30,7 @@ import {
   orgIdFromPinProtectedPath,
 } from "@/lib/rundown-pin";
 
-const managedAvatarPath = /^\/api\/user\/avatar\/[^/?#]+\.jpg$/;
+const managedAvatarPath = /^\/api\/user\/avatar\/(?:[^/?#]+\.jpg|[^/?#]+\/[a-f0-9]{64}\.jpg)$/;
 export { rundownItemSchema, timerSchema, mobileRundownSchema } from "./rundown-schema";
 
 export function resolveMobileAvatarUrl(

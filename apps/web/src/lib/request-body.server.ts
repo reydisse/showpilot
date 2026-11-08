@@ -9,12 +9,12 @@ export function contentLengthExceeds(request: Request, maximumBytes: number): bo
   return Number.isFinite(value) && value > maximumBytes;
 }
 
-export async function readRequestTextWithinLimit(
+export async function readRequestBytesWithinLimit(
   request: Request,
   maximumBytes: number,
-): Promise<RequestBodyReadResult> {
+): Promise<{ ok: true; buffer: ArrayBuffer } | { ok: false; status: 400 | 413 }> {
   if (contentLengthExceeds(request, maximumBytes)) return { ok: false, status: 413 };
-  if (!request.body) return { ok: true, text: "" };
+  if (!request.body) return { ok: true, buffer: new ArrayBuffer(0) };
 
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -40,7 +40,12 @@ export async function readRequestTextWithinLimit(
     joined.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return { ok: true, text: new TextDecoder().decode(joined) };
+  return { ok: true, buffer: joined.buffer };
+}
+
+export async function readRequestTextWithinLimit(request: Request, maximumBytes: number): Promise<RequestBodyReadResult> {
+  const body = await readRequestBytesWithinLimit(request, maximumBytes);
+  return body.ok ? { ok: true, text: new TextDecoder().decode(body.buffer) } : body;
 }
 
 export async function readRequestJsonWithinLimit(

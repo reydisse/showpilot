@@ -45,6 +45,9 @@ async function fixture(verified = true) {
     await prisma.appSetting.create({ data: { orgId: org, key, value: "test" } });
   }
   await env.STORAGE.put(`avatars/${id}.jpg`, "avatar");
+  await env.STORAGE.put(`avatars/${id}/old.jpg`, "old version");
+  await env.STORAGE.put(`avatars/${id}/new.jpg`, "new version");
+  await env.STORAGE.put(`avatars/${other}/keep.jpg`, "keep another account");
   await env.STORAGE.put(`orgs/${org}/chat/draft/file.txt`, "unsent personal upload", { customMetadata: { uploadedBy: id } });
   await env.STORAGE.put(`orgs/${org}/chat/other/file.txt`, "keep", { customMetadata: { uploadedBy: other } });
   return { id, other, org, email, prisma };
@@ -81,6 +84,9 @@ describe("account deletion through the real auth endpoint", () => {
     expect(await f.prisma.serviceAssignment.findUnique({ where: { id: `assignment-${f.id}` } })).toMatchObject({ crewMemberId: null, assignedByUserId: null, responseNote: "" });
     expect(await f.prisma.appSetting.count({ where: { orgId: f.org } })).toBe(1);
     expect(await env.STORAGE.head(`avatars/${f.id}.jpg`)).toBeNull();
+    expect((await env.STORAGE.list({prefix:`avatars/${f.id}/`})).objects).toHaveLength(0);
+    expect(await env.STORAGE.head(`avatars/${f.other}/keep.jpg`)).not.toBeNull();
+    expect(await env.DB.prepare("SELECT userId FROM user_profile_revision WHERE userId=?").bind(f.id).first()).toBeNull();
     expect(await env.STORAGE.head(`orgs/${f.org}/chat/draft/file.txt`)).toBeNull();
     expect(await env.STORAGE.head(`orgs/${f.org}/chat/other/file.txt`)).not.toBeNull();
     expect(await f.prisma.crewMember.findUnique({ where: { id: `crew-${f.other}` } })).not.toBeNull();
