@@ -248,21 +248,6 @@ interface MobileAssignmentRow {
   responseVersion?: string;
 }
 
-interface MobileAssignmentResponseRow {
-  id: string;
-  showId: string | null;
-  crewMemberId: string;
-  role: string;
-  callTime: string;
-  serviceDate: string;
-  status: string;
-  crewName: string;
-  crewEmail: string;
-  scheduledStartTime: string | null;
-  scheduledCallTime: string | null;
-  plannedDurationMs: number;
-  assignedByUserId: string | null;
-}
 
 interface MobileIncidentRow {
   id: string;
@@ -3264,157 +3249,31 @@ async function saveMobileScheduleProvider(
 async function respondToAssignment(
   request: Request,
   db: MobileApiDatabase,
+  review = false,
 ): Promise<Response> {
   const body = await readJson(request);
-  if (!body || !validId(body.orgId) || !validId(body.assignmentId)) {
-    return json({ error: "orgId and assignmentId are required." }, 400);
-  }
-  const response = body.response;
-  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
-  const reviewedVersion =
-    typeof body.reviewedVersion === "string" ? body.reviewedVersion : "";
-  if (
-    (response !== "confirmed" && response !== "declined") ||
-    reason.length > 500 ||
-    reviewedVersion.length < 2 ||
-    reviewedVersion.length > 512
-  ) {
-    return json(
-      {
-        error:
-          "Choose a valid response and keep the note under 500 characters.",
-      },
-      400,
-    );
-  }
+  const { personalResponseFieldsSchema, personalResponseCommandSchema } = await import("./personal-assignment-response-contract");
+  const recovery = review || (body && ("userId" in body || "requestId" in body || "expectedRevision" in body));
+  const parsed = (recovery ? personalResponseCommandSchema : personalResponseFieldsSchema).safeParse(body);
+  if (!parsed.success) return json({ error: "Choose a valid response, original request and reviewed assignment." }, 400);
   const url = new URL(request.url);
-  url.searchParams.set("orgId", body.orgId);
+  url.searchParams.set("orgId", parsed.data.orgId);
   const access = await authorize(request, url, db);
   if (access instanceof Response) return access;
-  const [assignment, settingsResult] = await Promise.all([
-    db
-      .prepare(
-        `SELECT a.id, a.showId, a.crewMemberId, a.assignedByUserId, a.role, a.callTime, a.serviceDate, a.status,
-              c.name AS crewName, c.email AS crewEmail, r.scheduledStartTime, r.scheduledCallTime,
-              COALESCE((
-                SELECT SUM(ri.duration) FROM rundown_item ri
-                WHERE ri.orgId = a.orgId AND ri.showId = a.showId
-              ), 0) AS plannedDurationMs
-       FROM service_assignment a
-       JOIN crew_member c ON c.id = a.crewMemberId AND c.orgId = a.orgId
-       LEFT JOIN rundown r ON r.id = a.showId AND r.orgId = a.orgId
-       WHERE a.id = ? AND a.orgId = ? LIMIT 1`,
-      )
-      .bind(body.assignmentId, access.orgId)
-      .first<MobileAssignmentResponseRow>(),
-    db
-      .prepare(
-        "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN ('org-timezone', 'default-service-window-minutes', 'default-call-lead-minutes')",
-      )
-      .bind(access.orgId)
-      .all<{ key: string; value: string }>(),
-  ]);
-  if (
-    !assignment ||
-    assignment.crewEmail.toLowerCase() !== access.identity.email
-  ) {
-    return json({ error: "Assignment not found." }, 404);
-  }
-  const settingMap = Object.fromEntries(
-    (settingsResult.results ?? []).map((setting) => [
-      setting.key,
-      setting.value,
-    ]),
-  );
-  const { serviceWindowMinutes } = readPhaseSettings(settingMap);
-  const currentVersion = assignmentResponseVersion({
-    effectiveCallTime: getAssignmentCallTime({
-      ...assignment,
-      callLeadMinutes: readPhaseSettings(settingMap).callLeadMinutes,
-      timeZone: settingMap["org-timezone"],
-    }),
-    showId: assignment.showId,
-    serviceDate: assignment.serviceDate,
-    role: assignment.role,
-    callTime: assignment.callTime,
-    scheduledStartTime: assignment.scheduledStartTime,
-  });
-  if (reviewedVersion !== currentVersion) {
-    return json(
-      {
-        error:
-          "This assignment changed. Review the updated details before responding.",
-      },
-      409,
-    );
-  }
-  const responseWindow = getCrewScheduleResponseWindow(
-    {
-      serviceDate: assignment.serviceDate,
-      scheduledStartTime: assignment.scheduledStartTime,
-      plannedDurationMs: assignment.showId
-        ? assignment.plannedDurationMs
-        : undefined,
-      serviceWindowMinutes,
-      timeZone: settingMap["org-timezone"],
-    },
-    Date.now(),
-  );
-  if (assignment.status !== "assigned") {
-    return json(
-      { error: "A response has already been recorded for this assignment." },
-      409,
-    );
-  }
-  if (responseWindow.status === "closed") {
-    return json(
-      {
-        error:
-          "This assignment is closed because its scheduled event has ended.",
-      },
-      409,
-    );
-  }
-  const update = await db
-    .prepare(
-      `UPDATE service_assignment
-     SET status = ?, responseNote = ?, respondedAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP
-     WHERE id = ? AND orgId = ? AND crewMemberId = ? AND status = 'assigned'`,
-    )
-    .bind(
-      response,
-      reason,
-      assignment.id,
-      access.orgId,
-      assignment.crewMemberId,
-    )
-    .run();
-  if (!changedExactlyOneRow(update)) {
-    return json(
-      { error: "A response has already been recorded for this assignment." },
-      409,
-    );
-  }
-
-  const { notifyOperationalEvent } =
-    await import("./operational-notifications.server");
-  const responseLabel = response === "confirmed" ? "accepted" : "declined";
-  await notifyOperationalEvent({
-    orgId: access.orgId,
-    actorId: access.identity.userId,
-    recipientIds: assignment.assignedByUserId
-      ? [assignment.assignedByUserId]
-      : [],
-    category: "schedule",
-    type: `assignment-${response}`,
-    severity: response === "declined" ? "warning" : "info",
-    title: `${assignment.crewName || access.identity.name} ${responseLabel} an assignment`,
-    message: `${assignment.role} · ${assignment.serviceDate}${reason ? ` · ${reason}` : ""}`,
-    actionUrl: `schedule?date=${encodeURIComponent(assignment.serviceDate)}&assignment=${encodeURIComponent(assignment.id)}`,
-    source: assignment.id,
-    pushTag: `assignment-response-${assignment.id}`,
-  });
-  return json({ ok: true });
+  const modern = recovery ? personalResponseCommandSchema.parse(parsed.data) : null;
+  if (modern && modern.userId !== access.identity.userId)
+    return json({ error: "Your account changed. Reopen Schedule." }, 403);
+  const { writePersonalAssignmentResponse } = await import("./personal-assignment-response.server");
+  const result = await writePersonalAssignmentResponse(request.headers, modern ?? {
+    ...parsed.data, orgId: access.orgId, userId: access.identity.userId,
+    requestId: crypto.randomUUID(), expectedRevision: null,
+  }, review);
+  if (modern) return json(result);
+  if (result.outcome === "applied") return json({ ok: true });
+  const unavailable = result.outcome === "unavailable" || result.outcome === "removed";
+  return json({ error: unavailable ? "Assignment not found." : result.outcome === "closed"
+    ? "This assignment is closed because its scheduled event has ended."
+    : "This assignment changed or already has a response. Review the updated details before responding." }, unavailable ? 404 : 409);
 }
 
 async function incidents(
@@ -7283,6 +7142,8 @@ export async function handleMobileApi(
     request.method === "POST"
   )
     return respondToAssignment(request, env.DB);
+  if (url.pathname === "/api/mobile/v1/schedule/review-response" && request.method === "POST")
+    return respondToAssignment(request, env.DB, true);
   if (
     url.pathname === "/api/mobile/v1/schedule/assignments" &&
     request.method === "POST"

@@ -1,3 +1,4 @@
+import { personalResponseResultSchema, type PersonalResponseCommand } from "./personal-response-recovery";
 import { showManagementReplySchema, showManagementReadSchema, type ShowManagementCommand } from "./show-management-recovery";
 import { showCreationReplySchema, type ShowCreationCommand } from "./show-creation-recovery";
 import { scheduleAssignmentResultSchema, assignmentReadSchema, type ScheduleAssignmentCommand } from "./assignment-recovery";
@@ -1470,17 +1471,11 @@ export async function getMobileSchedule(
   });
 }
 
-export async function respondToMobileAssignment(input: {
-  orgId: string;
-  assignmentId: string;
-  reviewedVersion: string;
-  response: "confirmed" | "declined";
-  reason?: string;
-}) {
-  await authenticatedFetch("/api/mobile/v1/schedule/respond", {
-    method: "POST",
-    body: JSON.stringify(input),
+export async function respondToMobileAssignment(input: PersonalResponseCommand, review: boolean, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/schedule/${review ? "review-response" : "respond"}`, {
+    method: "POST", body: JSON.stringify(input), signal,
   });
+  return personalResponseResultSchema.parse(await response.json());
 }
 
 export async function commandMobileAssignment(

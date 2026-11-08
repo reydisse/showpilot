@@ -7251,3 +7251,86 @@ Phase 2 remains 67/79; these are partial product-wide gate results. Other native
 mutations and the broad UX checks remain open. No production deployment, release,
 remote migration, real-org write or external mail. Twenty necessary tracked
 Markdown files remain.
+
+
+### Personal assignment response recovery, 2026-11-08
+
+Branch: `fix/personal-assignment-response-recovery`, stacked on
+`fix/native-show-edit-delete-recovery`. Real D1 tests reproduced two failures:
+responding could return 409 after actually saving because the assignment revision
+trigger increased D1's changed-row count, and a response could confirm Camera
+duties after the operator reviewed Audio when those duties changed between read
+and write. The original mocked response tests did not exercise that trigger.
+A further real Schedule read exposed different response-version tokens for the
+same timestamp stored as a number or ISO string.
+
+Migration `0087_personal_assignment_response.sql` adds actor/workspace/request
+receipts. The receipt and response now commit in one transaction, guarded by the
+current membership/session/email and the exact assignment, show-time, duration,
+crew-owner and settings snapshot. The closing deadline is checked at commit.
+Exact retries recover their outcome; they cannot apply an older response over a
+later edit or recreate a removed assignment. Review records a cancellation before
+an undelivered response can apply. Scheduler notifications use a stable receipt
+key and once-only inbox insertion. Notification push remains best effort and is
+not represented as delivered by the response result. Response-version tokens now
+normalize equivalent timestamp representations.
+
+The existing mobile response route accepts the current client's complete request
+identity and reviewed revision. Installed clients keep their original response
+shape and receive the same atomic checks, but cannot recover an exact receipt
+without a client request identity. The old internal response writer was removed.
+This migration has only been applied in disposable tests, not production.
+
+Native Schedule keeps decline notes and original response requests per account,
+workspace and assignment for the signed-in app session. Accept remains a direct
+action. Decline opens a retained note above the list. Pending or unknown responses
+lock notes and opposite actions; Retry sends the same payload, while Review can
+cancel a delayed response before editing. A confirmed response with failed refresh
+offers Refresh response status without another mutation. Conflict recovery keeps
+the note until explicit review of current duties. Notes require explicit discard,
+and confirmations cancel on focus loss. Recovery remains accessible across date
+navigation and after an assignment leaves the list. Response controls meet 44px;
+commands/reviews are bounded at 15 seconds and refresh at 12 seconds.
+
+Validation:
+- Eighteen real-auth/D1 Worker tests pass: first response with revision triggers,
+  exact retry, cancellation before delayed delivery, replay after later edits or
+  removal, concurrent opposing responses, changed payload rejection, changed
+  assignment/show/timezone/duration/crew ownership, revoked membership at commit,
+  closed windows, actor/request identity, installed-client shape, one scheduler
+  notification across replay/review, and the version returned by Schedule with
+  actual stored show times. Seven mocked response cases were replaced with these
+  database tests; the eight existing Schedule/bootstrap boundary cases remain.
+- Seventeen native hook/form cases pass, covering retained notes, exact retry,
+  opposite-action locks, 15s/12s deadlines, refresh-only recovery, cancellation
+  before editing, explicit current-version adoption, reply identity checks,
+  account/focus isolation, late completion, explicit discard and retention beyond
+  the default query garbage-collection window. Eight version tests pass, including
+  the new numeric/SQL-text/ISO equivalence regression.
+- Full suite: 2,671 unit / 1,428 Worker tests. Web typecheck and production build
+  pass. Main remains 549,525 raw / 173,749 gzip bytes within unchanged budgets.
+- Native verification passes typecheck, lint with existing warnings, all three
+  exports, Expo doctor 18/18, API contracts and polling. Hermes: iOS 5,613,923 /
+  Android 5,613,023 bytes, below the unchanged 6,500,000-byte limit.
+- Compiled Expo app with disposable real auth/D1 passes accepted-but-lost replies
+  for both Accept and Decline, exact retries, retained decline note across dates,
+  review cancellation and late-arrival rejection, a fresh reviewed response,
+  failed-refresh recovery and explicit discard. Controls pass 44px, text-fit and
+  reachability checks at 320/768/1440. Phone/tablet screenshots inspected; zero
+  browser runtime errors. The compiled show edit/delete regression also passes.
+  Expo web evidence does not establish physical iOS/Android UI behavior.
+
+Evidence: `/tmp/showpilot-personal-response-{before,before2,worker1,worker2,
+worker3,worker4,tsc1,tsc2,tsc3,tsc4,native-tsc1,hooks1,hooks2,full1,build1,
+verify1,browser1,show-browser}.log`. Worker2 exposed a fixture field error;
+worker3 reproduced the timestamp mismatch; worker4 and the final suite pass.
+Screenshots: `/tmp/showpilot-personal-response-{accept,decline}-{320,768,1440}.png`.
+After web build and mobile verify, rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-personal-response.mjs`.
+
+Preceding draft PR #256 is green (CI 42510725988, web 16m34s / Rust 4m44s).
+Phase 2 remains 67/79. Follow-up inspection found the public crew invitation
+response still rejects `meta.changes !== 1`; reproduce and repair that separate
+portal path next. Native provider/roster/rundown editing and broad product gates
+also remain open. No production deployment/release, remote migration, real-org
+write or external mail. Twenty necessary tracked Markdown files remain.
