@@ -109,7 +109,7 @@ fn companion_window_spec(org_slug: &str, kind: &str) -> Result<CompanionWindowSp
         ),
         "show-board" => (
             "show-board",
-            "ShowPilot Show Board",
+            "ShowPilot Crew status",
             format!("/{org_slug}/board"),
             true,
         ),

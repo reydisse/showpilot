@@ -118,7 +118,7 @@ export default function OperationsScreen() {
         {canShowBoard ? (
           <FeatureLink
             icon={MonitorPlay}
-            title="Show Board"
+            title="Crew status"
             module="board"
             description="Live crew status, venue clock, and the public check-in QR for phones and tablets."
             badge="LIVE"

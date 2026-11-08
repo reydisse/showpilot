@@ -76,7 +76,7 @@ function CrewCard({ member }: { member: MobileCheckInMember }) {
   const styles = useStyles();
   const photoUrl = crewPhotoUrl(member.photoUrl);
   return (
-    <View accessibilityLabel={`${member.name}, ${member.role || "Crew"}, ${member.isOnline ? "checked in" : "offline"}`} style={[styles.crewCard, member.isOnline ? styles.crewCardOnline : styles.crewCardOffline]}>
+    <View accessibilityLabel={`${member.name}, ${member.role || "Crew"}, ${member.isOnline ? "checked in" : "not checked in"}`} style={[styles.crewCard, member.isOnline ? styles.crewCardOnline : styles.crewCardOffline]}>
       <View style={styles.avatarWrap}>
         {photoUrl ? (
           <Image accessibilityIgnoresInvertColors accessibilityLabel={`${member.name} profile photo`} source={{ uri: photoUrl }} style={styles.avatar} />
@@ -87,7 +87,7 @@ function CrewCard({ member }: { member: MobileCheckInMember }) {
       </View>
       <Text numberOfLines={2} style={styles.crewName}>{member.name}</Text>
       <Text numberOfLines={2} style={styles.crewRole}>{member.role || "Crew"}</Text>
-      <View style={[styles.statusPill, member.isOnline && styles.statusPillOnline]}><Text style={[styles.statusText, member.isOnline && styles.statusTextOnline]}>{member.isOnline ? "ON CREW" : "OFFLINE"}</Text></View>
+      <View style={[styles.statusPill, member.isOnline && styles.statusPillOnline]}><Text style={[styles.statusText, member.isOnline && styles.statusTextOnline]}>{member.isOnline ? "CHECKED IN" : "NOT CHECKED IN"}</Text></View>
     </View>
   );
 }
@@ -118,7 +118,7 @@ export default function ShowBoardScreen() {
     return () => clearInterval(interval);
   }, []);
 
-  if (organizationPending) return <LoadingView label="Opening Show Board…" />;
+  if (organizationPending) return <LoadingView label="Opening crew status…" />;
   if (!organization) return <Redirect href="/organizations" />;
 
   const clockFormat = query.data?.clockFormat ?? "12hr";
@@ -147,13 +147,13 @@ export default function ShowBoardScreen() {
     <View style={styles.headerContent}>
       <View style={[styles.brandRow, width < 390 && styles.brandRowNarrow]}>
         <View style={styles.brandIcon}><Flame color={colors.amberText} size={27} /></View>
-        <View style={styles.brandCopy}><Text adjustsFontSizeToFit numberOfLines={1} style={styles.brandName}>ShowPilot</Text><Text style={styles.brandLabel}>PRODUCTION BOARD</Text></View>
+        <View style={styles.brandCopy}><Text adjustsFontSizeToFit numberOfLines={1} style={styles.brandName}>ShowPilot</Text><Text style={styles.brandLabel}>CREW STATUS</Text></View>
         <View style={[styles.clockCopy, width < 390 && styles.clockCopyNarrow]}><Text adjustsFontSizeToFit numberOfLines={1} style={[styles.clock, width < 390 && styles.clockNarrow]}>{formatVenueClock(now, timeZone, clockFormat)}</Text><Text numberOfLines={1} style={[styles.date, width < 390 && styles.dateNarrow]}>{formatVenueDate(now, timeZone)}</Text></View>
       </View>
 
       <View style={styles.summaryRow}>
-        <View style={styles.summaryItem}><View style={[styles.summaryDot, styles.summaryDotOnline]} /><Text style={styles.summaryText}><Text style={styles.summaryNumber}>{onlineCount}</Text> on crew</Text></View>
-        <View style={styles.summaryItem}><View style={styles.summaryDot} /><Text style={styles.summaryText}><Text style={styles.summaryNumber}>{members.length - onlineCount}</Text> offline</Text></View>
+        <View style={styles.summaryItem}><View style={[styles.summaryDot, styles.summaryDotOnline]} /><Text style={styles.summaryText}><Text style={styles.summaryNumber}>{onlineCount}</Text> checked in</Text></View>
+        <View style={styles.summaryItem}><View style={styles.summaryDot} /><Text style={styles.summaryText}><Text style={styles.summaryNumber}>{members.length - onlineCount}</Text> not checked in</Text></View>
       </View>
 
       <View style={[styles.checkInCard, width < 390 && styles.checkInCardNarrow]}>
@@ -171,8 +171,8 @@ export default function ShowBoardScreen() {
       </View>
 
       <View style={styles.sectionRow}>
-        <View><Text style={styles.sectionEyebrow}>LIVE CREW</Text><Text style={styles.sectionTitle}>{members.length ? `${members.length} team ${members.length === 1 ? "member" : "members"}` : "Your board is ready"}</Text></View>
-        <Pressable accessibilityLabel="Refresh Show Board" accessibilityRole="button" disabled={manualRefreshing} onPress={() => void refreshBoard()} style={[styles.refreshButton, manualRefreshing && styles.disabled]}>
+        <View><Text style={styles.sectionEyebrow}>LIVE CREW</Text><Text style={styles.sectionTitle}>{members.length ? `${members.length} team ${members.length === 1 ? "member" : "members"}` : "Crew status is ready"}</Text></View>
+        <Pressable accessibilityLabel="Refresh crew status" accessibilityRole="button" disabled={manualRefreshing} onPress={() => void refreshBoard()} style={[styles.refreshButton, manualRefreshing && styles.disabled]}>
           {manualRefreshing ? (
             <ActivityIndicator color={colors.amberText} />
           ) : (

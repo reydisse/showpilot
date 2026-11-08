@@ -5344,3 +5344,48 @@ Clamshell Sleep at 2026-11-07 22:52:19 America/Toronto. The last relay feed was
 22:52:14; the relay correctly reported timecode lost. The run is not acceptance
 proof. A new isolated run started at 2026-11-08 05:07:13 UTC with browser feed
 and host-load diagnostics; its result remains pending.
+
+
+## Phase 2 Crew status display, 2026-11-08
+
+Renamed Show Board to Crew status across web navigation, Desktop auxiliary
+windows, mobile actions and shared module metadata. Attendance labels now say
+checked in/not checked in rather than online/offline. Kiosk metadata distinguishes
+stage/confidence output from the lower-thirds overlay. Routes and permissions
+keep their existing identifiers.
+
+The populated browser check reproduced a clipped clock at 320px and a withheld
+attendance read that never surfaced an error. Crew status now uses the shared
+bounded read hook: eight-second deadline, timestamped error, Retry, retained
+confirmed attendance, hidden-tab cancellation and failure backoff. No write is
+introduced. The header fits narrow screens, every card states its attendance,
+and the crew region supports keyboard scrolling. Both empty and populated pages
+allow scrolling in short windows; footer actions have 44px minimum targets.
+
+Validation: full web suite passes 2,369 unit and 1,186 Worker tests; typecheck and
+production build pass. Main entry 551,939 raw / 174,557 gzip bytes. Mobile verify
+passes iOS/Android bundles, web export, all 18 doctor checks and the polling
+boundary. ARM Desktop cargo tests pass 24 tests, with one existing ignored test;
+format check passes. Native bundle/release workflows were not run for this change.
+The polling boundary assertion now recognizes the shared read hook; its existing
+12 behavioral tests cover deadlines, cancellation, backoff and late replies.
+
+`smoke-crew-status.mjs` exercises the compiled app with real authentication and
+eight disposable crew records. It holds a real refresh reply through the deadline,
+checks retained attendance and pending Retry, releases a fresh response and then
+the late response, and verifies every card/footer target at 320x480, 390x844,
+768x900 and 1440x900. Real PageDown scrolls the crew region. Normal and error phone
+screenshots inspected. Seven empty-library flows also pass, including the direct
+Team link and reachable 48px action at 320x480. That rehearsal initially sampled
+Devices between server render and its first client refresh; it now counts after
+the primary action is hydrated and enabled. No application behavior was weakened.
+The navigation/handoff regressions passed earlier in this branch, covering 21
+routes, 13 Settings sections, retained handoff errors and narrow navigation.
+
+Logs: `/tmp/showpilot-crew-status-before.log` records both reproduced defects.
+Final results: `/tmp/showpilot-crew-status-full4.log`, `-tsc3.log`, `-build3.log`,
+`-after3.log`, `-empty2.log`, `-mobile-verify2.log`, `-native.log`,
+`-navigation.log` and `-handoff.log`. Phase 2 remains 64/79 verified; this closes
+the Crew status portion of the broader terminology/read-recovery requirements.
+The 45-minute timing run remains pending in its isolated checkout. No production
+deployment, migration or release; 20 necessary tracked Markdown files remain.

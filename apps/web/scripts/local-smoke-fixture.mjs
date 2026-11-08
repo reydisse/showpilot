@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, reportRecovery = false, personalAssignments = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, reportRecovery = false, personalAssignments = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, crewStatusMembers = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false } = {}) {
   if (streamOutputs) {
     assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Stream status requires the isolated outbound handler");
     assert.equal(captureEmail, false, "Use separate fixtures for email and Stream status");
@@ -141,6 +141,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, reportR
     WHEN NEW.organizationId IN (SELECT id FROM organization WHERE slug = 'atomic-failure-fixture')
     BEGIN SELECT RAISE(ABORT, 'fixture owner insertion failure'); END;` : ""}
   ${publicCheckInMembers ? "INSERT INTO crew_member(id,orgId,memberId,name,role,email,photoUrl,isOnline) VALUES ('fixture-attendance-one','display-smoke','TD3917','Previous fixture person','Director','','',0),('fixture-attendance-two','display-smoke','CAM42','Next fixture person','Camera','','',0),('fixture-attendance-other','display-other','TD3917','Other organization person','Director','','',0);" : ""}
+  ${crewStatusMembers ? Array.from({length:6},(_,i)=>`INSERT INTO crew_member(id,orgId,memberId,name,role,email,photoUrl,isOnline) VALUES ('fixture-display-${i}','display-smoke','CREW${i}','Fixture crew member ${i}','Camera operator','','',${i%2});`).join("\n") : ""}
   ${dateOnlyIncident ? "INSERT INTO incident(id,orgId,category,severity,description,reportedBy,serviceDate) VALUES ('smoke-date-incident','display-smoke','audio','high','Date-only fixture incident','Mobile fixture','2000-01-01');" : ""}
   ${paidPlan ? "UPDATE organization SET plan = 'pro' WHERE id = 'display-smoke';" : ""}
   INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-operator','Fixture operator','operator@display-smoke.invalid',1,CURRENT_TIMESTAMP);

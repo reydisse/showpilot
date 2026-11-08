@@ -43,7 +43,7 @@
     },
     {
       "id": "show-board",
-      "label": "Show Board",
+      "label": "Crew status",
       "webPath": "board",
       "status": "complete",
       "nativeRoutes": [

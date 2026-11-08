@@ -35,9 +35,9 @@ async function assertKioskTokenPermission(orgId: string): Promise<string> {
 export type KioskView = "timer" | "overlay" | "board";
 
 export const KIOSK_VIEWS: Record<KioskView, { label: string; description: string }> = {
-  timer: { label: "Stage Timer", description: "Countdown / elapsed timer display" },
-  overlay: { label: "Confidence Monitor", description: "Lower thirds overlay preview" },
-  board: { label: "Show Board", description: "Read-only production board view" },
+  timer: { label: "Stage / confidence display", description: "Countdown, lyrics and stage messages" },
+  overlay: { label: "Lower-thirds overlay", description: "Graphics output for OBS or vMix" },
+  board: { label: "Crew status", description: "Read-only crew attendance display" },
 };
 
 // ─── Token Generation ────────────────────────────────────
