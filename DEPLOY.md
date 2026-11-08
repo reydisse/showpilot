@@ -7909,3 +7909,13 @@ advancement. Command after web build:
 Evidence: /tmp/showpilot-timestamp-{worker2,full1,full2,tsc3,build1,smoke1}.log.
 No production deployment or migration. Phase 2 remains 67/79; this is a narrow
 save-reliability correction, not completion of a product-wide gate.
+
+Timestamp follow-up after merging the replacement CI correction: full coverage
+run 3 passes 2,791 unit / 1,551 Worker tests, 4,342 total, and typecheck 4 passes.
+Relay coverage is statements 86.48%, branches 84.22%, functions 90.16%, lines
+92.01%; all three coverage groups pass unchanged thresholds. No app source
+changed during this merge, so the compiled timestamp rehearsal and build above
+still cover the final implementation. Evidence:
+/tmp/showpilot-timestamp-coverage3.log and /tmp/showpilot-timestamp-tsc4.log.
+PR #264's new CI run is 42532247791 at 00dcd104. The timestamp PR remains held
+until that run is green.
