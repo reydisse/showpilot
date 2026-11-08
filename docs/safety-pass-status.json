@@ -1376,8 +1376,10 @@
       "phase": "2",
       "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
       "line": 219,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-07 catalog acceptance audit: all 14 new action types are covered by timecode-catalog-targets, timecode-propresenter, lyrics-steps, named-timers, media-cues, crew-message and trigger-controls Worker suites. Expanded both lyric directions and both media actions for disabled/retry behavior; disabled media sends no manual/automatic command, retry retains execution identity with a fresh request and rejects the stale acknowledgement. Full suite 2340 unit / 1166 Worker and typecheck pass. Seven compiled Chrome/auth/real-relay browser cases pass via scripts/check-phase2-catalog.mjs: rundown target + actual 512-channel Art-Net blackout/restore, ProPresenter resolve/Clear Props/205ms/trigger + Previous/Clear Props, lyrics controls with stable confidence DOM, named timers, actual audio/video playback/Stop/recovery, Production Chat receipts, and automatic cue pause/resume respecting the kill switch. Bridge build passed. Empty Songs selector refreshed from New song to Create manually, then rerun passed. Browser results: temp showpilot-catalog-gate-HvrNrU and showpilot-catalog-gate-ImKiI9; detailed mapping in DEPLOY.md. Only loopback simulators/disposable data, not physical hardware or production."
+      ]
     },
     {
       "id": "ea35d876d293859f",
@@ -2159,8 +2161,10 @@
       "phase": "2",
       "section": "Phase 2 gate (all must pass before Phase 3)",
       "line": 294,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-07 catalog acceptance audit: all 14 new action types are covered by timecode-catalog-targets, timecode-propresenter, lyrics-steps, named-timers, media-cues, crew-message and trigger-controls Worker suites. Expanded both lyric directions and both media actions for disabled/retry behavior; disabled media sends no manual/automatic command, retry retains execution identity with a fresh request and rejects the stale acknowledgement. Full suite 2340 unit / 1166 Worker and typecheck pass. Seven compiled Chrome/auth/real-relay browser cases pass via scripts/check-phase2-catalog.mjs: rundown target + actual 512-channel Art-Net blackout/restore, ProPresenter resolve/Clear Props/205ms/trigger + Previous/Clear Props, lyrics controls with stable confidence DOM, named timers, actual audio/video playback/Stop/recovery, Production Chat receipts, and automatic cue pause/resume respecting the kill switch. Bridge build passed. Empty Songs selector refreshed from New song to Create manually, then rerun passed. Browser results: temp showpilot-catalog-gate-HvrNrU and showpilot-catalog-gate-ImKiI9; detailed mapping in DEPLOY.md. Only loopback simulators/disposable data, not physical hardware or production."
+      ]
     },
     {
       "id": "ac6b75dcf79f56ab",
@@ -2185,8 +2189,10 @@
       "phase": "2",
       "section": "Phase 2 gate (all must pass before Phase 3)",
       "line": 297,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-07 error-visibility gate: current full Worker suite passes the timecode-execution rejection cases, including actual display WebSocket safe-projection failure updates and exclusion of event lists/private payloads. Compiled smoke-device-connection-errors.mjs passes visible refused-connection reason/timestamp, Retry to connected, socket outage and recovery without reload. Compiled smoke-rundown-clock-rendering.mjs samples 281 times over 2.5s: four clock values, zero rundown-body rerenders; pause, warning/overtime and Next progress also pass. Full suite 2340 unit / 1166 Worker and typecheck pass. Logs /tmp/showpilot-error-visibility-gate.log; fixture Bridge only, no physical/production device claim."
+      ]
     },
     {
       "id": "3277f632c1aea066",

@@ -4745,3 +4745,69 @@ Stacked on #211, whose CI run 42430451510 passed both jobs; keep draft. No produ
 migration, deployment, release or real-org changes. Phase 2 remains 47/79 pending
 the remaining requirements and broader acceptance checks. Twenty necessary
 tracked Markdown files remain; no new Markdown file was added.
+
+
+## Phase 2 catalog and error-visibility acceptance (2026-11-07, not deployed)
+
+Audited the 14 new catalog actions against their actual relay tests and compiled
+browser rehearsals. The disabled/retry coverage now explicitly includes both
+lyric directions and both media actions. A disabled media cue sends nothing on
+manual Fire or clock advance. A confirmed output failure retains its execution
+identity on Retry, uses a new request, and rejects the old acknowledgement.
+Previous Lyrics follows the same disable/kill/retry/re-fire behavior as Next.
+
+Full web suite passes: 2,340 unit / 1,166 Worker tests. Web typecheck passes.
+The app code is unchanged from the graphics build at b299e9e; that production
+build passed at 551,588 raw / 174,444 gzip main-bundle bytes. Bridge TypeScript
+build also passed. `node scripts/check-phase2-catalog.mjs` is the repeatable
+compiled-browser acceptance entry point after the web build; it captures each
+case's log/result in a temporary directory and stops on failure. Optional case
+names run only those cases and never report the whole gate passed.
+
+All seven browser cases passed on the current compiled app:
+
+- `catalog-targets`: named rundown jump selects the reviewed item with zero
+  elapsed; the compiled DMX adapter sends actual loopback Art-Net with all 512
+  channels black, and Restore returns the original level.
+- `propresenter-cues`: the compiled adapter resolves the prop, clears only props,
+  waits 205 ms, triggers it, then sends Previous and Clear Props to the loopback
+  HTTP simulator. No Clear All or external device call.
+- `lyrics-steps`: both event types and operator/display controls step saved song
+  sections. The confidence lyric node remains mounted, line breaks remain, and
+  Clear removes output. Updated the stale empty-library selector to the existing
+  Create manually button; the first attempt failed on New song before any lyric
+  action, and the rerun passed.
+- `named-timers`: independent Start/Stop output, reviewed restart, held disconnected
+  output, preserved deadlines across restart and pinned-show isolation pass.
+- `media-cues`: actual audio/video decode and playback progress, timed Play/Stop,
+  fullscreen, cleared video after Stop, duplicate-output exclusion, disable,
+  failed-cue Retry, disconnect stop and explicit re-enable all pass.
+- `crew-message`: two deliberate Production Chat posts, no duplicate on Retry,
+  no Planning Chat post, unchanged stage message and preserved line breaks.
+- `trigger-controls`: clock continues through automatic cue pause; manual Fire,
+  timed/operator resume, no replay of held cues and the safety kill switch pass.
+
+The relay tests cover disable and retry/re-fire across all 14 actions in
+`timecode-catalog-targets`, `timecode-propresenter`, `lyrics-steps`, `named-timers`,
+`media-cues`, `crew-message` and `trigger-controls` Worker suites. Browser evidence
+is in the two catalog result directories HvrNrU and ImKiI9 under the system temp
+folder; the first contains the Bridge build plus target/ProPresenter passes and
+the stale-selector failure, the second contains all five remaining passes.
+ProPresenter and confidence phone screenshots were inspected.
+
+The error-visibility acceptance check also passes. The compiled
+`smoke-device-connection-errors.mjs` exposes a refused connection's reason and
+timestamp, retries to connected, and recovers a socket outage without reload.
+`timecode-execution.worker.test.ts` proves a rejected graphics event stays failed
+and reaches an actual read-only display WebSocket via the safe projection,
+without payloads, errors or full event-list leakage. The compiled
+`smoke-rundown-clock-rendering.mjs` sampled 281 times over 2.5 seconds: the clock
+advanced through four displayed values with zero rundown-body rerenders; pause,
+warning/overtime and Next progress behavior also passed. Logs are retained in
+/tmp/showpilot-error-visibility-gate.log.
+
+These close the catalog enable/retry requirement, catalog gate and error-visibility
+gate. Phase 2 is now 50/79 verified, with 29 remaining. This is not the full Phase 2
+gate. No production deployment, native release, real-org changes or physical
+hardware claims. Keep the acceptance change draft and open it only after #212's
+CI passes. Twenty necessary tracked Markdown files remain.
