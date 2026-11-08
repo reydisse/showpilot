@@ -4905,10 +4905,10 @@ The compiled local-show probe passed encrypted preparation, native loopback
 control, OS vault retrieval, equipment dispatch, duplicate suppression, exclusive
 engine ownership, forced-crash recovery with unknown device receipts and cloud
 handoff. Its cloud peer is a fixture and its final reconciliation calls the shared
-reconciler directly. Full product acceptance still needs the real app's cloud
-reconciliation, and the LTC gate still needs native PCM reaching the real app
-relay rather than stopping at the fixture receiver. Do not claim those gates from
-compilation or these narrower probes.
+reconciler directly. Full local-show product acceptance still needs the real app's cloud
+reconciliation. The separate LTC integration rehearsal below extends the native
+probe through the actual app relays; compilation and the fixture receiver alone
+do not prove that path.
 
 Current compiled browser rehearsals passed:
 
@@ -4947,7 +4947,25 @@ audio inputs are the built-in/continuity microphones. Physical APC/DAW cabling a
 a venue audio interface have not been exercised. The MIDI gate's available-gear
 coverage uses OS virtual ports and protocol fixtures, with this limitation stated.
 
-This closes the controller/feedback implementation, MIDI acceptance and LTC
-implementation requirements. Phase 2 is 55/79 verified, with 24 remaining. The
-LTC integration gate, local-show gate and full Phase 2 gate remain open. No
-production release, deployment, real-organization writes or outgoing email.
+`smoke-native-ltc-relay.mjs` now passes the complete LTC software path. It builds
+on the native Rust PCM probe using the actual compiled sidecar and a real fixture
+API key issued by the local app. Audio samples pass through the decoder/queue,
+BridgeRelay and show-pinned TimecodeRelay to the operator clock at 00:00:01:22.
+Crossing 00:00:01:15 fires a stage-message cue, acknowledged by the real
+RundownRelay. Native input shutdown holds the clock and does not replay the cue.
+Only the audio capture device is substituted. The native decoder, compiled
+Bridge, authentication, relays and operator display are real.
+
+The first rehearsal correctly rejected cue creation from the fixture's separate
+inspection session with 409. The test now creates the cue from the browser session
+that owns timecode, preserving that authorization boundary. The final run passes
+with no outgoing email. Additional logs are
+/tmp/showpilot-ltc-relay-sidecar-build.log and /tmp/showpilot-native-ltc-relay2.log.
+Run the sidecar build, then the rehearsal with SHOWPILOT_SMOKE_RUNTIME=miniflare;
+it starts the existing ignored native PCM probe against its disposable app.
+
+This closes the controller/feedback implementation, MIDI acceptance, LTC
+implementation and LTC integration gate. Phase 2 is 56/79 verified, with 23
+remaining. The local-show and full Phase 2 gates remain open. No production
+release, deployment or real-organization writes. Physical audio-interface testing
+is not claimed.
