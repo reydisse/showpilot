@@ -7936,3 +7936,74 @@ and 1,554 Worker tests (4,345 total); web typecheck passes. All unchanged
 coverage floors pass: relays 86.51% statements / 84.25% branches / 90.16%
 functions / 92.01% lines. Evidence: /tmp/showpilot-pr265-coverage1.log and
 /tmp/showpilot-pr265-tsc1.log. The next PR remains held for GitHub's rerun.
+
+
+### Phase 2 follow-up: native rundown removal, clear and undo
+
+The native item sheet regression reproduced the missing visible confirmation:
+Delete immediately called its parent, which depended on Alert. The parent also
+sent timer-stop separately from remove-item. That could stop a different item
+if another operator advanced the show. Clear rundown had the same Alert-only
+confirmation and no retained acknowledgement.
+
+The item sheet now captures the current item and relay revision for review,
+names the item, explains whether removal stops its timer, and offers Keep item.
+A revision change requires explicit review again. Missing items or lost editing
+access block submission. Clear rundown names the show and item count, explains
+that it stops the timer and has no undo, and requires re-review after a change.
+The header actions wrap on narrow screens and their targets are at least 44px.
+
+The native change endpoint authenticates the current account, org and show,
+then dispatches the original request ID and frozen revision to RundownRelay's
+existing normal /command path. The relay rechecks live session, membership,
+grants and PIN authority. Removal, timer effects, clear and undo remain on the
+existing single writer; no internal-secret bypass or new migration was added.
+The separate timer-stop was removed. Exact retries use the original revision;
+even after the bounded command-ID history expires, an old request cannot change
+a newer rundown. An accepted retry says Action accepted rather than claiming
+that the current state still matches an old action.
+
+A retained request survives screen navigation within the app session. Mutation
+confirmation has a 15-second deadline; refresh has a separate 12-second deadline
+and a rundown-specific error. Uncertain requests offer exact retry. Confirmed
+actions retry only refresh. Other destructive actions wait until the result is
+resolved. Accepted removal offers Undo within 30 seconds of the original
+submission, using the relay's existing undo record and current reviewed revision.
+Undo restores an item without restarting its timer; the relay enforces expiry.
+
+Focused verification: seven actual-sheet tests, seven native hook tests, and ten
+real-relay Worker tests pass. These cover keeping without sending, changed
+revision re-review, removed items, lost editing access, current-item atomic stop,
+advance/removal races, restore without restart, expiry after eviction, exact
+replay after another operator restores, a retry older than the command history,
+clear-all, revoked sessions/membership, PIN verification and identity scoping.
+
+Full run 4 passed all 2,814 unit tests but had six Worker timeouts while coverage
+and exports competed for the machine, including #265's original PIN case. After
+merging the independently verified PIN repair, full run 5 ran without competing
+builds and passed 348 unit files / 2,814 tests plus 140 Worker files / 1,571 tests,
+4,385 total. Web build 4 passed with the unchanged 549,593 raw / 173,783 gzip main
+bundle. Final web typecheck 5 passes. Native verify 6 passes typecheck, lint
+with 17 existing warnings, iOS/Android/web exports, Expo Doctor 18/18, release/API
+contracts and polling boundaries. Hermes is 5,730,690 bytes on iOS / 5,729,761 on
+Android. Screenshot review caught disabled move buttons looking active during
+confirmation; the final export includes their corrected disabled appearance.
+
+Compiled-browser runs 1 and 2 pass with real isolated authentication, D1 and relay
+traffic. Run 2 additionally rejects wrong-account, wrong-show and missing-revision
+HTTP commands without changing the rundown. At 320/768/1440px both runs cover
+visible confirmation, Keep without dispatch, active-item atomic removal, Undo
+without restart, explicit re-review after a change, a committed action with held
+reply, the 15-second deadline, screen navigation, exact retry after another
+operator restores the item, refresh-only recovery, and confirmed clear-all.
+No runtime errors. Inspected final 320px item confirmation and the clear/uncertain
+screenshots. This is an Expo web rehearsal, not a physical-device run.
+
+Rehearsal after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-rundown-change.mjs`.
+Evidence: /tmp/showpilot-rundown-change-{before,unit3,worker2,worker3,full4,full5,tsc5,build4,verify6,browser1,browser2}.log.
+Screenshots: /tmp/showpilot-native-rundown-change-{confirm,unknown,refresh,clear}-{320,768,1440}.png.
+Phase 2 remains 67/79; these are focused controls, not a product-wide gate result.
+No deployment, migration, release or new Markdown file. Twenty necessary tracked
+Markdown files remain. #265's repaired head 9812e235 is running CI 42535312517;
+Rust is green (4m45s), web is pending, and the next PR is held.

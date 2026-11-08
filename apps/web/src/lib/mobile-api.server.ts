@@ -1429,6 +1429,70 @@ async function loadMobilePreviousRundown(
   });
 }
 
+async function changeMobileRundown(
+  request: Request,
+  url: URL,
+  showId: string,
+  env: MobileApiEnvironment,
+) {
+  const access = await authorize(request, url, env.DB, ["rundown:edit"]);
+  if (access instanceof Response) return access;
+  const { rundownChangeCommandSchema } =
+    await import("../../../mobile/src/lib/rundown-change-recovery");
+  const parsed = rundownChangeCommandSchema.safeParse(await readJson(request));
+  if (!parsed.success)
+    return json(
+      { error: "Review the original rundown action and its revision." },
+      400,
+    );
+  const command = parsed.data;
+  if (
+    command.orgId !== access.orgId ||
+    command.userId !== access.identity.userId ||
+    command.showId !== showId
+  )
+    return json(
+      {
+        error:
+          "Your account or show changed. Reopen the original rundown action.",
+      },
+      403,
+    );
+  const session = await getAuth().api.getSession({
+    headers: request.headers,
+    query: { disableCookieCache: true },
+  });
+  if (!session || session.user.id !== command.userId)
+    return json({ error: "Sign in again before changing this rundown." }, 401);
+  if (!env.RUNDOWN_RELAY)
+    return json({ error: "Live rundown editing is unavailable." }, 503);
+  const { getD1 } = await import("./d1");
+  const { applyMobileRundownChange } =
+    await import("./mobile-rundown-change.server");
+  markDatabaseWrite();
+  try {
+    return json(
+      await applyMobileRundownChange(
+        { DB: getD1(), RUNDOWN_RELAY: env.RUNDOWN_RELAY },
+        command,
+        {
+          userId: session.user.id,
+          sessionId: session.session.id,
+          pin: getPresentedRundownPin(request, command.orgId),
+        },
+      ),
+    );
+  } catch {
+    return json(
+      {
+        error:
+          "The rundown action could not be confirmed. Check your editing access and retry the original request.",
+      },
+      503,
+    );
+  }
+}
+
 async function recoverMobileRundownDetails(
   request: Request, url: URL, showId: string, env: MobileApiEnvironment,
   mode: "read" | "save" | "review",
@@ -7680,6 +7744,11 @@ export async function handleMobileApi(
   if(replacementMatch && ((request.method === "GET" && !replacementMatch[2]) || (request.method === "POST" && replacementMatch[2]))) {
     const showId=decodePathId(replacementMatch[1]);
     return showId ? recoverMobileRundownReplacement(request,url,showId,env,replacementMatch[2] === "command" ? "save" : replacementMatch[2] === "review" ? "review" : "read") : json({error:"Not found."},404);
+  }
+  const rundownChangeMatch=url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)\/change$/);
+  if(rundownChangeMatch && request.method === "POST"){
+    const showId=decodePathId(rundownChangeMatch[1]);
+    return showId ? changeMobileRundown(request,url,showId,env) : json({error:"Not found."},404);
   }
   const rundownDetailsMatch = url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)\/details(?:\/(command|review))?$/);
   if (rundownDetailsMatch && ((request.method === "GET" && !rundownDetailsMatch[2]) || (request.method === "POST" && rundownDetailsMatch[2]))) {

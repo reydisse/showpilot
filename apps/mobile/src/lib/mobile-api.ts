@@ -1,3 +1,4 @@
+import { rundownChangeReplySchema, type RundownChangeCommand } from "./rundown-change-recovery";
 import { templateDeleteReplySchema, type TemplateDeleteCommand } from "./template-delete-recovery";
 import { replacementReadSchema,replacementReplySchema,type ReplacementSource,type ReplacementCommand } from "./rundown-replacement-recovery";
 import { templateSaveReplySchema, type TemplateSaveCommand } from "./template-save-recovery";
@@ -2388,4 +2389,15 @@ export async function saveMobileInitialWorkspace(input: {
   );
   return z.object({ workspace: workspaceSchema }).parse(await response.json())
     .workspace;
+}
+
+export async function commandMobileRundownChange(
+  command: RundownChangeCommand,
+  signal: AbortSignal,
+) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/rundowns/${encodeURIComponent(command.showId)}/change?orgId=${encodeURIComponent(command.orgId)}`,
+    { method: "POST", signal, body: JSON.stringify(command) },
+  );
+  return rundownChangeReplySchema.parse(await response.json());
 }
