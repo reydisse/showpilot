@@ -1,3 +1,4 @@
+import { ScheduleProviderControl } from "@/components/schedule/ScheduleProviderControl";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { useTerms } from "@/components/workspace/WorkspaceProvider";
@@ -23,7 +24,6 @@ import {
   Pencil,
   Plus,
   Send,
-  Settings2,
   Trash2,
   X,
 } from "lucide-react";
@@ -38,7 +38,6 @@ import {
   getServiceAssignments,
   remindAllServiceAssignments,
   remindServiceAssignment,
-  saveScheduleProvider,
   saveServiceAssignment,
   saveServiceDetails,
   type ScheduleProvider,
@@ -190,6 +189,7 @@ function SchedulePage() {
   const locale = useDeviceLocale();
   const workspaceTerms = useWorkspaceTerms();
   const data = Route.useLoaderData();
+  const { user } = Route.useRouteContext();
   const deviceTimeZone = useDeviceTimeZone();
   const { show: requestedShowId, date: requestedDate } = Route.useSearch();
   const { slug } = Route.useParams();
@@ -203,7 +203,6 @@ function SchedulePage() {
   const [assignmentDepartment, setAssignmentDepartment] = useState("");
   const [teamBuilderOpen, setTeamBuilderOpen] = useState(false);
   const [editing, setEditing] = useState<Assignment | null>(null);
-  const [providerOpen, setProviderOpen] = useState(false);
   const [serviceOpen, setServiceOpen] = useState(false);
   const [filter, setFilter] = useState<ResponseFilter>("all");
   const [busy, setBusy] = useState(false);
@@ -330,13 +329,28 @@ function SchedulePage() {
             Schedule
           </h1>
           {data.canManage ? (
-            <button
-              onClick={() => setProviderOpen(true)}
-              className="flex min-h-11 items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-muted hover:text-board-text"
-            >
-              <Settings2 className="h-3.5 w-3.5" />
-              Manage source
-            </button>
+            <ScheduleProviderControl
+              key={`${user.id}:${data.orgId}`}
+              userId={user.id}
+              orgId={data.orgId}
+              workspaceSettingsLink={
+                <Link
+                  to="/$slug/settings"
+                  params={{ slug }}
+                  search={{ section: "workspace" }}
+                  className="inline-flex min-h-11 items-center text-fire-500 underline focus-visible:outline-2 focus-visible:outline-fire-500"
+                >
+                  Change wording in Settings → Workspace
+                </Link>
+              }
+              refresh={async () => {
+                await router.invalidate();
+                const schedule = router.state.matches.find(
+                  (match) => match.routeId === Route.id,
+                );
+                if (schedule?.status === "error") throw schedule.error;
+              }}
+            />
           ) : null}
           {data.canManage && data.provider.type === "native" ? (
             <button
@@ -689,20 +703,6 @@ function SchedulePage() {
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
-            await router.invalidate();
-          }}
-        />
-      ) : null}
-      {providerOpen ? (
-        <ProviderModal
-          orgId={data.orgId}
-          current={{
-            ...data.provider,
-            terminologyProfile: data.terminologyProfile,
-          }}
-          onClose={() => setProviderOpen(false)}
-          onSaved={async () => {
-            setProviderOpen(false);
             await router.invalidate();
           }}
         />
@@ -2250,106 +2250,6 @@ function EditAssignmentModal({
                 : "Save changes"}
           </button>
         </div>
-      </form>
-    </Modal>
-  );
-}
-function ProviderModal({
-  orgId,
-  current,
-  onClose,
-  onSaved,
-}: {
-  orgId: string;
-  current: {
-    type: ScheduleProvider;
-    url: string;
-    label: string;
-    terminologyProfile: OrgTerminologyProfile;
-  };
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [provider, setProvider] = useState<ScheduleProvider>(current.type);
-  const [url, setUrl] = useState(current.url);
-  const [label, setLabel] = useState(current.label);
-  const [busy, setBusy] = useState(false);
-  const external = provider !== "native";
-  return (
-    <Modal title="Scheduling source" description="Choose where this workspace manages its crew schedule." onClose={onClose}>
-      <form
-        onSubmit={async (event) => {
-          event.preventDefault();
-          setBusy(true);
-          try {
-            await saveScheduleProvider({
-              data: {
-                orgId,
-                provider,
-                url: external ? url : "",
-                label: provider === "other" ? label : "",
-              },
-            });
-            onSaved();
-          } finally {
-                            setBusy(false);
-                          }
-        }}
-        className="space-y-4"
-      >
-        <Field label="Source">
-          <select
-            value={provider}
-            onChange={(event) =>
-              setProvider(event.target.value as ScheduleProvider)
-            }
-            className={FORM_CONTROL}
-          >
-            <option value="native">ShowPilot native</option>
-            <option value="planning-center">Planning Center</option>
-            <option value="faithteams">Faith Teams</option>
-            <option value="other">Another platform</option>
-          </select>
-        </Field>
-        <p className="text-sm text-board-muted">
-          Wording follows your workspace type.{" "}
-          <a
-            href="settings?section=workspace"
-            className="text-fire-500 underline"
-          >
-            Change in Settings → Workspace
-          </a>
-        </p>
-        {provider === "other" ? (
-          <Field label="Platform name">
-            <input
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-              className={FORM_CONTROL}
-            />
-          </Field>
-        ) : null}
-        {external ? (
-          <Field label="Scheduling workspace URL">
-            <input
-              type="url"
-              value={url}
-              onChange={(event) => setUrl(event.target.value)}
-              className={FORM_CONTROL}
-            />
-          </Field>
-        ) : (
-          <p className="rounded-lg border border-board-border bg-board-bg p-3 text-xs leading-relaxed text-board-muted">
-            ShowPilot will send secure accountless invitations to roster
-            contacts by email.
-          </p>
-        )}
-        <button
-          disabled={busy || (external && !url)}
-          className="w-full rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50"
-        >
-          Save source
-        </button>
       </form>
     </Modal>
   );
