@@ -1,24 +1,13 @@
+import { getRequestHeaders } from "@tanstack/react-start/server";
+import { inventoryCommandSchema } from "./show-inventory-contract";
+import { writeShowInventory } from "./show-inventory-write.server";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import type { Prisma } from "@/generated/prisma/client";
 import { assertOrgPermission } from "@/lib/org-access";
-import { idSchema, labelSchema, parseOrThrow } from "@/lib/validation";
+import { idSchema, parseOrThrow } from "@/lib/validation";
 import type { RundownItem } from "@/types/rundown";
-
-const startTimeSchema = z.union([
-  z.literal(""),
-  z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-]);
-
-const inventoryInput = z.object({
-  orgId: idSchema,
-  name: labelSchema,
-  description: z.string().trim().max(500).default(""),
-  location: z.string().trim().max(240).default(""),
-  defaultStartTime: startTimeSchema.default(""),
-  sourceTemplateId: z.union([idSchema, z.literal("")]).optional(),
-});
 
 const SAVED_TEMPLATE_PREFIX = "rundown-saved:";
 
@@ -226,85 +215,20 @@ export const listSavedRundownSources = createServerFn({ method: "GET" })
     return parseSavedSources(settings.map((setting) => setting.value));
   });
 
-export const createShowInventoryItem = createServerFn({ method: "POST" })
-  .inputValidator((value: unknown) => parseOrThrow(inventoryInput, value))
-  .handler(async ({ data }) => {
-    await assertInventoryAccess(data.orgId, true);
-    const delegate = requireInventoryDelegate();
-    let rundownJson = "[]";
-    const sourceTemplateId = data.sourceTemplateId || null;
-    if (sourceTemplateId) {
-      const template = await getPrisma().appSetting.findUnique({
-        where: {
-          orgId_key: {
-            orgId: data.orgId,
-            key: `${SAVED_TEMPLATE_PREFIX}${sourceTemplateId}`,
-          },
-        },
-        select: { value: true },
-      });
-      if (!template) throw new Error("Saved rundown template not found");
-      const items = parseItems(template.value);
-      rundownJson = JSON.stringify(
-        items.map((item, index) => ({
-          ...item,
-          id: `${crypto.randomUUID()}-${index}`,
-          status: "upcoming",
-          scheduledStart: null,
-          expectedEnd: null,
-          actualStart: null,
-          actualEnd: null,
-        })),
-      );
-    }
-    const row = await delegate.create({
-      data: {
-        orgId: data.orgId,
-        name: data.name,
-        description: data.description,
-        location: data.location,
-        defaultStartTime: data.defaultStartTime || null,
-        sourceTemplateId,
-        rundownJson,
-      },
-    });
-    return { ok: true as const, id: row.id };
-  });
-
-export const archiveShowInventoryItem = createServerFn({ method: "POST" })
+export const mutateShowInventory = createServerFn({ method: "POST" })
   .inputValidator((value: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), value),
+    parseOrThrow(inventoryCommandSchema, value),
   )
-  .handler(async ({ data }) => {
-    await assertInventoryAccess(data.orgId, true);
-    const delegate = requireInventoryDelegate();
-    const row = await delegate.findFirst({
-      where: { id: data.id, orgId: data.orgId, archivedAt: null },
-      select: { id: true },
-    });
-    if (!row) throw new Error("Show inventory item not found");
-    await delegate.update({
-      where: { id: row.id },
-      data: { archivedAt: new Date() },
-    });
-    return { ok: true as const };
-  });
+  .handler(
+    async ({ data }) =>
+      (await writeShowInventory(data, getRequestHeaders())).result,
+  );
 
-export const restoreShowInventoryItem = createServerFn({ method: "POST" })
+export const reviewShowInventory = createServerFn({ method: "POST" })
   .inputValidator((value: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), value),
+    parseOrThrow(inventoryCommandSchema, value),
   )
-  .handler(async ({ data }) => {
-    await assertInventoryAccess(data.orgId, true);
-    const delegate = requireInventoryDelegate();
-    const row = await delegate.findFirst({
-      where: { id: data.id, orgId: data.orgId, archivedAt: { not: null } },
-      select: { id: true },
-    });
-    if (!row) throw new Error("Archived show inventory item not found");
-    await delegate.update({
-      where: { id: row.id },
-      data: { archivedAt: null },
-    });
-    return { ok: true as const };
-  });
+  .handler(
+    async ({ data }) =>
+      (await writeShowInventory(data, getRequestHeaders(), "review")).result,
+  );
