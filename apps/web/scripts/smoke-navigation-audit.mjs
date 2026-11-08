@@ -108,6 +108,10 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
         await poll(() => evaluate(`!!document.querySelector('aside[aria-hidden="false"]')`), 'workspace drawer opens within Settings');
         await evaluate(`document.querySelector('aside[aria-hidden="false"] a[title="Schedule"]').click(); true`);
         await poll(() => evaluate(`location.pathname === '/${orgId}/schedule' && [...document.querySelectorAll('h1')].some(node => node.textContent === 'Schedule') && !document.querySelector('aside[aria-hidden="false"]')`), 'mobile sidebar leaves Settings and closes');
+        await poll(() => hydrated('button[aria-controls="schedule-calendar"]'), 'phone calendar toggle hydration');
+        await evaluate(`document.querySelector('button[aria-controls="schedule-calendar"]').click(); true`);
+        await poll(() => evaluate(`(()=>{const next=document.querySelector('#schedule-calendar button[aria-label="Next month"]');const b=next?.getBoundingClientRect();return b&&b.width>=44&&b.height>=44;})()`), 'phone month navigation is visible');
+
       }
     }
     assert.deepEqual(await evaluate('window.navigationErrors'), []);
