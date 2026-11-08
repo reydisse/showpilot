@@ -5578,3 +5578,48 @@ Logs: `/tmp/showpilot-rundown-pin-before.log`, `-full3.log`, `-tsc3.log`,
 `-build3.log` and `-after4.log`. The first inline phone geometry check failed;
 `-after4.log` proves the final control dimensions. This closes these PIN paths,
 not the broad loading/UX gate. Phase 2 stays 67/79. Nothing deployed or released.
+
+
+### 2026-11-08: Account downloads, recovery and responsive state
+
+Pausing the actual Profile code download left an indefinite account spinner.
+Profile, Notifications and their account-only loader now use the existing
+12-second load deadline. A local boundary keeps the account header available,
+shows a timestamped error and offers Retry. Every retry creates fresh lazy
+instances, including a failed child. Late module completion cannot replace the
+failed attempt before the operator retries. Back, Close and Retry meet 44px.
+
+The first responsive rehearsal lost its Retry button when the viewport crossed
+the phone breakpoint. Desktop and mobile sidebars had different child positions,
+so React remounted the identity component and closed the account dialog. Stable
+sidebar keys now preserve the open panel. The final browser test also retains
+the exact profile input node and its unsubmitted name across all three widths.
+
+Device-notification status setup now loads after mount, with a bounded check and
+visible failure. It respects the actual subscription setup result instead of
+calling delivery enabled whenever browser permission is granted. Six tests cover
+undecided permission, scoped subscription setup without another prompt, failed or
+denied setup, and native status success/failure. Permission requests from an
+explicit Enable click retain their existing immediate user-gesture path.
+
+Validation:
+- Full suite: 2,395 unit / 1,186 Worker tests; typecheck passes.
+- Final production build passes under the unchanged 175,000-byte gzip limit.
+  Main entry: 552,909 raw / 174,980 gzip bytes. Account-only module setup is
+  deferred, and recovery reuses the existing Button component.
+- Compiled Chrome/auth/D1 checks separately pause ProfileModal,
+  NotificationCenter and AccountPanels downloads. All time out, show a reachable
+  error at 320x480/768/1440, retain the failed attempt after late completion, and
+  recover without a document reload. A separate real network-failure case also
+  recovers on Retry. Profile drafts and DOM identity survive resizing.
+- Both phone error screenshots inspected. Zero runtime errors or captured emails.
+- The broad navigation regression passes 21 routes and 13 Settings sections,
+  including phone drawer behavior and preserved Settings Back navigation.
+
+Logs: `/tmp/showpilot-account-loading-before.log`, `-full3.log`, `-tsc4.log`,
+`-build5.log`, `-after3.log`, `-network2.log`, and `-navigation.log`. Earlier
+build attempts exceeded the budget; only the final build is a pass. This covers
+account code loading and notification-status setup, not every account request.
+Inbox/count reads and account mutations remain in the broader recovery audit.
+Phase 2 stays 67/79. Nothing deployed or released; 20 necessary Markdown files
+remain, and no new Markdown file was added.

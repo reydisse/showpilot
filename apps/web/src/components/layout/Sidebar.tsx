@@ -381,6 +381,7 @@ export function Sidebar() {
         )}
         {/* Backdrop */}
         <aside
+          key="workspace-sidebar"
           aria-hidden={!mobileOpen}
           inert={!mobileOpen}
           className={`fixed top-0 left-0 h-[100dvh] w-[280px] z-50 bg-board-card border-r border-board-border flex flex-col overflow-hidden transition-transform duration-200 ease-in-out ${
@@ -408,6 +409,7 @@ export function Sidebar() {
   return (
     <>
       <aside
+        key="workspace-sidebar"
         style={{ width: w, transition: "width 200ms ease-in-out" }}
         className="fixed top-0 left-0 z-30 flex h-[100dvh] flex-col overflow-hidden border-r border-board-border bg-board-card"
       >
