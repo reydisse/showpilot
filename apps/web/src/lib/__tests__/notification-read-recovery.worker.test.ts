@@ -5,6 +5,7 @@ import { getPrisma } from "../db";
 import { hashPassword } from "better-auth/crypto";
 import { getAuth } from "../auth";
 import {
+  getPersonalNotificationCount,
   markAllPersonalNotificationsRead,
   markPersonalNotificationRead,
 } from "../personal-notifications";
@@ -235,4 +236,20 @@ it("rejects a revoked session and requires a request identity", async () => {
     markAllPersonalNotificationsRead({ data: f.command() }),
   ).rejects.toThrow(/sign in/i);
   expect((await f.readAt(id))?.readAt).toBeNull();
+});
+
+
+it("counts only the signed-in member's unread, undismissed alerts in the requested workspace", async () => {
+  const f = await fixture(); const cookie = auth.cookie;
+  const unread = await f.insert(); const read = await f.insert(); const dismissed = await f.insert();
+  await env.DB.prepare("UPDATE notification SET readAt=CURRENT_TIMESTAMP WHERE orgId=? AND id=?").bind(f.orgId, read).run();
+  await env.DB.prepare("UPDATE notification SET dismissed=1 WHERE orgId=? AND id=?").bind(f.orgId, dismissed).run();
+  const other = await fixture(); await other.insert();
+  auth.cookie = cookie;
+  expect(await getPersonalNotificationCount({ data: { orgId: f.orgId } })).toEqual({ unread: 1 });
+  await expect(getPersonalNotificationCount({ data: { orgId: other.orgId } })).rejects.toThrow(/forbidden/i);
+  await markPersonalNotificationRead({ data: { ...f.command(), id: unread } });
+  expect(await getPersonalNotificationCount({ data: { orgId: f.orgId } })).toEqual({ unread: 0 });
+  await env.DB.prepare("DELETE FROM member WHERE organizationId=? AND userId=?").bind(f.orgId,f.userId).run();
+  await expect(getPersonalNotificationCount({ data: { orgId: f.orgId } })).rejects.toThrow(/forbidden/i);
 });

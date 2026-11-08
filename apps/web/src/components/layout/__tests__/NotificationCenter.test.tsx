@@ -605,3 +605,22 @@ it("pauses hidden polling and coalesces focus events into the active read", asyn
   await act(async () => { held.resolve(fixturePage); await vi.advanceTimersByTimeAsync(10); });
   view.unmount();visibility.mockRestore();focusManager.setFocused(undefined);vi.useRealTimers();
 });
+
+it("publishes the newest page's count and repairs the sidebar on a fresh unchanged count", async () => {
+  const cursor = { id: "alert-1", createdAt: fixtureAlert.createdAt };
+  const first = { ...fixturePage, nextCursor: cursor };
+  const older = { notifications: [{ ...fixtureAlert, id: "old", title: "Older counted alert" }], unread: 2, nextCursor: null };
+  mocks.getNotifications.mockResolvedValueOnce(first).mockResolvedValueOnce(older);
+  mocks.getPreferences.mockResolvedValue([]);
+  const onUnreadChange = vi.fn();
+  render(<NotificationInbox userId="fixture-user" orgId="org-1" slug="launch-audit" onUnreadChange={onUnreadChange} />);
+  await screen.findByText("Inbox fixture");
+  fireEvent.click(screen.getByRole("button", { name: "Load older notifications" }));
+  await screen.findByText("Older counted alert");
+  await waitFor(() => expect(onUnreadChange).toHaveBeenLastCalledWith(2));
+  onUnreadChange.mockClear();
+  mocks.getNotifications.mockResolvedValueOnce({ ...first, unread: 2 }).mockResolvedValueOnce(older);
+  act(() => window.dispatchEvent(new Event("focus")));
+  await waitFor(() => expect(mocks.getNotifications).toHaveBeenCalledTimes(4));
+  await waitFor(() => expect(onUnreadChange).toHaveBeenCalledWith(2));
+});

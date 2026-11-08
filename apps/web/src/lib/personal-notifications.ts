@@ -83,6 +83,17 @@ export const getPersonalNotifications = createServerFn({ method: "GET" })
     };
   });
 
+export const getPersonalNotificationCount = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
+  .handler(async ({ data }) => {
+    const userId = await assertInboxAccess(data.orgId);
+    const row = await getD1().prepare(
+      `SELECT CAST(COUNT(*) AS INTEGER) AS unread FROM notification
+       WHERE orgId=? AND userId=? AND dismissed=0 AND readAt IS NULL`,
+    ).bind(data.orgId, userId).first();
+    return z.object({ unread: z.number().int().nonnegative() }).parse(row);
+  });
+
 export const getPersonalDeviceNotifications = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }): Promise<{ notifications: PersonalNotification[]; unread: number }> => {
