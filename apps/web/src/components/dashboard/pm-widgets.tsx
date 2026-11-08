@@ -1,3 +1,5 @@
+import { useShowCreation } from "@/hooks/useShowCreation";
+import { CreationRecovery } from "@/components/shows/CreationRecovery";
 import { useDutyRoster } from "@/hooks/useDutyRoster";
 import { DutyRosterFeedback } from "@/components/settings/DutyRosterFeedback";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -687,39 +689,32 @@ const planNextWidget: PmWidget = {
  * rundown editor is not that — cloning last service is, because church
  * rotas repeat and nobody wants to retype the same nine items weekly.
  */
-function PlanNextCard({ model, slug, orgId }: PmWidgetModel) {
+function PlanNextCard({ model, slug, orgId, userId }: PmWidgetModel) {
   const workspaceTerms = useWorkspaceTerms();
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const canClone = model.lastServiceDate !== null;
-
-  async function clone() {
-    if (!model.lastServiceDate) return;
-    setBusy(true);
-    setError(null);
-    try {
-      // Imported lazily so the widget module does not pull the server
-      // graph (and cloudflare:workers) into the client bundle.
-      const { createNextService } = await import("@/lib/pm-actions");
-      await createNextService({
-        data: {
-          orgId,
-          serviceDate: model.serviceDate,
-          copyFrom: model.lastServiceDate,
-        },
+  const work = useShowCreation(
+    { orgId, userId, entry: `dashboard-next:${model.serviceDate}` },
+    { copyFrom: model.lastServiceDate },
+    {
+      onCreated: async (_result, signal) => {
+        await router.invalidate();
+        signal.throwIfAborted();
+        if (router.state.matches.some((match) => match.status === "error"))
+          throw new Error(
+            "The show was created, but the dashboard could not refresh.",
+          );
+      },
+    },
+  );
+  const canClone = work.draft.copyFrom !== null;
+  const clone = () => {
+    if (work.draft.copyFrom)
+      work.submit({
+        orgId,
+        serviceDate: model.serviceDate,
+        copyFrom: work.draft.copyFrom,
       });
-      await router.invalidate();
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : workspaceCopy("Could not create the service", workspaceTerms),
-      );
-      setBusy(false);
-    }
-  }
+  };
 
   return (
     <WidgetCard title={workspaceCopy("Plan the next service", workspaceTerms)}>
@@ -733,26 +728,24 @@ function PlanNextCard({ model, slug, orgId }: PmWidgetModel) {
               ? `Last ${workspaceTerms.event} was ${longDate(model.lastServiceDate as string)}. Copy its rundown to start from where you left off.`
               : "Build a rundown to get the dashboard working for you."}
           </p>
-          {error && <p className="text-xs text-red-400 mt-2">{error}</p>}
+          <CreationRecovery work={work} />
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {canClone && (
+          {canClone && !work.attempt && (
             <button
               type="button"
               onClick={() => void clone()}
-              disabled={busy}
-              className="inline-flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-fire-500/15 border border-fire-500/30 text-fire-400 hover:bg-fire-500/25 disabled:opacity-50 transition-colors"
+              disabled={work.locked}
+              className="inline-flex min-h-11 items-center gap-2 text-xs px-3 py-2 rounded-lg bg-fire-500/15 border border-fire-500/30 text-fire-400 hover:bg-fire-500/25 disabled:opacity-50 transition-colors"
             >
               <Copy className="w-3.5 h-3.5" />
-              {busy
-                ? "Copying…"
-                : workspaceCopy("Copy last service", workspaceTerms)}
+              {workspaceCopy("Copy last service", workspaceTerms)}
             </button>
           )}
           <Link
             to={orgLink(slug, "rundown")}
-            className="inline-flex items-center gap-2 text-xs px-3 py-2 rounded-lg border border-board-border/80 text-board-muted hover:text-board-text transition-colors"
+            className="inline-flex min-h-11 items-center gap-2 text-xs px-3 py-2 rounded-lg border border-board-border/80 text-board-muted hover:text-board-text transition-colors"
           >
             <Clapperboard className="w-3.5 h-3.5" />
             Start blank

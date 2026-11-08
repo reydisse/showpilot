@@ -34,7 +34,7 @@ import {
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { createNextService } from "@/lib/pm-actions";
+import { ShowCreationForm, inventoryDraft, type ShowDraft } from "@/components/shows/ShowCreationForm";
 import {
   deleteService,
   getSchedule,
@@ -552,6 +552,8 @@ function SchedulePage() {
       {createOpen ? (
         <CreateServiceModal
           orgId={data.orgId}
+          userId={user.id}
+          venueTimeZone={data.orgTimezone}
           today={data.today}
           serviceDates={data.services.map((service) => service.serviceDate)}
           previousDate={data.services.at(-1)?.serviceDate}
@@ -560,11 +562,13 @@ function SchedulePage() {
           initialInventoryId={inventorySeedId}
           terminologyProfile={data.terminologyProfile}
           onClose={() => setCreateOpen(false)}
-          onCreated={async (showId, date) => {
+          onCreated={async (showId, date, signal) => {
+            await router.invalidate();
+            signal.throwIfAborted();
+            if (router.state.matches.some(match => match.status === "error")) throw new Error("The show was created, but Schedule could not refresh.");
+            chooseShow(showId, date);
             setCreateOpen(false);
             setInventorySeedId(undefined);
-            await router.invalidate();
-            chooseShow(showId, date);
           }}
         />
       ) : null}
@@ -1082,185 +1086,81 @@ function RemoveAssignmentButton({ orgId, assignment, confirm, onChanged }: {
 
 function CreateServiceModal({
   orgId,
+  userId,
   today,
   serviceDates,
   previousDate,
   previousShowId,
   inventory,
   initialInventoryId,
+  venueTimeZone,
   onClose,
   onCreated,
 }: {
   orgId: string;
+  userId: string;
   today: string;
   serviceDates: string[];
   previousDate?: string;
   previousShowId?: string;
   inventory: ShowInventorySummary[];
   initialInventoryId?: string;
+  venueTimeZone: string;
   terminologyProfile: OrgTerminologyProfile;
   onClose: () => void;
-  onCreated: (showId: string, date: string) => void | Promise<void>;
+  onCreated: (
+    showId: string,
+    date: string,
+    signal: AbortSignal,
+  ) => Promise<void>;
 }) {
-  const locale = useDeviceLocale();
-  const workspaceTerms = useWorkspaceTerms();
-  const [date, setDate] = useState(() =>
-    nextAvailableServiceDate(today, serviceDates),
-  );
-  const [name, setName] = useState("");
-  const [time, setTime] = useState("10:00");
-  const [callTime, setCallTime] = useState("");
-  const [location, setLocation] = useState("");
-  const [inventoryId, setInventoryId] = useState(initialInventoryId ?? "");
-  const [copy, setCopy] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const terms = useTerms();
-  const selectedInventory = inventory.find((item) => item.id === inventoryId);
-  const applyInventory = (id: string) => {
-    setInventoryId(id);
-    const item = inventory.find((entry) => entry.id === id);
-    if (!item) return;
-    setName(item.name);
-    setLocation(item.location);
-    if (item.defaultStartTime) setTime(item.defaultStartTime);
-    setCopy(false);
-  };
-  useEffect(() => {
-    if (initialInventoryId) applyInventory(initialInventoryId);
-    // The modal is mounted for one selected inventory item at a time.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialInventoryId]);
-  return (
-    <Modal title={`New ${terms.event}`} description="Choose the date, location and rundown for this show." onClose={onClose}>
-      <form
-        onSubmit={async (event) => {
-          event.preventDefault();
-          setBusy(true);
-          setError(null);
-          try {
-            const created = await createNextService({
-              data: {
-                orgId,
-                serviceDate: date,
-                name,
-                startTime: time,
-                callTime: callTime || undefined,
-                timeZone: getDeviceTimeZone(),
-                location,
-                copyFrom: copy ? previousDate : undefined,
-                copyFromShowId: copy ? previousShowId : undefined,
-                inventoryId: inventoryId || undefined,
-              },
-            });
-            await onCreated(created.showId, date);
-          } catch (cause) {
-            setError(
-              cause instanceof Error
-                ? cause.message
-                : `Could not create this ${terms.event}.`,
-            );
-          } finally {
-            setBusy(false);
+  const initial: ShowDraft = {
+    serviceDate: nextAvailableServiceDate(today, serviceDates),
+    name: "",
+    startTime: "10:00",
+    callTime: "",
+    location: "",
+    timeZone: getDeviceTimeZone(),
+    source:
+      previousDate && previousShowId
+        ? {
+            kind: "show",
+            id: previousShowId,
+            serviceDate: previousDate,
+            name: "Previous show",
           }
-        }}
-        className="space-y-4"
-      >
-        <Field label={terms.eventName}>
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder={workspaceCopy(
-              "Sunday Morning, Conference Day 1…",
-              workspaceTerms,
-            )}
-            className={FORM_CONTROL}
-          />
-        </Field>
-        <Field label="Load from show inventory">
-          <select
-            value={inventoryId}
-            onChange={(event) => applyInventory(event.target.value)}
-            className={FORM_CONTROL}
-          >
-            <option value="">
-              {workspaceCopy(
-                "Start blank or copy a previous service",
-                workspaceTerms,
-              )}
-            </option>
-            {inventory.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name} · {item.itemCount} rundown items
-              </option>
-            ))}
-          </select>
-          {selectedInventory ? (
-            <p className="mt-1.5 text-[10px] text-board-muted">
-              This loads the saved show structure, name, location, and default time.
-            </p>
-          ) : null}
-        </Field>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Field label="Date">
-            <input
-              type="date"
-              value={date}
-              min={today}
-              onChange={(event) => setDate(event.target.value)}
-              className={FORM_CONTROL}
-            />
-          </Field>
-          <Field label="Start time">
-            <input
-              type="time"
-              value={time}
-              onChange={(event) => setTime(event.target.value)}
-              className={FORM_CONTROL}
-            />
-          </Field>
-          <Field label="Crew call (optional)">
-            <input
-              type="time"
-              value={callTime}
-              onChange={(event) => setCallTime(event.target.value)}
-              className={FORM_CONTROL}
-            />
-          </Field>
-        </div>
-        <Field label="Venue or location">
-          <input
-            value={location}
-            onChange={(event) => setLocation(event.target.value)}
-            placeholder="Main auditorium, Studio A, 123 Main St…"
-            maxLength={240}
-            className={FORM_CONTROL}
-          />
-        </Field>
-        {previousDate ? (
-          <label className="flex items-center gap-2 text-xs text-board-text">
-            <input
-              type="checkbox"
-              checked={copy}
-              onChange={(event) => setCopy(event.target.checked)}
-              disabled={Boolean(inventoryId)}
-              className="accent-fire-500"
-            />
-            Copy rundown from {dayLabel(previousDate, locale)}
-          </label>
-        ) : null}
-        {error ? (
-          <p role="alert" className="text-xs leading-relaxed text-red-300">
-            {error}
-          </p>
-        ) : null}
-        <button
-          disabled={busy || !date}
-          className="w-full rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50"
-        >
-          {busy ? "Creating…" : workspaceCopy("Create service", workspaceTerms)}
-        </button>
-      </form>
+        : { kind: "blank" },
+  };
+  const item = inventory.find((item) => item.id === initialInventoryId);
+  return (
+    <Modal
+      title={`New ${terms.event}`}
+      description="Choose the date, location and rundown for this show."
+      onClose={onClose}
+    >
+      <ShowCreationForm
+        scope={{ orgId, userId, entry: "schedule" }}
+        initial={item ? inventoryDraft(initial, item, venueTimeZone) : initial}
+        minDate={today}
+        inventory={inventory}
+        venueTimeZone={venueTimeZone}
+        onClose={onClose}
+        shows={
+          previousDate && previousShowId
+            ? [
+                {
+                  id: previousShowId,
+                  serviceDate: previousDate,
+                  name: "Previous show",
+                },
+              ]
+            : []
+        }
+        onCreated={async (result, signal) =>
+          onCreated(result.showId, result.serviceDate, signal)
+        }
+      />
     </Modal>
   );
 }
