@@ -5307,3 +5307,35 @@ Only scripts and evidence change here; no app code or dependencies changed.
 Phase 2 is 61/79 verified. The 45-minute acceptance run and product-wide gate
 remain open. No production deployment, migration, native release or real
 organization/device commands were performed.
+
+
+## Phase 2 assignment keyboard controls, 2026-11-07
+
+The real browser reproduced Decline leaving focus behind and Cancel/Confirm
+controls measuring 38px. Assignments now has visible focus styles on all
+controls, focuses the optional note when opening Decline, restores focus to the
+current Decline button on Cancel, and provides 44px targets. Long locations wrap
+within narrow cards, and the confirmation buttons wrap instead of overflowing.
+The first implementation tried to focus React's detached previous button; the
+browser caught this, and the final implementation tracks the mounted button.
+
+`smoke-assignment-keyboard.mjs` uses compiled Chrome, real authentication and a
+disposable personal schedule. Enter/Tab accept, decline and cancel pass, along
+with focus visibility, 320x480/768/1440px layouts and actual D1 response notes.
+The other person's assignment remains unchanged; no emails are sent. Inspected
+`/tmp/showpilot-assignment-decline-320.png`. Existing empty/unavailable and alert
+rendering, response API and ownership checks are unchanged.
+
+Final full suite: 2,361 unit and 1,186 Worker tests pass. Typecheck and production
+build pass. Main entry: 551,911 raw / 174,541 gzip bytes. Logs:
+`/tmp/showpilot-assignment-full2.log`, `-tsc2.log`, `-build2.log`, and
+`/tmp/showpilot-assignment-keyboard-after2.log`. Baseline evidence is in
+`/tmp/showpilot-assignment-keyboard-before2.log`.
+
+Re-inspected the unchanged Reports/Audio keyboard buttons, Team tablist arrow,
+Home and End behavior, and visible Team/Checklist/Incident row actions against
+their recorded compiled-browser evidence. With assignment focus verified, the
+named keyboard-blockers requirement is complete. Phase 2 is 62/79 verified.
+Assignment response timeout/recovery is still a separate observed gap; this
+patch does not claim the broad loading or mutation-recovery gate. No production
+migration, deployment or release; no new Markdown files.
