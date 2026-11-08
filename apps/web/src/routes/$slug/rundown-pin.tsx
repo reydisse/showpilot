@@ -1,4 +1,5 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { PageBreadcrumb } from "@/components/ui/PageBreadcrumb";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import { Lock, ShieldAlert } from "lucide-react";
 import { BoardSkeleton } from "@/components/ui/Skeleton";
@@ -65,19 +66,38 @@ function RundownPinPage() {
   return (
     <div className="min-h-[100dvh] bg-board-bg flex items-center justify-center px-4">
       <div className="w-full max-w-sm rounded-2xl border border-board-border bg-board-card p-6 shadow-2xl">
+        <PageBreadcrumb current="Unlock changes">
+          <Link activeOptions={{ exact: true }}
+            to="/$slug/rundown"
+            params={{ slug }}
+            className="inline-flex min-h-11 items-center rounded underline outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
+          >
+            Back to rundown
+          </Link>
+        </PageBreadcrumb>
         <div className="flex items-center gap-3 mb-4">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
             <Lock className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-board-text">Unlock changes</h1>
-            <p className="text-xs text-board-muted">Enter the organization PIN to edit the rundown and use live controls. You can view the rundown without it.</p>
+            <h1 className="text-lg font-semibold text-board-text">
+              Unlock changes
+            </h1>
+            <p className="text-xs text-board-muted">
+              Enter the organization PIN to edit the rundown and use live
+              controls. You can view the rundown without it.
+            </p>
           </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="rundown-pin" className="block text-sm text-board-muted mb-2">PIN</label>
+            <label
+              htmlFor="rundown-pin"
+              className="block text-sm text-board-muted mb-2"
+            >
+              PIN
+            </label>
             <input
               id="rundown-pin"
               type="password"
@@ -105,7 +125,6 @@ function RundownPinPage() {
             {submitting ? "Verifying..." : "Unlock changes"}
           </button>
         </form>
-        <a className="mt-4 block text-center text-sm text-board-muted hover:text-board-text" href={`/${slug}/rundown`}>Continue viewing</a>
       </div>
     </div>
   );

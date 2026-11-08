@@ -44,7 +44,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, capturedEmai
       throw error;
     });
     const control = name => `[...document.querySelectorAll('button')].find(n=>(n.textContent.trim()===${JSON.stringify(name)}||n.getAttribute('aria-label')===${JSON.stringify(name)}||[...n.querySelectorAll('span')].some(s=>s.textContent.trim()===${JSON.stringify(name)}))&&n.getBoundingClientRect().height>0&&!n.disabled)`;
-    const point = expression => `(async()=>{const n=${expression};if(!n)return null;n.scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;return n.contains(document.elementFromPoint(x,y))&&b.height>=44?{x,y}:null;})()`;
+    const point = expression => `(async()=>{const n=${expression};if(!n||!Object.keys(n).some(key=>key.startsWith('__reactProps')))return null;n.scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;return n.contains(document.elementFromPoint(x,y))&&b.height>=44?{x,y}:null;})()`;
     const click = async name => {
       await page("Page.bringToFront");
       const position = await check(point(control(name)), `44px reachable ${name}`);

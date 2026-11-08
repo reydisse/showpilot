@@ -1,3 +1,4 @@
+import { PageBreadcrumb } from "@/components/ui/PageBreadcrumb";
 import { createFileRoute, redirect, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Sparkles, Settings as SettingsIcon } from "lucide-react";
@@ -48,6 +49,15 @@ function LowerThirdsDisabledPage() {
   return (
     <div className="min-h-[100dvh] bg-board-bg flex items-center justify-center px-4">
       <div className="w-full max-w-md rounded-2xl border border-board-border bg-board-card p-6 shadow-2xl">
+        <PageBreadcrumb current="Lower Thirds unavailable">
+          <Link activeOptions={{ exact: true }}
+            to="/$slug/show"
+            params={{ slug }}
+            className="inline-flex min-h-11 items-center rounded underline outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
+          >
+            Back to Show Flow
+          </Link>
+        </PageBreadcrumb>
         <div className="flex items-center gap-3 mb-4">
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-fire-500/10 text-fire-500 border border-fire-500/20">
             <Sparkles className="w-5 h-5" />
@@ -67,9 +77,7 @@ function LowerThirdsDisabledPage() {
           Studio. Turn it on to start triggering lower thirds from any device.
         </p>
 
-        {error && (
-          <p className="mt-3 text-xs text-red-400">{error}</p>
-        )}
+        {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
 
         <div className="mt-6 space-y-2">
           {canEnable ? (

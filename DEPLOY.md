@@ -5389,3 +5389,48 @@ Final results: `/tmp/showpilot-crew-status-full4.log`, `-tsc3.log`, `-build3.log
 the Crew status portion of the broader terminology/read-recovery requirements.
 The 45-minute timing run remains pending in its isolated checkout. No production
 deployment, migration or release; 20 necessary tracked Markdown files remain.
+
+
+## Phase 2 navigation discovery, 2026-11-08
+
+My assignments now has an account-menu entry. Signed-in crew-chat links resolve
+to the existing Production Chat; guest passes retain their scoped entry points.
+The sidebar explains which pages are disabled versus unavailable to the current
+role, provides a visible scrollbar and keyboard scrolling, and gives its theme,
+fullscreen and collapse buttons 44px targets. Its content is a React component,
+so fullscreen's early return cannot conditionally skip its hooks.
+
+Template Studio and the disabled Lower Thirds explainer highlight their parent.
+Six hidden pages share a breadcrumb and an explicit parent Link: device details,
+Song Studio, incident history, Template Studio, rundown PIN and the disabled
+Lower Thirds page. Direct-entry Back works without history; device selection is
+retained. Exact parent matching prevents two current-page announcements.
+
+Verification uses the production build, actual authentication and disposable D1:
+
+- Navigation discovery passes account entry, canonical chat, access explanations,
+  collapsed/sidebar/fullscreen transitions, actual PageDown and 320/768/1440px.
+- All six breadcrumb destinations pass hit-tested 44px Back controls and
+  same-document parent rendering at those widths. The graphics case enters the
+  protected route and proves the real cloud-disabled redirect. Screenshots were
+  inspected, including 320x480.
+- The broad audit passes 21 sidebar routes and 13 Settings sections, including
+  sidebar visibility, previous-room restoration and direct-entry Back fallback,
+  at 320/768/1024/1440px. The earlier seven-library rehearsal verifies the Crew
+  status empty-state action links directly to Team.
+- Chat regression passes three isolated rooms with 2,003 seeded messages, actual
+  older-history retrieval, delayed-reply isolation, Retry, invalid-room recovery,
+  SPA Back/Forward and narrow layout. Its pointer helper now waits for hydration;
+  a prior run clicked a server-rendered recovery button before React attached it.
+- Full web suite: 2,369 unit and 1,186 Worker tests passed. Typecheck and production
+  build passed. Main entry is 552,717 raw and 174,997 gzip bytes; budget unchanged.
+
+Evidence: `/tmp/showpilot-navigation-discovery-after5.log` covers the sidebar and
+Template Studio; `/tmp/showpilot-navigation-hidden2.log` covers the six hidden
+routes after correcting the test's expected rundown heading to the fixture show
+name. Other logs are `/tmp/showpilot-navigation-discovery-audit2.log`, `-full4.log`,
+`-tsc7.log`, `-build10.log`, and `/tmp/showpilot-navigation-chat-rooms2.log`.
+Phase 2 is 65/79 verified. The 45-minute rehearsal is running separately in
+GitHub Actions PR #225; it is not counted as passed. Schedule dialog conversion
+and the remaining product-wide requirements are still open. Nothing deployed,
+migrated or released; no new Markdown files were added.

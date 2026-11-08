@@ -44,7 +44,6 @@ import { useSidebar } from "./SidebarContext";
 import { useTheme } from "./ThemeContext";
 import {
   hasAnyEffectivePermission,
-  hasEffectivePermission,
   type Permission,
 } from "@/lib/app-permissions";
 import { SidebarIdentity } from "./SidebarIdentity";
@@ -239,7 +238,8 @@ function NavLink({
     <Link
       to={resolvedTo}
       title={label}
-      className={`flex items-center rounded-lg transition-colors relative min-h-[44px] ${
+      aria-current={active ? "page" : undefined}
+      className={`flex items-center rounded-lg transition-colors relative min-h-[44px] outline-none focus-visible:ring-2 focus-visible:ring-fire-500 ${
         collapsed ? "justify-center p-2.5" : "gap-3 px-3 py-2.5"
       } ${
         active
@@ -263,43 +263,45 @@ function QuickActions({ collapsed }: { collapsed: boolean }) {
   const { theme, toggleTheme } = useTheme();
   const desktop = useDesktopRuntime();
 
+  const buttonClass =
+    "flex min-h-11 min-w-11 items-center justify-center rounded-lg text-board-muted outline-none hover:bg-board-border/50 hover:text-board-text focus-visible:ring-2 focus-visible:ring-fire-500";
   return (
     <div
-      className={`flex items-center ${collapsed ? "flex-col gap-1" : "gap-1"}`}
+      className={`flex items-center justify-end gap-1 ${collapsed ? "flex-col" : ""}`}
     >
       <button
         onClick={toggleTheme}
         title={theme === "dark" ? "Light" : "Dark"}
-        className="p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors"
+        className={buttonClass}
       >
         {theme === "dark" ? (
-          <Sun className="w-3.5 h-3.5" />
+          <Sun className="size-4" />
         ) : (
-          <Moon className="w-3.5 h-3.5" />
+          <Moon className="size-4" />
         )}
       </button>
-      {!desktop ? (
+      {!desktop && (
         <button
           onClick={toggleFullscreen}
           title={fullscreen ? "Exit Fullscreen" : "Fullscreen"}
-          className="p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors"
+          className={buttonClass}
         >
           {fullscreen ? (
-            <Minimize className="w-3.5 h-3.5" />
+            <Minimize className="size-4" />
           ) : (
-            <Maximize className="w-3.5 h-3.5" />
+            <Maximize className="size-4" />
           )}
         </button>
-      ) : null}
+      )}
       <button
         onClick={toggle}
         title={collapsed ? "Expand" : "Collapse"}
-        className="p-1.5 rounded-lg text-board-muted hover:bg-board-border/50 hover:text-board-text transition-colors"
+        className={buttonClass}
       >
         {collapsed ? (
-          <ChevronsRight className="w-3.5 h-3.5" />
+          <ChevronsRight className="size-4" />
         ) : (
-          <ChevronsLeft className="w-3.5 h-3.5" />
+          <ChevronsLeft className="size-4" />
         )}
       </button>
     </div>
@@ -348,7 +350,14 @@ export function Sidebar() {
   const isActive = (path: string) => {
     const fullPath = `/${slug}/${path}`;
     if (path === "show")
-      return pathname === `/${slug}/show` || pathname === `/${slug}`;
+      return pathname === fullPath || pathname === `/${slug}`;
+    if (
+      path === "streaming/graphics" &&
+      ["streaming/lt-preview", "streaming/lower-thirds-disabled"].some(
+        (alias) => pathname === `/${slug}/${alias}`,
+      )
+    )
+      return true;
     return pathname.startsWith(fullPath);
   };
 
@@ -379,17 +388,17 @@ export function Sidebar() {
           }`}
         >
           {/* Backdrop */}
-          {renderSidebarContent({
-            modules: workspace.modules,
-            collapsed: false,
-            org,
-            slug: slug!,
-            isActive,
-            role,
-            grantedPermissions,
-            canManageAccess,
-            user,
-          })}
+          <SidebarContent
+            modules={workspace.modules}
+            collapsed={false}
+            org={org}
+            slug={slug!}
+            isActive={isActive}
+            role={role}
+            grantedPermissions={grantedPermissions}
+            canManageAccess={canManageAccess}
+            user={user}
+          />
         </aside>
       </>
     );
@@ -402,17 +411,17 @@ export function Sidebar() {
         style={{ width: w, transition: "width 200ms ease-in-out" }}
         className="fixed top-0 left-0 z-30 flex h-[100dvh] flex-col overflow-hidden border-r border-board-border bg-board-card"
       >
-        {renderSidebarContent({
-          modules: workspace.modules,
-          collapsed,
-          org,
-          slug: slug!,
-          isActive,
-          role,
-          grantedPermissions,
-          canManageAccess,
-          user,
-        })}
+        <SidebarContent
+          modules={workspace.modules}
+          collapsed={collapsed}
+          org={org}
+          slug={slug!}
+          isActive={isActive}
+          role={role}
+          grantedPermissions={grantedPermissions}
+          canManageAccess={canManageAccess}
+          user={user}
+        />
       </aside>
 
       {/* Backdrop */}
@@ -429,7 +438,7 @@ export function Sidebar() {
 }
 
 /** Shared sidebar content — used by both desktop sidebar and mobile drawer */
-function renderSidebarContent({
+function SidebarContent({
   modules,
   collapsed,
   org,
@@ -456,20 +465,28 @@ function renderSidebarContent({
     image?: string | null;
   } | null;
 }) {
-  const can = (permission: Permission) =>
-    hasEffectivePermission(role, grantedPermissions, permission);
-  const canAny = (permissions: readonly Permission[]) =>
-    hasAnyEffectivePermission(role, grantedPermissions, permissions);
   const canOpen = (item: NavItem) =>
-    modules.includes(item.module) &&
-    (!item.permission || (typeof item.permission === "string"
-    ? can(item.permission)
-    : canAny(item.permission)));
-
-  const visibleMainNav = mainNav.filter((item) => item.path === "team" ? canManageAccess || canOpen(item) : canOpen(item));
-  const visibleProductionNav = productionNav.filter(canOpen);
-  const visibleStreamingNav = streamingNav.filter(canOpen);
-  const visibleDashboardNav = dashboardNav.filter(canOpen);
+    (item.path === "team" && canManageAccess) ||
+    (modules.includes(item.module) &&
+      (!item.permission ||
+        hasAnyEffectivePermission(
+          role,
+          grantedPermissions,
+          typeof item.permission === "string"
+            ? [item.permission]
+            : item.permission,
+        )));
+  const sections = [
+    { label: "", items: mainNav },
+    { label: "Production", items: productionNav },
+    { label: "Streaming", items: streamingNav },
+    { label: "Dashboards", items: dashboardNav },
+  ];
+  const terms = useTerms();
+  const unavailable = sections
+    .flatMap((section) => section.items)
+    .filter((item) => !canOpen(item));
+  const { toggle } = useSidebar();
 
   const roleColour = ROLE_COLOURS[role ?? ""] ?? ROLE_COLOURS.member;
 
@@ -478,7 +495,7 @@ function renderSidebarContent({
       {/* Backdrop */}
       <div
         className={`py-5 flex items-center overflow-hidden ${
-          collapsed ? "flex-col gap-2 px-2" : "gap-3 px-4"
+          collapsed ? "flex-col gap-2 px-2" : "flex-wrap gap-3 px-4"
         }`}
         style={{ borderLeft: `3px solid ${roleColour}` }}
       >
@@ -494,7 +511,7 @@ function renderSidebarContent({
             ShowPilot
           </span>
         )}
-        <div className={collapsed ? "mt-1" : "ml-auto"}>
+        <div className={collapsed ? "mt-1" : "w-full"}>
           <QuickActions collapsed={collapsed} />
         </div>
       </div>
@@ -508,102 +525,84 @@ function renderSidebarContent({
         </div>
       )}
 
-      {/* Backdrop */}
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden hide-scrollbar pb-4">
-        {/* Main nav */}
-        <div className="px-2.5 space-y-0.5">
-          {visibleMainNav.map((item) => (
-            <NavLink
-              key={item.path}
-              item={item}
-              slug={slug}
-              collapsed={collapsed}
-              active={isActive(item.path)}
-            />
-          ))}
-        </div>
-
-        {/* Divider + Production section */}
-        {visibleProductionNav.length > 0 && (
-          <>
-            <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
-              {!collapsed ? (
-                <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
-                  Production
-                </p>
-              ) : (
-                <div className="h-px bg-board-border" />
+      <nav
+        aria-label="Workspace navigation"
+        tabIndex={0}
+        className="modern-scrollbar flex-1 min-h-0 overflow-y-scroll overflow-x-hidden pb-4 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fire-500 [scrollbar-color:var(--board-muted)_transparent]"
+      >
+        {sections.map((section) => {
+          const items = section.items.filter(canOpen);
+          if (!items.length) return null;
+          return (
+            <div key={section.label}>
+              {section.label && (
+                <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
+                  {collapsed ? (
+                    <div className="h-px bg-board-border" />
+                  ) : (
+                    <p className="text-[10px] font-medium text-board-muted uppercase tracking-widest">
+                      {section.label}
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className="px-2.5 space-y-0.5">
+                {items.map((item) => (
+                  <NavLink
+                    key={item.path}
+                    item={item}
+                    slug={slug}
+                    collapsed={collapsed}
+                    active={isActive(item.path)}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        {unavailable.length > 0 && (
+          <details
+            className="mx-2.5 mt-4 border-t border-board-border"
+            onToggle={(event) => {
+              if (event.currentTarget.open && collapsed) toggle();
+            }}
+          >
+            <summary
+              aria-label="Unavailable pages"
+              title="Unavailable pages"
+              className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg px-2 text-xs text-board-muted outline-none hover:text-board-text focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fire-500"
+            >
+              <LayoutDashboard className="size-4 shrink-0" />
+              {!collapsed && "Unavailable pages"}
+            </summary>
+            <div className="space-y-3 px-2 pb-3 text-xs text-board-muted">
+              <p>Ask an owner or admin if you need a page listed here.</p>
+              <ul className="space-y-3">
+                {unavailable.map((item) => (
+                  <li key={item.path}>
+                    <span className="block text-board-text">
+                      {item.path === "show" ? terms.eventTitle : item.label}
+                    </span>
+                    {modules.includes(item.module)
+                      ? "Requires additional access"
+                      : "Turned off in this workspace"}
+                  </li>
+                ))}
+              </ul>
+              {(role === "owner" || role === "admin") && (
+                <Link
+                  to="/$slug/settings"
+                  params={{ slug }}
+                  search={{ section: "organization" }}
+                  className="inline-flex min-h-11 items-center underline outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
+                >
+                  Manage workspace features
+                </Link>
               )}
             </div>
-
-            <div className="px-2.5 space-y-0.5">
-              {visibleProductionNav.map((item) => (
-                <NavLink
-                  key={item.path}
-                  item={item}
-                  slug={slug}
-                  collapsed={collapsed}
-                  active={isActive(item.path)}
-                />
-              ))}
-            </div>
-          </>
+          </details>
         )}
-
-        {/* Divider + Streaming section */}
-        {visibleStreamingNav.length > 0 && (
-          <>
-            <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
-              {!collapsed ? (
-                <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
-                  Streaming
-                </p>
-              ) : (
-                <div className="h-px bg-board-border" />
-              )}
-            </div>
-
-            <div className="px-2.5 space-y-0.5">
-              {visibleStreamingNav.map((item) => (
-                <NavLink
-                  key={item.path}
-                  item={item}
-                  slug={slug}
-                  collapsed={collapsed}
-                  active={isActive(item.path)}
-                />
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* Divider + Dashboards section */}
-        {visibleDashboardNav.length > 0 && (
-          <>
-            <div className={`pt-5 pb-2 ${collapsed ? "px-3" : "px-4"}`}>
-              {!collapsed ? (
-                <p className="text-[10px] font-medium text-board-muted/50 uppercase tracking-widest whitespace-nowrap">
-                  Dashboards
-                </p>
-              ) : (
-                <div className="h-px bg-board-border" />
-              )}
-            </div>
-
-            <div className="px-2.5 space-y-0.5">
-              {visibleDashboardNav.map((item) => (
-                <NavLink
-                  key={item.path}
-                  item={item}
-                  slug={slug}
-                  collapsed={collapsed}
-                  active={isActive(item.path)}
-                />
-              ))}
-            </div>
-          </>
-        )}
-      </div>
+      </nav>
 
       {/* Backdrop */}
       <div className="shrink-0 border-t border-board-border px-2.5 py-3">
