@@ -2,6 +2,7 @@ import { retryInvitationDeliverySchema } from "./team-invitation-contract";
 import { createTeamInvitation, deliverTeamInvitation } from "./team-invitation.server";
 import { executeTeamCommand, teamCommandHeaders, teamCommandFailure, TeamCommandError } from "./team-command.server";
 import { betterAuth } from "better-auth";
+import { confirmedSignOut } from "./sign-out.server";
 import { createAuthEndpoint, getAuthoritativeSessionFromCtx } from "better-auth/api";
 import { createOrganizationAtomically, readOrganizationCreation, OrganizationCreationReceiptError } from "./organization-creation.server";
 import { z } from "zod";
@@ -322,6 +323,7 @@ export function getAuth() {
     plugins: [
       expo(),
       showPilotOrganization(),
+      confirmedSignOut,
       tanstackStartCookies(), // must be last
     ],
     emailAndPassword: emailPasswordConfig,

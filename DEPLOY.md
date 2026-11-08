@@ -5794,3 +5794,66 @@ sign-out and native notification delivery still have unbounded operator paths;
 these and the remaining broad audit prevent closing the gate. No deployment,
 release, real-org writes or new Markdown files. Twenty necessary tracked Markdown
 files remain.
+
+
+## Phase 2 confirmed sign-out and recovery — 2026-11-08
+
+On `fix/account-sign-out-recovery`, both account-menu and profile sign-out now
+share a retained, account-scoped attempt. Reads and revocation have one eight-second
+deadline. Errors show a timestamp and Retry instead of closing the account menu.
+Retries check current session authority first; an already-ended session needs no
+second write. A changed sign-in requires reviewing the current account. Late reads
+cannot start a write after timeout; late acknowledgements cannot navigate. Confirmed
+sign-out clears private query/mutation state and loads the login document afresh.
+The existing two-tap confirmation expires after four seconds and pending attempts
+coalesce. Recovery survives menu closure and switching account views.
+
+Root cause extended to the server: the installed Better Auth sign-out endpoint
+caught session-deletion failure and returned success while clearing the cookie.
+A ShowPilot endpoint override now retains Better Auth's origin checks, signed
+cookies, adapter deletion hooks and relay revocation. It checks deletion before
+clearing cookies, returns an error when revocation cannot be confirmed, and rejects
+an expected-session mismatch. Existing clients without the optional session ID
+continue to sign out. Other devices' sessions remain active. This application uses
+email/password authentication and database sessions; no provider-logout flow is
+configured or added here.
+
+Validation:
+- Baseline real-auth/D1 tests reproduced two failures: database deletion failure
+  returned 200 and an old confirmation ended a newer session. The browser baseline
+  showed the account menu disappearing after a 503 with no recovery; authentication
+  remained active. Baseline logs are `-before2.log` and `-browser-before.log` below.
+- Four real-auth/D1 tests now pass: failed deletion retains cookies for Retry,
+  session mismatch rejection, harmless duplicate/lost-response retries preserving
+  other sessions, legacy compatibility, and foreign-origin rejection.
+- Seven rendered tests cover response errors, read/write deadlines and abort,
+  late-response rejection, no late write after a timed-out read, retained commands
+  across unmount/account changes, read-only recovery of a lost success, changed
+  session recovery, confirmation expiry, duplicate clicks and malformed replies.
+- Full suite: 2,419 unit / 1,208 Worker tests pass. Typecheck and production build
+  pass. Main entry 551,726 raw / 174,749 gzip bytes under unchanged limits.
+- Compiled Chrome/auth/D1 tests pass account-menu HTTP failure, profile stalled
+  write, lost committed reply and profile stalled session read. Recovery survives
+  closing/changing views; late replies do not navigate. Retrying a lost committed
+  reply sends no second revocation. Confirmed logout reaches the login document
+  and the original session is revoked. Error/Retry fits at 320x480/768/1440.
+  Menu and profile phone screenshots inspected; no runtime errors or email.
+- Account download regression passes held Profile, Notifications, AccountPanels
+  and the new SignOutControl chunk, plus a real Profile network failure. Retry
+  recovers without losing the profile input node/draft during resizing. Navigation
+  passes 21 routes/13 Settings sections at 320/768/1024/1440 without reload.
+
+Evidence: `/tmp/showpilot-signout-{before2,worker2,ui1,tsc2,full1,build1,
+browser-before,browser1,account-regression1,navigation}.log`. Rerun with
+`smoke-account-sign-out.mjs`, `smoke-account-panel-loading.mjs` and
+`smoke-navigation-audit.mjs`. An initial Worker run had a test syntax typo; a later
+version used thrown framework API errors that produced unhandled-rejection reports.
+The final endpoint uses explicit HTTP failure responses, matching existing auth
+endpoint overrides; the final suite reports no such errors.
+
+PR #233 CI passed in run 42465690902, so the previously queued timezone branch
+opened as draft #234. Its main CI is still pending while recording this entry.
+Phase 2 remains 67/79. Profile name/photo saves, reset-email requests, native
+notification delivery and the remaining broad audit are still open. No deployment,
+release, migration, real-organization write, paid service or new Markdown file.
+Twenty necessary tracked Markdown files remain.
