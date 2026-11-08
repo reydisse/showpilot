@@ -1,3 +1,4 @@
+import * as deletionHook from "../../test/native-template-delete-hook.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import ts from "typescript";
@@ -30,14 +31,16 @@ const code = ts.transpileModule(source, {
     jsx: ts.JsxEmit.ReactJSX,
   },
 }).outputText;
-function loadSheet(alert, read, send) {
+function loadSheet(alert, read, send, deleting) {
   const container = ({ children }) =>
     React.createElement("div", null, children);
   const modules = {
     "@/components/template-save-form": { TemplateSaveForm: () => null },
     "@/hooks/use-rundown-replacement": managementHook,
+    "@/hooks/use-template-delete": deletionHook,
     "@/hooks/use-screen-polling": { useScreenFocus: () => true },
     "@/lib/mobile-api": {
+      deleteMobileRundownTemplate: deleting,
       readMobileRundownReplacement: read,
       commandMobileRundownReplacement: send,
     },
@@ -103,13 +106,13 @@ function loadSheet(alert, read, send) {
   function evaluate(code) {
     const exports = {};
     new Function("require", "exports", code)((name) => {
-      if (name === "@/components/rundown-replacement-form")
+      if (name === "@/components/rundown-replacement-form" || name === "@/components/template-delete-status")
         return evaluate(
           ts.transpileModule(
             readFileSync(
               resolve(
                 process.cwd(),
-                "../mobile/src/components/rundown-replacement-form.tsx",
+                name === "@/components/template-delete-status" ? "../mobile/src/components/template-delete-status.tsx" : "../mobile/src/components/rundown-replacement-form.tsx",
               ),
               "utf8",
             ),
@@ -122,6 +125,7 @@ function loadSheet(alert, read, send) {
             },
           ).outputText,
         );
+      if (name === "./app-button") return modules["@/components/app-button"];
       if (name.startsWith("lucide-react-native/"))
         return { default: () => null };
       if (!(name in modules)) throw new Error(`Unmocked native import ${name}`);
@@ -161,7 +165,8 @@ function setup() {
   const send = vi.fn().mockRejectedValue(new Error("Reply lost")),
     alert = vi.fn(),
     client = new QueryClient(),
-    Sheet = loadSheet(alert, read, send);
+    deleting = vi.fn().mockRejectedValue(new Error("Deletion reply lost")),
+    Sheet = loadSheet(alert, read, send, deleting);
   const props = {
     orgId: "org",
     userId: "user",
@@ -170,7 +175,6 @@ function setup() {
     canCapture: true,
     loading: false,
     onClose: vi.fn(),
-    onDelete: vi.fn(),
     onRetry: vi.fn(),
     refreshing: false,
     templates: [template],
@@ -184,7 +188,7 @@ function setup() {
         React.createElement(Sheet, props),
       ),
     );
-  return { read, send, alert, client, props, mount };
+  return { read, send, deleting, alert, client, props, mount };
 }
 it("renders an in-product replacement confirmation when native alerts are unavailable", async () => {
   const f = setup();
@@ -250,4 +254,49 @@ it("requires explicit source reread after cancellation before a new replacement"
   expect(f.send.mock.calls[2][0].requestId).not.toBe(
     f.send.mock.calls[0][0].requestId,
   );
+});
+it("shows a visible template deletion confirmation when native alerts are unavailable", async () => {
+  const f = setup();
+  f.mount();
+  fireEvent.click(screen.getByRole("button", { name: "Delete Reviewed template" }));
+  expect(screen.getByRole("button", { name: "Confirm template deletion" })).toBeTruthy();
+  expect(screen.getByText(/Existing shows are not affected/)).toBeTruthy();
+  expect(f.deleting).not.toHaveBeenCalled();
+  expect(f.alert).not.toHaveBeenCalled();
+});
+
+it("retains the confirmed deletion across navigation and retries only its original template", async () => {
+  const f = setup(), view = f.mount();
+  fireEvent.click(screen.getByRole("button", {name: "Delete Reviewed template"}));
+  fireEvent.click(screen.getByRole("button", {name: "Confirm template deletion"}));
+  await screen.findByRole("button", {name: "Retry deletion of Reviewed template"});
+  const original = f.deleting.mock.calls[0][0];
+  view.unmount();
+  f.props.templates = [{...template,id:"another",name:"Another template"}];
+  f.mount();
+  fireEvent.click(screen.getByRole("button", {name: "Retry deletion of Reviewed template"}));
+  await waitFor(()=>expect(f.deleting).toHaveBeenCalledTimes(2));
+  expect(f.deleting.mock.calls[1][0]).toEqual(original);
+  expect(original.templateId).toBe("template");
+  expect(f.alert).not.toHaveBeenCalled();
+});
+it("keeps a failed list refresh separate from an acknowledged deletion",async()=>{
+  const f=setup();
+  f.deleting.mockImplementation(async command=>({...command,ok:true}));
+  vi.spyOn(f.client,"invalidateQueries").mockRejectedValueOnce(new Error("List unavailable")).mockResolvedValue(undefined);
+  f.mount();
+  fireEvent.click(screen.getByRole("button",{name:"Delete Reviewed template"}));
+  fireEvent.click(screen.getByRole("button",{name:"Confirm template deletion"}));
+  await screen.findByText("List unavailable");
+  expect(screen.getByText("Template deleted. Existing shows are not affected.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button",{name:"Refresh saved templates"}));
+  await screen.findByRole("button",{name:"Dismiss deletion result"});
+  expect(f.deleting).toHaveBeenCalledTimes(1);
+});
+it("keeping the template closes confirmation without sending a deletion",()=>{
+  const f=setup();f.mount();
+  fireEvent.click(screen.getByRole("button",{name:"Delete Reviewed template"}));
+  fireEvent.click(screen.getByRole("button",{name:"Keep template"}));
+  expect(screen.queryByRole("button",{name:"Confirm template deletion"})).toBeNull();
+  expect(f.deleting).not.toHaveBeenCalled();
 });

@@ -1,3 +1,4 @@
+import { idSchema } from "./validation";
 import { removeSavedRundown } from "./saved-rundown-delete.server";
 import { createSavedRundown } from "./saved-rundown-create.server";
 import { markDatabaseWrite } from "./request-database.server";
@@ -1592,9 +1593,27 @@ async function deleteMobileRundownTemplate(
     .bind(showId, access.orgId)
     .first<{ id: string }>();
   if (!show) return json({ error: "Show not found." }, 404);
-  await removeSavedRundown(db, access.orgId, templateId);
+  const body = z.union([
+    z.object({ userId: idSchema, requestId: idSchema }).strict(),
+    z.object({}).strict(), // Installed clients send an empty body.
+  ]).safeParse(await readJson(request));
+  if (!body.success) return json({ error: "Check the original template deletion request." }, 400);
+  if ("userId" in body.data && body.data.userId !== access.identity.userId)
+    return json({ error: "Your account changed. Reopen the original template deletion." }, 403);
+  const session = await getAuth().api.getSession({ headers: request.headers, query: { disableCookieCache: true } });
+  if (!session || session.user.id !== access.identity.userId) return json({ error: "Sign in again before deleting this template." }, 401);
+  const { getD1 } = await import("./d1");
+  const { RundownDetailsAccessError } = await import("./rundown-details-authority.server");
+  try {
+    await removeSavedRundown(getD1(), access.orgId, templateId, {
+      userId: session.user.id, sessionId: session.session.id, pin: getPresentedRundownPin(request, access.orgId),
+    });
+  } catch (error) {
+    if (error instanceof RundownDetailsAccessError) return json({ error: error.message }, 403);
+    throw error;
+  }
   markDatabaseWrite();
-  return json({ ok: true });
+  return json({ ok: true, ...("requestId" in body.data ? { orgId: access.orgId, userId: session.user.id, showId, templateId, requestId: body.data.requestId } : {}) });
 }
 
 /** Retained native creation uses the same durable receipt and cancellation fence

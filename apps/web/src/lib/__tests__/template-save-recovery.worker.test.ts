@@ -221,7 +221,7 @@ it("rejects changed content under the same request ID", async () => {
 it("reports removed after a confirmed copy was deleted without recreating it", async () => {
   const f = await fixture();
   await f.result();
-  await removeSavedRundown(env.DB, f.orgId, f.command.requestId);
+  await removeSavedRundown(env.DB, f.orgId, f.command.requestId, { userId: f.userId, sessionId: f.sessionId, pin: null });
   const before = await f.rows();
   expect((await f.result()).outcome).toBe("removed");
   expect((await f.result(true)).outcome).toBe("removed");

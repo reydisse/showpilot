@@ -101,7 +101,7 @@ async function fixture() {
     requestId,
     save: (name = "Reviewed template", id = requestId) =>
       call("POST", "", { name, requestId: id }),
-    remove: () => call("POST", `/${requestId}/remove`, {}),
+    remove: (body: unknown = {}) => call("POST", `/${requestId}/remove`, body),
     rows: async () =>
       (
         await env.DB.prepare(
@@ -261,3 +261,23 @@ it.each(["mobile", "web"])(
     expect(await f.rows()).toEqual(afterDelete);
   },
 );
+it("correlates retained deletion replies and rejects a request from another account",async()=>{
+  const f=await fixture();await f.save();
+  const requestId=crypto.randomUUID(),before=await f.rows();
+  const wrong=await f.remove({userId:"other-account",requestId});
+  expect(wrong.status).toBe(403);await wrong.arrayBuffer();expect(await f.rows()).toEqual(before);
+  const command={userId:f.userId,requestId};
+  const first=await f.remove(command);
+  expect(first.status).toBe(200);
+  expect(await first.json()).toEqual({ok:true,orgId:f.orgId,userId:f.userId,showId:f.showId,templateId:f.requestId,requestId});
+  const after=await f.rows();
+  const replay=await f.remove(command);expect(replay.status).toBe(200);await replay.arrayBuffer();
+  expect(await f.rows()).toEqual(after);
+});
+it("rejects malformed retained deletion identities before removing a template",async()=>{
+  const f=await fixture();await f.save();const before=await f.rows();
+  for(const body of [{requestId:"missing-user"},{userId:f.userId,requestId:42},{userId:f.userId,requestId:crypto.randomUUID(),extra:true}]){
+    const response=await f.remove(body);expect(response.status).toBe(400);await response.arrayBuffer();
+    expect(await f.rows()).toEqual(before);
+  }
+});

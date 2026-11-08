@@ -1,3 +1,4 @@
+import { useTemplateDeleteAttempts } from "@/hooks/use-template-delete";
 import {useRundownReplacementDraft} from "@/hooks/use-rundown-replacement";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -38,7 +39,6 @@ import { useRundownRelay } from "@/hooks/use-rundown-relay";
 import { authClient } from "@/lib/auth-client";
 import { SHOWPILOT_URL } from "@/lib/env";
 import {
-  deleteMobileRundownTemplate,
   controlMobileProPresenter,
   getMobileRundown,
   getMobileRundownTemplates,
@@ -174,6 +174,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
   const [showDetailsOpen, setShowDetailsOpen] = useState(false);
   const detailsDraft = useRundownDetailsDraft({ orgId, userId, showId: detail.show.id });
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const templateDeletions = useTemplateDeleteAttempts({orgId,userId,showId:detail.show.id});
   const templateDraft = useTemplateSaveDraft({ orgId, userId, showId: detail.show.id });
   const replacementDraft=useRundownReplacementDraft({orgId,userId,showId:detail.show.id});
   const [message, setMessage] = useState("");
@@ -351,6 +352,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
         ListHeaderComponent={(
           <View style={styles.listHeader}>
             {refreshError ? <View><Text accessibilityRole="alert" style={styles.syncError}>{refreshError} The last loaded show is still displayed.</Text><AppButton label="Refresh show" loading={refreshing} onPress={onRefresh} /></View> : null}
+            {templateDeletions.length ? <AppButton label="Resume template deletion" variant="secondary" onPress={()=>setTemplatesOpen(true)}/>:null}
             {replacementDraft ? <AppButton label="Resume rundown replacement" variant="secondary" onPress={()=>setTemplatesOpen(true)}/>:null}
             {templateDraft?.name ? <AppButton label="Resume template draft" variant="secondary" onPress={() => setTemplatesOpen(true)}/> : null}
             {detailsDraft ? <AppButton label="Resume rundown details" variant="secondary" onPress={() => setShowDetailsOpen(true)} /> : null}
@@ -442,10 +444,6 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
         error={canAuthor ? templatesQuery.error?.message : "Rundown editing permission is unavailable. Reopen after your access is restored."} refreshing={templatesQuery.isFetching} onRetry={() => void templatesQuery.refetch()}
         loading={templatesQuery.isPending && templatesQuery.isFetching}
         onClose={() => setTemplatesOpen(false)}
-        onDelete={async (template) => {
-          await deleteMobileRundownTemplate({ orgId, showId: detail.show.id, templateId: template.id });
-          await templatesQuery.refetch();
-        }}
         previousShows={templatesQuery.data?.previousShows ?? []}
         templates={templatesQuery.data?.templates ?? []}
       /> : null}

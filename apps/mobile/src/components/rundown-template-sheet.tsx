@@ -1,14 +1,16 @@
+import { useTemplateDelete } from "@/hooks/use-template-delete";
+import { TemplateDeleteStatus } from "@/components/template-delete-status";
 import { useQueryClient } from "@tanstack/react-query";
 import { useScreenFocus } from "@/hooks/use-screen-polling";
 import { useRundownReplacement } from "@/hooks/use-rundown-replacement";
 import { RundownReplacementForm } from "@/components/rundown-replacement-form";
-import { readMobileRundownReplacement,commandMobileRundownReplacement } from "@/lib/mobile-api";
-import { useRef, useState } from "react";
+import { readMobileRundownReplacement,commandMobileRundownReplacement,deleteMobileRundownTemplate } from "@/lib/mobile-api";
+import { useEffect, useRef, useState } from "react";
 import { TemplateSaveForm } from "@/components/template-save-form";
 import type { TemplateCopyInput } from "@/lib/template-save-recovery";
 import Trash2 from "lucide-react-native/icons/trash-2";
 import X from "lucide-react-native/icons/x";
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
 import type { MobilePreviousRundown, MobileRundownTemplate } from "@/lib/mobile-api";
@@ -17,21 +19,19 @@ import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/t
 export function RundownTemplateSheet({
   loading,
   onClose,
-  onDelete,
   orgId, userId, showId, copy, canCapture, error, refreshing, onRetry,
   templates,
   previousShows,
 }: {
   loading: boolean;
   onClose: () => void;
-  onDelete: (template: MobileRundownTemplate) => Promise<void>;
   orgId: string; userId: string; showId: string; copy: TemplateCopyInput; canCapture: boolean; error?: string; refreshing: boolean; onRetry: () => void;
   templates: MobileRundownTemplate[];
   previousShows: MobilePreviousRundown[];
 }) {
   const { colors } = useAppTheme();
   const styles = useStyles();
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<MobileRundownTemplate | null>(null);
   const active=useScreenFocus(),client=useQueryClient(),content=useRef<ScrollView>(null);
   const replacement=useRundownReplacement({orgId,userId,showId},{active,read:readMobileRundownReplacement,send:commandMobileRundownReplacement,
     refresh:async signal=>{
@@ -44,16 +44,14 @@ export function RundownTemplateSheet({
   });
 
 
-  async function run(id: string, action: () => Promise<void>) {
-    setBusyId(id);
-    try {
-      await action();
-    } catch (error) {
-      Alert.alert("Template action failed", error instanceof Error ? error.message : "Try again.");
-    } finally {
-      setBusyId(null);
-    }
-  }
+  const deletion = useTemplateDelete({ orgId, userId, showId }, {
+    active, send: deleteMobileRundownTemplate,
+    refresh: async signal => {
+      await client.invalidateQueries({ queryKey: ["mobile-rundown-templates", orgId, showId, userId] }, { throwOnError: true });
+      if (signal.aborted) throw new Error("Template list refresh cancelled.");
+    },
+  });
+  useEffect(() => { setConfirmDelete(null); }, [active, orgId, userId, showId]);
 
   return (
     <Modal animationType="slide" onRequestClose={onClose} presentationStyle="pageSheet" visible>
@@ -63,6 +61,13 @@ export function RundownTemplateSheet({
         <Pressable accessibilityLabel="Close rundown templates" accessibilityRole="button" onPress={onClose} style={styles.close}><X color={colors.textMuted} size={21} /></Pressable>
       </View>
         <ScrollView ref={content} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <TemplateDeleteStatus state={deletion} active={active}/>
+          {confirmDelete ? <View style={styles.saveCard}>
+            <Text style={styles.saveTitle}>Delete “{confirmDelete.name}”?</Text>
+            <Text style={styles.saveHint}>This removes the saved template with {confirmDelete.itemCount} item{confirmDelete.itemCount === 1 ? "" : "s"}. Existing shows are not affected.</Text>
+            <AppButton label="Confirm template deletion" variant="danger" disabled={!active || !canCapture} onPress={() => { deletion.confirm(confirmDelete); setConfirmDelete(null); }}/>
+            <AppButton label="Keep template" variant="secondary" onPress={() => setConfirmDelete(null)}/>
+          </View> : null}
           <RundownReplacementForm state={replacement} active={active} canReplace={canCapture}/>
           <View style={styles.saveCard}>
             <TemplateSaveForm orgId={orgId} userId={userId} showId={showId} copy={copy} canCapture={canCapture}/>
@@ -74,7 +79,7 @@ export function RundownTemplateSheet({
               {previousShows.slice(0, 20).map((show) => (
                 <View key={show.id} style={styles.templateCard}>
             <View style={styles.templateCopy}><Text style={styles.templateName}>{show.name || "Untitled show"}</Text><Text style={styles.templateMeta}>{show.serviceDate} · {show.itemCount} item{show.itemCount === 1 ? "" : "s"}{show.location ? ` · ${show.location}` : ""}</Text></View>
-            <Pressable accessibilityRole="button" disabled={busyId !== null || !!replacement.draft} onPress={() => {replacement.choose({kind:"show",id:show.id});content.current?.scrollTo({y:0,animated:true});}} style={[styles.loadButton, (busyId !== null || !!replacement.draft) && styles.disabled]}><Text style={styles.loadText}>{busyId === show.id ? "Loading…" : "Load previous"}</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={!!confirmDelete || !!replacement.draft} onPress={() => {replacement.choose({kind:"show",id:show.id});content.current?.scrollTo({y:0,animated:true});}} style={[styles.loadButton, (!!confirmDelete || !!replacement.draft) && styles.disabled]}><Text style={styles.loadText}>Load previous</Text></Pressable>
           </View>
               ))}
             </>
@@ -91,8 +96,8 @@ export function RundownTemplateSheet({
               <View key={template.id} style={styles.templateCard}>
           <View style={styles.templateCopy}><Text style={styles.templateName}>{template.name}</Text><Text style={styles.templateMeta}>{template.itemCount} item{template.itemCount === 1 ? "" : "s"}{template.serviceName ? ` · ${template.serviceName}` : ""}{template.scheduledStartTime ? ` · ${template.scheduledStartTime}` : ""}</Text><Text style={styles.templateDate}>Saved {new Date(template.updatedAt).toLocaleDateString()}</Text></View>
           <View style={styles.templateActions}>
-            <Pressable accessibilityRole="button" disabled={busyId !== null || !!replacement.draft} onPress={() => {replacement.choose({kind:"template",id:template.id});content.current?.scrollTo({y:0,animated:true});}} style={[styles.loadButton, (busyId !== null || !!replacement.draft) && styles.disabled]}><Text style={styles.loadText}>{busyId === template.id ? "Loading…" : "Load"}</Text></Pressable>
-            <Pressable accessibilityLabel={`Delete ${template.name}`} accessibilityRole="button" disabled={busyId !== null || !!replacement.draft} onPress={() => Alert.alert("Delete template?", `Delete “${template.name}”? Existing shows are not affected.`, [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => void run(`delete-${template.id}`, async () => onDelete(template)) }])} style={[styles.deleteButton, (busyId !== null || !!replacement.draft) && styles.disabled]}><Trash2 color={colors.red} size={17} /></Pressable>
+            <Pressable accessibilityRole="button" disabled={!canCapture || !!deletion.work[template.id] || !!confirmDelete || !!replacement.draft} onPress={() => {replacement.choose({kind:"template",id:template.id});content.current?.scrollTo({y:0,animated:true});}} style={[styles.loadButton, (!canCapture || !!deletion.work[template.id] || !!confirmDelete || !!replacement.draft) && styles.disabled]}><Text style={styles.loadText}>Load</Text></Pressable>
+            <Pressable accessibilityLabel={`Delete ${template.name}`} accessibilityRole="button" disabled={!canCapture || !!deletion.work[template.id] || !!confirmDelete || !!replacement.draft} onPress={() => {setConfirmDelete(template);content.current?.scrollTo({y:0,animated:true});}} style={[styles.deleteButton, (!canCapture || !!deletion.work[template.id] || !!confirmDelete || !!replacement.draft) && styles.disabled]}><Trash2 color={colors.red} size={17} /></Pressable>
           </View>
         </View>
             ))
@@ -106,7 +111,7 @@ export function RundownTemplateSheet({
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: 12, paddingBottom: spacing.medium, borderBottomWidth: 1, borderBottomColor: colors.border },
   headerCopy: { flex: 1, minWidth: 0, gap: 5 },
-  eyebrow: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.5 },
+  eyebrow: { color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "900", letterSpacing: 1.5 },
   heading: { color: colors.text, fontFamily, fontSize: 22, lineHeight: 28, fontWeight: "800" },
   close: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
   content: { gap: spacing.large, paddingVertical: spacing.large, paddingBottom: 60 },
@@ -116,14 +121,14 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   saveTitle: { color: colors.text, fontFamily, fontSize: 15, fontWeight: "800" },
   saveHint: { color: colors.textMuted, fontFamily, fontSize: 12, lineHeight: 18 },
   sectionHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  sectionTitle: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.4 },
-  sectionCount: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "800" },
+  sectionTitle: { color: colors.textFaint, fontFamily, fontSize: 12, fontWeight: "900", letterSpacing: 1.4 },
+  sectionCount: { color: colors.textFaint, fontFamily, fontSize: 12, fontWeight: "800" },
   empty: { color: colors.textMuted, fontFamily, fontSize: 13, lineHeight: 20, borderRadius: radii.medium, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, padding: spacing.large },
   templateCard: { gap: 12, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: 14 },
   templateCopy: { gap: 5 },
   templateName: { color: colors.text, fontFamily, fontSize: 15, fontWeight: "800" },
   templateMeta: { color: colors.textMuted, fontFamily, fontSize: 12, lineHeight: 18 },
-  templateDate: { color: colors.textFaint, fontFamily, fontSize: 11 },
+  templateDate: { color: colors.textFaint, fontFamily, fontSize: 12 },
   templateActions: { flexDirection: "row", gap: 8 },
   loadButton: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radii.small, backgroundColor: colors.amber },
   loadText: { color: colors.black, fontFamily, fontSize: 12, fontWeight: "800" },
