@@ -3102,7 +3102,7 @@ async function deleteMobileScheduleService(
   if (access instanceof Response) return access;
   try {
     const { deleteServiceForOrg } = await import("./service-deletion.server");
-    return json(await deleteServiceForOrg({ orgId: access.orgId, showId }));
+    return json(await deleteServiceForOrg({ orgId: access.orgId, showId }, request.headers));
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to remove show.";

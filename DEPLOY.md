@@ -6520,3 +6520,53 @@ after building. #245 is green in run 42488482641, CI 15m34s and native Rust 4m42
 Phase 2 remains 67/79. Deletion lifecycle/recovery, inventory, mobile recovery and
 broad gates remain open. No production deployment, release, remote migration or
 real-organization writes. Twenty necessary tracked Markdown files remain.
+
+
+### Show deletion lifecycle, Phase 2 partial evidence (2026-11-08)
+
+Branch: `fix/show-deletion-lifecycle`, based on #246. That PR is green in
+run 42490726010: web CI 15m51s, native Rust 4m00s.
+
+Three real-auth/D1/relay baselines reproduced a completed deletion retry failing
+as "Show not found", Start and deletion both being accepted, and a retired show
+accepting a late stage message after restart. Five additional baselines reproduced
+late direct snapshot writes recreating output records after deletion.
+
+Migration `0085_show_deletion_lifecycle.sql` adds an organization/show deletion
+journal with reversible preparation, accepted cleanup and a completed receipt.
+Preparation atomically checks membership/session, the reviewed show version and
+persisted stopped state, then blocks new show/child/snapshot writes in D1. The
+serialized rundown writer checks its actual timer and persists a reversible fence.
+A refusal or permission loss before acceptance releases preparation. Transport
+failure retains it for an authorized retry. Once accepted, timecode and matching
+rundown rooms retire before the existing graph cleanup commits in one D1 batch.
+The completed receipt survives removal, so both web and native retries confirm the
+original deletion. Every retry checks current permission. A permanent rundown
+retirement flag rejects late commands across eviction; unrelated legacy rooms are
+preserved. Relay requests have five-second deadlines even when abort is ignored.
+
+Validation:
+- 27 real-auth/D1/relay cases pass: lost replies, Start race, persisted and actual
+  live timers, malformed timer state, duplicate deletion, prepare/purge failures,
+  permission loss, atomic cleanup rollback, stale confirmation, account/tenant
+  isolation, late show/child/snapshot writes, more than 128 storage keys, complete
+  graph cleanup, same-date siblings, unrelated legacy rooms and relay restart.
+- Two transport tests pass, including a request that ignores abort and whose late
+  response is still cancelled. The old five mocked deletion tests were replaced
+  by stronger real Worker coverage of their original behaviors.
+- Final full suite passes: 2,502 unit / 1,350 Worker tests. Web typecheck and
+  production build pass. Main entry remains 548,801 raw / 173,455 gzip bytes under
+  unchanged limits. The migration manifest audit passes with 0085 pending.
+- The compiled web/native endpoint rehearsal passes first deletion, exact retry
+  after a lost reply, one completed receipt and a native retry of that deletion.
+  Its first run exposed a rehearsal timestamp interpreted in the host timezone;
+  the fixture query now returns explicit UTC, matching the application's DTO.
+  This is an endpoint rehearsal, not a new UI or physical-device claim.
+
+Evidence: `/tmp/showpilot-show-delete-{before,worker1,worker2,snapshot-before,
+worker3,full1,full2,tsc1,tsc2,build1,migrations,smoke1,smoke2}.log`. After building,
+rerun `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-show-deletion-recovery.mjs`.
+Phase 2 remains 67/79. Deletion form deadlines/retained recovery, inventory and
+mobile forms, plus the broad product gates remain open. No production deployment,
+release, remote migration or real-organization writes. Twenty necessary tracked
+Markdown files remain; this change adds none.

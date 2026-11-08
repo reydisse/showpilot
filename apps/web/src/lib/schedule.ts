@@ -14,6 +14,7 @@ import { saveShowDetailsRequest } from "./show-details.server";
 import { getCrewScheduleResponseWindow } from "@/lib/crew-schedule-response";
 import { getServiceTiming, readPhaseSettings } from "@/lib/service-phase";
 import { buildScheduleQuerySelection } from "@/lib/schedule-selection";
+import { deleteShowInputSchema } from "./show-deletion-contract";
 import { deleteServiceForOrg } from "@/lib/service-deletion.server";
 import { env } from "cloudflare:workers";
 import { getAssignmentCallTime } from "@/lib/assignment-call-time";
@@ -41,11 +42,11 @@ export const reviewServiceDetails = createServerFn({ method: "POST" })
 
 export const deleteService = createServerFn({ method: "POST" })
   .inputValidator((value: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, showId: idSchema }), value),
+    parseOrThrow(deleteShowInputSchema, value),
   )
   .handler(async ({ data }) => {
     await assertAccess(data.orgId, true);
-    return deleteServiceForOrg(data);
+    return deleteServiceForOrg(data, getRequestHeaders());
   });
 
 async function assertAccess(orgId: string, manage = false) {
