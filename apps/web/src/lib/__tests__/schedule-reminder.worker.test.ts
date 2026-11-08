@@ -5,6 +5,7 @@ import { getPrisma } from "../db";
 import { hashPassword } from "better-auth/crypto";
 import { getAuth } from "../auth";
 import { sendScheduleReminders } from "../schedule-reminder";
+import { handleMobileApi } from "../mobile-api.server";
 import type { ScheduleReminderCommand } from "../schedule-reminder-contract";
 import { beforeEach } from "vitest";
 const mail = vi.hoisted(() => ({ send: vi.fn() }));
@@ -145,6 +146,107 @@ async function fixture() {
   };
   return { ...account, command, first, second, assignment };
 }
+
+it("native reminder retries keep the same accepted emails and recipient set", async () => {
+  const f = await fixture();
+  const post = async () => {
+    const response = await handleMobileApi(
+      new Request(
+        `https://app.showpilot.tech/api/mobile/v1/schedule/services/${f.command.target.id}/remind?orgId=${f.orgId}`,
+        {
+          method: "POST",
+          headers: {
+            Cookie: f.headers.get("cookie")!,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ requestId: f.command.requestId }),
+        },
+      ),
+      { DB: env.DB },
+    );
+    if (!response) throw new Error("Missing native response");
+    expect(response.status).toBe(200);
+    await response.arrayBuffer();
+  };
+  await post();
+  expect(mail.send).toHaveBeenCalledTimes(2);
+  await f.assignment("Added later", "later@example.test");
+  await post();
+  expect(mail.send).toHaveBeenCalledTimes(2);
+});
+
+async function nativeReminder(
+  f: Awaited<ReturnType<typeof fixture>>,
+  command = f.command,
+  cookie = f.headers.get("cookie")!,
+) {
+  const response = await handleMobileApi(
+    new Request(
+      `https://app.showpilot.tech/api/mobile/v1/schedule/reminders?orgId=${f.orgId}`,
+      {
+        method: "POST",
+        headers: { Cookie: cookie, "Content-Type": "application/json" },
+        body: JSON.stringify(command),
+      },
+    ),
+    { DB: env.DB },
+  );
+  if (!response) throw new Error("Missing native response");
+  return { status: response.status, body: await response.json() };
+}
+
+it("native full results preserve partial delivery, recipients, and provider identity on retry", async () => {
+  const f = await fixture();
+  mail.send.mockImplementation(async (email: { to: string }) => {
+    if (email.to === "external@example.test") throw new TypeError("Lost reply");
+  });
+  const first = await nativeReminder(f);
+  expect(first.status).toBe(200);
+  expect(first.body).toMatchObject({
+    orgId: f.orgId,
+    userId: f.userId,
+    requestId: f.command.requestId,
+    items: expect.arrayContaining([
+      expect.objectContaining({ email: "accepted", inAppDelivered: true }),
+      expect.objectContaining({ email: "uncertain" }),
+    ]),
+  });
+  const original = mail.send.mock.calls.find(
+    ([email]) => email.to === "external@example.test",
+  );
+  await f.assignment("Added later", "later@example.test");
+  mail.send.mockResolvedValue(undefined);
+  const second = await nativeReminder(f);
+  expect(second.status).toBe(200);
+  expect(second.body).toMatchObject({
+    items: [
+      expect.objectContaining({ email: "accepted" }),
+      expect.objectContaining({ email: "accepted" }),
+    ],
+  });
+  expect(mail.send).toHaveBeenCalledTimes(3);
+  expect(mail.send.mock.calls[2]).toEqual(original);
+  await nativeReminder(f);
+  expect(mail.send).toHaveBeenCalledTimes(3);
+});
+
+it("native reminders reject anonymous, mismatched actor/org, and revoked permission without sending", async () => {
+  const f = await fixture();
+  expect((await nativeReminder(f, f.command, "")).status).toBe(401);
+  expect(
+    (await nativeReminder(f, { ...f.command, userId: "other" })).status,
+  ).toBe(403);
+  expect(
+    (await nativeReminder(f, { ...f.command, orgId: "other" })).status,
+  ).toBe(400);
+  await env.DB.prepare(
+    "UPDATE member SET role='member' WHERE organizationId=? AND userId=?",
+  )
+    .bind(f.orgId, f.userId)
+    .run();
+  expect((await nativeReminder(f)).status).toBe(403);
+  expect(mail.send).not.toHaveBeenCalled();
+});
 
 it("keeps a bulk target set fixed and never repeats an accepted email or app alert", async () => {
   const f = await fixture();
