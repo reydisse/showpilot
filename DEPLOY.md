@@ -6570,3 +6570,65 @@ Phase 2 remains 67/79. Deletion form deadlines/retained recovery, inventory and
 mobile forms, plus the broad product gates remain open. No production deployment,
 release, remote migration or real-organization writes. Twenty necessary tracked
 Markdown files remain; this change adds none.
+
+
+### Schedule deletion recovery controls, Phase 2 partial evidence (2026-11-08)
+
+Branch: `fix/show-deletion-controls`, based on #247. That PR is green in
+run 42492846712: web CI 15m32s and native Rust 3m57s.
+
+A compiled Chrome baseline held deletion before delivery. After 17 seconds the
+original modal still had a disabled Delete button and no retry. Its progress was
+component-local, and the old success callback closed the form before refreshing.
+
+Schedule now retains deletion progress per account, organization and show in its
+query cache. Confirmation captures the show name and metadata version; approval
+closes only that show's details form. A named progress card stays available even
+when the deleted show disappears from the list. Requests have a 15-second deadline
+and abort their fetch; an unconfirmed result retains the original command for
+Retry deletion. Refresh has a separate 12-second deadline and never deletes again.
+Late replies cannot replace newer work, recreate a cleared cache, refresh another
+account or close another form. Confirmation abandoned during navigation sends
+nothing. Details saves and deletion have synchronous mutual guards. Retention is
+across SPA navigation, not hard reloads.
+
+A structured rejected response is limited to a deletion that was not accepted.
+It asks the operator to refresh and confirm again, preserving the original target
+on screen. Two additional failing Worker baselines showed why cleanup refusal
+must remain unconfirmed after acceptance, including an overlapping retry. The
+coordinator now preserves recovery in those cases and recognizes a completion
+that lands between its initial receipt and show-row reads. Native endpoints keep
+the same success contract and share the server protections.
+
+Validation:
+- Thirteen rendered progress cases pass: explicit/cancelled/abandoned confirmation,
+  repeated clicks, timeout and aborted transport, exact retry across navigation,
+  confirmation while away, separate bounded refresh, account and cache isolation,
+  out-of-order shows, rejection versus uncertainty, and details/deletion exclusion.
+  The existing thirteen details-editor cases remain green.
+- All 31 real-auth/D1/relay deletion Worker cases pass, including four new response
+  classification cases. Full suite passes: 2,515 unit / 1,354 Worker tests.
+- Typecheck and production build pass. Main entry is 548,792 raw / 173,452 gzip
+  bytes under unchanged limits. No new migration; this depends on pending 0085.
+- Final compiled Chrome/auth/D1/relay rehearsal passes Cancel sending nothing,
+  withheld delivery and successful replies, recovery after navigation and after
+  row removal, three identical request payloads with one completed receipt,
+  a real competing metadata edit rejecting stale confirmation, and a fresh
+  confirmation succeeding. Recovery controls pass actual hit, text containment
+  and 44-pixel checks at 320x480, 768x1024 and 1440x1000. Phone screenshots were
+  inspected. No browser runtime errors and no document reload occurred.
+- Compiled web/native deletion retry endpoint rehearsal remains green.
+
+Evidence: `/tmp/showpilot-show-delete-ui-before2.log` and
+`/tmp/showpilot-show-delete-controls-{ui1,ui2,worker1,rejection-before,worker2,
+full1,full2,tsc1,tsc2,tsc3,build1,build2,browser1,browser2,endpoints}.log`.
+The first focused UI test needed its repeated-click event held on the same DOM
+button; typecheck also required distinct confirming/deleting union variants.
+Final checks include both corrections. Screenshots:
+`/tmp/showpilot-delete-{retry,rejected}-{320,768,1440}.png`.
+Rerun after building with
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-show-deletion-form.mjs`.
+Phase 2 remains 67/79. Inventory/mobile recovery, product-wide label/viewport and
+terminology sweeps, the owner-provided Founding Member deadline and broad gates
+remain open. No production deployment, release, remote migration or real-org
+writes. Twenty necessary tracked Markdown files remain; none were added.
