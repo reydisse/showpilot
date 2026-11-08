@@ -6314,3 +6314,38 @@ Phase 2 remains 67/79. Show creation/detail/removal, mobile recovery, other reta
 form refresh concurrency and the broad product gates remain open. No production
 deployment, release, remote migration or real-organization write. Twenty necessary
 tracked Markdown files remain; none were added.
+
+### Schedule refresh ownership, Phase 2 partial evidence (2026-11-08)
+
+Branch: `fix/schedule-refresh-races`, based on `fix/schedule-roster-recovery`.
+Repeated Retry clicks could start two refreshes before React rendered the pending
+state. Three rendered component baselines reproduced this in assignment editing,
+scheduling-source settings and reminders. An older refresh could also replace a
+newer attempt or restore a cache entry removed at sign-out.
+
+The shared `refreshRetainedResult` claims the current account/org request before
+awaiting work. Only the exact pending cache object can finish the transition.
+Assignment, source, reminder and team-copy controls use it, with a 12-second
+refresh deadline and live-state checks before clearing a reviewed result.
+A refresh-only retry does not repeat the accepted mutation or its invitation.
+
+Verification:
+- All three race baselines failed before the fix and pass now. Four additional
+  QueryClient tests cover synchronous exclusion, cache removal, a newer command,
+  and deadline recovery with a late completion. All 37 focused cases pass.
+- Full suite passes: 2,481 unit and 1,270 Worker tests. Web typecheck passes.
+  Production build passes at 548,443 raw / 173,274 gzip main-entry bytes, below
+  unchanged limits.
+- Existing compiled Chrome/auth/D1 rehearsals for source settings, assignments,
+  reminders and team copy all pass at 320, 768 and 1440 pixels. They preserve
+  original requests across navigation, newer edits and accepted email delivery.
+  No runtime errors or external email. The double-click races themselves are
+  verified by rendered component tests; these browser runs are regressions.
+
+Evidence: `/tmp/showpilot-refresh-races-{before,ui1,full1,tsc1,build1,provider1,
+assignment1,reminder1,copy1}.log`. Rerun the four
+`apps/web/scripts/smoke-schedule-*-recovery.mjs` scripts with
+`SHOWPILOT_SMOKE_RUNTIME=miniflare` after building.
+Phase 2 remains 67/79. Show creation/detail/removal, mobile recovery and broad
+product gates remain open. No production deployment, release, remote migration
+or real-organization writes. Twenty necessary tracked Markdown files remain.
