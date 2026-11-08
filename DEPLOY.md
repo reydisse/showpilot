@@ -6183,3 +6183,72 @@ Phase 2 remains 67/79. Background roster reads, copy-team, show-detail mutations
 mobile recovery and the broader product gates remain open. No production
 deployment, release, remote migration or real-organization write. Twenty
 necessary tracked Markdown files remain; none were added.
+
+### Roster reads and team-copy recovery — Phase 2 partial evidence (2026-11-08)
+
+Branch: `fix/schedule-roster-recovery`, based on the green assignment change.
+The compiled baseline showed that a rejected roster poll left the old crew list
+without a failure notice or Retry. Two real-auth/D1 baselines showed that changing
+the source roster broke copy recovery and that an uncertain copied invitation
+was retried with a different email body and delivery key.
+
+Schedule now uses the existing bounded operator reader for its roster. It keeps
+confirmed rows visible with a timestamped failure and Retry, aborts stalled reads
+after eight seconds, pauses hidden polling, prevents overlap, and rejects stale
+replies after a show/account change or a newly confirmed loader snapshot. The
+polling-boundary check follows this shared reader instead of requiring the old
+inline interval implementation.
+
+Migration `0081_schedule_copy_recovery.sql` must follow 0080 before deployment.
+A team copy freezes source rows and creates every target position in the same
+D1 batch as its scoped request receipt. The transaction rechecks permission,
+source/destination ownership, destination date, stopped state, empty roster and
+crew ownership. Concurrent copies cannot both populate an empty destination.
+A retry uses the original rows even if the source changes, preserves later target
+edits/deletions, and reuses the original invitation attempts. Copying still resets
+responses and notes, preserves departments and call times, and includes open
+positions. A blocked request needs an explicit reviewed new request. Receipts
+persist until their organization or actor is removed. No remote migration ran.
+
+The web Copy team control retains its request per account/org/destination across
+navigation and keeps recovery available after the target fills up. It reports
+copied positions, changed targets and per-recipient delivery separately. Saves
+have a 15-second deadline; refresh has a separate 12-second deadline and retry.
+A regression caught overlapping clicks on Review another copy starting multiple
+refreshes; a synchronous check of the current attempt now prevents an older
+review from clearing a newer copy. The legacy web copy RPC was removed after
+migrating its sole caller.
+
+Validation:
+- Ten Worker cases cover frozen source replay, exact uncertain invitation replay,
+  concurrent copies, later target edits/deletion, live-show blocks, response
+  resets, account/permission/org boundaries, changed request selection,
+  transactional rollback, guard changes during the batch, and empty/open rosters.
+- Four roster-reader and six copy-control cases pass, including loader snapshot
+  retirement, account/show isolation, deadlines, navigation retention, partial
+  delivery, refresh-only retry and double-click review exclusion.
+- Final full suite passes: 2,474 unit / 1,270 Worker tests. Web typecheck passes.
+  Production build passes at 548,443 raw / 173,272 gzip main-entry bytes, within
+  unchanged limits.
+- Compiled Chrome/auth/D1 roster rehearsal passes rejection, eight-second read
+  timeout, late-response rejection and Retry while keeping the original rows.
+  No mail was produced.
+- Compiled copy rehearsal holds a successful RPC reply, changes the source roster,
+  navigates away/back, and recovers the same three copied positions. Four captured
+  email attempts represent three accepted emails; only the uncertain recipient
+  replays its original key. A later target edit survives an exact replay.
+- Both recovery controls fit 320x480, 768x1024 and 1440x1000 with real hit tests.
+  Phone screenshots were inspected. The first layout check sampled during the
+  sidebar's closing transition; the final scripts wait for the hidden drawer to
+  leave the viewport and verify the button at the click point. No browser runtime
+  errors or external email.
+
+Evidence: `/tmp/showpilot-roster-{before,ui1,full2,tsc4,build2,browser2}.log`,
+`/tmp/showpilot-copy-{before,worker1,review-before,ui2,browser2}.log`. Rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-schedule-roster-recovery.mjs`
+and `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-schedule-copy-recovery.mjs`.
+PR #240 is green in run 42477242271 (CI 14m58s, native Rust 3m54s).
+Phase 2 remains 67/79. Show creation/detail/removal, mobile recovery, other retained
+form refresh concurrency and the broad product gates remain open. No production
+deployment, release, remote migration or real-organization write. Twenty necessary
+tracked Markdown files remain; none were added.
