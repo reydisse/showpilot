@@ -1,3 +1,7 @@
+import {
+  saveTeamRows,
+  type TeamCommand,
+} from "../../../../mobile/src/lib/team-recovery";
 import { env } from "cloudflare:workers";
 import { beforeEach, expect, it, vi } from "vitest";
 import { seedRelayMember } from "@/test/relay-fixtures";
@@ -800,4 +804,149 @@ it("native command and review reject wrong actors, workspaces, anonymous and rev
       .bind(f.orgId)
       .first(),
   ).toBeNull();
+});
+
+async function nativeTeamFixture() {
+  const f = await assignmentFixture();
+  const rows: TeamCommand["rows"] = [];
+  for (const name of ["Camera", "Audio"]) {
+    const crew = await getPrisma().crewMember.create({
+      data: {
+        orgId: f.orgId,
+        memberId: crypto.randomUUID(),
+        name,
+        role: name,
+        email: `${name.toLowerCase()}@example.test`,
+      },
+    });
+    rows.push({
+      name,
+      command: {
+        ...create(f),
+        operation: {
+          kind: "create",
+          fields: { ...f.input, crewMemberId: crew.id, role: name },
+        },
+      },
+    });
+  }
+  return {
+    f,
+    command: {
+      orgId: f.orgId,
+      userId: f.userId,
+      requestId: crypto.randomUUID(),
+      rows,
+    },
+  };
+}
+it("native team retries only an unconfirmed position after a committed reply is lost", async () => {
+  const { f, command } = await nativeTeamFixture();
+  let loseReply = true;
+  const send = vi.fn(
+    async (row: ScheduleAssignmentCommand, review: boolean) => {
+      const result = await nativeResult(f, row, review);
+      if (loseReply && row.requestId === command.rows[1].command.requestId)
+        throw new Error("Reply lost after commit");
+      return result;
+    },
+  );
+  const first = await saveTeamRows(
+    command,
+    null,
+    send,
+    false,
+    new AbortController().signal,
+  );
+  expect(first.rows[0].result?.outcome).toBe("applied");
+  expect(first.rows[1].result).toBeNull();
+  expect(mail.send).toHaveBeenCalledTimes(2);
+  loseReply = false;
+  const second = await saveTeamRows(
+    command,
+    first,
+    send,
+    false,
+    new AbortController().signal,
+  );
+  expect(second.rows.every((row) => row.result?.outcome === "applied")).toBe(
+    true,
+  );
+  expect(send).toHaveBeenCalledTimes(3);
+  expect(send.mock.calls[2][0]).toEqual(command.rows[1].command);
+  expect(mail.send).toHaveBeenCalledTimes(2);
+  expect(
+    await getPrisma().serviceAssignment.count({ where: { orgId: f.orgId } }),
+  ).toBe(2);
+});
+it("native team review cancels only an undelivered row and fences its later arrival", async () => {
+  const { f, command } = await nativeTeamFixture();
+  const send = async (row: ScheduleAssignmentCommand, review: boolean) =>
+    nativeResult(f, row, review);
+  const first = await saveTeamRows(
+    command,
+    null,
+    async (row, review) => {
+      if (row.requestId === command.rows[1].command.requestId)
+        throw new Error("Never arrived");
+      return send(row, review);
+    },
+    false,
+    new AbortController().signal,
+  );
+  const reviewed = await saveTeamRows(
+    command,
+    first,
+    send,
+    true,
+    new AbortController().signal,
+  );
+  expect(reviewed.rows.map((row) => row.result?.outcome)).toEqual([
+    "applied",
+    "conflict",
+  ]);
+  expect((await nativeResult(f, command.rows[1].command)).outcome).toBe(
+    "conflict",
+  );
+  expect(
+    await getPrisma().serviceAssignment.count({ where: { orgId: f.orgId } }),
+  ).toBe(1);
+  expect(mail.send).toHaveBeenCalledTimes(1);
+});
+it("native team keeps an uncertain invitation's provider identity and does not revive a successful removed row", async () => {
+  const { f, command } = await nativeTeamFixture();
+  mail.send.mockImplementation(async (input: { to: string }) => {
+    if (input.to === "audio@example.test")
+      throw new TypeError("Provider reply lost");
+  });
+  const send = (row: ScheduleAssignmentCommand, review: boolean) =>
+    nativeResult(f, row, review);
+  const first = await saveTeamRows(
+    command,
+    null,
+    send,
+    false,
+    new AbortController().signal,
+  );
+  expect(first.rows[1].result?.invitation?.email).toBe("uncertain");
+  const originalDelivery = mail.send.mock.calls.find(
+    ([input]) => input.to === "audio@example.test",
+  );
+  await getPrisma().serviceAssignment.delete({
+    where: { id: first.rows[0].result!.assignmentId },
+  });
+  mail.send.mockResolvedValue(undefined);
+  const recovered = await saveTeamRows(
+    command,
+    first,
+    send,
+    false,
+    new AbortController().signal,
+  );
+  expect(recovered.rows[1].result?.invitation?.email).toBe("accepted");
+  expect(mail.send.mock.calls.at(-1)).toEqual(originalDelivery);
+  expect(mail.send).toHaveBeenCalledTimes(3);
+  expect(
+    await getPrisma().serviceAssignment.count({ where: { orgId: f.orgId } }),
+  ).toBe(1);
 });

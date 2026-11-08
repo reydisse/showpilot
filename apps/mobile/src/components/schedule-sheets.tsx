@@ -1,3 +1,5 @@
+import { useMobileTeam } from "@/hooks/use-mobile-team";
+import { teamRetryable, type TeamDraft } from "@/lib/team-recovery";
 import { useMobileAssignment } from "@/hooks/use-mobile-assignment";
 import { assignmentFieldsSchema, assignmentRetryable, type AssignmentDraft, type AssignmentRead, type ScheduleAssignmentCommand, type ScheduleAssignmentResult } from "@/lib/assignment-recovery";
 import { reminderMessage } from "@/lib/reminder-recovery";
@@ -32,12 +34,6 @@ export interface ScheduleServiceDraft {
   inventoryId?: string;
   copyFrom?: string;
   copyFromShowId?: string;
-}
-
-export interface ScheduleTeamDraft {
-  showId: string;
-  department: string;
-  rows: { requestId: string; crewMemberId: string; role: string }[];
 }
 
 function ScheduleSheet({ children, onClose, title, eyebrow }: {
@@ -618,43 +614,416 @@ export function ScheduleAssignmentSheet({
   );
 }
 
-export function ScheduleTeamSheet({ crew, onClose, onSave, showId }: {
+export function ScheduleTeamSheet({
+  orgId,
+  userId,
+  active,
+  initial,
+  crew,
+  onClose,
+  onCommand,
+  onRefresh,
+}: {
+  orgId: string;
+  userId: string;
+  active: boolean;
+  initial: TeamDraft;
   crew: Crew[];
   onClose: () => void;
-  onSave: (draft: ScheduleTeamDraft) => Promise<void>;
-  showId: string;
+  onCommand: (
+    command: ScheduleAssignmentCommand,
+    review: boolean,
+    signal: AbortSignal,
+  ) => Promise<ScheduleAssignmentResult>;
+  onRefresh: (signal: AbortSignal) => Promise<void>;
 }) {
   const { colors } = useAppTheme();
   const styles = useStyles();
-  const [department, setDepartment] = useState("");
+  const work = useMobileTeam({ orgId, userId }, initial, {
+    active,
+    send: onCommand,
+    refresh: onRefresh,
+  });
+  const { draft, attempt } = work;
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<Record<string, { requestId: string; role: string }>>({});
-  const [busy, setBusy] = useState(false);
-  const visible = crew.filter((person) => person.email && (!search.trim() || `${person.name} ${person.role}`.toLowerCase().includes(search.trim().toLowerCase()))).slice(0, 50);
-  const rows = Object.entries(selected).map(([crewMemberId, value]) => ({ crewMemberId, ...value }));
+  const [confirmation, setConfirmation] = useState<"send" | "discard" | null>(
+    null,
+  );
+  useEffect(() => {
+    setConfirmation(null);
+  }, [active, orgId, userId, initial.showId]);
+  const locked = !active || !!attempt || !!confirmation;
+  const visible = crew
+    .filter(
+      (person) =>
+        person.email &&
+        !draft.rows.some((row) => row.crewMemberId === person.id) &&
+        (!search.trim() ||
+          `${person.name} ${person.role}`
+            .toLowerCase()
+            .includes(search.trim().toLowerCase())),
+    )
+    .slice(0, 50);
+  const missing = draft.rows.some(
+    (row) =>
+      !crew.some((person) => person.id === row.crewMemberId && person.email),
+  );
+  const valid =
+    !!draft.department.trim() &&
+    draft.rows.length > 0 &&
+    draft.rows.length <= 50 &&
+    draft.rows.every((row) => row.role.trim()) &&
+    !missing;
+  const result =
+    attempt?.kind === "confirmed" ? attempt.result : attempt?.previous;
   return (
-    <ScheduleSheet eyebrow="TEAM BUILDER" onClose={onClose} title="Build a team">
-      <Text style={styles.intro}>Choose several people, confirm each role, then send all invitations together. Safe retries will not duplicate positions.</Text>
-      <AppField autoCapitalize="words" label="Team or department" maxLength={80} onChangeText={setDepartment} placeholder="Broadcast" value={department} />
-      <View style={styles.search}><Search color={colors.textFaint} size={15} /><TextInput accessibilityLabel="Search roster for team" onChangeText={setSearch} placeholder="Search available roster" placeholderTextColor={colors.textFaint} style={styles.searchInput} value={search} /></View>
-      {visible.map((person) => {
-        const current = selected[person.id];
-        return (
-          <View key={person.id} style={[styles.teamPerson, current && styles.choiceActive]}>
-            <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: Boolean(current) }} onPress={() => setSelected((values) => {
-        if (values[person.id]) { const next = { ...values }; delete next[person.id]; return next; }
-        return { ...values, [person.id]: { requestId: createLocalRequestId("assignment"), role: person.role || "Crew" } };
-      })} style={styles.teamToggle}><View style={[styles.checkbox, current && styles.checkboxActive]}>{current ? <Check color={colors.black} size={14} /> : null}</View><View style={styles.choiceCopy}><Text style={styles.choiceName}>{person.name}</Text><Text style={styles.choiceMeta}>{person.email}</Text></View></Pressable>
-            {current ? (
-              <AppField autoCapitalize="words" label={`Role for ${person.name}`} maxLength={120} onChangeText={(role) => setSelected((values) => ({ ...values, [person.id]: { ...values[person.id]!, role } }))} value={current.role} />
-            ) : null}
+    <ScheduleSheet
+      eyebrow="TEAM BUILDER"
+      onClose={onClose}
+      title="Build a team"
+    >
+      <Text style={styles.intro}>
+        {draft.showName} · {draft.serviceDate} · {draft.timeZone}
+      </Text>
+      <Text style={styles.assignmentCopy}>
+        Choose people and review their roles before sending invitations. Closing
+        retains this team and its save results. Signing out or restarting the
+        app clears local drafts.
+      </Text>
+      <AppField
+        editable={!locked}
+        autoCapitalize="words"
+        label="Team or department"
+        maxLength={80}
+        onChangeText={(department) => {
+          if (!locked) work.setDraft((value) => ({ ...value, department }));
+        }}
+        placeholder="Broadcast"
+        value={draft.department}
+      />
+      {draft.rows.map((row) => (
+        <View
+          key={row.crewMemberId}
+          style={[styles.teamPerson, styles.choiceActive]}
+        >
+          <Text style={styles.choiceName}>{row.name}</Text>
+          <Text style={styles.assignmentCopy}>{row.email}</Text>
+          {!crew.some(
+            (person) => person.id === row.crewMemberId && person.email,
+          ) ? (
+            <Text style={styles.assignmentCopy}>
+              This roster contact is unavailable. The selection is retained;
+              remove it or refresh the roster before a new save.
+            </Text>
+          ) : null}
+          <AppField
+            editable={!locked}
+            autoCapitalize="words"
+            label={`Role for ${row.name}`}
+            maxLength={120}
+            value={row.role}
+            onChangeText={(role) => {
+              if (!locked)
+                work.setDraft((value) => ({
+                  ...value,
+                  rows: value.rows.map((person) =>
+                    person.crewMemberId === row.crewMemberId
+                      ? { ...person, role }
+                      : person,
+                  ),
+                }));
+            }}
+          />
+          {!attempt ? (
+            <AppButton
+              variant="secondary"
+              disabled={locked}
+              label={`Remove ${row.name} from selection`}
+              onPress={() =>
+                work.setDraft((value) => ({
+                  ...value,
+                  rows: value.rows.filter(
+                    (person) => person.crewMemberId !== row.crewMemberId,
+                  ),
+                }))
+              }
+            />
+          ) : null}
+        </View>
+      ))}
+      {!attempt ? (
+        <>
+          <View style={styles.search}>
+            <Search color={colors.textFaint} size={15} />
+            <TextInput
+              editable={!locked}
+              accessibilityLabel="Search roster for team"
+              onChangeText={setSearch}
+              placeholder="Search available roster"
+              placeholderTextColor={colors.textFaint}
+              style={styles.searchInput}
+              value={search}
+            />
           </View>
-        );
-      })}
-      <AppButton disabled={busy || !department.trim() || rows.length === 0 || rows.some((row) => !row.role.trim())} label={busy ? "Creating team…" : `Create team and send ${rows.length} invitation${rows.length === 1 ? "" : "s"}`} loading={busy} onPress={() => runSave(async () => {
-      await onSave({ showId, department: department.trim(), rows: rows.map((row) => ({ ...row, role: row.role.trim() })) });
-      onClose();
-    }, setBusy)} />
+          {visible.map((person) => (
+            <Pressable
+              key={person.id}
+              accessibilityRole="checkbox"
+              accessibilityState={{
+                checked: false,
+                disabled: locked || draft.rows.length >= 50,
+              }}
+              disabled={locked || draft.rows.length >= 50}
+              onPress={() => {
+                if (!locked)
+                  work.setDraft((value) =>
+                    value.rows.length >= 50 ||
+                    value.rows.some((row) => row.crewMemberId === person.id)
+                      ? value
+                      : {
+                          ...value,
+                          rows: [
+                            ...value.rows,
+                            {
+                              crewMemberId: person.id,
+                              name: person.name,
+                              email: person.email!,
+                              role: person.role || "Crew",
+                            },
+                          ],
+                        },
+                  );
+              }}
+              style={styles.choice}
+            >
+              <View style={styles.checkbox} />
+              <View style={styles.choiceCopy}>
+                <Text style={styles.choiceName}>{person.name}</Text>
+                <Text style={styles.choiceMeta}>{person.email}</Text>
+              </View>
+            </Pressable>
+          ))}
+          {draft.rows.length === 50 ? (
+            <Text style={styles.assignmentCopy}>
+              50 people selected. Finish this team before creating another.
+            </Text>
+          ) : null}
+          {!visible.length ? (
+            <Text style={styles.assignmentCopy}>
+              No more matching roster contacts with email addresses.
+            </Text>
+          ) : null}
+        </>
+      ) : null}
+      {work.error ? (
+        <Text accessibilityRole="alert" style={styles.assignmentCopy}>
+          {work.error}
+        </Text>
+      ) : null}
+      {!attempt && !confirmation ? (
+        <>
+          <AppButton
+            disabled={!active || !valid}
+            label={`Create team and send ${draft.rows.length} invitation${draft.rows.length === 1 ? "" : "s"}`}
+            onPress={() => {
+              if (active && valid) setConfirmation("send");
+            }}
+          />
+          <AppButton
+            variant="secondary"
+            disabled={!active}
+            label="Discard team draft"
+            onPress={() => setConfirmation("discard")}
+          />
+        </>
+      ) : null}
+      {confirmation ? (
+        <View style={styles.responseBox}>
+          <Text style={styles.responseValue}>
+            {confirmation === "send"
+              ? "Create these positions and send invitations?"
+              : "Discard this team draft?"}
+          </Text>
+          <Text style={styles.assignmentCopy}>
+            {confirmation === "send"
+              ? `${draft.rows.length} people · ${draft.department} · ${draft.showName} · ${draft.serviceDate}`
+              : "Unsaved selections and roles will be discarded. The shared schedule will stay as it is."}
+          </Text>
+          {confirmation === "send"
+            ? draft.rows.map((row) => (
+                <Text key={row.crewMemberId} style={styles.assignmentCopy}>
+                  {row.name} · {row.role}
+                </Text>
+              ))
+            : null}
+          <AppButton
+            disabled={!active || (confirmation === "send" && !valid)}
+            label={
+              confirmation === "send"
+                ? "Create reviewed team"
+                : "Confirm discard team"
+            }
+            onPress={() => {
+              if (!active) return;
+              if (confirmation === "discard") {
+                if (work.discard()) onClose();
+              } else if (valid) {
+                work.submit();
+                setConfirmation(null);
+              }
+            }}
+          />
+          <AppButton
+            variant="secondary"
+            label="Cancel team creation"
+            onPress={() => setConfirmation(null)}
+          />
+        </View>
+      ) : null}
+      {attempt ? (
+        <View accessibilityLiveRegion="polite" style={styles.responseBox}>
+          {attempt.kind === "pending" ? (
+            <Text style={styles.assignmentCopy}>
+              Checking each position and invitation… You can close this sheet
+              and return to check the results.
+            </Text>
+          ) : null}
+          {attempt.kind === "failed" ? (
+            <>
+              <Text accessibilityRole="alert" style={styles.assignmentCopy}>
+                {attempt.message}
+              </Text>
+              <Text style={styles.assignmentCopy}>
+                Some positions may already exist. Retry checks the original
+                selection and saves.
+              </Text>
+              <AppButton
+                disabled={!active}
+                label="Retry unresolved team positions"
+                onPress={work.retry}
+              />
+            </>
+          ) : null}
+          {result ? (
+            <>
+              {attempt.kind !== "confirmed" ? (
+                <Text style={styles.assignmentCopy}>
+                  Previous confirmed results:
+                </Text>
+              ) : null}
+              {result.rows.map((row) => (
+                <View key={row.requestId} style={styles.teamPerson}>
+                  <Text style={styles.choiceName}>{row.name}</Text>
+                  <Text style={styles.assignmentCopy}>
+                    {!row.result
+                      ? "Position save is unconfirmed."
+                      : row.result.outcome === "applied"
+                        ? "Position saved."
+                        : row.result.outcome === "conflict"
+                          ? "This request was not applied."
+                          : "This position changed after the original save; it will not be overwritten or recreated."}
+                  </Text>
+                  {row.result?.invitation ? (
+                    <Text style={styles.assignmentCopy}>
+                      {reminderMessage(row.result.invitation, "invitation")}
+                    </Text>
+                  ) : null}
+                  {row.error ? (
+                    <Text
+                      accessibilityRole="alert"
+                      style={styles.assignmentCopy}
+                    >
+                      {row.error}
+                    </Text>
+                  ) : null}
+                </View>
+              ))}
+            </>
+          ) : null}
+          {attempt.kind === "confirmed" ? (
+            <>
+              {attempt.refresh === "pending" ? (
+                <Text style={styles.assignmentCopy}>
+                  Results retained. Refreshing Schedule…
+                </Text>
+              ) : null}
+              {attempt.refresh === "idle" || attempt.refresh === "failed" ? (
+                <>
+                  {attempt.message ? (
+                    <Text
+                      accessibilityRole="alert"
+                      style={styles.assignmentCopy}
+                    >
+                      {attempt.message}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.assignmentCopy}>
+                    Refresh reloads the schedule without creating positions or
+                    sending invitations again.
+                  </Text>
+                  <AppButton
+                    disabled={!active}
+                    label="Refresh team schedule"
+                    onPress={work.refresh}
+                  />
+                </>
+              ) : null}
+              {attempt.refresh === "done" ? (
+                teamRetryable(attempt.result) ? (
+                  <AppButton
+                    disabled={!active}
+                    label="Retry unresolved team positions"
+                    onPress={work.retry}
+                  />
+                ) : (
+                  <>
+                    {attempt.result.rows.some(
+                      (row) => row.result?.outcome === "conflict",
+                    ) ? (
+                      <>
+                        <Text style={styles.assignmentCopy}>
+                          Only unapplied positions remain when you edit. Saved
+                          positions stay on the schedule.
+                        </Text>
+                        <AppButton
+                          disabled={!active}
+                          label="Edit unapplied positions"
+                          onPress={work.editUnapplied}
+                        />
+                      </>
+                    ) : null}
+                    <AppButton
+                      disabled={!active}
+                      label="Finish team and close"
+                      onPress={() => {
+                        if (work.finish()) onClose();
+                      }}
+                    />
+                  </>
+                )
+              ) : null}
+            </>
+          ) : null}
+          {attempt.kind === "failed" ||
+          (attempt.kind === "confirmed" &&
+            attempt.refresh === "done" &&
+            teamRetryable(attempt.result)) ? (
+            <>
+              <Text style={styles.assignmentCopy}>
+                Review cancels any unapplied requests before you edit.
+                Already-saved positions remain; review may retry their original
+                unresolved invitations.
+              </Text>
+              <AppButton
+                variant="secondary"
+                disabled={!active}
+                label="Review original team requests"
+                onPress={work.review}
+              />
+            </>
+          ) : null}
+        </View>
+      ) : null}
     </ScheduleSheet>
   );
 }

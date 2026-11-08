@@ -33,3 +33,5 @@ new Function("require", "exports", code)((name) => {
   return modules[name];
 }, exported);
 export const useRetainedRequests = exported.useRetainedRequests;
+
+export const useRetainedDraftList = exported.useRetainedDraftList;

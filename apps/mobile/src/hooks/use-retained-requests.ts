@@ -209,7 +209,13 @@ export function useRetainedRequests<
     isActive: active,
     review: (slot: string) => {
       const attempt = read()?.[slot];
-      if (attempt?.kind === "failed" && options.review)
+      if (
+        options.review &&
+        (attempt?.kind === "failed" ||
+          (attempt?.kind === "confirmed" &&
+            attempt.refresh === "done" &&
+            options.retryable(attempt.result)))
+      )
         void execute(attempt.command, attempt.label, options.review);
     },
     start: (command: Command, label: string) => start(command, label),
@@ -256,4 +262,43 @@ function message(error: unknown, fallback: string) {
     !(error instanceof MobileOperationTimeoutError)
     ? error.message
     : fallback;
+}
+
+/** Subscribe to the actual draft values. A separate version token is insufficient:
+ * the React Compiler can still memoize a later read from the mutable QueryClient. */
+export function useRetainedDraftList<Draft>(
+  family: string,
+  scope: { orgId: string; userId: string },
+) {
+  const client = useQueryClient();
+  const snapshot = useMemo(() => {
+    let previous: Draft[] = [];
+    return () => {
+      const next = client
+        .getQueriesData<Draft>({
+          queryKey: [family, scope.userId, scope.orgId],
+        })
+        .flatMap(([, value]) => (value === undefined ? [] : [value]));
+      if (
+        next.length !== previous.length ||
+        next.some((value, index) => value !== previous[index])
+      )
+        previous = next;
+      return previous;
+    };
+  }, [client, family, scope.userId, scope.orgId]);
+  const subscribe = useCallback(
+    (notify: () => void) =>
+      client.getQueryCache().subscribe((event) => {
+        const key = event.query.queryKey;
+        if (
+          key[0] === family &&
+          key[1] === scope.userId &&
+          key[2] === scope.orgId
+        )
+          notify();
+      }),
+    [client, family, scope.userId, scope.orgId],
+  );
+  return useSyncExternalStore(subscribe, snapshot, snapshot);
 }

@@ -7,7 +7,10 @@ import {
   useSyncExternalStore,
 } from "react";
 import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRetainedRequests } from "./use-retained-requests";
+import {
+  useRetainedRequests,
+  useRetainedDraftList,
+} from "./use-retained-requests";
 import { runMobileOperation } from "../lib/request-deadline";
 import { createLocalRequestUuid } from "../lib/request-id";
 import {
@@ -287,35 +290,8 @@ export function useMobileAssignment(
 /** Keep abandoned/unconfirmed editors reachable even if their show or row is no
  * longer in the currently selected date. Query counters form a stable snapshot. */
 export function useAssignmentDrafts(scope: { orgId: string; userId: string }) {
-  const client = useQueryClient();
-  const prefix = ["mobile-assignment-draft", scope.userId, scope.orgId];
-  const relevant = useCallback(
-    (key: readonly unknown[]) =>
-      ["mobile-assignment-draft", "mobile-assignment-request"].includes(
-        String(key[0]),
-      ) &&
-      key[1] === scope.userId &&
-      key[2] === scope.orgId,
-    [scope.userId, scope.orgId],
+  return useRetainedDraftList<AssignmentDraft>(
+    "mobile-assignment-draft",
+    scope,
   );
-  useSyncExternalStore(
-    useCallback(
-      (notify) =>
-        client.getQueryCache().subscribe((event) => {
-          if (relevant(event.query.queryKey)) notify();
-        }),
-      [client, relevant],
-    ),
-    () =>
-      client
-        .getQueryCache()
-        .getAll()
-        .filter((q) => relevant(q.queryKey))
-        .map((q) => `${q.queryHash}:${q.state.dataUpdateCount}`)
-        .join("|"),
-    () => "",
-  );
-  return client
-    .getQueriesData<AssignmentDraft>({ queryKey: prefix })
-    .flatMap(([, draft]) => (draft ? [draft] : []));
 }

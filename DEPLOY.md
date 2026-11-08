@@ -6983,3 +6983,73 @@ Phase 2 remains 67/79. Team-builder and other native profile/schedule recovery,
 product-wide audits, the owner Founding Member deadline and broad gates remain
 open. No production deployment, release, remote migration, real-org writes or
 external email. Twenty necessary tracked Markdown files remain.
+
+## Phase 2 follow-up: native team-builder recovery (2026-11-08)
+
+On `fix/native-team-builder-recovery`, the actual sheet first failed two tests:
+closing discarded selected people/roles, and Create sent invitations without
+review. The old parent also used one unbounded Promise.all, losing per-person
+results when any request failed and conflating refresh failure with write failure.
+
+Team drafts now belong to the account/workspace/show and remain reachable from
+Schedule after closure or date changes. Selected people stay visible when their
+roster contact is unavailable. Review names the show/date, department, people and
+roles; Cancel sends nothing. Fields lock during review and unconfirmed work.
+Finish removes settled work; unsent draft discard requires confirmation. The UI
+states that local drafts survive navigation, not sign-out or process restart.
+
+Each selected position gets a frozen UUID command using the existing assignment
+receipt API. Results distinguish saved, unapplied, changed and unconfirmed rows,
+with invitation delivery status. Retry sends only unresolved rows with their
+original commands and preserves accepted invitations. Review uses the existing
+cancellation receipt for undelivered requests; late arrivals cannot create those
+positions. Editing after review retains only unapplied positions, so successful
+creates are not repeated. Row requests have a 12-second bound inside the shared
+15-second group envelope; refresh has its own 12-second bound and never writes.
+No backend route or migration was added. The last old current-client assignment
+create wrapper/result schema was removed; installed-client backend routes remain.
+
+The compiled browser exposed an additional resume-list bug. The list subscribed
+to a cache version but read its rows separately; React Compiler cached the empty
+list. An explicit useMemo/version dependency still cached the populated list,
+as confirmed by inspecting the generated module. The shared retained-draft list
+now supplies actual, referentially stable draft arrays through useSyncExternalStore.
+Both native team and individual-assignment resume lists use it. The final compiled
+rehearsal verifies addition, edited labels and removal, beyond uncompiled hook tests.
+
+Validation:
+- Nineteen new native hook/component cases pass, including both original failures,
+  partial/exact retry, uncertain delivery, cancellation review, refresh-only
+  recovery, deadlines/late replies, actor/request mismatch, abandoned focus,
+  account-cache clearing, live resume-list updates, unavailable contacts and Finish.
+- Twenty-six real-auth/D1 assignment Worker cases pass, including three new team
+  cases: committed reply loss, review-before-delivery and late-arrival fencing,
+  stable uncertain invitation recovery and no revival of a removed successful row.
+- Final full suite: 2,620 unit / 1,394 Worker tests. Web typecheck/build pass; main
+  entry remains 549,525 raw / 173,749 gzip bytes within unchanged budgets.
+- Final mobile verification passes typecheck, lint with warnings only, doctor
+  18/18, polling/contracts and iOS/Android/web exports. Hermes: iOS 5,561,400 /
+  Android 5,560,448 bytes, below the unchanged 6,500,000 budget.
+- Exported Expo team builder against real disposable auth/D1 and captured mail
+  passes retained selection, Cancel without writes/mail, visible partial results,
+  exact unresolved-only retry, stable provider key/token, accepted mail not repeated,
+  refresh without mutations, late-request cancellation and editing only unapplied
+  positions. Retry/review/close controls pass 44px, reachability and text checks at
+  320/768/1440 pixels. Phone/tablet screenshots inspected; no runtime errors.
+  Final individual-assignment, copy and reminder browser regressions also pass.
+  These are Expo export checks, not physical iOS/Android UI verification.
+
+Evidence: `/tmp/showpilot-native-team-{before,tsc1,forms1,hooks1,worker1,web-tsc1,
+web-tsc2,web-tsc3,full1,full2,full3,build1,verify1,verify2,verify3,browser1,
+browser2,browser3,assignment-browser,assignment-browser2,copy-browser,
+copy-browser2,reminder-browser,reminder-browser2}.log`.
+The first two team browser attempts expose the compiled resume-list failures;
+`browser3` verifies the final fix. After web build and mobile verify, rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-team-recovery.mjs`.
+Final screenshots: `/tmp/showpilot-native-team-{320,768,1440}.png`.
+
+Preceding draft PR #253 is green (CI 42504988679; web 11m12s / Rust 3m50s).
+Phase 2 remains 67/79. Other native profile/schedule recovery, product-wide audits,
+the owner Founding Member deadline and broad gates remain open. No production
+release/deployment, remote migration, real-org writes or external email. Twenty
+necessary tracked Markdown files remain.

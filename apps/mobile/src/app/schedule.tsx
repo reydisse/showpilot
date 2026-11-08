@@ -1,3 +1,5 @@
+import { useTeamDrafts } from "@/hooks/use-mobile-team";
+import type { TeamDraft } from "@/lib/team-recovery";
 import { useAssignmentDrafts } from "@/hooks/use-mobile-assignment";
 import type { AssignmentDraft } from "@/lib/assignment-recovery";
 import { AppButton } from "@/components/app-button";
@@ -36,7 +38,6 @@ import {
   ScheduleServiceSheet,
   ScheduleTeamSheet,
   type ScheduleServiceDraft,
-  type ScheduleTeamDraft,
 } from "@/components/schedule-sheets";
 import { Page } from "@/components/page";
 import { LoadingView } from "@/components/loading-view";
@@ -44,7 +45,6 @@ import { authClient } from "@/lib/auth-client";
 import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import {
   createMobileRundown,
-  createMobileScheduleAssignment,
   commandMobileInventory,
   commandMobileAssignment,
   readMobileAssignment,
@@ -65,7 +65,7 @@ type Assignment = MobileSchedule["assignments"][number];
 type EditorState =
   | { kind: "service"; service: Service | null; initialInventoryId?: string }
   | { kind: "assignment"; initial: AssignmentDraft }
-  | { kind: "team"; service: Service }
+  | { kind: "team"; initial: TeamDraft }
   | { kind: "provider" }
   | { kind: "inventory" }
   | null;
@@ -92,6 +92,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
   const narrowHeader = width / fontScale < 400;
   const queryClient = useQueryClient();
   const assignmentDrafts = useAssignmentDrafts({ orgId, userId });
+  const teamDrafts = useTeamDrafts({ orgId, userId });
   const [editor, setEditor] = useState<EditorState>(null);
   const [copyConfirmation, setCopyConfirmation] = useState<{ selection: CopyTeamSelection; label: string; count: number; again: boolean } | null>(null);
   const [decliningId, setDecliningId] = useState<string | null>(null);
@@ -194,20 +195,8 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
     setEditor({ kind: "assignment", initial });
   }
 
-  async function saveTeam(draft: ScheduleTeamDraft) {
-    const results = await Promise.all(draft.rows.map((row) => createMobileScheduleAssignment({
-      orgId,
-      requestId: row.requestId,
-      showId: draft.showId,
-      role: row.role,
-      department: draft.department,
-      crewMemberId: row.crewMemberId,
-      callTime: "",
-      notes: "",
-    })));
-    await saved();
-    const missed = results.filter((result) => !result.delivered).length;
-    if (missed) Alert.alert("Team created", `${missed} invitation${missed === 1 ? " was" : "s were"} not delivered. Check those roster emails, then resend.`);
+  function openTeam(service: Service) {
+    setEditor({ kind: "team", initial: { showId: service.id, serviceDate: service.serviceDate, showName: service.name || "Untitled show", timeZone: schedule?.timeZone ?? "UTC", department: "", rows: [] } });
   }
 
   const copies = useMobileCopy({ orgId, userId }, {
@@ -321,6 +310,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
             </View> : null}
             <ScheduleCopyProgress copies={copies} canCopyAgain={canCopyAgain} onCopyAgain={copyAgain} />
             <ScheduleReminderProgress reminders={reminders} canSendNew={canSendReminder} />
+            {teamDrafts.map(draft => <AppButton key={draft.showId} variant="secondary" label={`Resume team: ${draft.department || "New team"} · ${draft.showName} (${draft.serviceDate})`} onPress={() => setEditor({ kind: "team", initial: draft })} />)}
             {assignmentDrafts.map(draft => <AppButton key={draft.editorId} variant="secondary" label={`Resume ${draft.mode === "delete" ? "removal" : "assignment"}: ${draft.fields.role || "New position"} · ${draft.showName} (${draft.fields.serviceDate})`} onPress={() => setEditor({ kind: "assignment", initial: draft })} />) }
             {schedule ? (
               <View style={styles.stats}><Stat label="SHOWS" value={schedule.services.length} /><Stat label="POSITIONS" value={schedule.assignments.length} /><Stat label="CONFIRMED" value={schedule.assignments.filter((assignment) => assignment.status === "confirmed").length} /></View>
@@ -383,7 +373,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
                   {canManageAssignments ? (
                     <>
                       <SmallAction icon={<UserPlus color={colors.amberText} size={14} />} label="Position" onPress={() => openAssignment(service, null)} />
-                      <SmallAction icon={<Users color={colors.amberText} size={14} />} label="Team" onPress={() => setEditor({ kind: "team", service })} />
+                      <SmallAction icon={<Users color={colors.amberText} size={14} />} label="Team" onPress={() => openTeam(service)} />
                       {assignments.length === 0 && previousWithTeam ? (
                         <SmallAction disabled={!!copies.work[service.id]} icon={<Copy color={colors.textMuted} size={14} />} label={copies.work[service.id] ? "Copy status above" : "Copy team"} onPress={() => copyTeam(service, previousWithTeam)} />
                       ) : null}
@@ -421,8 +411,14 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
           if (signal.aborted) throw new Error("Assignment refresh cancelled.");
         }} />
       ) : null}
-      {editor?.kind === "team" && schedule ? (
-        <ScheduleTeamSheet crew={schedule.crew} onClose={() => setEditor(null)} onSave={saveTeam} showId={editor.service.id} />
+      {editor?.kind === "team" ? (
+        <ScheduleTeamSheet key={`${userId}:${orgId}:${editor.initial.showId}`} orgId={orgId} userId={userId} initial={editor.initial} active={pollingInterval !== false} crew={schedule?.crew ?? []} onClose={() => setEditor(null)} onCommand={commandMobileAssignment} onRefresh={async signal => {
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["mobile-schedule", orgId] }, { throwOnError: true }),
+            queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap"] }, { throwOnError: true }),
+          ]);
+          if (signal.aborted) throw new Error("Team refresh cancelled.");
+        }} />
       ) : null}
       {editor?.kind === "provider" && schedule ? (
         <ScheduleProviderSheet
