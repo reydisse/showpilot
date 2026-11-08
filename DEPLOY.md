@@ -7272,3 +7272,56 @@ response still rejects `meta.changes !== 1`; reproduce and repair that separate
 portal path next. Native provider/roster/rundown editing and broad product gates
 also remain open. No production deployment/release, remote migration, real-org
 write or external mail. Twenty necessary tracked Markdown files remain.
+
+### Phase 2 follow-up: public crew response recovery
+
+The public invitation reproduced the same false failure as the native response:
+D1 assignment-revision triggers make `meta.changes !== 1` reject a committed
+response. Public and authenticated responses now use one transactional writer,
+with separate authority adapters and receipt stores. Migration 0088 adds receipts
+scoped to the access record and request ID, without storing the raw link token.
+Exact retries recover the original outcome; review can cancel a request before a
+late delivery applies. Revision, full assignment/show timing snapshot, response
+window and current link authority are checked at commit. Invalid expiry strings
+now fail closed. Calendar reads use the same authority check in a server-only
+module, including a final check before returning data.
+
+The invitation retains each assignment's note and immutable response separately.
+Unknown outcomes offer Retry/Review; saved outcomes have separate refresh recovery.
+Refresh reads data in place, preserving a confirmed result on read failure. Back,
+assignment switching and reopening retain notes; replacing reviewed details or
+discarding an unfinished draft requires explicit confirmation. Commands/reviews
+are bounded at 15 seconds and refresh at 12 seconds.
+
+Validation:
+- Full web suite: 2,687 unit / 1,444 Worker tests. Web typecheck and production
+  build pass. Main: 549,593 raw / 173,783 gzip bytes, within unchanged budgets.
+- Twenty-one public-link Worker cases and eighteen personal-response cases pass,
+  including commit races, expired/revoked/invalid links, cross-crew/org isolation,
+  separate link receipts, cancellation, replay after edits/deletion, once-only
+  scheduler notification and calendar authorization. Sixteen hook/component tests
+  cover retention, exact retry, reply identity, deadlines, token isolation,
+  confirmation scope, failed refresh and invalid input without losing the note.
+- Compiled anonymous Chrome + disposable D1 passes lost-reply retry, note retention
+  across assignments/Back, confirmed-result preservation during failed refresh,
+  refresh without another write, review cancellation before delayed delivery and
+  a fresh edited response. Recovery controls are reachable at 320/768/1440 with
+  44px targets and no horizontal overflow. Phone/tablet screenshots inspected;
+  zero runtime errors. Compiled native personal-response regression also passes.
+  Existing Expo web export was reused; this is not physical-device verification.
+
+Evidence: `/tmp/showpilot-crew-portal-{before,worker1,worker2,hooks1,hooks2,
+full1,full2,tsc3,tsc4,build1,build2,browser1,browser2,native-browser}.log`.
+The first build caught a server/client import boundary; the calendar extraction
+fixes it. First typecheck caught an unsupported test option. The first browser
+run caught a test proxy dropping serialization headers; browser2 passes with
+original response headers preserved. Screenshots:
+`/tmp/showpilot-crew-portal-{unknown,refresh,cancelled}-{320,768,1440}.png`.
+After web build, rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-crew-portal-response.mjs`.
+
+Preceding draft #257 is green (CI 42512531198, web 16m40s / Rust 4m21s).
+Phase 2 remains 67/79; these checks do not close the product-wide gates. Native
+provider/roster/rundown editing and broader UX checks remain. No production
+migration, deployment/release, real-org write or external email. Twenty necessary
+tracked Markdown files remain.
