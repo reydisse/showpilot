@@ -1,12 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { Bell, BellRing, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, LogOut, Settings, UserRound } from "lucide-react";
+import { Bell, CalendarDays, ChevronLeft, ChevronRight, LogOut, Settings, UserRound } from "lucide-react";
 import { CatchBoundary, Link, useNavigate, useRouter } from "@tanstack/react-router";
-import { ROLE_COLOURS } from "./account-role";
+import { ROLE_COLOURS, getAccountInitials } from "./account-role";
 import { getPersonalNotifications, savePersonalNotificationTimeZone } from "@/lib/personal-notifications";
 import { getDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { authClient } from "@/lib/auth-client";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { enablePushForOrg, isPushSupported } from "@/lib/notifications";
 import { getPortableAvatarUrl } from "@/lib/avatar-image";
 import {
   PERSONAL_NOTIFICATION_COUNT_EVENT,
@@ -16,9 +15,6 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { runRouteLoad } from "@/lib/route-load-deadlines";
 import {
-  DESKTOP_NOTIFICATION_POLL_EVENT,
-  getDesktopNotificationPermission,
-  isDesktopNotificationSupported,
   isDesktopRuntime,
 } from "@/lib/desktop-runtime";
 
@@ -31,22 +27,8 @@ function AccountPanelFailure({ retry }: { retry: () => void }) {
   </div>;
 }
 
-function AccountPanelFallback() {
-  return (
-    <div
-      aria-label="Loading account view"
-      className="flex min-h-64 flex-1 items-center justify-center"
-    >
-      <span className="size-5 animate-spin rounded-full border-2 border-board-border border-t-fire-500" />
-    </div>
-  );
-}
 
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
-}
+
 
 const ROLE_LABELS: Record<string, string> = {
   owner: "Owner",
@@ -76,17 +58,12 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   const [accountView, setAccountView] = useState<AccountView>("menu");
   const [panelAttempt, setPanelAttempt] = useState(0);
   const AccountPanels = useMemo(() => lazy(() => runRouteLoad(() => import("./AccountPanels").then(module => ({ default: module.createAccountPanels() })))), [panelAttempt]);
+  const DeviceNotifications = useMemo(() => lazy(() => runRouteLoad(() => import("./DeviceNotificationsControl").then(module => ({ default: module.DeviceNotificationsControl })))), [panelAttempt]);
   const PanelError = useCallback(() => <AccountPanelFailure retry={() => setPanelAttempt(attempt => attempt + 1)} />, []);
 
   const [localUser, setLocalUser] = useState(user);
   const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
-  const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
-  const [pushSupported, setPushSupported] = useState(false);
-  const [pushEnabled, setPushEnabled] = useState(false);
-  const [pushStatusReady, setPushStatusReady] = useState(false);
-  const [pushError, setPushError] = useState<string | null>(null);
-  const [enablingPush, setEnablingPush] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
 
   useEffect(() => {
@@ -96,7 +73,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   }, [orgId]);
 
   const roleColour = ROLE_COLOURS[role] ?? ROLE_COLOURS.member;
-  const initials = getInitials(localUser.name);
+  const initials = getAccountInitials(localUser.name);
   const roleLabel = ROLE_LABELS[role] ?? role;
   const portableAvatarUrl = getPortableAvatarUrl(localUser.image);
   const avatarUrl = portableAvatarUrl && portableAvatarUrl !== failedAvatarUrl
@@ -134,53 +111,6 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
       document.removeEventListener("visibilitychange", refreshWhileVisible);
     };
   }, [accountOpen, accountView, refreshUnread]);
-
-  useEffect(() => {
-    let active = true;
-    const supported = isPushSupported();
-    setPushSupported(supported);
-    setPushEnabled(false);
-    setPushError(null);
-    setPushStatusReady(!supported);
-    if (!supported) return () => { active = false; };
-
-    setPushPermission("default");
-    void runRouteLoad(() => import("@/lib/device-notification-status").then(module => module.readDeviceNotificationStatus(orgId))).then(
-      ({ permission, enabled }) => {
-        if (!active) return;
-        setPushPermission(permission);
-        setPushEnabled(enabled);
-        setPushStatusReady(true);
-      },
-      () => {
-        if (!active) return;
-        setPushStatusReady(true);
-        setPushError("Could not check device notifications. Try enabling alerts again.");
-      },
-    );
-    return () => { active = false; };
-  }, [orgId]);
-
-  const enablePush = async () => {
-    setEnablingPush(true);
-    try {
-      const permission = await enablePushForOrg(orgId);
-      setPushPermission(permission);
-      setPushEnabled(permission === "granted");
-      if (permission === "granted" && isDesktopNotificationSupported()) {
-        window.dispatchEvent(new Event(DESKTOP_NOTIFICATION_POLL_EVENT));
-      }
-      setPushError(null);
-    } catch (error) {
-      const permission = isDesktopNotificationSupported()
-        ? await getDesktopNotificationPermission()
-        : typeof Notification === "undefined" ? "denied" : Notification.permission;
-      setPushPermission(permission);
-      setPushError(error instanceof Error ? error.message : "Could not enable device notifications");
-    } finally {
-      setEnablingPush(false);
-    }
-  };
 
   const handleUserUpdated = (updates: { name?: string; image?: string }) => {
     if (updates.image !== undefined) setFailedAvatarUrl(null);
@@ -314,7 +244,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
             </div>
           </DialogHeader>
 
-          {accountView === "menu" ? (
+          {accountOpen && accountView === "menu" ? (
             <div className="modern-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-3">
               <div className="mb-2 flex items-center justify-between rounded-lg border border-board-border bg-board-bg/35 px-3 py-2.5 text-xs text-board-muted">
                 <span className="truncate">{orgName}</span>
@@ -333,27 +263,11 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
                 <ChevronRight className="ml-auto size-3.5 opacity-40" />
               </Link>
 
-              {pushSupported && pushStatusReady ? (
-                pushEnabled || pushPermission === "denied" ? (
-                  <div className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-3 text-board-muted">
-                    {pushEnabled ? <CheckCircle2 className="size-[18px] text-green-500" /> : <BellRing className="size-[18px] text-red-400" />}
-                    <span className="min-w-0 text-left">
-                      <span className="block text-sm font-medium text-board-text">Device notifications</span>
-                      <span className="mt-0.5 block text-xs leading-5">{pushEnabled ? "Enabled on this device" : "Blocked in browser or system settings"}</span>
-                    </span>
-                  </div>
-                ) : (
-                  <button type="button" disabled={enablingPush} onClick={() => void enablePush()} className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-3 text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text disabled:opacity-50">
-                    <BellRing className="size-[18px]" />
-                    <span className="min-w-0 text-left">
-                      <span className="block text-sm font-medium text-board-text">Device notifications</span>
-                      <span className="mt-0.5 block text-xs leading-5">{enablingPush ? "Enabling on this device" : "Enable alerts when ShowPilot is in the background"}</span>
-                    </span>
-                    <ChevronRight className="ml-auto size-3.5 opacity-40" />
-                  </button>
-                )
-              ) : null}
-              {pushError ? <p role="alert" className="px-3 py-1 text-xs leading-5 text-red-400">{pushError}</p> : null}
+              <CatchBoundary getResetKey={() => panelAttempt} errorComponent={PanelError}>
+                <Suspense fallback={<p role="status" className="p-3 text-xs text-board-muted">Checking device notifications…</p>}>
+                  <DeviceNotifications orgId={orgId} />
+                </Suspense>
+              </CatchBoundary>
 
               {canAccessSettings ? (
                 <Link to="/$slug/settings" params={{ slug }} onClick={() => setAccountOpen(false)} className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-3 text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text">
@@ -380,7 +294,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
 
           {accountView !== "menu" ? (
             <CatchBoundary key={`${orgId}:${localUser.id}`} getResetKey={() => panelAttempt} errorComponent={PanelError}>
-              <Suspense fallback={<AccountPanelFallback />}>
+              <Suspense fallback={<p role="status" aria-label="Loading account view" className="p-5 text-sm text-board-muted">Loading…</p>}>
                 {accountView === "profile" ? (
                   <AccountPanels view="profile" panelProps={{ user: localUser, role, orgName, onUserUpdated: handleUserUpdated, onSignOut: signOut }} />
                 ) : (

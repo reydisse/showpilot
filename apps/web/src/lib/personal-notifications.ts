@@ -14,6 +14,7 @@ import {
 } from "@/lib/notification-preferences.server";
 import { notificationPreferenceCommandSchema } from "./notification-preference-contract";
 import { idSchema, parseOrThrow } from "@/lib/validation";
+import { markInboxRead } from "./notification-read.server";
 
 export interface PersonalNotification {
   id: string;
@@ -135,23 +136,9 @@ export const updatePersonalNotificationPreference = createServerFn({ method: "PO
   }));
 
 export const markPersonalNotificationRead = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data))
-  .handler(async ({ data }) => {
-    const userId = await assertInboxAccess(data.orgId);
-    await getD1().prepare(
-      `UPDATE notification SET readAt = COALESCE(readAt, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-       WHERE id = ? AND orgId = ? AND userId = ?`,
-    ).bind(data.id, data.orgId, userId).run();
-    return { ok: true as const };
-  });
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, id: idSchema, requestId: z.string().uuid() }).strict(), data))
+  .handler(async ({ data }) => markInboxRead(getRequestHeaders(), { ...data, notificationId: data.id }));
 
 export const markAllPersonalNotificationsRead = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
-  .handler(async ({ data }) => {
-    const userId = await assertInboxAccess(data.orgId);
-    await getD1().prepare(
-      `UPDATE notification SET readAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-       WHERE orgId = ? AND userId = ? AND readAt IS NULL`,
-    ).bind(data.orgId, userId).run();
-    return { ok: true as const };
-  });
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, requestId: z.string().uuid() }).strict(), data))
+  .handler(async ({ data }) => markInboxRead(getRequestHeaders(), { ...data, notificationId: null }));

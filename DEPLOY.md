@@ -5623,3 +5623,59 @@ account code loading and notification-status setup, not every account request.
 Inbox/count reads and account mutations remain in the broader recovery audit.
 Phase 2 stays 67/79. Nothing deployed or released; 20 necessary Markdown files
 remain, and no new Markdown file was added.
+
+
+## Phase 2 notification inbox recovery — 2026-11-08
+
+A retry of Mark all read could clear alerts that arrived after the first commit.
+Three failing real-auth/D1 tests reproduced that and request-target reuse.
+Migration `0075_notification_read_receipts.sql` records each action and applies
+its read set in one transaction through an insert trigger. Replaying the request
+only reads its receipt. Session and membership are checked at commit and replay;
+receipts are scoped to organization and account and bound to the original target.
+A failed update rolls back its receipt, so Retry can safely complete it later.
+No production migration was applied.
+
+The inbox now uses bounded, cancellable page queries. Failed initial reads show
+an error and timestamp instead of claiming the inbox is empty; failed refreshes
+and older-page loads retain confirmed data. Read commands have an eight-second
+confirmation deadline and survive panel closure/navigation in the account-scoped
+query cache. Retry sends the original request, while read-only Retry cannot
+repeat a write. Pending state remains visible, late replies cannot hide failures,
+and recovery/preferences/history controls have 44px targets. Desktop count events
+continue to drive refresh; web polling pauses while hidden and coalesces requests.
+
+Device notification setup now loads only in an open account menu, with bounded
+module/status/permission operations. Permission requests still begin in the click
+handler. The failure path no longer starts another unbounded permission read.
+The browser rehearsal caught a module download during the dialog's closing
+animation; the menu now requires an open dialog before mounting its controls.
+Account/Profile share the identical initials calculation. The initial bundle is
+smaller without changing the budget: 551,113 raw / 174,467 gzip bytes.
+
+Verification:
+- Final full suite: 2,400 unit and 1,194 Worker tests; typecheck and build pass.
+- Eight new Worker cases cover same-timestamp arrivals after a committed action,
+  changed targets, concurrent duplicate requests, transaction rollback, revoked
+  membership/session and cross-account/workspace attempts.
+- Compiled Chrome/auth/D1 tests initial and older-page timeouts, retained history,
+  ignored late replies, exact mark-all retry after a committed response is lost
+  and a new alert arrives, and individual read recovery after navigation.
+- The same browser run withholds the device-control module, recovers it without
+  reloading, then tests a stalled permission promise and failed permission retry.
+- 320x480/768/1440 layouts pass. Both phone inbox screenshots inspected. Zero
+  browser runtime errors and captured emails.
+- Account download regressions pass held ProfileModal, NotificationCenter and
+  AccountPanels requests plus actual Profile network failure. Draft and DOM
+  identity survive resizing. Navigation passes all 21 routes and 13 Settings
+  sections at 320/768/1024/1440 without a reload.
+
+Logs: `/tmp/showpilot-notification-read-before.log` reproduces the original bug;
+final evidence is `/tmp/showpilot-notification-full6.log`, `-tsc8.log`,
+`-build7.log`, `-browser2.log`, `-account-regression.log`, and `-navigation.log`.
+Earlier build attempts exceeded the budget and browser1 exposed the closing
+animation download; neither is recorded as a pass.
+
+Phase 2 remains 67/79. Sidebar unread/timezone requests, account mutations and
+other product-wide recovery/UX gates still need work. Nothing deployed or
+released. There are still 20 necessary tracked Markdown files; none was added.
