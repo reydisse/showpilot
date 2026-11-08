@@ -1,3 +1,5 @@
+import * as teamHook from "../../test/native-team-hook.js";
+import * as teamContract from "../../../../mobile/src/lib/team-recovery.ts";
 import * as assignmentHook from "../../test/native-assignment-hook.js";
 import * as assignmentContract from "../../../../mobile/src/lib/assignment-recovery.ts";
 import * as reminderContract from "../../../../mobile/src/lib/reminder-recovery.ts";
@@ -38,6 +40,8 @@ function loadSheet(alert) {
   const modules = {
     "@/hooks/use-mobile-inventory": inventoryHook,
     "@/hooks/use-mobile-assignment": assignmentHook,
+    "@/hooks/use-mobile-team": teamHook,
+    "@/lib/team-recovery": teamContract,
     "@/lib/assignment-recovery": assignmentContract,
     "@/lib/reminder-recovery": reminderContract,
     react: React,
