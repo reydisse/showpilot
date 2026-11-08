@@ -1,9 +1,8 @@
 import { lazy, Suspense, useCallback, useMemo, useState } from "react";
-import { Bell, CalendarDays, ChevronLeft, ChevronRight, LogOut, Settings, UserRound } from "lucide-react";
-import { CatchBoundary, Link, useNavigate, useRouter } from "@tanstack/react-router";
+import { Bell, CalendarDays, ChevronLeft, ChevronRight, Settings, UserRound } from "lucide-react";
+import { CatchBoundary, Link, useRouter } from "@tanstack/react-router";
 import { ROLE_COLOURS, getAccountInitials } from "./account-role";
 import { useAccountNotificationCount } from "@/hooks/useAccountNotificationCount";
-import { authClient } from "@/lib/auth-client";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { getPortableAvatarUrl } from "@/lib/avatar-image";
 import { cn } from "@/lib/utils";
@@ -42,7 +41,6 @@ interface SidebarIdentityProps {
 }
 
 export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, canAccessSettings }: SidebarIdentityProps) {
-  const navigate = useNavigate();
   const router = useRouter();
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountView, setAccountView] = useState<AccountView>("menu");
@@ -59,7 +57,6 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   const countState = notificationCount.state;
   const unread = countState.snapshot?.unread ?? null;
   const unreadBadge = countState.kind === "failed" ? "!" : unread === null ? "…" : unread > 99 ? "99+" : unread || null;
-  const [confirmSignOut, setConfirmSignOut] = useState(false);
 
   const roleColour = ROLE_COLOURS[role] ?? ROLE_COLOURS.member;
   const initials = getAccountInitials(localUser.name);
@@ -80,21 +77,6 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
     // assignment data. Refresh those loaders after the optimistic account UI
     // update so the open workspace never shows two identities for one user.
     void router.invalidate();
-  };
-
-  const signOut = async () => {
-    await authClient.signOut();
-    setAccountOpen(false);
-    await navigate({ to: "/login" });
-  };
-
-  const requestMenuSignOut = async () => {
-    if (!confirmSignOut) {
-      setConfirmSignOut(true);
-      window.setTimeout(() => setConfirmSignOut(false), 4_000);
-      return;
-    }
-    await signOut();
   };
 
   const avatar = (
@@ -119,7 +101,6 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
     setAccountOpen(open);
     if (!open) {
       setAccountView("menu");
-      setConfirmSignOut(false);
     }
   };
 
@@ -245,10 +226,11 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
 
               <div className="my-2 h-px bg-board-border" />
 
-              <button type="button" onClick={() => void requestMenuSignOut()} className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-3 text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300">
-                <LogOut className="size-[18px]" />
-                <span className="text-sm font-medium">{confirmSignOut ? "Tap again to sign out" : "Sign Out"}</span>
-              </button>
+              <CatchBoundary getResetKey={() => panelAttempt} errorComponent={PanelError}>
+                <Suspense fallback={<p role="status" className="p-3 text-xs text-board-muted">Loading sign-out…</p>}>
+                  <AccountPanels view="signout" panelProps={{ userId: user.id }} />
+                </Suspense>
+              </CatchBoundary>
               <CatchBoundary getResetKey={() => panelAttempt} errorComponent={PanelError}>
                 <Suspense fallback={<p role="status" className="p-3 text-xs text-board-muted">Checking account status…</p>}>
                   <AccountPanels view="timezone" panelProps={{ orgId, userId: user.id, mode: "status" }} />
@@ -262,7 +244,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
             <CatchBoundary key={`${orgId}:${localUser.id}`} getResetKey={() => panelAttempt} errorComponent={PanelError}>
               <Suspense fallback={<p role="status" aria-label="Loading account view" className="p-5 text-sm text-board-muted">Loading…</p>}>
                 {accountView === "profile" ? (
-                  <AccountPanels view="profile" panelProps={{ user: localUser, role, orgName, onUserUpdated: handleUserUpdated, onSignOut: signOut }} />
+                  <AccountPanels view="profile" panelProps={{ user: localUser, role, orgName, onUserUpdated: handleUserUpdated }} />
                 ) : (
                   <AccountPanels view="notifications" panelProps={{ orgId, userId: localUser.id, slug, onUnreadChange: notificationCount.accept, onNavigate: () => setAccountOpen(false) }} />
                 )}
