@@ -6043,3 +6043,77 @@ Phase 2 remains 67/79. Reminder delivery results are still ignored by the
 Schedule callers, and assignment/read recovery plus the broader UX gate remain
 open. No production deployment, release, remote migration, real-organization
 write or new Markdown file. Twenty necessary tracked Markdown files remain.
+
+### Scheduling reminder recovery — Phase 2 partial evidence (2026-11-08)
+
+Branch: `fix/schedule-reminder-recovery`, based on the green source-form change.
+The compiled baseline confirmed an unhandled bulk reminder rejection and no
+Retry. A real D1 regression also confirmed that losing an email-provider reply
+deleted the link that could already be in the recipient's inbox.
+
+Migration `0079_schedule_invitation_delivery.sql` adds immutable delivery
+attempts and scoped bulk-request receipts. Apply it after 0078 and before this
+code. Frozen email bodies, including their invitation links, are encrypted using
+the existing credential vault and a delivery-specific authenticated scope. The
+public access table still stores only the token hash. The existing
+`CREDENTIAL_ENCRYPTION_KEYS` keyring must remain available; retain keys needed by
+stored attempts. No remote migration or secret change was performed.
+
+The shared sender retains prepared links, reuses the frozen email/provider key,
+and reports email acceptance separately from durable app invitations. Sending
+has a lease, an 8-second provider deadline, and an explicit uncertain result for
+a lost reply. Accepted requests never resend. Retry stops after 23 hours, within
+[Resend's documented 24-hour idempotency window](https://resend.com/changelog/idempotency-keys).
+App invitation IDs are stable per delivery; retry does not reset a read inbox
+item or repeat its push. Authorization and assignment identity are checked before
+dispatch. A guarded timestamp update cannot mark edited assignment fields as
+invited after a late reply; duplicate unguarded updates were removed from web,
+copy-team and mobile callers. Receipt tables remain until their related
+assignment, crew, organization or actor is deleted, according to their foreign
+keys. Existing previously issued links are unchanged.
+
+The web single/bulk controls now keep the same request across navigation and
+retry, show per-recipient failures and app/email outcomes, and use a 15-second
+request deadline. Bulk retries keep the original target set and skip accepted
+emails. Schedule refresh has a separate bounded retry that never sends mail.
+Expired or changed requests require an explicit reviewed new send. Existing web
+reminder RPCs were removed after migrating their callers. Mobile callers share
+the link-preservation and guarded timestamp behavior, but their reminder UI and
+retained request flow remain a separate open item.
+
+Validation:
+- Baselines: the compiled Schedule button threw without a Retry; the D1 link
+  record disappeared after a simulated accepted email's reply was lost.
+- Fourteen new Worker cases cover frozen payload/key/link replay, ciphertext at
+  rest, definite versus uncertain failure, concurrent execution, recipient
+  changes, the retry window, provider timeout/late acknowledgement, authority,
+  frozen bulk selection, accepted-email and app-inbox deduplication, account/org
+  boundaries, and a late acknowledgement after an assignment edit. That final
+  case failed before the timestamp guard and caller cleanup.
+- Six rendered control cases cover retained requests, late replies, partial
+  delivery, refresh-only retry/deadline, explicit new sends and account isolation.
+- Full suite passes: 2,456 unit / 1,245 Worker tests. Web typecheck passes.
+  Production build passes, including after formatting: 548,654 raw / 173,401 gzip
+  main-entry bytes, under unchanged limits.
+- Compiled Chrome/auth/D1 with the isolated email provider passes mixed
+  acknowledgements, a held RPC reply, navigation away/back, exact retry, an
+  invitation opened through the real public portal RPC after its email reply
+  was lost, and definite-rejection recovery. Ten captured attempts represent
+  six explicitly requested accepted emails over two rounds; the first recovery
+  only calls the provider for the one uncertain email and replays its original
+  key/body. Accepted recipients are not resent. No external email was sent.
+- Recovery controls fit 320x480/768x1024/1440x1000; the phone screenshot was
+  inspected. No browser runtime errors. Source-form regression also passes.
+  Its prior email-count assertion checked a function's arity instead of captured
+  records; it now enables email capture and awaits the actual empty record list.
+  An initially misplaced fixture option was corrected before that final pass.
+
+Evidence: `/tmp/showpilot-reminder-{before,browser-before,worker2,command1,ui1,
+late-before,full2,tsc5,build3,browser1}.log` and
+`/tmp/showpilot-provider-regression2.log`. Rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-schedule-reminder-recovery.mjs`.
+PR #238 is green in run 42473246999 (CI 15m5s, native Rust 4m11s).
+Phase 2 remains 67/79. Assignment creation/edit/removal, mobile recovery and the
+broader product gates remain open. No deployment, release, production migration,
+real-organization write or external email. Twenty necessary tracked Markdown
+files remain; none were added.

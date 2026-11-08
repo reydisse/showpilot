@@ -2649,14 +2649,6 @@ async function deliverMobileAssignmentInvitation(input: {
       origin: new URL(input.request.url).origin,
       reminder: input.reminder,
     });
-    if (delivery.delivered) {
-      await input.db
-        .prepare(
-          "UPDATE service_assignment SET invitedAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ? AND showId = ?",
-        )
-        .bind(input.assignmentId, input.orgId, input.showId)
-        .run();
-    }
     return delivery;
   } catch (error) {
     console.error("[Mobile schedule] Assignment delivery failed", error);
