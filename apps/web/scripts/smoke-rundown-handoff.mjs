@@ -44,7 +44,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
   assert.equal(handedOff.id, original.id); assert.equal(handedOff.expectedRevision, original.expectedRevision);
   await poll(async () => (await state()).stageMessage === "Handoff fixture first", "first command persisted before acknowledgement was lost");
   const committedRevision = (await state()).revision;
-  await browser("find", "role", "link", "click", "--name", "Show Board", "--exact");
+  await browser("find", "role", "link", "click", "--name", "Crew status", "--exact");
   await browser("wait", "--url", "**/board");
   await browser("wait", '[aria-label="Rundown changes"] [role="alert"]');
   await browser("open", `${origin}/${orgId}/songs`);

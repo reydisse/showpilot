@@ -149,7 +149,7 @@ function QuickActions({ workspace, showId }: {
   const actions = [
     workspace.chatAvailable ? { id: "chat", label: "Chat", icon: MessageSquareText, onPress: () => router.push("/chat") } : null,
     workspace.canOpenRundown && showId ? { id: "rundown", label: "Full rundown", icon: ListVideo, onPress: () => router.push({ pathname: "/show/[showId]", params: { showId } }) } : null,
-    workspace.showBoardAvailable ? { id: "board", label: "Show Board", icon: MonitorPlay, onPress: () => router.push("/show-board") } : null,
+    workspace.showBoardAvailable ? { id: "board", label: "Crew status", icon: MonitorPlay, onPress: () => router.push("/show-board") } : null,
   ].filter((action) => action !== null);
   const { colors } = useAppTheme();
   const styles = useStyles();
