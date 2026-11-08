@@ -1,3 +1,5 @@
+import { handleMobileApi } from "../mobile-api.server";
+import { providerReplySchema as nativeReplySchema } from "../../../../mobile/src/lib/schedule-provider-recovery";
 import { env } from "cloudflare:workers";
 import { expect, it, vi } from "vitest";
 import { seedRelayMember } from "@/test/relay-fixtures";
@@ -341,3 +343,131 @@ it("allows organization deletion without a revision trigger resurrecting setting
       .first(),
   ).toBeNull();
 });
+
+async function mobile(
+  f: Awaited<ReturnType<typeof fixture>>,
+  body?: unknown,
+  orgId = f.orgId,
+  userId = f.userId,
+) {
+  const response = await handleMobileApi(
+    new Request(
+      `https://app.showpilot.tech/api/mobile/v1/schedule/provider?${new URLSearchParams({ orgId, userId })}`,
+      {
+        headers: {
+          Cookie: f.headers.get("Cookie") ?? "",
+          "Content-Type": "application/json",
+        },
+        ...(body ? { method: "POST", body: JSON.stringify(body) } : {}),
+      },
+    ),
+    { DB: env.DB },
+  );
+  if (!response) throw new Error("Missing route");
+  return response;
+}
+it("native commands recover an exact retry and never overwrite a newer web edit", async () => {
+  const f = await fixture(),
+    first = command(f);
+  expect(await (await mobile(f)).json()).toMatchObject({
+    orgId: f.orgId,
+    userId: f.userId,
+    revision: null,
+  });
+  const applied = nativeReplySchema.parse(
+    await (await mobile(f, first)).json(),
+  );
+  expect(applied.outcome).toBe("applied");
+  expect(await (await mobile(f, first)).json()).toEqual(applied);
+  const newer = await saveScheduleProvider({
+    data: {
+      ...command(f, applied.snapshot.revision),
+      config: { provider: "native", url: "", label: "" },
+    },
+  });
+  const retry = nativeReplySchema.parse(await (await mobile(f, first)).json());
+  expect(retry.outcome).toBe("superseded");
+  expect(retry.snapshot).toEqual(newer.snapshot);
+});
+it("native conflicts retain current settings and reject changed request payloads", async () => {
+  const f = await fixture(),
+    first = command(f);
+  await mobile(f, first);
+  const conflict = nativeReplySchema.parse(
+    await (await mobile(f, command(f))).json(),
+  );
+  expect(conflict.outcome).toBe("conflict");
+  await expect(
+    mobile(f, { ...first, config: { provider: "native", url: "", label: "" } }),
+  ).rejects.toThrow("different scheduling source");
+  expect((await read(f.orgId)).config).toEqual(first.config);
+});
+it("native provider reads and writes reject wrong actors, organizations and missing permission", async () => {
+  const f = await fixture();
+  expect((await mobile(f, undefined, f.orgId, "wrong")).status).toBe(403);
+  expect((await mobile(f, { ...command(f), userId: "wrong" })).status).toBe(
+    403,
+  );
+  const other = await fixture();
+  expect((await mobile(f, command(f), other.orgId)).status).toBe(401);
+  expect((await mobile(f, { ...command(f), orgId: other.orgId })).status).toBe(
+    403,
+  );
+  await env.DB.prepare(
+    "UPDATE member SET role='member' WHERE organizationId=? AND userId=?",
+  )
+    .bind(f.orgId, f.userId)
+    .run();
+  expect((await mobile(f)).status).toBe(403);
+  expect((await mobile(f, command(f))).status).toBe(403);
+});
+it("installed provider clients preserve workspace language and share guarded revision writes", async () => {
+  const f = await fixture();
+  await env.DB.prepare(
+    "INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,'workspace-type','theatre'),(?,?,'workspace-modules','[\"chat\"]')",
+  )
+    .bind(crypto.randomUUID(), f.orgId, crypto.randomUUID(), f.orgId)
+    .run();
+  for (const field of [
+    {},
+    { terminologyProfile: "general" },
+    { terminologyProfile: "church" },
+  ]) {
+    const response = await mobile(f, {
+      provider: "native",
+      url: "",
+      token: "",
+      ...field,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(
+      await env.DB.prepare(
+        "SELECT key,value FROM app_setting WHERE orgId=? AND key IN ('workspace-type','workspace-modules') ORDER BY key",
+      )
+        .bind(f.orgId)
+        .all(),
+    ).toMatchObject({
+      results: [
+        { key: "workspace-modules", value: '["chat"]' },
+        { key: "workspace-type", value: "theatre" },
+      ],
+    });
+  }
+  expect(await f.revision()).not.toBeNull();
+});
+it.each(["http://planner.test", "https://" + "a".repeat(501)])(
+  "rejects invalid native provider URL %s",
+  async (url) => {
+    const f = await fixture();
+    expect(
+      (
+        await mobile(f, {
+          ...command(f),
+          config: { provider: "other", url, label: "" },
+        })
+      ).status,
+    ).toBe(400);
+    expect(await f.revision()).toBeNull();
+  },
+);
