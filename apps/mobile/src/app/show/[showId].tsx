@@ -1,3 +1,4 @@
+import {useRundownReplacementDraft} from "@/hooks/use-rundown-replacement";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Redirect, useLocalSearchParams } from "expo-router";
@@ -41,8 +42,6 @@ import {
   controlMobileProPresenter,
   getMobileRundown,
   getMobileRundownTemplates,
-  loadMobilePreviousRundown,
-  loadMobileRundownTemplate,
   updateMobileProPresenterStageDisplay,
   type MobileRundown,
   type RundownItem,
@@ -176,6 +175,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
   const detailsDraft = useRundownDetailsDraft({ orgId, userId, showId: detail.show.id });
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const templateDraft = useTemplateSaveDraft({ orgId, userId, showId: detail.show.id });
+  const replacementDraft=useRundownReplacementDraft({orgId,userId,showId:detail.show.id});
   const [message, setMessage] = useState("");
   const [messagePriority, setMessagePriority] = useState(false);
   const [stageDisplayEnabled, setStageDisplayEnabled] = useState(detail.proPresenter.stageDisplayEnabled);
@@ -351,6 +351,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
         ListHeaderComponent={(
           <View style={styles.listHeader}>
             {refreshError ? <View><Text accessibilityRole="alert" style={styles.syncError}>{refreshError} The last loaded show is still displayed.</Text><AppButton label="Refresh show" loading={refreshing} onPress={onRefresh} /></View> : null}
+            {replacementDraft ? <AppButton label="Resume rundown replacement" variant="secondary" onPress={()=>setTemplatesOpen(true)}/>:null}
             {templateDraft?.name ? <AppButton label="Resume template draft" variant="secondary" onPress={() => setTemplatesOpen(true)}/> : null}
             {detailsDraft ? <AppButton label="Resume rundown details" variant="secondary" onPress={() => setShowDetailsOpen(true)} /> : null}
             <View style={styles.connectionRow}>
@@ -445,29 +446,6 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
           await deleteMobileRundownTemplate({ orgId, showId: detail.show.id, templateId: template.id });
           await templatesQuery.refetch();
         }}
-        onLoad={async (template, requestId) => {
-          if (!editControlsEnabled) throw new Error("Reconnect live sync before replacing this rundown.");
-          await loadMobileRundownTemplate({
-            orgId,
-            showId: detail.show.id,
-            templateId: template.id,
-            requestId,
-            expectedRevision: relay.revision,
-          });
-          setTemplatesOpen(false);
-        }}
-        onLoadPrevious={async (show, requestId) => {
-          if (!editControlsEnabled) throw new Error("Reconnect live sync before replacing this rundown.");
-          await loadMobilePreviousRundown({
-            orgId,
-            showId: detail.show.id,
-            sourceShowId: show.id,
-            requestId,
-            expectedRevision: relay.revision,
-          });
-          setTemplatesOpen(false);
-        }}
-
         previousShows={templatesQuery.data?.previousShows ?? []}
         templates={templatesQuery.data?.templates ?? []}
       /> : null}

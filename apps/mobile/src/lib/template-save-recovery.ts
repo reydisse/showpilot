@@ -2,7 +2,8 @@ import { z } from "zod";
 import { rundownItemSchema } from "./rundown-schema";
 const id = z.string().min(1).max(64);
 // Match the relay's accepted item bounds before freezing an immutable command.
-const templateItem = rundownItemSchema.superRefine((item, ctx) => {
+const copyItem = rundownItemSchema.omit({ revision: true });
+function validateTemplateItem(item: z.infer<typeof copyItem>, ctx: z.RefinementCtx) {
   const types = [
     "segment",
     "song",
@@ -36,7 +37,9 @@ const templateItem = rundownItemSchema.superRefine((item, ctx) => {
       code: "custom",
       message: "Review the rundown item before saving a template.",
     });
-});
+}
+const templateItem = rundownItemSchema.superRefine(validateTemplateItem);
+export const templateItemCopySchema = copyItem.superRefine(validateTemplateItem);
 export const templateCopySchema = z.object({
   serviceName: z.string().max(120),
   scheduledStartTime: z
@@ -62,7 +65,7 @@ export const templateCopySchema = z.object({
 });
 export const templateSizeError =
   "This template copy is too large to send. Shorten item notes or split the rundown before capturing it again.";
-function fitsMobileBody(value: unknown) {
+export function fitsMobileBody(value: unknown) {
   let bytes = 0;
   for (const character of JSON.stringify(value)) {
     const code = character.charCodeAt(0);

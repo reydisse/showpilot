@@ -1,4 +1,9 @@
-import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useScreenFocus } from "@/hooks/use-screen-polling";
+import { useRundownReplacement } from "@/hooks/use-rundown-replacement";
+import { RundownReplacementForm } from "@/components/rundown-replacement-form";
+import { readMobileRundownReplacement,commandMobileRundownReplacement } from "@/lib/mobile-api";
+import { useRef, useState } from "react";
 import { TemplateSaveForm } from "@/components/template-save-form";
 import type { TemplateCopyInput } from "@/lib/template-save-recovery";
 import Trash2 from "lucide-react-native/icons/trash-2";
@@ -7,15 +12,12 @@ import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
 import type { MobilePreviousRundown, MobileRundownTemplate } from "@/lib/mobile-api";
-import { createLocalRequestId } from "@/lib/request-id";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 export function RundownTemplateSheet({
   loading,
   onClose,
   onDelete,
-  onLoad,
-  onLoadPrevious,
   orgId, userId, showId, copy, canCapture, error, refreshing, onRetry,
   templates,
   previousShows,
@@ -23,8 +25,6 @@ export function RundownTemplateSheet({
   loading: boolean;
   onClose: () => void;
   onDelete: (template: MobileRundownTemplate) => Promise<void>;
-  onLoad: (template: MobileRundownTemplate, requestId: string) => Promise<void>;
-  onLoadPrevious: (show: MobilePreviousRundown, requestId: string) => Promise<void>;
   orgId: string; userId: string; showId: string; copy: TemplateCopyInput; canCapture: boolean; error?: string; refreshing: boolean; onRetry: () => void;
   templates: MobileRundownTemplate[];
   previousShows: MobilePreviousRundown[];
@@ -32,6 +32,17 @@ export function RundownTemplateSheet({
   const { colors } = useAppTheme();
   const styles = useStyles();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const active=useScreenFocus(),client=useQueryClient(),content=useRef<ScrollView>(null);
+  const replacement=useRundownReplacement({orgId,userId,showId},{active,read:readMobileRundownReplacement,send:commandMobileRundownReplacement,
+    refresh:async signal=>{
+      await Promise.all([
+        client.invalidateQueries({queryKey:["mobile-rundown",orgId,showId,userId]},{throwOnError:true}),
+        client.invalidateQueries({queryKey:["mobile-rundown-templates",orgId,showId,userId]},{throwOnError:true}),
+      ]);
+      if(signal.aborted) throw new Error("Show refresh cancelled.");
+    },
+  });
+
 
   async function run(id: string, action: () => Promise<void>) {
     setBusyId(id);
@@ -51,7 +62,8 @@ export function RundownTemplateSheet({
         <View style={styles.headerCopy}><Text style={styles.eyebrow}>RUNDOWN TEMPLATES</Text><Text style={styles.heading}>Reuse a complete show</Text></View>
         <Pressable accessibilityLabel="Close rundown templates" accessibilityRole="button" onPress={onClose} style={styles.close}><X color={colors.textMuted} size={21} /></Pressable>
       </View>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={content} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <RundownReplacementForm state={replacement} active={active} canReplace={canCapture}/>
           <View style={styles.saveCard}>
             <TemplateSaveForm orgId={orgId} userId={userId} showId={showId} copy={copy} canCapture={canCapture}/>
           </View>
@@ -62,7 +74,7 @@ export function RundownTemplateSheet({
               {previousShows.slice(0, 20).map((show) => (
                 <View key={show.id} style={styles.templateCard}>
             <View style={styles.templateCopy}><Text style={styles.templateName}>{show.name || "Untitled show"}</Text><Text style={styles.templateMeta}>{show.serviceDate} · {show.itemCount} item{show.itemCount === 1 ? "" : "s"}{show.location ? ` · ${show.location}` : ""}</Text></View>
-            <Pressable accessibilityRole="button" disabled={busyId !== null} onPress={() => Alert.alert("Replace current rundown?", `Copy the rundown and show details from ${show.serviceDate}?`, [{ text: "Cancel", style: "cancel" }, { text: "Load previous", onPress: () => void run(show.id, async () => onLoadPrevious(show, createLocalRequestId("previous-load"))) }])} style={[styles.loadButton, busyId !== null && styles.disabled]}><Text style={styles.loadText}>{busyId === show.id ? "Loading…" : "Load previous"}</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={busyId !== null || !!replacement.draft} onPress={() => {replacement.choose({kind:"show",id:show.id});content.current?.scrollTo({y:0,animated:true});}} style={[styles.loadButton, (busyId !== null || !!replacement.draft) && styles.disabled]}><Text style={styles.loadText}>{busyId === show.id ? "Loading…" : "Load previous"}</Text></Pressable>
           </View>
               ))}
             </>
@@ -79,8 +91,8 @@ export function RundownTemplateSheet({
               <View key={template.id} style={styles.templateCard}>
           <View style={styles.templateCopy}><Text style={styles.templateName}>{template.name}</Text><Text style={styles.templateMeta}>{template.itemCount} item{template.itemCount === 1 ? "" : "s"}{template.serviceName ? ` · ${template.serviceName}` : ""}{template.scheduledStartTime ? ` · ${template.scheduledStartTime}` : ""}</Text><Text style={styles.templateDate}>Saved {new Date(template.updatedAt).toLocaleDateString()}</Text></View>
           <View style={styles.templateActions}>
-            <Pressable accessibilityRole="button" disabled={busyId !== null} onPress={() => Alert.alert("Replace current rundown?", `Load “${template.name}” into this show? This replaces every current item.`, [{ text: "Cancel", style: "cancel" }, { text: "Load template", onPress: () => void run(template.id, async () => onLoad(template, createLocalRequestId("template-load"))) }])} style={[styles.loadButton, busyId !== null && styles.disabled]}><Text style={styles.loadText}>{busyId === template.id ? "Loading…" : "Load"}</Text></Pressable>
-            <Pressable accessibilityLabel={`Delete ${template.name}`} accessibilityRole="button" disabled={busyId !== null} onPress={() => Alert.alert("Delete template?", `Delete “${template.name}”? Existing shows are not affected.`, [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => void run(`delete-${template.id}`, async () => onDelete(template)) }])} style={[styles.deleteButton, busyId !== null && styles.disabled]}><Trash2 color={colors.red} size={17} /></Pressable>
+            <Pressable accessibilityRole="button" disabled={busyId !== null || !!replacement.draft} onPress={() => {replacement.choose({kind:"template",id:template.id});content.current?.scrollTo({y:0,animated:true});}} style={[styles.loadButton, (busyId !== null || !!replacement.draft) && styles.disabled]}><Text style={styles.loadText}>{busyId === template.id ? "Loading…" : "Load"}</Text></Pressable>
+            <Pressable accessibilityLabel={`Delete ${template.name}`} accessibilityRole="button" disabled={busyId !== null || !!replacement.draft} onPress={() => Alert.alert("Delete template?", `Delete “${template.name}”? Existing shows are not affected.`, [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => void run(`delete-${template.id}`, async () => onDelete(template)) }])} style={[styles.deleteButton, (busyId !== null || !!replacement.draft) && styles.disabled]}><Trash2 color={colors.red} size={17} /></Pressable>
           </View>
         </View>
             ))

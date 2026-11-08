@@ -1,3 +1,4 @@
+import { replacementReadSchema,replacementReplySchema,type ReplacementSource,type ReplacementCommand } from "./rundown-replacement-recovery";
 import { templateSaveReplySchema, type TemplateSaveCommand } from "./template-save-recovery";
 import { rundownDetailsReadSchema, rundownDetailsReplySchema, type RundownDetailsScope, type RundownDetailsCommand } from "./rundown-details-recovery";
 import { scheduleProviderSnapshotSchema, providerReplySchema, type ScheduleProviderCommand } from "./schedule-provider-recovery";
@@ -1313,60 +1314,13 @@ export async function commandMobileTemplateSave(input: TemplateSaveCommand, revi
   return templateSaveReplySchema.parse(await response.json());
 }
 
-export async function loadMobileRundownTemplate(input: {
-  orgId: string;
-  showId: string;
-  templateId: string;
-  requestId: string;
-  expectedRevision: number;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/templates/${encodeURIComponent(input.templateId)}/load?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        requestId: input.requestId,
-        expectedRevision: input.expectedRevision,
-      }),
-    },
-  );
-  return z
-    .object({
-      ok: z.literal(true),
-      revision: z.number(),
-      serviceName: z.string(),
-      scheduledStartTime: z.string(),
-      itemCount: z.number().int().nonnegative(),
-    })
-    .parse(await response.json());
+export async function readMobileRundownReplacement(input:{orgId:string;userId:string;showId:string;source:ReplacementSource},signal:AbortSignal) {
+  const response=await authenticatedFetch(`/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/replacement?${new URLSearchParams({orgId:input.orgId,userId:input.userId,sourceKind:input.source.kind,sourceId:input.source.id})}`,{signal});
+  return replacementReadSchema.parse(await response.json());
 }
-
-export async function loadMobilePreviousRundown(input: {
-  orgId: string;
-  showId: string;
-  sourceShowId: string;
-  requestId: string;
-  expectedRevision: number;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/previous/${encodeURIComponent(input.sourceShowId)}/load?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        requestId: input.requestId,
-        expectedRevision: input.expectedRevision,
-      }),
-    },
-  );
-  return z
-    .object({
-      ok: z.literal(true),
-      revision: z.number(),
-      serviceName: z.string(),
-      scheduledStartTime: z.string(),
-      itemCount: z.number().int().nonnegative(),
-    })
-    .parse(await response.json());
+export async function commandMobileRundownReplacement(input:ReplacementCommand,review:boolean,signal:AbortSignal) {
+  const response=await authenticatedFetch(`/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/replacement/${review ? "review":"command"}?orgId=${encodeURIComponent(input.orgId)}`,{method:"POST",signal,body:JSON.stringify(input)});
+  return replacementReplySchema.parse(await response.json());
 }
 
 export async function deleteMobileRundownTemplate(input: {
