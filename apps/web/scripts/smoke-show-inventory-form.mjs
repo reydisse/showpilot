@@ -1,0 +1,81 @@
+// Compiled React, authenticated RPCs, real D1/relay. Only transport replies are held.
+import assert from "node:assert/strict";
+import {createRequire} from "node:module";
+import {readFile,readdir,writeFile} from "node:fs/promises";
+import {resolve} from "node:path";
+import {withLocalSmokeFixture} from "./local-smoke-fixture.mjs";
+import {poll,withRealBrowser} from "./real-browser-fixture.mjs";
+const require=createRequire(new URL("../package.json",import.meta.url));
+const router=createRequire(require.resolve("@tanstack/react-router")),core=createRequire(router.resolve("@tanstack/router-core"));
+const {fromJSON}=core("seroval");
+const ids={},names=["mutateShowInventory","reviewShowInventory"],assets=resolve(import.meta.dirname,"../dist/server/assets");
+for(const file of(await readdir(assets)).filter(file=>file.endsWith(".js"))){const source=await readFile(resolve(assets,file),"utf8");for(const name of names)ids[name]??=source.match(new RegExp(`const ${name}_createServerFn_handler = createServerRpc\\(\\{\\s*id: "([^"]+)"`))?.[1];}
+assert.ok(names.every(name=>ids[name]));
+await withLocalSmokeFixture(async({origin,orgId,date,queryFixture,operatorCookie})=>{
+ await withRealBrowser({origin,cookie:operatorCookie},async({page,evaluate})=>{
+  await page("Page.enable");await page("Emulation.setFocusEmulationEnabled",{enabled:true});await page("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  await page("Page.addScriptToEvaluateOnNewDocument",{source:`
+   window.inventoryCalls=[];window.inventoryReviews=[];window.inventoryHeld=[];window.inventoryMode='after';window.inventoryErrors=[];window.inventoryDocument='same';
+   addEventListener('error',e=>inventoryErrors.push(e.message));addEventListener('unhandledrejection',e=>inventoryErrors.push(String(e.reason)));
+   const original=fetch;window.fetch=async(input,options)=>{
+    const url=input instanceof Request?input.url:String(input);
+    if(url.includes('/_serverFn/${ids.reviewShowInventory}'))inventoryReviews.push(options.body);
+    if(!url.includes('/_serverFn/${ids.mutateShowInventory}'))return original(input,options);
+    inventoryCalls.push(options.body);const mode=inventoryMode;
+    const send=()=>original(input,{...options,signal:new AbortController().signal});
+    if(mode==='before')return new Promise((resolve,reject)=>inventoryHeld.push({mode,release:()=>send().then(resolve,reject)}));
+    const response=await send();if(mode!=='after')return response;
+    const bytes=await response.arrayBuffer();return new Promise(resolve=>inventoryHeld.push({mode,release:()=>resolve(new Response(bytes,{status:response.status,headers:response.headers}))}));
+   };`});
+  const check=(expression,label)=>poll(()=>evaluate(expression),label).catch(async error=>{console.log(JSON.stringify({label,body:await evaluate('document.body.innerText'),errors:await evaluate('inventoryErrors')}));throw error;});
+  const button=name=>`[...(document.querySelector('[role=dialog]')??document).querySelectorAll('button')].find(n=>(n.textContent.trim()===${JSON.stringify(name)}||n.getAttribute('aria-label')===${JSON.stringify(name)})&&!n.disabled)`;
+  const field=label=>`[...document.querySelectorAll('label')].find(n=>n.childNodes[0]?.textContent.trim()===${JSON.stringify(label)})?.querySelector('input,select,textarea')`;
+  const click=async expression=>{const point=await check(`(async()=>{const n=${expression};if(!n||!Object.keys(n).some(k=>k.startsWith('__reactProps')))return null;n.scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;return n.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`,'reachable '+expression);for(const type of ['mousePressed','mouseReleased'])await page('Input.dispatchMouseEvent',{type,button:'left',clickCount:1,...point});};
+  const fill=async(label,value)=>{await check(`!!(${field(label)})`,'field '+label);await evaluate(`(()=>{const n=${field(label)};Object.getOwnPropertyDescriptor(n instanceof HTMLSelectElement?HTMLSelectElement.prototype:HTMLInputElement.prototype,'value').set.call(n,${JSON.stringify(value)});n.dispatchEvent(new Event(n instanceof HTMLSelectElement?'change':'input',{bubbles:true}));})()`);await check(`(${field(label)})?.value===${JSON.stringify(value)}`,'retained '+label);};
+  const open=async()=>{await click(button('Inventory'));await check(`!!document.querySelector('[role=dialog] input[required]')`,'inventory form');};
+  const closed=async()=>{await click(button('Close Show inventory'));await check("!document.querySelector('[role=dialog]')",'closed inventory');};
+  const calls=()=>evaluate('inventoryCalls').then(values=>values.map(body=>fromJSON(JSON.parse(body)).data));
+  const layout=async(name,prefix)=>{for(const[width,height]of[[320,480],[768,1024],[1440,1000]]){
+    await page('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+    const measured=await check(`(async()=>{const n=${button(name)};if(!n)return null;n.scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect(),d=n.closest('[role=dialog]').getBoundingClientRect(),range=document.createRange();range.selectNodeContents(n);const text=range.getBoundingClientRect(),drawer=document.querySelector('aside[aria-hidden=true]');return b.left>=0&&b.right<=innerWidth&&b.top>=0&&b.bottom<=innerHeight&&(!drawer||drawer.getBoundingClientRect().right<=0)&&n.contains(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2))?{height:b.height,width:b.width,dialogWidth:d.width,viewport:innerWidth,textInside:text.left>=b.left&&text.right<=b.right&&text.top>=b.top&&text.bottom<=b.bottom}:null;})()`,'reachable '+name+' '+width);
+    assert.ok(measured.height>=44&&measured.width>=44&&measured.dialogWidth<=measured.viewport&&measured.textInside,JSON.stringify(measured));
+    await writeFile(`/tmp/showpilot-inventory-${prefix}-${width}.png`,Buffer.from((await page('Page.captureScreenshot',{format:'png'})).data,'base64'));
+  }};
+  await page('Page.navigate',{url:`${origin}/${orgId}/schedule`});await open();
+  await fill('Show name','Retained inventory draft');await fill('Location','Studio B');
+  await closed();await click(`document.querySelector('a[href="/${orgId}/songs"]')`);await check("location.pathname.endsWith('/songs')",'navigate away');await evaluate('history.back()');await check("location.pathname.endsWith('/schedule')",'return');await open();
+  assert.equal(await evaluate(`(${field('Show name')}).value`),'Retained inventory draft');
+  await click(button('Add to inventory'));await check("inventoryHeld.some(item=>item.mode==='after')",'held create reply');
+  await closed();await click(`document.querySelector('a[href="/${orgId}/songs"]')`);await check("location.pathname.endsWith('/songs')",'leave pending create');await evaluate('history.back()');await check("location.pathname.endsWith('/schedule')",'return pending create');
+  await click(button('Inventory'));await check(`!!${button('Retry change')}`,'bounded save with retained retry');
+  await layout('Retry change','retry');const first=(await calls())[0];
+  await evaluate("inventoryMode='normal'");await click(button('Retry change'));await check(`document.querySelector('[role=dialog] input[required]')?.value===''`,'confirmed create clears draft after refresh');
+  assert.deepEqual((await calls())[1],first);
+  assert.equal((await queryFixture(`SELECT COUNT(*) AS count FROM show_inventory_request WHERE orgId='display-smoke' AND requestId='${first.requestId}'`))[0].count,1);
+  assert.equal((await queryFixture("SELECT COUNT(*) AS count FROM show_inventory_item WHERE orgId='display-smoke' AND name='Retained inventory draft'"))[0].count,1);
+  await evaluate("inventoryHeld.filter(item=>item.mode==='after').forEach(item=>item.release())");
+  await fill('Show name','Undelivered creation');await evaluate("inventoryMode='before'");await click(button('Add to inventory'));
+  await check("inventoryHeld.some(item=>item.mode==='before')",'held before delivery');await check(`!!${button('Review original request')}`,'review after deadline');await click(button('Review original request'));await check(`!!${button('Add to inventory')}`,'review unlocks draft');
+  const cancelled=(await calls()).at(-1);
+  assert.equal((await queryFixture(`SELECT outcome FROM show_inventory_request WHERE orgId='display-smoke' AND requestId='${cancelled.requestId}'`))[0].outcome,'cancelled');
+  await evaluate("inventoryHeld.filter(item=>item.mode==='before').forEach(item=>item.release());inventoryMode='normal'");
+  await fill('Show name','Reviewed creation');await click(button('Add to inventory'));await check(`document.querySelector('[role=dialog] input[required]')?.value===''`,'new creation refreshed');
+  assert.notEqual((await calls()).at(-1).requestId,cancelled.requestId);
+  assert.equal((await queryFixture("SELECT COUNT(*) AS count FROM show_inventory_item WHERE orgId='display-smoke' AND name='Undelivered creation'"))[0].count,0);
+  const beforeArchive=(await calls()).length;
+  await click(button('Archive Retained inventory draft'));
+  const confirmButton=name=>`[...document.querySelectorAll('[role=dialog] button')].find(n=>n.textContent.trim()===${JSON.stringify(name)}&&!n.disabled)`;
+  await click(confirmButton('Cancel'));assert.equal((await calls()).length,beforeArchive);
+  await click(button('Archive Retained inventory draft'));await evaluate("inventoryMode='after'");await click(confirmButton('Archive show'));
+  await check(`!!${button('Retry change')}`,'archive reply timeout');await evaluate("inventoryMode='normal'");await click(button('Retry change'));
+  await check("!![...document.querySelectorAll('summary')].find(n=>n.textContent.includes('Archived ('))",'archived list refreshed');
+  await click(`[...document.querySelectorAll('summary')].find(n=>n.textContent.includes('Archived ('))`);
+  await click(button('Restore Retained inventory draft'));await check(`!!${button('Archive Retained inventory draft')}`,'restored row');
+  await evaluate("inventoryHeld.filter(item=>item.mode==='after').forEach(item=>item.release())");
+  assert.equal((await queryFixture(`SELECT archivedAt FROM show_inventory_item WHERE orgId='display-smoke' AND id='${first.requestId}'`))[0].archivedAt,null);
+  const labels=await evaluate(`[...document.querySelectorAll('[role=dialog] input,[role=dialog] select,[role=dialog] textarea')].every(n=>n.labels?.length>0)`);assert.ok(labels);
+  await fill('Show name','Viewport draft');await layout('Add to inventory','form');
+  assert.equal(await evaluate('inventoryDocument'),'same');assert.deepEqual(await evaluate('inventoryErrors'),[]);
+  console.log(JSON.stringify({draftRetained:true,exactCreateRetry:true,oneReceipt:true,undeliveredCreateFenced:true,archiveConfirmed:true,archiveRetry:true,restore:true,labels:true,viewports:[320,768,1440],errors:[]}));
+ });
+});

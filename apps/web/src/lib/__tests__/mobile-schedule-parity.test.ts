@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   resolveAccess: vi.fn(),
   sendInvite: vi.fn(),
+  inventory: vi.fn(),
 }));
 
 vi.mock("../auth", () => ({
@@ -15,6 +16,8 @@ vi.mock("../effective-access", () => ({
   resolveEffectiveAccess: mocks.resolveAccess,
   resolveAccessGrantAuthorityForAccess: vi.fn(),
 }));
+
+vi.mock("../show-inventory-write.server", () => ({ writeShowInventory: mocks.inventory }));
 
 vi.mock("../crew-schedule", () => ({ sendCrewScheduleInvite: mocks.sendInvite }));
 
@@ -89,6 +92,7 @@ describe("mobile schedule parity", () => {
     mocks.getSession.mockResolvedValue({ user: { id: "manager-1", name: "Manager", email: "manager@example.com" } });
     mocks.resolveAccess.mockResolvedValue({ role: "admin", permissions: ["schedule:manage"], today: "2026-08-27" });
     mocks.sendInvite.mockResolvedValue({ delivered: true, reason: null });
+    mocks.inventory.mockResolvedValue({ result: { id: "inventory-request-1", outcome: "applied" }, appliedNow: true });
   });
 
   it("copies a previous team atomically, resets responses, and invites assigned crew", async () => {
@@ -133,11 +137,9 @@ describe("mobile schedule parity", () => {
     expect(mocks.sendInvite).not.toHaveBeenCalled();
   });
 
-  it("creates a retry-safe inventory snapshot from a saved rundown template", async () => {
-    const calls: QueryCall[] = [];
-    const templateValue = JSON.stringify([{ id: "old-item", title: "Welcome", status: "complete", actualStart: "old" }]);
+  it("delegates validated native inventory creation to the shared authorized writer", async () => {
     const response = await post(
-      parityDatabase({ calls, templateValue }),
+      parityDatabase({ calls: [] }),
       "/api/mobile/v1/schedule/inventory?orgId=org-1",
       {
         requestId: "inventory-request-1",
@@ -148,33 +150,56 @@ describe("mobile schedule parity", () => {
         sourceTemplateId: "template-1",
       },
     );
-
     expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toEqual({ ok: true, id: "inventory-request-1", created: true });
-    const insert = calls.find((call) => call.sql.startsWith("INSERT INTO show_inventory_item"));
-    const rundownJson = insert?.params[6];
-    expect(typeof rundownJson).toBe("string");
-    expect(JSON.parse(String(rundownJson))).toEqual([expect.objectContaining({
-      id: "inventory-request-1-item-0",
-      title: "Welcome",
-      status: "upcoming",
-      scheduledStart: null,
-      actualStart: null,
-      actualEnd: null,
-    })]);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      id: "inventory-request-1",
+      created: true,
+    });
+    expect(mocks.inventory).toHaveBeenCalledWith(
+      {
+        orgId: "org-1",
+        userId: "manager-1",
+        requestId: "inventory-request-1",
+        operation: {
+          kind: "create",
+          name: "Sunday Morning",
+          description: "Main weekly show",
+          location: "Auditorium",
+          defaultStartTime: "09:30",
+          sourceTemplateId: "template-1",
+        },
+      },
+      expect.any(Headers),
+    );
   });
 
-  it("archives inventory only at the version the manager viewed", async () => {
-    const calls: QueryCall[] = [];
-    const response = await post(
-      parityDatabase({ calls }),
-      "/api/mobile/v1/schedule/inventory/inventory-1/archive?orgId=org-1",
-      { expectedUpdatedAt: "inventory-v1" },
-    );
-
-    expect(response.status).toBe(200);
-    const update = calls.find((call) => call.sql.startsWith("UPDATE show_inventory_item"));
-    expect(update?.sql).toContain("archivedAt = CURRENT_TIMESTAMP");
-    expect(update?.params).toEqual(["inventory-1", "org-1", "inventory-v1"]);
+  it("derives the same archive request for older native retries at the reviewed version", async () => {
+    const calls: QueryCall[] = [],
+      path =
+        "/api/mobile/v1/schedule/inventory/inventory-1/archive?orgId=org-1";
+    const body = { expectedUpdatedAt: "2026-11-08T00:00:00.000Z" };
+    for (let index = 0; index < 2; index++) {
+      const response = await post(parityDatabase({ calls }), path, body);
+      expect(response.status).toBe(200);
+      await response.body?.cancel();
+    }
+    const first = mocks.inventory.mock.calls[0][0],
+      second = mocks.inventory.mock.calls[1][0];
+    expect(second).toEqual(first);
+    expect(first).toMatchObject({
+      orgId: "org-1",
+      userId: "manager-1",
+      operation: {
+        kind: "archive",
+        id: "inventory-1",
+        archived: true,
+        expectedUpdatedAt: body.expectedUpdatedAt,
+      },
+    });
+    expect(first.requestId).toHaveLength(64);
+    expect(
+      calls.some((call) => call.sql.startsWith("UPDATE show_inventory_item")),
+    ).toBe(false);
   });
 });

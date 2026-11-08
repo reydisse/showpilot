@@ -2016,48 +2016,6 @@ async function loadMobileShowInventory(db: MobileApiDatabase, orgId: string) {
   }
 }
 
-function parseMobileInventoryWrite(body: Record<string, unknown> | null) {
-  const requestId =
-    typeof body?.requestId === "string" ? body.requestId.trim() : "";
-  const name = typeof body?.name === "string" ? body.name.trim() : "";
-  const description =
-    typeof body?.description === "string" ? body.description.trim() : "";
-  const location =
-    typeof body?.location === "string" ? body.location.trim() : "";
-  const defaultStartTime =
-    typeof body?.defaultStartTime === "string"
-      ? body.defaultStartTime.trim()
-      : "";
-  const sourceTemplateId =
-    body?.sourceTemplateId === undefined ||
-    body.sourceTemplateId === null ||
-    body.sourceTemplateId === ""
-      ? null
-      : typeof body.sourceTemplateId === "string"
-        ? body.sourceTemplateId.trim()
-        : undefined;
-  if (
-    !validId(requestId) ||
-    name.length < 1 ||
-    name.length > 120 ||
-    description.length > 500 ||
-    location.length > 240 ||
-    (defaultStartTime !== "" &&
-      !/^([01]\d|2[0-3]):[0-5]\d$/.test(defaultStartTime)) ||
-    sourceTemplateId === undefined ||
-    (sourceTemplateId !== null && !validId(sourceTemplateId))
-  )
-    return null;
-  return {
-    requestId,
-    name,
-    description,
-    location,
-    defaultStartTime,
-    sourceTemplateId,
-  };
-}
-
 async function createMobileShowInventory(
   request: Request,
   url: URL,
@@ -2065,102 +2023,33 @@ async function createMobileShowInventory(
 ): Promise<Response> {
   const access = await authorize(request, url, db, ["schedule:manage"]);
   if (access instanceof Response) return access;
-  const input = parseMobileInventoryWrite(await readJson(request));
-  if (!input) return json({ error: "Check the reusable show details." }, 400);
-  const existing = await db
-    .prepare(
-      `SELECT id, name, description, location, defaultStartTime, sourceTemplateId
-     FROM show_inventory_item WHERE id = ? LIMIT 1`,
-    )
-    .bind(input.requestId)
-    .first<
-      Pick<
-        MobileShowInventoryRow,
-        | "id"
-        | "name"
-        | "description"
-        | "location"
-        | "defaultStartTime"
-        | "sourceTemplateId"
-      >
-    >();
-  if (existing) {
-    const sameRequest =
-      existing.name === input.name &&
-      existing.description === input.description &&
-      existing.location === input.location &&
-      existing.defaultStartTime === (input.defaultStartTime || null) &&
-      existing.sourceTemplateId === input.sourceTemplateId;
-    const owned = await db
-      .prepare(
-        "SELECT id FROM show_inventory_item WHERE id = ? AND orgId = ? LIMIT 1",
-      )
-      .bind(input.requestId, access.orgId)
-      .first<{ id: string }>();
-    return owned && sameRequest
-      ? json({ ok: true, id: existing.id, created: false })
-      : json(
-          {
-            error:
-              "That inventory request was already used. Refresh and try again.",
-          },
-          409,
-        );
-  }
-  let rundownJson = "[]";
-  if (input.sourceTemplateId) {
-    const template = await db
-      .prepare(
-        "SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1",
-      )
-      .bind(access.orgId, `rundown-saved:${input.sourceTemplateId}`)
-      .first<{ value: string }>();
-    if (!template)
-      return json({ error: "Saved rundown template not found." }, 404);
-    rundownJson = JSON.stringify(
-      parseStoredRundownItems(template.value).map((item, index) => ({
-        ...item,
-        id: `${input.requestId}-item-${index}`,
-        status: "upcoming",
-        scheduledStart: null,
-        expectedEnd: null,
-        actualStart: null,
-        actualEnd: null,
-      })),
+  const body = await readJson(request);
+  const { inventoryCommandSchema } = await import("./show-inventory-contract");
+  const parsed = inventoryCommandSchema.safeParse({
+    orgId: access.orgId,
+    userId: access.identity.userId,
+    requestId: body?.requestId,
+    operation: { ...body, kind: "create" },
+  });
+  if (!parsed.success)
+    return json({ error: "Check the reusable show details." }, 400);
+  const { writeShowInventory } = await import("./show-inventory-write.server");
+  const { result, appliedNow } = await writeShowInventory(
+    parsed.data,
+    request.headers,
+  );
+  if (result.outcome !== "applied" && result.outcome !== "superseded")
+    return json(
+      {
+        error:
+          "This inventory request or source changed. Refresh and review it before trying again.",
+      },
+      409,
     );
-  }
-  try {
-    await db
-      .prepare(
-        `INSERT INTO show_inventory_item
-        (id, orgId, name, description, location, defaultStartTime, rundownJson,
-         sourceTemplateId, archivedAt, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      )
-      .bind(
-        input.requestId,
-        access.orgId,
-        input.name,
-        input.description,
-        input.location,
-        input.defaultStartTime || null,
-        rundownJson,
-        input.sourceTemplateId,
-      )
-      .run();
-  } catch (error) {
-    if (isMissingShowInventoryTable(error)) {
-      return json(
-        {
-          error:
-            "Show inventory is not available until its database migration is applied.",
-        },
-        503,
-      );
-    }
-    throw error;
-  }
-  return json({ ok: true, id: input.requestId, created: true }, 201);
+  return json(
+    { ok: true, id: result.id, created: appliedNow },
+    appliedNow ? 201 : 200,
+  );
 }
 
 async function setMobileShowInventoryArchived(
@@ -2175,23 +2064,53 @@ async function setMobileShowInventoryArchived(
   const body = await readJson(request);
   const expectedUpdatedAt =
     typeof body?.expectedUpdatedAt === "string" ? body.expectedUpdatedAt : "";
-  if (!expectedUpdatedAt || expectedUpdatedAt.length > 64) {
+  if (
+    !expectedUpdatedAt ||
+    expectedUpdatedAt.length > 64 ||
+    !Number.isFinite(Date.parse(expectedUpdatedAt))
+  )
     return json({ error: "Refresh the inventory and try again." }, 400);
-  }
-  const result = await db
-    .prepare(
-      `UPDATE show_inventory_item
-     SET archivedAt = ${archived ? "CURRENT_TIMESTAMP" : "NULL"}, updatedAt = CURRENT_TIMESTAMP
-     WHERE id = ? AND orgId = ? AND updatedAt = ? AND archivedAt IS ${archived ? "NULL" : "NOT NULL"}`,
-    )
-    .bind(inventoryId, access.orgId, expectedUpdatedAt)
-    .run();
-  return changedExactlyOneRow(result)
+  // Existing native builds identify a state change by the reviewed version.
+  // Derive the same request identity on retry without changing their wire format.
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      JSON.stringify([
+        access.orgId,
+        access.identity.userId,
+        inventoryId,
+        archived,
+        new Date(expectedUpdatedAt).toISOString(),
+      ]),
+    ),
+  );
+  const requestId =
+    body?.requestId ??
+    Array.from(new Uint8Array(digest), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+  const { inventoryCommandSchema } = await import("./show-inventory-contract");
+  const parsed = inventoryCommandSchema.safeParse({
+    orgId: access.orgId,
+    userId: access.identity.userId,
+    requestId,
+    operation: {
+      kind: "archive",
+      id: inventoryId,
+      archived,
+      expectedUpdatedAt,
+    },
+  });
+  if (!parsed.success)
+    return json({ error: "Refresh the inventory and try again." }, 400);
+  const { writeShowInventory } = await import("./show-inventory-write.server");
+  const { result } = await writeShowInventory(parsed.data, request.headers);
+  return result.outcome === "applied" || result.outcome === "superseded"
     ? json({ ok: true })
     : json(
         {
           error:
-            "This inventory item changed on another device. Refresh and try again.",
+            "This inventory item changed on another device. Refresh and review it before trying again.",
         },
         409,
       );
