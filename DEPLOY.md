@@ -4705,3 +4705,43 @@ or released, and no real organization/provider data changed. Phase 2 remains
 47/79: the legacy graphics-clear control and the remaining product-wide UX and
 acceptance gates are still open. Twenty necessary tracked Markdown files remain;
 no new Markdown file was added.
+
+
+## Technical graphics controls preserve newer output (2026-11-07, not deployed)
+
+The dashboard's old Clear left Program graphics on air and replaying it erased
+newer lower thirds. Real-auth Worker baselines reproduced both failures. The
+new command reviews Program and relay revisions, uses org/actor/request receipts,
+and rechecks current sessions and permissions. Migration 0073 advances Program
+revisions for every active-pointer writer and edits to active templates. It is
+applied only to local fixtures. Shared permission guards preserve the existing
+Settings and technical-dashboard grant rules.
+
+Program and lower-third relay commits are independent and their outcomes remain
+visible. Exact Retry recovers the original result without clearing newer output,
+including after navigation and relay eviction. Relay writes serialize and persist
+before changing memory or broadcasting; a persistence failure leaves current
+output intact. Confirmation names the graphics, reads/writes have deadlines,
+failed reads stop polling, and saved templates/scenes remain available. The old
+technical RPC is removed, with a build boundary check preventing its return.
+
+A separate request-wrapper regression proved the overlay used first-unconstrained
+replica sessions for publication, Clear and replacement reads. The endpoint now
+reads primary data, since a display does not share the operator's write cookie.
+Dashboard feedback also retains the overlay's legacy single-graphic fallback
+when the multi-graphic list is empty.
+
+Verification: 21 real-auth graphics Worker cases, 11 UI cases, and the overlay
+primary-read regression pass. Full web suite: 2,340 unit / 1,164 Worker tests;
+typecheck and production build pass. Main bundle: 551,588 raw / 174,444 gzip bytes.
+The rebuilt Chrome/auth/disposable-D1 rehearsal passes named confirmation/cancel,
+actual clearing of both display endpoints, lost reply then exact Retry across
+navigation, preservation of newer publications, stale confirmation rejection,
+bounded read recovery and late replies. Controls/dialogs fit 320/768/1440px with
+44px targets; phone screenshots inspected. Three receipts, five retained saved
+templates, no browser runtime errors or outgoing emails.
+
+Stacked on #211, whose CI run 42430451510 passed both jobs; keep draft. No production
+migration, deployment, release or real-org changes. Phase 2 remains 47/79 pending
+the remaining requirements and broader acceptance checks. Twenty necessary
+tracked Markdown files remain; no new Markdown file was added.

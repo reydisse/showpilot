@@ -4,7 +4,6 @@ import { hashPassword } from "better-auth/crypto";
 import { seedRelayMember } from "@/test/relay-fixtures";
 import { getPrisma } from "../db";
 import { getAuth } from "../auth";
-import { runTmControl } from "../tm-operations";
 import { writeTmStream, getTmStreamState } from "../tm-stream";
 import { getStreamDestinations } from "../stream-destinations";
 const auth = vi.hoisted(() => ({ cookie: "", ip: 0 }));
@@ -202,12 +201,7 @@ it("starts only the destinations reviewed in the technical confirmation", async 
   ).toEqual(["rtmp://first.invalid/live"]);
 });
 
-it("rejects the legacy streaming RPC and commands without reviewed targets", async () => {
-  await expect(
-    runTmControl({
-      data: { orgId: authenticated.orgId, action: "stream-live" },
-    }),
-  ).rejects.toThrow();
+it("rejects commands without reviewed targets or a request ID", async () => {
   const data = await command();
   await expect(
     writeTmStream({ data: { ...data, targets: [] } }),
