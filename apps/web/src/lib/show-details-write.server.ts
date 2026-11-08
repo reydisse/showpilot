@@ -1,3 +1,4 @@
+import { NEXT_UPDATED_AT_SQL } from "./sqlite-timestamp.server";
 import { z } from "zod";
 import { memberPermissionGuard } from "./member-permission-guard.server";
 import { rundownDetailsAuthority } from "./rundown-details-authority.server";
@@ -218,7 +219,7 @@ async function writeDetails(
       db
         .prepare(
           `UPDATE rundown SET name=?,scheduledStartTime=?,scheduledCallTime=?,location=?,
-        updatedAt=strftime('%Y-%m-%dT%H:%M:%fZ',MAX(julianday('now'),julianday(updatedAt)+1.0/86400000))
+        updatedAt=${NEXT_UPDATED_AT_SQL}
         WHERE orgId=? AND id=? AND ${owns}`,
         )
         .bind(

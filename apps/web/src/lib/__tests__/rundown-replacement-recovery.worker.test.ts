@@ -422,7 +422,7 @@ it("replaces 500 items without a single large database value or parameter cliff"
   expect(state.items).toHaveLength(500);
   expect(state.items[499].title).toBe("Reviewed item");
 });
-it("accepts a Prisma millisecond metadata version and advances it monotonically",async()=>{
+it("accepts a numeric millisecond metadata version and advances it monotonically",async()=>{
   const f=await fixture(),version=Date.parse(f.command.expectedUpdatedAt);
   await env.DB.prepare("UPDATE rundown SET updatedAt=? WHERE orgId=? AND id=?").bind(version,f.orgId,f.showId).run();
   expect((await f.read()).expectedUpdatedAt).toBe(f.command.expectedUpdatedAt);

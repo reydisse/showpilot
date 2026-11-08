@@ -7753,7 +7753,7 @@ review/uncertain states and tablet cancellation state. Final read responses also
 carry private/no-store headers, and retained-replacement row buttons visibly dim.
 
 A final numeric timestamp regression reproduced a second 503: the shared snapshot
-reader accepts Prisma millisecond updatedAt values, but the new writer initially
+reader accepts numeric millisecond updatedAt values, but the new writer initially
 advanced them with julianday(updatedAt), which only handled the text case. Its
 SQL now explicitly converts numeric milliseconds with unixepoch before advancing
 the version, matching the existing show-inventory writer's handling. The older
@@ -7782,3 +7782,37 @@ scenarios above against the final server build and mobile export, including the
 private/no-store header assertion and dimmed retained-action buttons. There are
 zero runtime errors. The final screenshots use the paths above; browser log is
 /tmp/showpilot-template-load-browser3.log. No broader gate is claimed complete.
+
+### Phase 2 follow-up: rundown timestamp versions
+
+Seven regressions reproduced failed numeric-timestamp writes and false metadata
+conflicts. The installed Prisma adapter writes ISO text with a `+00:00` suffix;
+its value and the equivalent ISO `Z` value must match. Numeric milliseconds are
+an explicitly seeded supported storage representation, not evidence that the
+current Prisma adapter writes numbers. The earlier replacement evidence and test
+title have been corrected accordingly.
+
+The shared SQL expression handles numeric milliseconds and date text and advances
+future versions by one millisecond per write. Schedule/rundown details, ordinary
+relay item/timer and metadata writes, replacement, and inventory use it. Metadata
+commands compare instants, then bind the exact stored value in the final atomic
+WHERE guard. A concurrent Prisma edit still produces a conflict. Numeric wire
+versions remain rejected. SQLite CURRENT_TIMESTAMP text is interpreted as UTC.
+
+Focused verification passes 115 Worker tests, including 14 new timestamp cases.
+Full run 1 reached 2,791 unit passes and 1,543 Worker passes, but one moderation
+fixture login returned 429 before exercising the feature. Random IP selection
+could collide across logins. Eight remaining randomized login fixtures now use a
+shared sequential test-address allocator; the previously fixed stream fixture
+uses the same helper. Production throttling is unchanged. Full run 2 passes
+2,791 unit / 1,544 Worker tests, 4,335 total. Web typecheck 3 passes.
+
+Production build 1 passes with the unchanged main bundle, 549,593 raw / 173,783
+gzip bytes. The compiled Worker rehearsal uses isolated real auth, D1 and relay
+for numeric, Prisma-style ISO-offset and SQLite UTC rows. It passes detail saves,
+exact replay, stale-version rejection, metadata edits and timer start/stop version
+advancement. Command after web build:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-rundown-timestamp-versions.mjs`.
+Evidence: /tmp/showpilot-timestamp-{worker2,full1,full2,tsc3,build1,smoke1}.log.
+No production deployment or migration. Phase 2 remains 67/79; this is a narrow
+save-reliability correction, not completion of a product-wide gate.
