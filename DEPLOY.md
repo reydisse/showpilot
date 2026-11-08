@@ -6775,3 +6775,67 @@ Phase 2 remains 67/79. Other native schedule/profile/reminder recovery, remainin
 product-wide control and loading audits, the owner-provided Founding Member
 closing date and broad gates remain open. No production deploy, release, remote
 migration or real-org writes. Twenty necessary tracked Markdown files remain.
+
+
+### Phase 2 native schedule reminder recovery (2026-11-08)
+
+The native reminder route bypassed the durable web reminder request. A real D1
+regression reproduced five sends after retrying a two-recipient request and adding
+a third assignee: both original invitations were resent and the new assignee was
+included. The route now uses the shared 0079 receipt/outbox path. The new native
+`/api/mobile/v1/schedule/reminders` endpoint validates actor and workspace and
+returns each recipient's delivery state. The native client uses that endpoint;
+unused count-only client wrappers were removed. Installed clients' old routes
+remain supported, but builds without a request ID still need an app update for
+exact-request retry. No new migration; 0079 remains required.
+
+Native Schedule retains attempts by account, organization and selection across
+screen navigation. Duplicate presses claim work synchronously. Retry uses the
+same command and recipients, while an explicit new reminder uses a fresh ID.
+Accepted, rejected, uncertain, expired and changed results remain visible per
+recipient; accepted email is not described as received. A confirmed delivery with
+a failed schedule read offers a separate Refresh action. Send and refresh are
+bounded to 15 and 12 seconds, including transports that ignore cancellation.
+Late responses cannot restore cleared account work or refresh an unrelated screen.
+Results remain visible if the original row disappears. Retention is in the active
+app's query cache, not durable storage across process termination.
+
+The generic native deadline helper now serves both inventory and reminders;
+inventory's existing behavior tests still pass. Narrow Schedule headers move
+44px action buttons below the title, accounting for font scale, instead of
+splitting the title. Reminder controls have inline progress, wrapped text and
+44px-or-larger targets. The progress panel is outside conditional assignment rows.
+
+Validation:
+- Twenty-two new native hook/component cases pass, including per-target parallel
+  completion, exact retry, partial delivery, separate refresh, timeout/focus/cache
+  handling, expired/changed review and absent-target results. Eight real-auth/D1
+  reminder Worker cases pass, including the new and installed-client routes,
+  frozen recipients, stable delivery identity, and permission/actor/org denials.
+- Full web suite passes 2,572 unit and 1,379 Worker tests, including a second full
+  run after the header correction. Web/native typecheck and production web build
+  pass. Main entry remains 549,525 raw / 173,749 gzip bytes (175,000 gzip budget).
+- Native verification passes lint (warnings only), doctor 18/18, polling and
+  contract checks, and iOS/Android/web exports. Final Hermes sizes: iOS 5,499,560,
+  Android 5,498,699 bytes; unchanged limit 6,500,000.
+- Exported Expo web with the actual native hook/API, real local auth/D1, and
+  locally captured email passes lost-success retry, stable invitation token and
+  provider key, no repeat of accepted delivery, rejected recipient detail,
+  explicit new sends, and read-only refresh recovery. Retry hit/text/target checks
+  and header layout pass at 320/768/1440 pixels with no browser runtime errors.
+  Final phone/tablet screenshots were inspected. The first screenshot review
+  found the title squeeze and led to the header fix. The next probe needed to
+  wait for React Native's resize-driven action relocation; the final run passed.
+  This proves exported Expo behavior, not physical iOS/Android device UI behavior.
+
+Evidence: `/tmp/showpilot-native-reminder-{before,worker1,worker2,hooks1,tsc1,
+web-tsc1,full1,full2,build1,verify1,verify2,browser1,browser2,browser3}.log`.
+After web build and mobile verify, rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-reminder-recovery.mjs`.
+Screenshots: `/tmp/showpilot-native-reminder-{320,768,1440}.png`.
+
+Preceding PR #250 is green: CI 42499053947, web 12m36s / native Rust 4m32s.
+Phase 2 stays 67/79: other native schedule/profile recovery and product-wide
+loading/control audits remain, as do the owner-provided Founding Member closing
+date and broad gates. No deployment, release, remote migration, real-org write
+or external email. Twenty necessary tracked Markdown files remain.

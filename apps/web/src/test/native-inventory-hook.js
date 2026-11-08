@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import ts from "typescript";
 import * as React from "react";
 import * as queries from "@tanstack/react-query";
+import * as deadline from "../../../mobile/src/lib/request-deadline.ts";
 import * as contract from "../../../mobile/src/lib/inventory-recovery.ts";
 import * as requestIds from "../../../mobile/src/lib/request-id.ts";
 
@@ -25,6 +26,7 @@ const modules = {
   "@tanstack/react-query": queries,
   "../lib/inventory-recovery": contract,
   "../lib/request-id": requestIds,
+  "../lib/request-deadline": deadline,
 };
 const exported = {};
 new Function("require", "exports", code)((name) => {

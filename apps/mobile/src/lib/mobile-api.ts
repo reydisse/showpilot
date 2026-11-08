@@ -1,3 +1,4 @@
+import { scheduleReminderResultSchema, type ScheduleReminderCommand } from "./reminder-recovery";
 import { inventoryResultSchema, type InventoryCommand } from "./inventory-recovery";
 import { preferenceReceiptSchema, type PreferenceCommand } from "./notification-preference-recovery";
 import { accessNoticeSchema, accessReceiptSchema, type AccessCommand } from "./access-recovery";
@@ -286,12 +287,6 @@ const scheduleWriteResultSchema = z.object({
   id: z.string(),
   created: z.boolean(),
   delivered: z.boolean(),
-});
-
-const scheduleReminderResultSchema = z.object({
-  ok: z.literal(true),
-  delivered: z.number().int().nonnegative(),
-  total: z.number().int().nonnegative(),
 });
 
 const scheduleTeamCopyResultSchema = z.object({
@@ -1566,25 +1561,8 @@ export async function removeMobileScheduleAssignment(input: {
   return okSchema.parse(await response.json());
 }
 
-export async function remindMobileScheduleAssignment(input: {
-  orgId: string;
-  assignmentId: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/schedule/assignments/${encodeURIComponent(input.assignmentId)}/remind?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify({}) },
-  );
-  return scheduleReminderResultSchema.parse(await response.json());
-}
-
-export async function remindAllMobileScheduleAssignments(input: {
-  orgId: string;
-  showId: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/schedule/services/${encodeURIComponent(input.showId)}/remind?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify({}) },
-  );
+export async function sendMobileScheduleReminders(input: ScheduleReminderCommand, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/schedule/reminders?orgId=${encodeURIComponent(input.orgId)}`, { method: "POST", signal, body: JSON.stringify(input) });
   return scheduleReminderResultSchema.parse(await response.json());
 }
 
