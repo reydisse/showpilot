@@ -55,51 +55,11 @@ export async function enablePushForOrg(orgId: string, requestPermission = true):
   if (permission !== "granted") return permission;
   const registration = await registerNotificationWorker();
   if (!registration) return "denied";
-  const { getPushConfiguration, savePushSubscription } = await import("@/lib/push-notifications");
-  const config = await getPushConfiguration({ data: { orgId } });
-  if (!config.supported || !config.publicKey) throw new Error("Push delivery is not configured on this environment");
-  const subscription = await subscribeToPush(registration, config.publicKey);
-  const json = subscription?.toJSON();
-  if (!json?.endpoint || !json.keys?.p256dh || !json.keys.auth) throw new Error("This device could not create a push subscription");
-  await savePushSubscription({ data: {
-    orgId,
-    endpoint: json.endpoint,
-    expirationTime: json.expirationTime,
-    keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
-  } });
+  // Permission is requested above, synchronously from the user's action. Only
+  // subscription setup loads on demand after that permission has been granted.
+  const { persistPushSubscription } = await import("@/lib/push-subscription");
+  await persistPushSubscription(orgId, registration);
   return permission;
-}
-
-/**
- * Subscribe to push notifications.
- * Returns the PushSubscription object which should be sent to the server.
- *
- * Note: VAPID public key should come from server/env.
- * For now we store it as an app setting that can be configured in settings.
- */
-export async function subscribeToPush(
-  registration: ServiceWorkerRegistration,
-  vapidPublicKey?: string
-): Promise<PushSubscription | null> {
-  if (!vapidPublicKey) {
-    console.warn("[ShowPilot] No VAPID public key configured — push subscription skipped");
-    return null;
-  }
-
-  try {
-    const existing = await registration.pushManager.getSubscription();
-    if (existing) return existing;
-
-    const subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidPublicKey) as BufferSource,
-    });
-
-    return subscription;
-  } catch (err) {
-    console.warn("[ShowPilot] Push subscription failed:", err);
-    return null;
-  }
 }
 
 /** Check if push notifications are supported and permission is granted */
@@ -152,17 +112,4 @@ export function showLocalNotification(
       data: { url: options?.url || "/", type: options?.type },
     } as NotificationOptions);
   });
-}
-
-// ─── Helpers ───────────────────────────────────────────────
-
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
 }

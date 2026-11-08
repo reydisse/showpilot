@@ -5434,3 +5434,45 @@ Phase 2 is 65/79 verified. The 45-minute rehearsal is running separately in
 GitHub Actions PR #225; it is not counted as passed. Schedule dialog conversion
 and the remaining product-wide requirements are still open. Nothing deployed,
 migrated or released; no new Markdown files were added.
+
+
+## Phase 2 Schedule dialogs and hydration, 2026-11-08
+
+Replaced Schedule's final hand-built modal wrapper with the existing Dialog.
+All seven editors now trap focus, close on Escape, restore their opener, retain
+an accessible close button while the form scrolls, and fit a 320x480 window.
+Dialog controls are at least 44px high. Team-builder fields, the response filter,
+and the mobile assignment editor have accessible names.
+
+The browser baseline reproduced escaped focus, ineffective Escape, 32-41px
+controls, and an Inventory close button outside the viewport. The repaired
+`smoke-schedule-dialogs.mjs` passes all seven dialogs at 320x480, 768x900 and
+1440x900, including Tab/Shift+Tab, focus return, labels and hit-tested controls.
+Phone screenshots inspected. Fixtures send no external email.
+
+That rehearsal also exposed three React hydration errors. Holding the actual
+entry script showed server text `Thu, Jan 1` versus browser `Thu 1 Jan`, and the
+same difference in the long date. `useDeviceLocale` now gives server and first
+browser render the same locale, then uses the viewer's locale. Direct-entry
+checks in British, US and Canadian English pass with zero runtime errors.
+
+The other named modal families already use Dialog: Audio, Devices, Graphics,
+Template Studio, Songs import, Chat share and Reports. Source audit reconfirms
+those conversions and the shared Router error fallback. Explicit route error
+handlers also provide Retry, including media output's reload recovery.
+`smoke-route-loading.mjs` passes real loader/guard/download timeouts, repeated
+Retry, cancellation, ignored late replies and reachable controls at 320px.
+
+The build first exceeded its existing 175,000-byte gzip entry limit by 10 bytes.
+Web Push subscription setup now loads after permission is granted; the prompt
+still starts directly in the initiating click. Five tests cover prompt order,
+denial, reusing subscriptions, org-scoped persistence, failure and Desktop bypass.
+The limit is unchanged. Final main entry: 551,713 raw / 174,616 gzip bytes.
+
+Full web suite: 2,374 unit and 1,186 Worker tests passed; typecheck and build passed.
+Logs: `/tmp/showpilot-schedule-dialogs-before.log`, `-after3.log`, `-full3.log`,
+`-tsc3.log`, `-build3.log`, `/tmp/showpilot-schedule-route-loading.log`, and
+`/tmp/showpilot-schedule-hydration2.log`. Phase 2 is 66/79 verified. This closes
+the named shared-dialog/route-error requirement; Schedule's remaining reads,
+writes and full-page mobile work belong to the still-open broader requirements.
+The long rehearsal is still running in PR #225. Nothing deployed or released.
