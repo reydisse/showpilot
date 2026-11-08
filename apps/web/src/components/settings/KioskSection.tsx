@@ -3,17 +3,8 @@ import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CreatedTokenNotice } from "./CreatedTokenNotice";
 import { useState, useCallback } from "react";
-import {
-  Plus,
-  Trash2,
-  Users,
-  CalendarDays,
-  KeyRound,
-} from "lucide-react";
-import {
-  getKioskTeams,
-  type AdminTeam,
-} from "@/lib/kiosk-admin";
+import { Plus, Trash2, Users, CalendarDays, KeyRound } from "lucide-react";
+import { getKioskTeams, type AdminTeam } from "@/lib/kiosk-admin";
 import {
   createKioskToken,
   listKioskTokens,
@@ -45,10 +36,16 @@ export function KioskSection({
   }));
 
   const [tab, setTab] = useState<"org" | "roster" | "tokens">("org");
-  const readOrganization = useCallback((signal: AbortSignal) => getKioskTeams({ data: { orgId }, signal }), [orgId]);
+  const readOrganization = useCallback(
+    (signal: AbortSignal) => getKioskTeams({ data: { orgId }, signal }),
+    [orgId],
+  );
   const organizationRead = useOperatorRead<AdminTeam[] | null>({
-    key: orgId, initialValue: null, read: readOrganization,
-    errorMessage: "Could not read the kiosk organization. Any displayed teams are the last confirmed result.",
+    key: orgId,
+    initialValue: null,
+    read: readOrganization,
+    errorMessage:
+      "Could not read the kiosk organization. Any displayed teams are the last confirmed result.",
   });
   const teams = organizationRead.value ?? [];
   const loading = organizationRead.value === null && !organizationRead.error;
@@ -65,12 +62,20 @@ export function KioskSection({
         </p>
       </div>
 
-      <KioskDisplayControl key={`${orgId}:${userId}`} orgId={orgId} userId={userId} />
+      <KioskDisplayControl
+        key={`${orgId}:${userId}`}
+        orgId={orgId}
+        userId={userId}
+      />
 
       <div className="flex flex-wrap items-center gap-1.5 mb-5">
         {[
           { id: "org" as const, label: "Org Chart", icon: Users },
-          { id: "roster" as const, label: "On-Duty Roster", icon: CalendarDays },
+          {
+            id: "roster" as const,
+            label: "On-Duty Roster",
+            icon: CalendarDays,
+          },
           { id: "tokens" as const, label: "Access Tokens", icon: KeyRound },
         ].map((t) => {
           const Icon = t.icon;
@@ -91,11 +96,39 @@ export function KioskSection({
         })}
       </div>
 
-      {tab === "tokens" ? <AccessTokensTab key={orgId} orgId={orgId} slug={slug} /> : tab === "roster" ? <KioskDutyRoster key={`${orgId}:${userId}`} orgId={orgId} userId={userId} /> : <>
-        <ReadFailureNotice error={organizationRead.error} refreshing={organizationRead.refreshing} retry={organizationRead.retry} label="Retry kiosk organization" />
-        {loading ? <div className="py-10 text-center text-sm text-board-muted">Loading kiosk organization…</div>
-          : organizationRead.value === null ? null : <KioskTeamEditor key={`${orgId}:${userId}`} orgId={orgId} userId={userId} teams={teams} members={members} onChange={reload} readFailed={Boolean(organizationRead.error)} />}
-      </>}
+      {tab === "tokens" ? (
+        <AccessTokensTab key={orgId} orgId={orgId} slug={slug} />
+      ) : tab === "roster" ? (
+        <KioskDutyRoster
+          key={`${orgId}:${userId}`}
+          orgId={orgId}
+          userId={userId}
+        />
+      ) : (
+        <>
+          <ReadFailureNotice
+            error={organizationRead.error}
+            refreshing={organizationRead.refreshing}
+            retry={organizationRead.retry}
+            label="Retry kiosk organization"
+          />
+          {loading ? (
+            <div className="py-10 text-center text-sm text-board-muted">
+              Loading kiosk organization…
+            </div>
+          ) : organizationRead.value === null ? null : (
+            <KioskTeamEditor
+              key={`${orgId}:${userId}`}
+              orgId={orgId}
+              userId={userId}
+              teams={teams}
+              members={members}
+              onChange={reload}
+              readFailed={Boolean(organizationRead.error)}
+            />
+          )}
+        </>
+      )}
 
       <p className="mt-8 text-[10px] text-board-muted/50">
         Live at <code className="text-board-muted">/api/v1/kiosk/org</code> and{" "}
@@ -113,56 +146,139 @@ type KioskTokenRow = {
   label: string;
   expiresAt: string | Date | null;
   createdAt: string | Date;
+  view: string;
 };
 
 function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
   const [label, setLabel] = useState("");
+  const [purpose, setPurpose] = useState<"board" | "timer" | "overlay">(
+    "board",
+  );
   const [busy, setBusy] = useState(false);
-  const [issuedToken, setIssuedToken] = useState<{ id: string; label: string; token: string } | null>(null);
+  const [issuedToken, setIssuedToken] = useState<{
+    id: string;
+    label: string;
+    token: string;
+    displayUrl?: string;
+  } | null>(null);
   const [removal, setRemoval] = useState<KioskTokenRow | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const readTokens = useCallback((signal: AbortSignal) => listKioskTokens({ data: { orgId }, signal }), [orgId]);
+  const readTokens = useCallback(
+    (signal: AbortSignal) => listKioskTokens({ data: { orgId }, signal }),
+    [orgId],
+  );
   const tokenRead = useOperatorRead<KioskTokenRow[] | null>({
-    key: orgId, initialValue: null, read: readTokens,
-    errorMessage: "Could not read kiosk tokens. Any displayed list is the last confirmed result.",
+    key: orgId,
+    initialValue: null,
+    read: readTokens,
+    errorMessage:
+      "Could not read kiosk tokens. Any displayed list is the last confirmed result.",
   });
   const tokens = tokenRead.value ?? [];
   const loading = tokenRead.value === null && !tokenRead.error;
 
   const generate = async () => {
     if (!label.trim() || busy || issuedToken) return;
-    setBusy(true); setError(null);
+    setBusy(true);
+    setError(null);
     try {
-      // view "board" — the read-only kiosk data endpoints ignore it, but the
-      // schema requires a value and "board" matches the lobby/booth use case.
       const created = await createKioskToken({
-        data: { orgId, label: label.trim(), view: "board", expiresInDays: null },
+        data: {
+          orgId,
+          label: label.trim(),
+          view: purpose,
+          expiresInDays: null,
+        },
       });
       setLabel("");
-      setIssuedToken(created);
+      const displayUrl =
+        created.view === "timer" || created.view === "overlay"
+          ? new URL(
+              `/${created.view}/${encodeURIComponent(slug)}?${new URLSearchParams({ kioskToken: created.token, ...(created.view === "timer" ? { view: "stage" } : {}) })}`,
+              window.location.origin,
+            ).href
+          : undefined;
+      setIssuedToken({ ...created, displayUrl });
       tokenRead.invalidate();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create token."); }
-    finally { setBusy(false); }
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not create token.",
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   const revoke = async () => {
     if (!removal || busy) return;
-    setBusy(true); setError(null);
+    setBusy(true);
+    setError(null);
     try {
       await revokeKioskToken({ data: { tokenId: removal.id } });
       if (issuedToken?.id === removal.id) setIssuedToken(null);
       tokenRead.invalidate();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not revoke token."); }
-    finally { setBusy(false); setRemoval(null); }
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not revoke token.",
+      );
+    } finally {
+      setBusy(false);
+      setRemoval(null);
+    }
   };
 
   return (
     <div className="space-y-4">
-      {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
-      {issuedToken && <CreatedTokenNotice key={issuedToken.id} label={issuedToken.label} token={issuedToken.token} onDismiss={() => setIssuedToken(null)} />}
-      <ConfirmDialog open={removal !== null} onOpenChange={open => { if (!open && !busy) setRemoval(null); }} title={`Revoke ${removal?.label ?? "this token"}?`} description="Devices using this token will lose access. Generate a replacement before revoking a token still in use." confirmLabel="Revoke token" loading={busy} onConfirm={() => { void revoke(); }} />
-      <div className="rounded-xl border border-board-border bg-board-card p-3">
+      {error && (
+        <p role="alert" className="text-sm text-red-300">
+          {error}
+        </p>
+      )}
+      {issuedToken && (
+        <CreatedTokenNotice
+          key={issuedToken.id}
+          label={issuedToken.label}
+          token={issuedToken.token}
+          displayUrl={issuedToken.displayUrl}
+          onDismiss={() => setIssuedToken(null)}
+        />
+      )}
+      <ConfirmDialog
+        open={removal !== null}
+        onOpenChange={(open) => {
+          if (!open && !busy) setRemoval(null);
+        }}
+        title={`Revoke ${removal?.label ?? "this token"}?`}
+        description="Devices using this token will lose access. Generate a replacement before revoking a token still in use."
+        confirmLabel="Revoke token"
+        loading={busy}
+        onConfirm={() => {
+          void revoke();
+        }}
+      />
+      <div className="space-y-3 rounded-xl border border-board-border bg-board-card p-3">
+        <label className="block text-sm text-board-text">
+          Token purpose
+          <select
+            value={purpose}
+            disabled={busy || issuedToken !== null}
+            onChange={(event) => {
+              const value = event.target.value;
+              if (value === "board" || value === "timer" || value === "overlay")
+                setPurpose(value);
+            }}
+            className="mt-2 min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
+          >
+            <option value="board">Lobby app / data API</option>
+            <option value="timer">Stage / confidence display</option>
+            <option value="overlay">Lower-thirds overlay</option>
+          </select>
+        </label>
+        <p className="text-sm text-board-muted">
+          Stage and overlay tokens include a browser display link. Lobby app
+          tokens connect the lobby display software.
+        </p>
         <div className="flex items-center gap-2">
           <input
             value={label}
@@ -181,15 +297,26 @@ function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
           </button>
         </div>
         <p className="mt-2 text-[11px] text-board-muted/70">
-          Send as <code className="text-board-muted">Authorization: Bearer &lt;token&gt;</code> to{" "}
-          <code className="text-board-muted">/api/v1/kiosk/*</code> for org{" "}
-          <span className="font-mono">{slug}</span>. Copy it now — store it somewhere safe.
+          Send as{" "}
+          <code className="text-board-muted">
+            Authorization: Bearer &lt;token&gt;
+          </code>{" "}
+          to <code className="text-board-muted">/api/v1/kiosk/*</code> for org{" "}
+          <span className="font-mono">{slug}</span>. Copy it now — store it
+          somewhere safe.
         </p>
       </div>
 
-      <ReadFailureNotice error={tokenRead.error} refreshing={tokenRead.refreshing} retry={tokenRead.retry} label="Retry kiosk tokens" />
+      <ReadFailureNotice
+        error={tokenRead.error}
+        refreshing={tokenRead.refreshing}
+        retry={tokenRead.retry}
+        label="Retry kiosk tokens"
+      />
       {loading ? (
-        <div className="py-10 text-center text-sm text-board-muted">Loading…</div>
+        <div className="py-10 text-center text-sm text-board-muted">
+          Loading…
+        </div>
       ) : tokenRead.value === null ? null : tokens.length === 0 ? (
         <div className="text-center py-10 text-sm text-board-muted">
           No tokens yet — generate one above for your kiosk displays.
@@ -204,7 +331,16 @@ function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
               >
                 <KeyRound className="w-4 h-4 text-board-muted shrink-0" />
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-board-text truncate">{row.label}</div>
+                  <div className="text-sm font-medium text-board-text truncate">
+                    {row.label}
+                  </div>
+                  <p className="text-xs text-board-muted">
+                    {row.view === "timer"
+                      ? "Stage / confidence display"
+                      : row.view === "overlay"
+                        ? "Lower-thirds overlay"
+                        : "Lobby app / data API"}
+                  </p>
                   <code className="text-[11px] text-board-muted font-mono break-all">
                     Token saved. Its value cannot be shown again.
                   </code>
@@ -213,6 +349,7 @@ function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
                   onClick={() => setRemoval(row)}
                   disabled={busy}
                   title="Revoke token"
+                  aria-label={`Revoke ${row.label}`}
                   className="min-h-11 min-w-11 flex items-center justify-center p-2 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
                 >
                   <Trash2 className="w-4 h-4" />

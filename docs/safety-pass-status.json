@@ -2048,9 +2048,10 @@
       "phase": "2",
       "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
       "line": 282,
-      "status": "in_progress",
+      "status": "verified",
       "evidence": [
-        "The actual Lower Thirds Settings monitor URL reaches the protected overlay with fixture output; its clean broadcast URL reaches the same output without diagnostic UI. smoke-overlay-recovery.mjs exercises both URLs, live edits, link creation timeout/retry and real outages. The monitor is a visible way to check current output reachability and retry reads. Kiosk link routing/reachability is still unverified, so this requirement remains in progress."
+        "The actual Lower Thirds Settings monitor URL reaches the protected overlay with fixture output; its clean broadcast URL reaches the same output without diagnostic UI. smoke-overlay-recovery.mjs exercises both URLs, live edits, link creation timeout/retry and real outages. The monitor is a visible way to check current output reachability and retry reads. Kiosk link routing/reachability is still unverified, so this requirement remains in progress.",
+        "2026-11-08 Settings kiosk links: Access Tokens now distinguishes Lobby app/data API, Stage/confidence and Overlay purposes. Newly issued stage/overlay tokens produce the correct /timer/:slug?view=stage or /overlay/:slug browser URL, with Copy display link and Open display to check. Links and plaintext tokens disappear on dismissal/navigation/reload; saved rows show purpose only. Two baseline UI failures and seven final token cases pass. Full 2369 unit/1186 Worker tests, typecheck and build pass. smoke-kiosk-display-links.mjs generates both links through the real Settings UI, opens each in anonymous Chrome, verifies actual output and token removal from the address bar/HttpOnly cookie, 320x480/768/1440px controls, dismissal/reload hiding, revocation denial and hashed DB storage. Phone screenshot inspected; two disposable tokens. This completes the previously missing kiosk-link portion alongside the recorded Settings overlay-monitor verification. Logs /tmp/showpilot-kiosk-links-{full2,tsc,build,browser3}.log. First local checks were interrupted by lid-triggered sleep; a later script-only selector quoting error was fixed before the final successful browser run. No production changes."
       ]
     },
     {
