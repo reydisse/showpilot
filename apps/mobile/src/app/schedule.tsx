@@ -1,3 +1,7 @@
+import { AppButton } from "@/components/app-button";
+import { useMobileCopy } from "@/hooks/use-mobile-copy";
+import { ScheduleCopyProgress } from "@/components/schedule-copy-progress";
+import type { CopyTeamSelection } from "@/lib/copy-recovery";
 import { useMobileReminders, reminderSlot } from "@/hooks/use-mobile-reminders";
 import { ScheduleReminderProgress } from "@/components/schedule-reminder-progress";
 import type { ReminderTarget } from "@/lib/reminder-recovery";
@@ -87,6 +91,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
   const narrowHeader = width / fontScale < 400;
   const queryClient = useQueryClient();
   const [editor, setEditor] = useState<EditorState>(null);
+  const [copyConfirmation, setCopyConfirmation] = useState<{ selection: CopyTeamSelection; label: string; count: number; again: boolean } | null>(null);
   const [decliningId, setDecliningId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [respondingId, setRespondingId] = useState<string | null>(null);
@@ -95,6 +100,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
   const [selectedDate, setSelectedDate] = useState<string | undefined>(requestedDate);
   const [dateInput, setDateInput] = useState(requestedDate ?? "");
   const pollingInterval = useScreenPollingInterval(15_000);
+  useEffect(() => { if (pollingInterval === false) setCopyConfirmation(null); }, [pollingInterval]);
   useEffect(() => {
     setSelectedDate(requestedDate);
     setDateInput(requestedDate ?? "");
@@ -202,19 +208,34 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
     if (missed) Alert.alert("Team created", `${missed} invitation${missed === 1 ? " was" : "s were"} not delivered. Check those roster emails, then resend.`);
   }
 
+  const copies = useMobileCopy({ orgId, userId }, {
+    enabled: pollingInterval !== false,
+    send: copyMobileScheduleTeam,
+    refresh: async signal => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["mobile-schedule", orgId] }, { throwOnError: true }),
+        queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap"] }, { throwOnError: true }),
+      ]);
+      if (signal.aborted) throw new Error("Copy view closed.");
+    },
+  });
+  function canCopyAgain(selection: CopyTeamSelection) {
+    const target = schedule?.services.find(service => service.id === selection.showId && service.serviceDate === selection.serviceDate);
+    const source = schedule?.services.find(service => service.id === selection.copyFromShowId && service.serviceDate === selection.copyFrom);
+    return Boolean(schedule?.canManage && schedule.provider.type === "native" && target && source && target.crewTotal === 0 && source.crewTotal > 0 && !["running", "paused"].includes(target.status));
+  }
   function copyTeam(service: Service, source: Service) {
-    Alert.alert("Copy previous team?", `${source.name || "The previous show"} has ${source.crewTotal} position${source.crewTotal === 1 ? "" : "s"}. Everyone will receive a fresh invitation for ${service.name || "this show"}.`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Copy and invite", onPress: () => void copyMobileScheduleTeam({
-        orgId,
-        showId: service.id,
-        sourceShowId: source.id,
-        requestId: `copy-${source.id.slice(0, 36)}-${service.id.slice(0, 36)}`,
-      }).then(async (result) => {
-        await saved();
-        Alert.alert("Team copied", `${result.copied} position${result.copied === 1 ? "" : "s"} copied. ${result.delivered} of ${result.total} invitation${result.total === 1 ? "" : "s"} delivered.`);
-      }).catch((error: Error) => Alert.alert("Team not copied", error.message)) },
-    ]);
+    const selection = { showId: service.id, serviceDate: service.serviceDate, copyFromShowId: source.id, copyFrom: source.serviceDate };
+    const label = `${source.name || "Previous show"} (${source.serviceDate}) → ${service.name || "This show"} (${service.serviceDate})`;
+    setCopyConfirmation({ selection, label, count: source.crewTotal, again: false });
+    list.current?.scrollToOffset({ offset: 0, animated: false });
+  }
+  function copyAgain(slot: string) {
+    const attempt = copies.work[slot];
+    if (!attempt || !canCopyAgain(attempt.command)) return;
+    const source = schedule?.services.find(service => service.id === attempt.command.copyFromShowId);
+    setCopyConfirmation({ selection: attempt.command, label: attempt.label, count: source?.crewTotal ?? 0, again: true });
+    list.current?.scrollToOffset({ offset: 0, animated: false });
   }
 
   async function respond(assignment: Assignment, response: "confirmed" | "declined") {
@@ -290,6 +311,20 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
             {schedule && schedule.provider.type !== "native" ? (
               <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(schedule.provider.url).catch(() => Alert.alert("Could not open scheduling platform"))} style={styles.provider}><ExternalLink color={colors.amberText} size={17} /><View style={styles.providerCopy}><Text style={styles.providerTitle}>{schedule.provider.label || schedule.provider.type}</Text><Text numberOfLines={1} style={styles.providerUrl}>{schedule.provider.url}</Text></View><ChevronRight color={colors.textFaint} size={17} /></Pressable>
             ) : null}
+            {copyConfirmation ? <View style={styles.copyConfirmation}>
+              <Text style={styles.copyTitle}>Copy team and send invitations?</Text>
+              <Text style={styles.copyMessage}>{copyConfirmation.label}</Text>
+              <Text style={styles.copyMessage}>{copyConfirmation.count} positions will be copied. New invitations will be sent for assigned positions.{copyConfirmation.again ? " Earlier invitations may already have arrived." : ""}</Text>
+              {!canCopyAgain(copyConfirmation.selection) ? <Text accessibilityRole="alert" style={styles.error}>The show selection changed or the destination is not empty and stopped. Cancel and review the schedule.</Text> : null}
+              <AppButton disabled={!canCopyAgain(copyConfirmation.selection)} label="Copy and invite" onPress={() => {
+                if (!canCopyAgain(copyConfirmation.selection)) return;
+                if (copyConfirmation.again) copies.another(copyConfirmation.selection.showId);
+                else copies.start(copyConfirmation.selection, copyConfirmation.label);
+                setCopyConfirmation(null);
+              }} />
+              <AppButton variant="secondary" label="Cancel team copy" onPress={() => setCopyConfirmation(null)} />
+            </View> : null}
+            <ScheduleCopyProgress copies={copies} canCopyAgain={canCopyAgain} onCopyAgain={copyAgain} />
             <ScheduleReminderProgress reminders={reminders} canSendNew={canSendReminder} />
             {schedule ? (
               <View style={styles.stats}><Stat label="SHOWS" value={schedule.services.length} /><Stat label="POSITIONS" value={schedule.assignments.length} /><Stat label="CONFIRMED" value={schedule.assignments.filter((assignment) => assignment.status === "confirmed").length} /></View>
@@ -354,7 +389,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
                       <SmallAction icon={<UserPlus color={colors.amberText} size={14} />} label="Position" onPress={() => setEditor({ kind: "assignment", service, assignment: null })} />
                       <SmallAction icon={<Users color={colors.amberText} size={14} />} label="Team" onPress={() => setEditor({ kind: "team", service })} />
                       {assignments.length === 0 && previousWithTeam ? (
-                        <SmallAction icon={<Copy color={colors.textMuted} size={14} />} label="Copy team" onPress={() => copyTeam(service, previousWithTeam)} />
+                        <SmallAction disabled={!!copies.work[service.id]} icon={<Copy color={colors.textMuted} size={14} />} label={copies.work[service.id] ? "Copy status above" : "Copy team"} onPress={() => copyTeam(service, previousWithTeam)} />
                       ) : null}
                       {assignments.some((assignment) => assignment.status === "assigned" && assignment.crewMemberId && assignment.responseWindow.status === "open") ? (
                         <SmallAction disabled={!!reminders.work[reminderSlot({ kind: "show", id: service.id })]} icon={<Bell color={colors.textMuted} size={14} />} label={reminders.work[reminderSlot({ kind: "show", id: service.id })] ? "Reminder status above" : "Remind"} onPress={() => startReminder({ kind: "show", id: service.id }, `Reminders for ${service.name || "this show"}`)} />
@@ -519,6 +554,9 @@ function ActionText({ disabled, label, onPress, tone }: {
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
+  copyConfirmation: { gap: 12, padding: 14, borderWidth: 1, borderColor: colors.border, borderRadius: 16, backgroundColor: colors.panel },
+  copyTitle: { color: colors.text, fontFamily, fontSize: 16, lineHeight: 22, fontWeight: "700" },
+  copyMessage: { color: colors.textMuted, fontFamily, fontSize: 13, lineHeight: 20 },
   pageActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
   addButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.amber },
   secondaryAction: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },

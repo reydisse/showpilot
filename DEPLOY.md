@@ -6839,3 +6839,79 @@ Phase 2 stays 67/79: other native schedule/profile recovery and product-wide
 loading/control audits remain, as do the owner-provided Founding Member closing
 date and broad gates. No deployment, release, remote migration, real-org write
 or external email. Twenty necessary tracked Markdown files remain.
+
+
+### Phase 2 native team-copy recovery (2026-11-08)
+
+A real native-route/D1 regression reproduced a failed exact retry: after copying
+one position, adding a source position made the old endpoint return 409 instead
+of recovering the original copy. That endpoint rebuilt its expected rows from
+the current source and used index-derived target IDs. It now delegates to the
+shared 0081 copy receipt and invitation outbox. Non-UUID request identities from
+installed clients get a deterministic scoped UUID; the adapter reads the stored
+show/date selection before mutable source/target data. Changed or removed copied
+positions produce an explicit review error for count-only clients, without
+recreating rows or resending their invitations.
+
+The updated app uses `/api/mobile/v1/schedule/copy-team` for full per-position
+results. Requests validate actor, workspace, dates and source ordering, then use
+the same authorized writer. Copy confirmations show both show names and dates,
+the position count and invitation scope, with an explicit Cancel action. The
+confirmation clears when Schedule loses focus. Results remain above the show
+list even after copying removes the row's Copy button. Unknown sends retain the
+original command; retries cannot include newly added source positions. Accepted,
+uncertain, rejected, open and changed positions have distinct text. A failed
+read after a confirmed copy offers Refresh without copying or sending again.
+Another copy requires review, a fresh ID, and an empty, stopped destination.
+
+Copy and reminder hooks now share the bounded retained-request owner rather than
+duplicate its cache, account, focus and response-correlation logic. Sends have a
+15-second limit and refreshes 12 seconds; late responses cannot restore cleared
+account data or refresh another screen. Results persist across navigation in the
+active app cache, not across app process termination. The old count-only native
+copy client parser was removed. Full details require the updated app. No new
+migration; this path depends on existing 0081 and its earlier assignment/outbox
+migrations.
+
+Validation:
+- Thirteen new copy hook/component cases pass, covering retained commands,
+  uncertain invitation retry, blocked/changed copies, explicit fresh requests,
+  refresh-only recovery, abandoned confirmations and visible per-position errors.
+  All 22 native reminder cases remain green through the shared-owner refactor.
+- Fourteen real-auth/D1 copy Worker cases pass. Native coverage includes installed
+  route source changes and later target deletion, full-result uncertain delivery
+  with stable provider identity/body, no deleted-row revival, and anonymous,
+  actor/workspace, future-source and revoked-permission denial. Existing atomic
+  copy/concurrency and receipt tests remain green.
+- Final full suite: 2,585 unit / 1,383 Worker tests. Two old fake-SQL unit cases
+  initially failed because the adapter now delegates; they now verify stable
+  identity, receipt selection and delegation, while real D1 verifies transactions.
+  Final web typecheck/build pass; main entry remains 549,525 raw / 173,749 gzip.
+- Native verification passes typecheck, lint with warnings only, doctor 18/18,
+  polling and contract checks, and iOS/Android/web exports. Final Hermes bundles:
+  iOS 5,513,910 / Android 5,512,941 bytes, below the unchanged 6,500,000 budget.
+- Exported Expo app against real local auth/D1 and captured email passes Cancel
+  without writes/mail, lost-response exact retry, source-roster freeze, stable
+  invitation token/provider key, no repeated accepted delivery, per-position
+  rejection, read-only refresh recovery and the nonempty-target guard. Retry
+  hit/text/44px checks pass at 320/768/1440 pixels with no browser runtime errors.
+  Screenshots were inspected; wording now distinguishes copied invitations from
+  reminders. The initial rehearsal hit the fixture's three-show Free-plan limit;
+  the final fixture uses its local paid-plan setting. No plan limit was changed.
+  The reminder browser rehearsal also passes after the shared-owner refactor.
+  These are exported Expo rehearsals, not physical iOS/Android UI verification.
+
+Evidence: `/tmp/showpilot-native-copy-{before,worker1,worker2,ui1,reminders1,
+mobile-tsc1,web-tsc1,web-tsc2,full1,full2,full3,full4,build1,build2,verify1,
+verify2,verify3,browser1,browser2,browser3,reminder-browser}.log`.
+After web build and mobile verify, rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-copy-recovery.mjs`
+and `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-reminder-recovery.mjs`.
+Final copy screenshots: `/tmp/showpilot-native-copy-{320,768,1440}.png`.
+
+Preceding PR #251 is green: CI 42500905406, web 10m23s / native Rust 3m56s.
+Phase 2 remains 67/79. Native assignment/team-builder draft and save recovery,
+other native profile/schedule paths, the remaining product-wide audits, owner
+Founding Member deadline and broad gates remain open. No production deployment,
+release, remote migration, real-org writes or external email. Twenty necessary
+tracked Markdown files remain.

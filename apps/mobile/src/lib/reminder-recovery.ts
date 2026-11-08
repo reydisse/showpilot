@@ -46,29 +46,33 @@ export const scheduleReminderResultSchema = z
 export type ScheduleReminderResult = z.infer<
   typeof scheduleReminderResultSchema
 >;
-export function reminderMessage(item: ScheduleReminderResult["items"][number]) {
+export function reminderMessage(
+  item: ScheduleReminderResult["items"][number],
+  noun: "reminder" | "invitation" = "reminder",
+) {
   const app = item.inAppDelivered ? " App invitation available." : "";
   switch (item.email) {
     case "accepted":
       return "Email accepted by the delivery service." + app;
     case "failed":
-      return "Email was rejected. Retry the same reminder." + app;
+      return `Email was rejected. Retry the same ${noun}.` + app;
     case "uncertain":
       return (
-        "Email acceptance is unknown. Retry checks the same reminder." + app
+        `Email acceptance is unknown. Retry checks the same ${noun}.` + app
       );
     case "sending":
       return (
-        "A reminder is still being checked. Retry its status shortly." + app
+        `${noun === "invitation" ? "An invitation" : "A reminder"} is still being checked. Retry its status shortly.` +
+        app
       );
     case "expired":
       return (
-        "The safe retry window ended. Review before sending another reminder." +
+        `The safe retry window ended. Review before sending another ${noun}.` +
         app
       );
     case "changed":
       return (
-        "The assignment changed or closed. Refresh and review it before sending another reminder." +
+        `The assignment changed or closed. Refresh and review it before sending another ${noun}.` +
         app
       );
     case "unavailable":
