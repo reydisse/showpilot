@@ -1,3 +1,4 @@
+import { nextFixtureAddress } from "@/test/fixture-address";
 import { env } from "cloudflare:workers";
 import { afterEach, expect, it, vi } from "vitest";
 import { SELF } from "cloudflare:test";
@@ -25,7 +26,7 @@ async function fixture() {
   await prisma.account.create({ data: { id: crypto.randomUUID(), issuer: "local:credential", accountId: id, providerId: "credential", userId: id, password: await hashPassword(password) } });
   await prisma.organization.create({ data: { id: orgId, name: "Planning fixture", slug: orgId, createdAt: new Date() } });
   await prisma.member.create({ data: { id: crypto.randomUUID(), organizationId: orgId, userId: id, role: "owner", createdAt: new Date() } });
-  const response = await SELF.fetch(new Request("https://app.showpilot.tech/api/auth/sign-in/email", { method: "POST", headers: { "Content-Type": "application/json", Origin: "https://app.showpilot.tech", "cf-connecting-ip": `192.0.2.${Math.floor(Math.random()*200)+1}` }, body: JSON.stringify({ email, password }) }));
+  const response = await SELF.fetch(new Request("https://app.showpilot.tech/api/auth/sign-in/email", { method: "POST", headers: { "Content-Type": "application/json", Origin: "https://app.showpilot.tech", "cf-connecting-ip": nextFixtureAddress() }, body: JSON.stringify({ email, password }) }));
   expect(response.status).toBe(200); await response.arrayBuffer();
   request.cookie = response.headers.getSetCookie().map(cookie => cookie.split(";")[0]).join("; ");
   const owner = crypto.randomUUID();
