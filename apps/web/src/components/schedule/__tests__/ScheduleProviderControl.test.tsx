@@ -277,3 +277,22 @@ it("does not expose one account's draft to another account", async () => {
   expect(screen.queryByDisplayValue("https://draft.example.test")).toBeNull();
   expect(screen.getByLabelText("Source").getAttribute("disabled")).toBeNull();
 });
+
+it("coalesces repeated refresh retries after a source save", async () => {
+  api.refresh.mockRejectedValueOnce(new Error("Refresh offline"));
+  mount();
+  await open();
+  edit();
+  click("Save source");
+  await tick();
+  const held = deferred<void>();
+  api.refresh.mockReturnValueOnce(held.promise);
+  const retry = screen.getByRole("button", { name: "Retry" });
+  fireEvent.click(retry);
+  fireEvent.click(retry);
+  await tick();
+  expect(api.refresh).toHaveBeenCalledTimes(2);
+  held.resolve();
+  await tick();
+  expect(api.write).toHaveBeenCalledTimes(1);
+});

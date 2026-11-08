@@ -1,3 +1,4 @@
+import { refreshRetainedResult } from "@/lib/retained-refresh";
 import { useCallback, useSyncExternalStore } from "react";
 import {
   hashKey,
@@ -44,15 +45,36 @@ async function refreshResult(
   scope: Scope,
   attempt: Attempt,
   refresh: () => Promise<void>,
+  retry = false,
 ) {
-  client.setQueryData(keys(scope).attempt, { ...attempt, refresh: "pending" });
-  try {
-    await runRouteLoad(() => refresh(), undefined, 12_000);
-    client.setQueryData(keys(scope).attempt, { ...attempt, refresh: "done" });
-  } catch {
-    client.setQueryData(keys(scope).attempt, { ...attempt, refresh: "failed" });
-  }
+  return refreshRetainedResult<Attempt>({
+    client,
+    key: keys(scope).attempt,
+    refresh,
+    begin: (current) => {
+      if (
+        !current ||
+        current.pending ||
+        current.refresh === "pending" ||
+        (retry && current.refresh !== "failed")
+      )
+        return null;
+      if (
+        current.commands.length !== attempt.commands.length ||
+        current.commands.some(
+          (command, i) => command.requestId !== attempt.commands[i].requestId,
+        )
+      )
+        return null;
+      return {
+        pending: { ...current, refresh: "pending" },
+        done: { ...current, refresh: "done" },
+        failed: () => ({ ...current, refresh: "failed" }),
+      };
+    },
+  });
 }
+
 async function execute(
   client: QueryClient,
   scope: Scope,
@@ -203,13 +225,15 @@ export function useAssignmentWork<Draft>(
     },
     retryRefresh: () => {
       if (attempt && !pending)
-        void refreshResult(client, scope, attempt, refresh);
+        void refreshResult(client, scope, attempt, refresh, true);
     },
     review: (next: Draft | null) => {
+      const live = client.getQueryData<Attempt | null>(key.attempt);
       if (
-        pending ||
-        attempt?.results.some((result) => !result) ||
-        attempt?.refresh === "failed"
+        !live ||
+        live.pending ||
+        live.refresh !== "done" ||
+        live.results.some((result) => !result)
       )
         return;
       client.setQueryData(key.draft, next);

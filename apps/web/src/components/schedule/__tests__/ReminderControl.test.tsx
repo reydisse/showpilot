@@ -192,3 +192,20 @@ it("never presents another account's result or treats a mismatched reply as succ
     screen.getByRole("button", { name: "Remind awaiting crew" }),
   ).toBeTruthy();
 });
+
+it("coalesces repeated refresh retries after reminder delivery", async () => {
+  api.refresh.mockRejectedValueOnce(new Error("Refresh offline"));
+  mount();
+  click("Remind awaiting crew");
+  await tick();
+  const held = deferred<void>();
+  api.refresh.mockReturnValueOnce(held.promise);
+  const retry = screen.getByRole("button", { name: "Retry refresh" });
+  fireEvent.click(retry);
+  fireEvent.click(retry);
+  await tick();
+  expect(api.refresh).toHaveBeenCalledTimes(2);
+  held.resolve();
+  await tick();
+  expect(api.send).toHaveBeenCalledTimes(1);
+});

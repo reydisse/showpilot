@@ -1,3 +1,4 @@
+import { refreshRetainedResult } from "@/lib/retained-refresh";
 import {
   useQuery,
   useQueryClient,
@@ -43,28 +44,50 @@ async function refreshSchedule(
   scope: Scope,
   result: ScheduleProviderResult,
   refresh: () => Promise<void>,
+  retry = false,
 ) {
-  const key = keys(scope).attempt;
-  client.setQueryData<Attempt>(key, () => ({
-    kind: "confirmed",
-    result,
-    refresh: { kind: "pending" },
-  }));
-  try {
-    await runRouteLoad(() => refresh(), undefined, 12_000);
-    client.setQueryData<Attempt>(key, () => ({
-      kind: "confirmed",
-      result,
-      refresh: { kind: "done" },
-    }));
-  } catch {
-    client.setQueryData<Attempt>(key, () => ({
-      kind: "confirmed",
-      result,
-      refresh: { kind: "failed", at: Date.now() },
-    }));
-  }
+  return refreshRetainedResult<Attempt>({
+    client,
+    key: keys(scope).attempt,
+    refresh,
+    begin: (current) => {
+      if (
+        !current ||
+        (current.kind === "confirmed"
+          ? current.result.requestId
+          : current.command.requestId) !== result.requestId
+      )
+        return null;
+      if (current.kind === "confirmed" && current.refresh.kind === "pending")
+        return null;
+      if (
+        retry &&
+        (current.kind !== "confirmed" || current.refresh.kind !== "failed")
+      )
+        return null;
+      const confirmed =
+        retry && current.kind === "confirmed" ? current.result : result;
+      return {
+        pending: {
+          kind: "confirmed",
+          result: confirmed,
+          refresh: { kind: "pending" },
+        },
+        done: {
+          kind: "confirmed",
+          result: confirmed,
+          refresh: { kind: "done" },
+        },
+        failed: () => ({
+          kind: "confirmed",
+          result: confirmed,
+          refresh: { kind: "failed", at: Date.now() },
+        }),
+      };
+    },
+  });
 }
+
 async function execute(
   client: QueryClient,
   command: ScheduleProviderCommand,
@@ -207,10 +230,17 @@ export function useScheduleProvider(
     },
     retryRefresh: () => {
       if (attempt?.kind === "confirmed" && attempt.refresh.kind === "failed")
-        void refreshSchedule(client, scope, attempt.result, refresh);
+        void refreshSchedule(client, scope, attempt.result, refresh, true);
     },
     useSaved: () => {
-      if (locked) return;
+      const live = client.getQueryData<Attempt | null>(key.attempt);
+      if (
+        locked ||
+        live?.kind === "pending" ||
+        live?.kind === "failed" ||
+        (live?.kind === "confirmed" && live.refresh.kind !== "done")
+      )
+        return;
       client.setQueryData(key.draft, null);
       client.setQueryData(key.attempt, null);
     },
