@@ -49,6 +49,8 @@ export class NativeChatAdapter implements ChatAdapter {
   private reconnectDelay = INITIAL_RECONNECT_DELAY;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
+  private attemptedConnection = false;
+  private handshakeTimer: ReturnType<typeof setTimeout> | null = null;
   private messageHistory: ChatMessage[] = [];
   private pendingMutations = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
@@ -58,12 +60,13 @@ export class NativeChatAdapter implements ChatAdapter {
   }
 
   async connect(): Promise<void> {
-    if (this.status === "connected" || this.status === "connecting") {
+    if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === WebSocket.OPEN)) {
       return;
     }
 
     this.intentionalClose = false;
-    this.setStatus("connecting");
+    this.setStatus(this.attemptedConnection ? "reconnecting" : "connecting");
+    this.attemptedConnection = true;
 
     return new Promise<void>((resolve, reject) => {
       try {
@@ -74,16 +77,23 @@ export class NativeChatAdapter implements ChatAdapter {
           params.set("guestName", this.guest.name);
         }
         const wsUrl = `${protocol}//${window.location.host}/api/chat/${this.orgId}/ws?${params}`;
-        this.ws = new WebSocket(wsUrl);
+        const socket = new WebSocket(wsUrl);
+        this.ws = socket;
+        const current = () => this.ws === socket && !this.intentionalClose;
+        const timeout = setTimeout(() => {
+          if (!current()) return;
+          reject(new Error("Chat did not confirm this room within eight seconds."));
+          retire();
+        }, 8_000);
+        this.handshakeTimer = timeout;
 
-        this.ws.onopen = () => {
-          this.setStatus("connected");
-          this.reconnectDelay = INITIAL_RECONNECT_DELAY;
-          this.flushQueue();
+        socket.onopen = () => {
+          if (!current()) return;
           resolve();
         };
 
-        this.ws.onmessage = (event) => {
+        socket.onmessage = (event) => {
+          if (!current()) return;
           try {
             const data = JSON.parse(event.data);
 
@@ -111,6 +121,12 @@ export class NativeChatAdapter implements ChatAdapter {
                 }
               }
               for (const listener of this.hydrationListeners) listener({ readReceipts, ...(historyCleared ? {clearedMessages:this.messageHistory} : {}) });
+              clearTimeout(timeout);
+              this.handshakeTimer = null;
+              this.reconnectDelay = INITIAL_RECONNECT_DELAY;
+              const wasReady = this.status === "connected";
+              this.setStatus("connected");
+              if (!wasReady) this.flushQueue();
             } else if ((data.type === "message" || data.type === "message-edited" || data.type === "message-deleted") && data.message) {
               this.acknowledgeQueued(data.message.id);
               const existingIndex = this.messageHistory.findIndex((message) => message.id === data.message.id);
@@ -145,8 +161,12 @@ export class NativeChatAdapter implements ChatAdapter {
           }
         };
 
-        this.ws.onclose = (event) => {
-          if (this.guest && event.code === 4403 && event.reason === "Guest pass revoked") {
+        const retire = (event?: Pick<CloseEvent, "code" | "reason">) => {
+          clearTimeout(timeout);
+          if (this.ws !== socket) return;
+          this.handshakeTimer = null;
+          reject(new Error("Chat disconnected before the connection opened."));
+          if (this.guest && event?.code === 4403 && event.reason === "Guest pass revoked") {
             this.intentionalClose = true;
             this.pendingHistory?.controller.abort(new Error("This crew pass is no longer active."));
             this.pendingHistory = null;
@@ -155,18 +175,24 @@ export class NativeChatAdapter implements ChatAdapter {
           this.ws = null;
           this.messageQueue = this.messageQueue.map((item) => item.status === "sending" ? { ...item, status: "waiting" } : item);
           this.persistAndNotifyOutbox();
-          this.setStatus("disconnected");
+          this.setStatus(this.intentionalClose ? "disconnected" : "reconnecting");
           if (!this.intentionalClose) {
             this.scheduleReconnect();
           }
+          // Retire ownership before asking the network to close. A stalled
+          // closing handshake must not extend the room-confirmation deadline.
+          socket.close();
         };
+        socket.onclose = retire;
 
-        this.ws.onerror = () => {
-          this.setStatus("error");
+        socket.onerror = () => {
+          if (!current()) return;
           reject(new Error("WebSocket connection failed"));
+          retire();
         };
       } catch (err) {
-        this.setStatus("error");
+        this.setStatus("reconnecting");
+        this.scheduleReconnect();
         reject(err);
       }
     });
@@ -190,7 +216,7 @@ export class NativeChatAdapter implements ChatAdapter {
   }
 
   setTyping(typing: boolean): void {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: "typing", typing }));
+    if (this.status === "connected" && this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: "typing", typing }));
   }
 
   markRead(readAt: number): void {
@@ -220,6 +246,8 @@ export class NativeChatAdapter implements ChatAdapter {
 
   disconnect(): void {
     this.intentionalClose = true;
+    if (this.handshakeTimer !== null) clearTimeout(this.handshakeTimer);
+    this.handshakeTimer = null;
     this.pendingHistory?.controller.abort(new Error("Chat disconnected before history loaded."));
     this.pendingHistory = null;
     if (this.reconnectTimer) {
@@ -337,7 +365,7 @@ export class NativeChatAdapter implements ChatAdapter {
   // -- Private helpers --
 
   private sendMutation(payload: { type: "edit" | "delete" | "vote" | "reaction"; messageId: string; text?: string; optionId?: string; emoji?: string }): Promise<void> {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Chat is offline. Reconnect and try again."));
+    if (this.status !== "connected" || !this.ws || this.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Chat has not confirmed this room. Reconnect and try again."));
     const requestId = createBrowserId();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -409,7 +437,7 @@ export class NativeChatAdapter implements ChatAdapter {
   }
 
   private sendQueued(item: ChatOutboxItem) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN || item.status === "failed") return;
+    if (this.status !== "connected" || !this.ws || this.ws.readyState !== WebSocket.OPEN || item.status === "failed") return;
     this.updateQueued(item.id, { status: "sending", error: undefined });
     this.ws.send(JSON.stringify({ type: "identify", name: item.senderName, role: item.senderRole }));
     this.ws.send(JSON.stringify({ type: "message", orgId: this.orgId, text: item.text, messageType: item.type, name: item.senderName, role: item.senderRole, replyTo: item.options?.replyTo, attachments: item.options?.attachments, poll: item.options?.poll, clientMessageId: item.id }));

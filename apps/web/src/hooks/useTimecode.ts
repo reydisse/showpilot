@@ -21,6 +21,7 @@ import { RelaySequenceTracker } from "@/lib/relay-sequence";
 import { useLyricsCommands } from "@/hooks/useLyricsCommands";
 import type { LyricsOperation } from "@/lib/lyrics-control";
 import { automationEditReview, automationChangesMatch, type AutomationEventChanges } from "@/lib/automation-edit";
+import type { ConnectionStatus } from "@/lib/connection-state";
 
 interface UseTimecodeOptions {
   orgId: string;
@@ -39,6 +40,7 @@ export interface UseTimecodeReturn {
   state: TimecodeState | null;
   display: string;
   connected: boolean;
+  connectionStatus: ConnectionStatus;
   events: AutomationEvent[];
   isMaster: boolean;
   control: TimecodeControlStatus | null;
@@ -102,7 +104,10 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const [state, setState] = useState<TimecodeState | null>(null);
   const [events, setEvents] = useState<AutomationEvent[]>([]);
   const [controller, setController] = useState(emptyMidiController);
-  const [connected, setConnected] = useState(false);
+  const [connection, setConnection] = useState<{ orgId: string; showId: string | null; status: ConnectionStatus }>({ orgId, showId, status: enabled ? "connecting" : "disabled" });
+  const setConnectionStatus = useCallback((status: ConnectionStatus) => setConnection({ ...requestedScope.current, status }), []);
+  const connectionStatus = !enabled ? "disabled" : connection.orgId === orgId && connection.showId === showId ? connection.status : "connecting";
+  const connected = connectionStatus === "connected";
   const [isMaster, setIsMaster] = useState(false);
   const [control, setControl] = useState<TimecodeControlStatus | null>(null);
   const controlRef = useRef<TimecodeControlStatus | null>(null);
@@ -225,7 +230,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   useEffect(() => {
     setState(null); stateRef.current = null; receivedScope.current = null; pendingSeekRef.current = null; setEvents([]); setLastError(null); setController(emptyMidiController());
     controlRef.current = null; setControl(null);
-    setConnected(false); readyRef.current = false; confirmedScope.current = null;
+    setConnectionStatus(enabled && orgId && showId ? "connecting" : "disabled"); readyRef.current = false; confirmedScope.current = null;
     if (!enabled || !orgId || !showId) return;
     const base = relayBaseUrl ?? window.location.origin;
     const url = `${base.startsWith("https") ? "wss" : "ws"}://${base.replace(/^https?:\/\//, "")}/api/timecode/${encodeURIComponent(orgId)}/ws?showId=${encodeURIComponent(showId)}`;
@@ -245,19 +250,20 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
       if (disposed) return;
       let ws: WebSocket;
       try { ws = new WebSocket(url); } catch {
+        setConnectionStatus("reconnecting");
         setLastError("Could not open the timecode connection. Reconnecting.");
         scheduleReconnect(); return;
       }
       wsRef.current = ws;
       let hydrateTimeout: ReturnType<typeof setTimeout> | undefined;
       const current = () => !disposed && wsRef.current === ws && requestedScope.current.orgId === orgId && requestedScope.current.showId === showId;
-      const awaitHydrate = () => { clearTimeout(hydrateTimeout); hydrateTimeout = setTimeout(() => { if (current()) { setLastError("Timecode did not confirm the show state within five seconds. Reconnecting."); ws.close(); } }, CONFIRM_TIMEOUT_MS); };
+      const awaitHydrate = () => { clearTimeout(hydrateTimeout); hydrateTimeout = setTimeout(() => { if (current()) { setLastError("Timecode did not confirm the show state within five seconds. Reconnecting."); retire(); } }, CONFIRM_TIMEOUT_MS); };
       awaitHydrate();
       ws.onopen = () => { if (current()) awaitHydrate(); };
-      ws.onclose = () => {
+      const retire = () => {
         clearTimeout(hydrateTimeout);
         if (!current()) return;
-        wsRef.current = null; readyRef.current = false; confirmedScope.current = null; setConnected(false);
+        wsRef.current = null; readyRef.current = false; confirmedScope.current = null; setConnectionStatus("reconnecting");
         pendingSeekRef.current = null;
         sequence.disconnect();
         controlRef.current = null; setControl(null);
@@ -269,8 +275,11 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
         stopLocalSources();
         failEdits("Timecode disconnected before the save was confirmed. Your changes have been kept in the form.");
         scheduleReconnect();
+        // Closing can wait on the remote peer. State and retry ownership cannot.
+        ws.close();
       };
-      ws.onerror = () => { if (current()) ws.close(); };
+      ws.onclose = retire;
+      ws.onerror = retire;
       ws.onmessage = (event) => {
         if (!current()) return;
         try {
@@ -278,7 +287,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
           if (msg.type !== "hydrate" && msg.type !== "master-status" && msg.type !== "control-status" && msg.type !== "command-rejected") {
             const decision = sequence.delta(msg);
             if (decision === "refresh") {
-              readyRef.current = false; setConnected(false); awaitHydrate();
+              readyRef.current = false; setConnectionStatus("reconnecting"); awaitHydrate();
               ws.send(JSON.stringify({ type: "sync", lastSeenSequence: sequence.lastSeenSequence } satisfies TimecodeWsMessage));
             }
             if (decision !== "apply") return;
@@ -293,7 +302,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
                 controlRef.current = msg.control ?? "available"; setControl(controlRef.current);
                 stateRef.current = msg.state; formatRef.current = msg.state.format;
                 confirmedScope.current = { orgId, showId }; receivedScope.current = { orgId, showId };
-                setState(msg.state); setEvents(msg.events); readyRef.current = true; setConnected(true);
+                setState(msg.state); setEvents(msg.events); readyRef.current = true; setConnectionStatus("connected");
                 setController(msg.controller ?? emptyMidiController());
                 for (const edit of pendingEditsRef.current) {
                   if (!edit.matches(msg.events)) continue;
@@ -371,7 +380,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
       if (disposed || readyRef.current) return;
       // Closing never replays actions or restarts a local source. Hydration must
       // confirm the show before controls become available again.
-      readyRef.current = false; confirmedScope.current = null; setConnected(false);
+      readyRef.current = false; confirmedScope.current = null; setConnectionStatus("reconnecting");
       controlRef.current = null; setControl(null);
       stopLocalSources();
       failEdits("Reconnecting before the save was confirmed. Your changes have been kept in the form.");
@@ -543,7 +552,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     connected: connected && visibleState !== null, canControl: control === "yours" });
   return {
     controller: visibleState ? controller : emptyMidiController(), saveController,
-    state: visibleState, display: visibleState?.display ?? "00:00:00:00", connected: connected && visibleState !== null,
+    state: visibleState, display: visibleState?.display ?? "00:00:00:00", connected: connected && visibleState !== null, connectionStatus,
     control: visibleState ? control : null, claimControl, releaseControl,
     events: visibleState ? events : [], isMaster: visibleState !== null && isMaster, generatorPending, lastError: lastFailure?.message ?? null, lastErrorAt: lastFailure?.occurredAt ?? null, retryConnection,
     startFreerun, stopGenerator, pauseGenerator, startMtc, stopMtc: stopGenerator, setTimecode, adjustTimecode, setFormat,

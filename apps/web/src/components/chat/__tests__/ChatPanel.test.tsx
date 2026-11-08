@@ -43,6 +43,22 @@ const messages: ChatMessage[] = [
 ];
 
 describe("ChatPanel conversation flow", () => {
+  it("keeps unknown rooms out of the empty state and exposes a timestamped reconnect action", () => {
+    const reconnect = vi.fn();
+    const props = { messages: [], unreadCount: 0, onSendMessage: vi.fn(), hydrated: false, onReconnect: reconnect };
+    const view = render(<ChatPanel {...props} connectionStatus="connecting" />);
+    expect(screen.getByText("Connecting to chat…")).toBeTruthy();
+    expect(screen.queryByText("No messages yet")).toBeNull();
+    view.rerender(<ChatPanel {...props} connectionStatus="reconnecting" connectionUpdatedAt={1234} />);
+    expect(screen.getByRole("alert").querySelector("time")?.dateTime).toBe(new Date(1234).toISOString());
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect chat" }));
+    expect(reconnect).toHaveBeenCalledOnce();
+    expect(screen.queryByText("No messages yet")).toBeNull();
+    view.rerender(<ChatPanel {...props} hydrated connectionStatus="connected" />);
+    expect(screen.getByText("No messages yet")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Reconnect chat" })).toBeNull();
+    view.unmount();
+  });
   it("shows separate external delivery status on crew cues and preserves their line breaks", () => {
     const cue: ChatMessage = { ...messages[0], id: "crew", type: "cue", text: "Standby cameras\nCamera 2 next", externalDelivery: { platform: "slack", status: "pending" } };
     const props = { connectionStatus: "connected" as const, unreadCount: 0, onSendMessage: vi.fn() };

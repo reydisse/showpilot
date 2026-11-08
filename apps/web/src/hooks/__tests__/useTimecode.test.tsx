@@ -53,6 +53,38 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("timecode connection honesty", () => {
+  it("retires timed-out sockets without waiting for the remote close handshake", () => {
+    const { result } = hook();
+    const original = Socket.instances[0];
+    act(() => original.open());
+    vi.spyOn(original, "close").mockImplementation(() => { original.readyState = 2; });
+    act(() => vi.advanceTimersByTime(5000));
+    expect(result.current.connectionStatus).toBe("reconnecting");
+    act(() => vi.advanceTimersByTime(1000));
+    expect(Socket.instances).toHaveLength(2);
+    act(() => { original.receive({ type: "hydrate", state, events: [] }); original.onclose?.(); });
+    expect(result.current.connectionStatus).toBe("reconnecting");
+    expect(result.current.state).toBeNull();
+    act(() => hydrate(Socket.instances[1]));
+    expect(result.current.connectionStatus).toBe("connected");
+  });
+  it("distinguishes first connection, confirmed state, reconnect and another show's first connection", () => {
+    const view = renderHook(({ showId }) => useTimecode({ orgId: "test-org", showId, enabled: true }), { initialProps: { showId: "test-show" } });
+    expect(view.result.current.connectionStatus).toBe("connecting");
+    const original = Socket.instances[0];
+    act(() => original.open());
+    expect(view.result.current.connectionStatus).toBe("connecting");
+    act(() => original.receive({ type: "hydrate", state, events: [] }));
+    expect(view.result.current.connectionStatus).toBe("connected");
+    act(() => original.close());
+    expect(view.result.current.connectionStatus).toBe("reconnecting");
+    expect(view.result.current.state).toEqual(state);
+    view.rerender({ showId: "other-show" });
+    expect(view.result.current.connectionStatus).toBe("connecting");
+    expect(view.result.current.state).toBeNull();
+    act(() => original.receive({ type: "hydrate", state, events: [] }));
+    expect(view.result.current.connectionStatus).toBe("connecting");
+  });
   it("reclaims a reconnected clock only after explicit start and fresh relay confirmation", () => {
     const start = vi.spyOn(InternalTimecodeSource.prototype, "startAtFrame");
     const stop = vi.spyOn(InternalTimecodeSource.prototype, "stop");
@@ -431,8 +463,8 @@ describe("timecode connection honesty", () => {
     function Controls() {
       const clock = useTimecode({ orgId: "test-org", showId: "test-show", enabled: true });
       return <>
-        <TimecodeDisplay state={clock.state} connected={clock.connected} size="large" />
-        <TimecodeTransport state={clock.state} connected={clock.connected} canControl isMaster={clock.isMaster} pending={clock.generatorPending} onStart={clock.startFreerun} onStop={clock.stopGenerator} onPause={clock.pauseGenerator} />
+        <TimecodeDisplay state={clock.state} connectionStatus={clock.connectionStatus} size="large" />
+        <TimecodeTransport state={clock.state} connectionStatus={clock.connectionStatus} canControl isMaster={clock.isMaster} pending={clock.generatorPending} onStart={clock.startFreerun} onStop={clock.stopGenerator} onPause={clock.pauseGenerator} />
         <TimecodeSourceSelector isMaster={clock.isMaster} running={clock.state?.running ?? false}
           connected={clock.connected} pending={clock.generatorPending} format={state.format} mtcSupported={false}
           onStartMtc={clock.startMtc} onSetFormat={clock.setFormat} />
@@ -451,7 +483,7 @@ describe("timecode connection honesty", () => {
     expect(screen.getAllByRole("status", { name: "Timecode running" })).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Stop Generator" })).toBeTruthy();
     act(() => socket.close());
-    expect(screen.getAllByRole("status", { name: "Timecode disconnected" })).toHaveLength(2);
+    expect(screen.getAllByRole("status", { name: "Timecode reconnecting" })).toHaveLength(2);
     expect(screen.getByRole("button", { name: "Start Internal Generator" })).toHaveProperty("disabled", true);
   });
 
@@ -508,9 +540,9 @@ describe("timecode connection honesty", () => {
   it("shows MTC signal loss with a stop control while holding the last frame", () => {
     const lost: TimecodeState = { ...state, source: "mtc", signal: { status: "timecode-stalled", lastFeedAt: 1 } };
     render(<>
-      <TimecodeDisplay state={lost} connected size="large" />
-      <TimecodeDisplay state={lost} connected />
-      <TimecodeTransport state={lost} connected canControl isMaster pending={null} onStart={() => {}} onStop={() => {}} onPause={() => {}} />
+      <TimecodeDisplay state={lost} connectionStatus="connected" size="large" />
+      <TimecodeDisplay state={lost} connectionStatus="connected" />
+      <TimecodeTransport state={lost} connectionStatus="connected" canControl isMaster pending={null} onStart={() => {}} onStop={() => {}} onPause={() => {}} />
       <TimecodeSourceSelector isMaster connected pending={null} running={false} signal={lost.signal} source="mtc"
         format={state.format} mtcSupported={false}
         onStartMtc={async () => {}} onSetFormat={() => {}} />

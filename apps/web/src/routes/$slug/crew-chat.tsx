@@ -38,7 +38,7 @@ function CrewChatPage() {
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>("default");
   const [notifError, setNotifError] = useState<string | null>(null);
 
-  const { messages, sendMessage, uploadAttachment, discardAttachment, votePoll, toggleReaction, connectionStatus, typingUsers, setTyping, gatewayStatus, hydrated, markRead, hasOlderMessages, loadingOlderMessages, olderMessagesError, loadOlderMessages, retryQueuedMessage, cancelQueuedMessage } = useChat({
+  const { messages, sendMessage, uploadAttachment, discardAttachment, votePoll, toggleReaction, connectionStatus, connectionUpdatedAt, retryConnection, typingUsers, setTyping, gatewayStatus, hydrated, markRead, hasOlderMessages, loadingOlderMessages, olderMessagesError, loadOlderMessages, retryQueuedMessage, cancelQueuedMessage } = useChat({
     orgId,
     isVisible: true,
     senderName,
@@ -161,7 +161,7 @@ function CrewChatPage() {
           onUploadAttachment={uploadAttachment}
           onDiscardAttachment={discardAttachment}
           gatewayStatus={gatewayStatus}
-          hydrated={hydrated}
+          hydrated={hydrated} connectionUpdatedAt={connectionUpdatedAt} onReconnect={retryConnection}
           onReadThrough={markRead}
           hasOlderMessages={hasOlderMessages}
           loadingOlderMessages={loadingOlderMessages}

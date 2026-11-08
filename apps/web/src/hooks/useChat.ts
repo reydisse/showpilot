@@ -28,6 +28,8 @@ interface UseChatReturn {
   votePoll: (messageId: string, optionId: string) => Promise<void>;
   toggleReaction: (messageId: string, emoji: string) => Promise<void>;
   connectionStatus: ConnectionStatus;
+  connectionUpdatedAt: number;
+  retryConnection: () => void;
   unreadCount: number;
   resetUnread: () => void;
   typingUsers: ChatTypingState[];
@@ -50,13 +52,13 @@ function createAdapter(orgId: string, guest: ConstructorParameters<typeof Native
 }
 
 type ChatView = Pick<UseChatReturn,
-  "guestAccessRevoked" | "messages" | "connectionStatus" | "unreadCount" |
+  "guestAccessRevoked" | "messages" | "connectionStatus" | "connectionUpdatedAt" | "unreadCount" |
   "typingUsers" | "readReceipts" | "hydrated" | "openingReadThrough" |
   "gatewayStatus" | "hasOlderMessages" | "loadingOlderMessages" | "olderMessagesError">;
 
 function emptyView(enabled: boolean): ChatView {
   return {
-    guestAccessRevoked: false, messages: [], connectionStatus: enabled ? "connecting" : "disconnected",
+    guestAccessRevoked: false, messages: [], connectionStatus: enabled ? "connecting" : "disabled", connectionUpdatedAt: 0,
     unreadCount: 0, typingUsers: [], readReceipts: {}, hydrated: false, openingReadThrough: null,
     gatewayStatus: { platform: null, status: enabled ? "connecting" : "disabled" },
     hasOlderMessages: false, loadingOlderMessages: false, olderMessagesError: null,
@@ -99,7 +101,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
         unreadCount: isVisibleRef.current ? 0 : current.unreadCount + 1,
       };
     }));
-    const unsubStatus = adapter.onStatusChange?.(connectionStatus => update(adapter, current => ({ ...current, connectionStatus })));
+    const unsubStatus = adapter.onStatusChange?.(connectionStatus => update(adapter, current => ({ ...current, connectionStatus, connectionUpdatedAt: Date.now() })));
     const unsubTyping = adapter.onTyping?.(state => {
       const key = state.userId || `name:${state.name}`;
       clearTimeout(typingTimers.get(key));
@@ -245,9 +247,15 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
   }, [getAdapter, hasOlderMessages, loadingOlderMessages, update]);
   const retryQueuedMessage = useCallback((messageId: string) => getAdapter()?.retryOutbox?.(messageId), [getAdapter]);
   const cancelQueuedMessage = useCallback((messageId: string) => getAdapter()?.cancelOutbox?.(messageId), [getAdapter]);
+  const retryConnection = useCallback(() => {
+    const adapter = getAdapter();
+    if (!adapter || view.guestAccessRevoked) return;
+    adapter.disconnect();
+    void adapter.connect().catch(() => { /* The adapter publishes its retry state. */ });
+  }, [getAdapter, view.guestAccessRevoked]);
 
   return {
-    ...view, sendMessage, uploadAttachment, discardAttachment, editMessage, deleteMessage, votePoll,
+    ...view, retryConnection, sendMessage, uploadAttachment, discardAttachment, editMessage, deleteMessage, votePoll,
     toggleReaction, resetUnread, setTyping, markRead, loadOlderMessages, retryQueuedMessage, cancelQueuedMessage,
   };
 }
