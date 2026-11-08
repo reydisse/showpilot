@@ -6408,3 +6408,46 @@ Phase 2 remains 67/79. Show details/deletion, inventory and mobile recovery plus
 the broad product gates remain open. No production deployment, release, remote
 migration or real-organization writes. Twenty necessary tracked Markdown files
 remain; none were added.
+
+
+### Show metadata commit guard, Phase 2 partial evidence (2026-11-08)
+
+Branch: `fix/show-metadata-version-guard`, based on `fix/show-creation-forms`.
+Five real D1/relay baselines reproduced stale metadata acceptance. A direct
+writer could edit, delete, reschedule or begin deleting a show after the form's
+version read but before the relay committed. A command whose fields matched the
+live room also bypassed a saved-version check. This affects the shared Schedule
+web/native save helper, which previously discarded the version it read.
+
+The helper now sends the exact stored timestamp to the serialized relay command.
+The metadata UPDATE compares that version, show ID, organization and service
+date, and refuses a deletion tombstone. A failed comparison writes no rows,
+restores the room state, leaves the revision and recent command IDs unchanged,
+and returns a conflict through HTTP or a socket command result. Explicitly
+requested fields are checked even when they equal the room's current values;
+omitted fields remain untouched. Legacy SQLite timestamps still accept an
+ISO-equivalent form version because the actual stored representation is forwarded.
+The no-relay fallback also refuses shows being deleted. Error response bodies
+are cancelled before throwing so failed saves do not retain relay requests.
+
+Validation:
+- Fourteen focused Worker cases pass, including the five failing baselines,
+  restart persistence after rejected commits, fresh unchanged/partial saves,
+  legacy timestamp formatting, invalid versions, fallback protection and a real
+  socket conflict followed by a successful retry with the same rejected command ID.
+- Full suite passes: 2,492 unit / 1,305 Worker tests. Web typecheck and production
+  build pass. Main entry remains 548,458 raw / 173,301 gzip bytes under unchanged
+  limits. The first focused fix run exposed an unconsumed error response delaying
+  eviction; the final suite includes the response cleanup and passes.
+- Compiled web/native adapters with real local authentication, D1 and RundownRelay
+  pass successful saves, stale form rejection, a stale command sent directly to
+  the relay, and preservation of the newer saved title. This is an endpoint
+  rehearsal, not a browser layout or physical device test.
+
+Evidence: `/tmp/showpilot-meta-version-{before,worker1,debug,worker2,worker3,
+full1,tsc1,build1,smoke1}.log`. Rerun the endpoint rehearsal after building with
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-show-metadata-version.mjs`.
+No migration is required. Phase 2 remains 67/79. Retained detail drafts, recovery
+from lost successful save replies, deletion lifecycle races, inventory/mobile
+forms and broad product gates remain open. No production deployment, release,
+remote migration, real-organization writes or new Markdown files.
