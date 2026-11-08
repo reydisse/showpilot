@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { useParams } from "@tanstack/react-router";
 import { Download, Laptop, MonitorPlay, PanelTopOpen, RadioTower, RefreshCw, Timer, UserCheck } from "lucide-react";
 import { configureDesktopLocalDevices } from "@/lib/desktop-local-devices";
+import { useDesktopRuntime } from "@/hooks/useDesktopRuntime";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   getDesktopBridgeStatus,
@@ -9,7 +10,6 @@ import {
   checkDesktopUpdate,
   installDesktopUpdate,
   isDesktopLocalDeviceMode,
-  isDesktopRuntime,
   openDesktopWindow,
   openDesktopLocalShow,
   stopDesktopBridge,
@@ -44,7 +44,7 @@ export function DesktopStatusBar({ orgId }: { orgId?: string } = {}) {
   const [updateState, setUpdateState] = useState<"idle" | "checking" | "confirming" | "current" | "installing" | "restart-required" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
-  const desktop = isDesktopRuntime();
+  const desktop = useDesktopRuntime();
 
   useEffect(() => {
     if (!desktop) return;
