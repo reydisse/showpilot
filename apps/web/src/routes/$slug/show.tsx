@@ -265,6 +265,8 @@ function ChatPanel({
     votePoll,
     toggleReaction,
     connectionStatus,
+    connectionUpdatedAt,
+    retryConnection,
     typingUsers,
     setTyping,
     gatewayStatus,
@@ -308,7 +310,7 @@ function ChatPanel({
         onUploadAttachment={uploadAttachment}
         onDiscardAttachment={discardAttachment}
         gatewayStatus={gatewayStatus}
-        hydrated={hydrated}
+        hydrated={hydrated} connectionUpdatedAt={connectionUpdatedAt} onReconnect={retryConnection}
         onReadThrough={markRead}
         hasOlderMessages={hasOlderMessages}
         loadingOlderMessages={loadingOlderMessages}

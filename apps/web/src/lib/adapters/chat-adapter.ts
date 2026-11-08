@@ -6,7 +6,8 @@
  */
 
 export type MessageType = "text" | "alert" | "cue" | "system";
-export type ConnectionStatus = "connected" | "disconnected" | "connecting" | "error";
+import type { ConnectionStatus } from "../connection-state";
+export type { ConnectionStatus } from "../connection-state";
 
 export interface ChatAttachment {
   id: string;

@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import type { ConnectionStatus } from "@/lib/connection-state";
 import type { TimecodeState } from "@/types/timecode";
 import { TimecodeTransport } from "./TimecodeTransport";
 
@@ -10,7 +11,7 @@ const state: TimecodeState = {
   running: false, source: "internal-freerun", serverTime: 1, triggersEnabled: true, lyrics: null,
 };
 function setup() {
-  const props = { state, connected: true, canControl: true, isMaster: false, pending: null as "starting" | "stopping" | null, onStart: vi.fn(), onStop: vi.fn(), onPause: vi.fn() };
+  const props = { state, connectionStatus: "connected" as ConnectionStatus, canControl: true, isMaster: false, pending: null as "starting" | "stopping" | null, onStart: vi.fn(), onStop: vi.fn(), onPause: vi.fn() };
   const view = render(<TimecodeTransport {...props} />);
   return { ...props, rerender: (changes: Partial<typeof props>) => view.rerender(<TimecodeTransport {...props} {...changes} />) };
 }
@@ -30,7 +31,7 @@ it("starts directly and exposes stop, pause and resume in the same transport", (
 });
 it.each(["offline", "permission", "pending"])("disables all transport mutations when %s", reason => {
   const props = setup();
-  props.rerender({ connected: reason !== "offline", canControl: reason !== "permission", pending: reason === "pending" ? "starting" : null });
+  props.rerender({ connectionStatus: reason === "offline" ? "disconnected" : "connected", canControl: reason !== "permission", pending: reason === "pending" ? "starting" : null });
   for (const button of screen.getAllByRole("button")) expect(button).toHaveProperty("disabled", true);
   expect(props.onStart).not.toHaveBeenCalled();
 });

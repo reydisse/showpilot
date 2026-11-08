@@ -91,7 +91,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   const rememberedAttempts = (await events()).map(event => ({ id: event.id, executionId: event.executionId }));
   const rememberedRows = await evaluate("[...document.querySelectorAll('[data-automation-event]')].map(row => row.dataset.automationEvent)");
   await stopServer();
-  await browser("wait", "--fn", "document.querySelector('[data-timecode-header] [role=status]').textContent.includes('Disconnected')");
+  await browser("wait", "--fn", "document.querySelector('[data-timecode-header] [role=status]').textContent.includes('Reconnecting')");
   assert.deepEqual(await evaluate("[...document.querySelectorAll('[data-automation-event]')].map(row => row.dataset.automationEvent)"), rememberedRows);
   await browser("wait", "text=Reconnecting, showing last known timecode state.");
   assert.ok(await evaluate("document.querySelector('[data-timecode-error] time')?.dateTime"));

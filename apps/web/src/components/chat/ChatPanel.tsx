@@ -1,3 +1,4 @@
+import { connectionLabel } from "@/lib/connection-state";
 import { useState, useRef, useEffect, useMemo, useCallback, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 import { isEmojiReaction, QUICK_REACTION_EMOJIS } from "@showpilot/shared";
 import {
@@ -103,12 +104,12 @@ function MessageTypeSelector({
 function ConnectionDot({ status }: { status: ConnectionStatus }) {
   return (
     <span
-      title={`Chat: ${status}`}
+      title={`Chat: ${connectionLabel[status]}`}
       className={cn(
         "w-2 h-2 rounded-full shrink-0 transition-colors",
         status === "connected" && "bg-green-500",
-        status === "connecting" && "bg-yellow-500 animate-pulse",
-        status === "disconnected" && "bg-gray-500",
+        (status === "connecting" || status === "reconnecting") && "bg-yellow-500",
+        (status === "disconnected" || status === "disabled") && "bg-gray-500",
         status === "error" && "bg-red-500",
       )}
     />
@@ -416,6 +417,8 @@ interface ChatPanelProps {
   focusedMessageId?: string;
   gatewayStatus?: ChatGatewayStatus;
   hydrated?: boolean;
+  connectionUpdatedAt?: number;
+  onReconnect?: () => void;
   onReadThrough?: (readAt: number) => void;
   hasOlderMessages?: boolean;
   loadingOlderMessages?: boolean;
@@ -453,6 +456,8 @@ export function ChatPanel({
   focusedMessageId,
   gatewayStatus,
   hydrated = true,
+  connectionUpdatedAt,
+  onReconnect,
   onReadThrough,
   hasOlderMessages = false,
   loadingOlderMessages = false,
@@ -859,7 +864,7 @@ export function ChatPanel({
               {unreadCount > 0 && <span className="rounded-full bg-fire-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-black">{unreadCount > 99 ? "99+" : unreadCount}</span>}
             </div>
             {subtitle || gatewaySummary ? (
-              <p className={cn("mt-0.5 flex items-center gap-1.5 truncate text-[10px]", gatewayStatus?.status === "error" ? "text-red-300" : "text-board-muted")} title={gatewayStatus?.error}><ConnectionDot status={connectionStatus} />{connectionStatus === "connected" ? "Live" : connectionStatus}{subtitle ? ` · ${subtitle}` : ""}{gatewaySummary ? ` · ${gatewaySummary}` : ""}</p>
+              <p className={cn("mt-0.5 flex items-center gap-1.5 truncate text-[10px]", gatewayStatus?.status === "error" ? "text-red-300" : "text-board-muted")} title={gatewayStatus?.error}><ConnectionDot status={connectionStatus} />{connectionLabel[connectionStatus]}{subtitle ? ` · ${subtitle}` : ""}{gatewaySummary ? ` · ${gatewaySummary}` : ""}</p>
             ) : null}
           </div>
         </div>
@@ -926,13 +931,20 @@ export function ChatPanel({
         className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto py-2 modern-scrollbar"
       >
         <div ref={messagesContentRef}>
+          {connectionStatus !== "connected" && connectionStatus !== "disabled" && <div role={connectionStatus === "connecting" ? "status" : "alert"} className="space-y-2 border-b border-board-border px-4 py-3 text-xs text-amber-200">
+            <p>{connectionStatus === "connecting" ? "Connecting to chat…" : "Chat has not confirmed this room. Last received messages remain visible; new messages stay queued."}</p>
+            {connectionStatus !== "connecting" && <>
+              {connectionUpdatedAt ? <time dateTime={new Date(connectionUpdatedAt).toISOString()}>Checked {new Date(connectionUpdatedAt).toLocaleTimeString()}</time> : null}
+              {onReconnect && <button type="button" onClick={onReconnect} className="ml-2 min-h-11 rounded-lg border border-board-border px-3">Reconnect chat</button>}
+            </>}
+          </div>}
           {(hasOlderMessages || loadingOlderMessages || olderMessagesError) && (
             <div className="flex flex-col items-center gap-1 px-4 py-2">
               {(hasOlderMessages || loadingOlderMessages) && <button type="button" onClick={() => void loadOlder()} disabled={loadingOlderMessages} className="min-h-11 rounded-full border border-board-border bg-board-card px-3 py-1 text-xs font-semibold text-board-muted hover:text-board-text disabled:opacity-50">{loadingOlderMessages ? "Loading older messages…" : olderMessagesError ? "Retry older messages" : "Load older messages"}</button>}
               {olderMessagesError && <p role="alert" className="text-[10px] text-red-300">{olderMessagesError}</p>}
             </div>
           )}
-          {displayMessages.length === 0 && (
+          {displayMessages.length === 0 && hydrated && connectionStatus === "connected" && (
             <div className="flex flex-col items-center justify-center h-full text-board-muted">
               <MessageSquare className="w-8 h-8 mb-2 opacity-30" />
               <p className="text-sm">No messages yet</p>

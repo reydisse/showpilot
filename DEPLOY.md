@@ -4811,3 +4811,66 @@ gate. Phase 2 is now 50/79 verified, with 29 remaining. This is not the full Pha
 gate. No production deployment, native release, real-org changes or physical
 hardware claims. Keep the acceptance change draft and open it only after #212's
 CI passes. Twenty necessary tracked Markdown files remain.
+
+
+## Operator connection consistency (2026-11-07, not deployed)
+
+Chat and Timecode now share the meanings and labels for disabled, connecting,
+connected, reconnecting, disconnected and error. Playback remains separate from
+transport readiness: a confirmed, stopped clock is not an offline clock.
+Timecode's header, large display, Song Studio and media-output panel consume the
+same show-scoped connection. Initial clocks show placeholders; the timeline and
+media-output list cannot report empty before a confirmed snapshot. Reconnecting
+keeps the last confirmed state, while changing shows hides the previous state.
+
+Chat previously reported Connected and flushed its outbox on socket open, before
+room hydration. It now waits for the room snapshot, bounds initial connection and
+hydration to eight seconds, retries constructor failures, ignores superseded
+socket callbacks and sends queued messages only after confirmation. Subsequent
+history responses do not re-flush pending messages. Reconnect includes a timestamp
+and retains queued text. The notice scrolls with the conversation so it does not
+consume the message viewport on a short phone screen. All four chat callers pass
+the same status, timestamp and retry behavior; the Chat header and details panel
+use the same label instead of mixing Live and Connected.
+
+Both transports now retire timed-out ownership before asking the socket to close.
+Two new tests reproduced the old behavior: a stalled network close handshake left
+both clients Connecting beyond their deadline. The fix starts recovery without
+waiting for that handshake, and late messages/close events cannot affect the
+replacement connection. Existing timecode source-stop and no-replay behavior is
+preserved. Board has no invented transport/Live label.
+
+Validation on the final app:
+
+- Full web suite: 2,349 unit and 1,166 Worker tests passed. Typecheck and production
+  build passed. Main bundle is 551,648 raw / 174,467 gzip bytes.
+- `smoke-connection-status.mjs` uses actual compiled pages, authentication, D1 and
+  relays, delaying delivery of real WebSocket messages. Timecode, Song Studio,
+  Chat, Show and Board navigate without a document reload. The shared clock
+  survives route changes; initial unknown state, deadlines, reconnect, old
+  callbacks and exactly one queued-message delivery all pass.
+- The first browser pass also exposed Media outputs saying Disconnected and
+  empty during initial Timecode confirmation. That panel now uses the shared
+  state, with a regression test. Initial failed assertions for the uppercase
+  Connection heading and full-screen Board structure were corrected to inspect
+  their actual DOM; product assertions were retained.
+- At 320, 768 and 1440px, the retry control is reachable and at least 44px, and
+  the queued message remains readable in the scrollable conversation. Both phone
+  screenshots were inspected. No browser runtime errors or outgoing email.
+- Existing `smoke-timecode-timeline.mjs` passes ordering, next cue, payloads,
+  sticky transport, failure Retry, retained disconnect state and no cue replay.
+  Its expected label is now Reconnecting. `smoke-chat-rooms.mjs` passes 2,003
+  seeded messages, three-room switching, direct-message isolation, back/forward,
+  real older-history retry, delayed history isolation and invalid-room recovery.
+
+Logs: /tmp/showpilot-connection-full4.log, /tmp/showpilot-connection-tsc5.log,
+/tmp/showpilot-connection-build4.log, /tmp/showpilot-connection-browser5.log,
+/tmp/showpilot-connection-timeline2.log and /tmp/showpilot-connection-rooms1.log.
+The stalled-close baseline and focused fix logs are
+/tmp/showpilot-connection-close-before.log and
+/tmp/showpilot-connection-close-after.log.
+
+Phase 2 advances to 51/79 verified, with 28 remaining. The full Phase 2 gate stays
+incomplete. Stack this draft on #213, whose CI run 42433557842 passed both jobs.
+No production deployment, migration, release or real-organization changes.
+Twenty necessary tracked Markdown files remain.

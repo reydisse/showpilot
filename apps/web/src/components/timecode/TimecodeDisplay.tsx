@@ -1,3 +1,4 @@
+import { connectionLabel, type ConnectionStatus } from "@/lib/connection-state";
 import type { TimecodeState } from "@/types/timecode";
 import { useTimecodePresentation } from "@/hooks/useTimecodePresentation";
 import type { TimecodePresentationSample } from "@/lib/timecode-presentation";
@@ -11,7 +12,7 @@ export function TimecodeText({ state, connected }: { state: TimecodePresentation
 
 interface TimecodeDisplayProps {
   state: TimecodeState | null;
-  connected: boolean;
+  connectionStatus: ConnectionStatus;
   /** "large" for kiosk/confidence monitor, "compact" for inline rundown */
   size?: "large" | "compact";
   showState?: boolean;
@@ -19,16 +20,17 @@ interface TimecodeDisplayProps {
 
 export function TimecodeDisplay({
   state,
-  connected,
+  connectionStatus,
   size = "compact",
   showState = false,
 }: TimecodeDisplayProps) {
+  const connected = connectionStatus === "connected";
   const { display, stale } = useTimecodePresentation(state, connected);
   const running = connected && !stale && (state?.running ?? false);
   const lost = stale || state?.signal?.status === "timecode-stalled" || state?.signal?.status === "timecode-lost";
   const mismatch = state?.signal?.status === "format-mismatch";
   const paused = state?.signal?.status === "paused";
-  const statusLabel = !connected ? "Disconnected" : mismatch ? "Format mismatch" : lost ? "Signal lost" : paused ? "Paused" : running ? "Running" : "Stopped";
+  const statusLabel = !connected ? connectionLabel[connectionStatus] : mismatch ? "Format mismatch" : lost ? "Signal lost" : paused ? "Paused" : running ? "Running" : "Stopped";
 
   if (size === "large") {
     return (
@@ -40,7 +42,7 @@ export function TimecodeDisplay({
           }`}
           style={{ fontSize: "clamp(1.2rem, 6vw, 5rem)" }}
         >
-          {display}
+          {state ? display : "--:--:--:--"}
         </div>
         <div role="status" aria-label={`Timecode ${statusLabel.toLowerCase()}`} className="flex flex-wrap justify-center items-center gap-3 text-xs text-board-muted">
           <span
@@ -49,12 +51,12 @@ export function TimecodeDisplay({
                 ? lost || mismatch ? "bg-amber-500" : running
                   ? "bg-green-500 animate-pulse"
                   : "bg-green-500"
-                : "bg-red-500"
+                : connectionStatus === "error" || connectionStatus === "disconnected" ? "bg-red-500" : "bg-amber-500"
             }`}
           />
           <span>
             {!connected
-              ? "Disconnected"
+              ? connectionLabel[connectionStatus]
               : mismatch ? "Format mismatch · clock held" : lost ? "Signal lost · clock held" : running
                 ? `Running · ${state?.format.frameRate} fps ${state?.format.dropFrame === "df" ? "DF" : "NDF"}`
                 : paused ? "Paused · position held" : "Stopped · position held"}
@@ -91,7 +93,7 @@ export function TimecodeDisplay({
           running ? "text-fire-500" : "text-board-muted"
         }`}
       >
-        {display}
+        {state ? display : "--:--:--:--"}
       </span>
       {showState && <span className={`text-xs ${connected && !lost && !mismatch ? "text-board-text" : "text-amber-200"}`}>{statusLabel}</span>}
       {!showState && connected && (lost || mismatch) && <span className="text-xs text-amber-400">{mismatch ? "Format mismatch" : "Signal lost"}</span>}

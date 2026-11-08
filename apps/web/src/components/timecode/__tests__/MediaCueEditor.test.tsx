@@ -149,7 +149,7 @@ it("pins the output link to the selected show and labels disconnected reports as
     <MediaOutputPanel
       orgSlug="org"
       showId="show-2"
-      connected={false}
+      connectionStatus="reconnecting"
       outputs={[
         {
           name: "Program",
@@ -166,4 +166,17 @@ it("pins the output link to the selected show and labels disconnected reports as
   );
   expect(screen.getByRole("status").textContent).toContain("unconfirmed");
   expect(screen.getByText(/Last reported playing/)).toBeTruthy();
+});
+
+it("does not call an unconfirmed media snapshot disconnected or empty", () => {
+  const props = { orgSlug: "org", showId: "show", outputs: [] };
+  const view = render(<MediaOutputPanel {...props} connectionStatus="connecting" />);
+  expect(screen.getByRole("status").textContent).toBe("Connecting. Media output status is unconfirmed.");
+  expect(screen.queryByText("No media output enabled for this show.")).toBeNull();
+  view.rerender(<MediaOutputPanel {...props} connectionStatus="reconnecting" />);
+  expect(screen.getByRole("status").textContent).toContain("Reconnecting");
+  expect(screen.queryByText("No media output enabled for this show.")).toBeNull();
+  view.rerender(<MediaOutputPanel {...props} connectionStatus="connected" />);
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(screen.getByText("No media output enabled for this show.")).toBeTruthy();
 });

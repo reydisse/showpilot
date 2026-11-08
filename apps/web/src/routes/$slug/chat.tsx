@@ -1,3 +1,4 @@
+import { connectionLabel } from "@/lib/connection-state";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { ChatShareDialog } from "@/components/chat/ChatShareDialog";
@@ -39,7 +40,7 @@ function ChatPage() {
   const roomAvailable = roomId === "production" || roomId === "planning" || Boolean(dmMember);
   const roomTitle = roomId === "planning" ? "Planning Room" : dmMember ? dmMember.name : roomId === "production" ? "Production Chat" : "Conversation unavailable";
   const roomSubtitle = roomId === "planning" ? "Plan together before the show" : dmMember ? `Direct message · ${dmMember.role}` : "Crew channel";
-  const { messages, sendMessage, uploadAttachment, discardAttachment, editMessage, deleteMessage, votePoll, toggleReaction, connectionStatus, unreadCount, typingUsers, setTyping, readReceipts, gatewayStatus, hydrated, markRead, hasOlderMessages, loadingOlderMessages, olderMessagesError, loadOlderMessages, retryQueuedMessage, cancelQueuedMessage } = useChat({ orgId: roomAvailable ? orgId : "", roomId, isVisible: true, senderName: userName, senderRole: userRole, currentUserId: userId });
+  const { messages, sendMessage, uploadAttachment, discardAttachment, editMessage, deleteMessage, votePoll, toggleReaction, connectionStatus, connectionUpdatedAt, retryConnection, unreadCount, typingUsers, setTyping, readReceipts, gatewayStatus, hydrated, markRead, hasOlderMessages, loadingOlderMessages, olderMessagesError, loadOlderMessages, retryQueuedMessage, cancelQueuedMessage } = useChat({ orgId: roomAvailable ? orgId : "", roomId, isVisible: true, senderName: userName, senderRole: userRole, currentUserId: userId });
   const rundown = useRundownSync(orgId, serviceDate, showId);
   const liveItem = rundown.timer.playback === "play"
     ? rundown.items.find((item) => item.id === rundown.timer.currentItemId)?.title ?? null
@@ -87,7 +88,7 @@ function ChatPage() {
           onUploadAttachment={uploadAttachment}
           onDiscardAttachment={discardAttachment}
           gatewayStatus={gatewayStatus}
-          hydrated={hydrated}
+          hydrated={hydrated} connectionUpdatedAt={connectionUpdatedAt} onReconnect={retryConnection}
           onReadThrough={markRead}
           hasOlderMessages={hasOlderMessages}
           loadingOlderMessages={loadingOlderMessages}
@@ -151,7 +152,7 @@ function ChatPage() {
           {roomId === "planning" && canInvite && <div className="h-px bg-board-border" />}
           <section>
             <p className="text-[9px] font-semibold uppercase tracking-[0.12em] text-board-muted">Connection</p>
-            <div className="mt-3 flex items-center gap-2"><Wifi className={`h-4 w-4 ${connectionStatus === "connected" ? "text-green-400" : "text-board-muted"}`} /><div><p className="text-xs font-medium text-board-text">{connectionStatus === "connected" ? "Connected" : connectionStatus}</p><p className="text-[10px] text-board-muted">{roomId !== "production" || gatewayStatus.platform === null ? "ShowPilot Chat" : `ShowPilot Chat · ${gatewayStatus.platform} synced`}</p></div></div>
+            <div className="mt-3 flex items-center gap-2"><Wifi className={`h-4 w-4 ${connectionStatus === "connected" ? "text-green-400" : "text-board-muted"}`} /><div><p className="text-xs font-medium text-board-text">{connectionLabel[connectionStatus]}</p><p className="text-[10px] text-board-muted">{roomId !== "production" || gatewayStatus.platform === null ? "ShowPilot Chat" : `ShowPilot Chat · ${gatewayStatus.platform} synced`}</p></div></div>
           </section>
           {roomId === "production" && <div className="rounded-xl border border-board-border bg-board-card/50 p-3"><MessageSquare className="h-4 w-4 text-fire-400" /><p className="mt-2 text-[11px] font-medium text-board-text">One room for the whole production</p><p className="mt-1 text-[10px] leading-4 text-board-muted">Messages, cues and urgent alerts stay together during the show.</p></div>}
         </div>
