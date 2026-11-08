@@ -1,3 +1,4 @@
+import { removeSavedRundown } from "./saved-rundown-delete.server";
 import { createSavedRundown } from "./saved-rundown-create.server";
 import { parseProPresenterFeedEvent, type ProPresenterFeedState } from "./propresenter-client";
 import { readProPresenterSettings, proPresenterConnection } from "./propresenter-settings.server";
@@ -1127,11 +1128,8 @@ export const deleteSavedRundown = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
-    const prisma = getPrisma();
-
-    await prisma.appSetting.deleteMany({
-      where: { orgId: data.orgId, key: savedRundownKey(data.rundownId) },
-    });
+    await removeSavedRundown(requestDatabase, data.orgId, data.rundownId);
+    markDatabaseWrite();
 
     return { ok: true };
   });
