@@ -1454,6 +1454,27 @@ async function recoverMobileRundownDetails(
   }));
 }
 
+async function recoverMobileRundownReplacement(request: Request,url: URL,showId: string,env: MobileApiEnvironment,mode: "read"|"save"|"review") {
+  const access=await authorize(request,url,env.DB,["rundown:edit"]);
+  if(access instanceof Response) return access;
+  const {replacementReadSchema,replacementCommandSchema}=await import("./rundown-replacement-contract");
+  const parsed=mode === "read" ? replacementReadSchema.safeParse({orgId:url.searchParams.get("orgId"),userId:url.searchParams.get("userId"),showId,
+    source:{kind:url.searchParams.get("sourceKind"),id:url.searchParams.get("sourceId")}}) : replacementCommandSchema.safeParse(await readJson(request));
+  if(!parsed.success) return json({error:"Check the original reviewed rundown replacement."},400);
+  const data=parsed.data;
+  if(data.orgId !== access.orgId || data.userId !== access.identity.userId || data.showId !== showId)
+    return json({error:"Your account or show changed. Reopen the original replacement."},403);
+  const session=await getAuth().api.getSession({headers:request.headers,query:{disableCookieCache:true}});
+  if(!session || session.user.id !== data.userId) return json({error:"Sign in again before reviewing this replacement."},401);
+  if(!env.RUNDOWN_RELAY || !env.BETTER_AUTH_SECRET) return json({error:"Live rundown editing is temporarily unavailable."},503);
+  const relay=env.RUNDOWN_RELAY.get(env.RUNDOWN_RELAY.idFromName(rundownRelayKey(data.orgId,"","",showId)));
+  if(mode !== "read") markDatabaseWrite();
+  return relay.fetch(new Request(`https://rundown.internal/internal/rundown-replacement?orgId=${encodeURIComponent(data.orgId)}`,{
+    method:"POST",headers:{"Content-Type":"application/json","x-showpilot-internal-secret":env.BETTER_AUTH_SECRET},
+    body:JSON.stringify({mode,...(mode === "read" ? {scope:data}:{command:data}),sessionId:session.session.id,pin:getPresentedRundownPin(request,data.orgId)}),
+  }));
+}
+
 async function updateMobileRundownMeta(
   request: Request,
   url: URL,
@@ -7635,6 +7656,11 @@ export async function handleMobileApi(
   if (templateSaveMatch && request.method === "POST") {
     const showId = decodePathId(templateSaveMatch[1]);
     return showId ? recoverMobileTemplateSave(request, url, showId, env, templateSaveMatch[2] === "review") : json({ error: "Not found." }, 404);
+  }
+  const replacementMatch=url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)\/replacement(?:\/(command|review))?$/);
+  if(replacementMatch && ((request.method === "GET" && !replacementMatch[2]) || (request.method === "POST" && replacementMatch[2]))) {
+    const showId=decodePathId(replacementMatch[1]);
+    return showId ? recoverMobileRundownReplacement(request,url,showId,env,replacementMatch[2] === "command" ? "save" : replacementMatch[2] === "review" ? "review" : "read") : json({error:"Not found."},404);
   }
   const rundownDetailsMatch = url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)\/details(?:\/(command|review))?$/);
   if (rundownDetailsMatch && ((request.method === "GET" && !rundownDetailsMatch[2]) || (request.method === "POST" && rundownDetailsMatch[2]))) {
