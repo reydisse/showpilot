@@ -2219,8 +2219,10 @@
       "phase": "2",
       "section": "Phase 2 gate (all must pass before Phase 3)",
       "line": 296,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-07 Timecode UI gate: check-phase2-ui-gate.mjs ran all five compiled-app browser rehearsals successfully against disposable real-auth/D1/relay fixtures. Timeline verifies nominal sorting, compensated next highlight, live countdown, missed and failed attention list, device/tolerance/payload summaries, sticky transport at 1440x900 and 320x480, and no replay on reconnect. Cue editing preserves identity and execution history, validates timecode/webhook inline, and retains stale/offline drafts. Structured device/action/tolerance and saved song/section pickers produce the expected outputs. Lyrics Next/Previous/Clear update operator and confidence with the lyric node staying mounted. Inspected narrow timeline, editor and confidence screenshots. The gate corrected the obsolete empty-Songs New song selector to Create manually; no app change was needed. Log /tmp/showpilot-phase2-ui-gate2.log. Built app is 4a241fa, whose local full suite passed 2361 unit/1186 Worker tests, typecheck and build. This verifies only the Timecode UI gate; long-run and product-wide gates remain open."
+      ]
     },
     {
       "id": "942a570e4a1a7db5",

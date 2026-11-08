@@ -5216,3 +5216,32 @@ Screenshot: /tmp/showpilot-first-session-320.png.
 Phase 2 remains 60/79 verified. This closes the specific checklist gap identified
 in the operator-label pass; assignment controls and the broader requirements and
 gates remain open. Nothing deployed or released, no real organization data changed.
+
+
+## Phase 2 Timecode UI gate, 2026-11-07
+
+`node apps/web/scripts/check-phase2-ui-gate.mjs` passes all five browser
+rehearsals against the compiled app from 4a241fa, using disposable real-auth,
+D1 and relay fixtures. The runner stops at the first failing rehearsal.
+
+- Timeline: sorted rows, compensated next cue, actual running countdown,
+  missed/failed attention list, target/tolerance/payload summaries, sticky
+  transport at 1440x900 and 320x480, visible disconnect and no replay.
+- Editing: inline validation, preserved cue identity/execution history,
+  stale/offline draft retention, and a bounded narrow dialog.
+- Fields and latency: device/action/tolerance choices, saved song/section
+  choices, authoritative timing, and actual lyrics/stage output.
+- Lyrics: Next, Previous and Clear work on operator and confidence displays;
+  the lyric node stays mounted through slide changes.
+
+The initial run found an obsolete empty-Songs test selector. The current
+button is “Create manually”; the corrected runner passed all five checks.
+Inspected `/tmp/showpilot-timeline-320.png`, `/tmp/showpilot-cue-edit-320.png`
+and `/tmp/showpilot-lyrics-controls-confidence-320.png`. Results are in
+`/tmp/showpilot-phase2-ui-gate2.log`. Local full suite at the tested application
+commit passed 2,361 unit and 1,186 Worker tests, typecheck and production build.
+Only scripts and evidence change here; no app code or dependencies changed.
+
+Phase 2 is 61/79 verified. The 45-minute acceptance run and product-wide gate
+remain open. No production deployment, migration, native release or real
+organization/device commands were performed.
