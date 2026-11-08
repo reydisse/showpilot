@@ -4969,3 +4969,66 @@ implementation and LTC integration gate. Phase 2 is 56/79 verified, with 23
 remaining. The local-show and full Phase 2 gates remain open. No production
 release, deployment or real-organization writes. Physical audio-interface testing
 is not claimed.
+
+
+## Local-show preparation and cloud handoff (2026-11-07, not deployed)
+
+The complete product rehearsal exposed two preparation blockers that the narrower
+native probe did not cover. The rundown route negated the `hasPendingCommands`
+function itself, keeping Prepare and Sync disabled even with no pending changes.
+It now calls the function. Home Assistant device actions require current
+discovery, but local preparation had no discovery callback. Preparation now
+connects the approved target on the reviewed installation, reads its current
+actions, rejects a venue handoff, and rechecks operator authority. Discovery does
+not execute a service. Saved credentials remain encrypted during delivery.
+
+Six new Worker regressions cover successful encrypted preparation, removed
+entities, malformed or failed discovery, an installation handoff during discovery,
+and reconnect before a subsequent local session. The first five tests failed
+before the discovery fix; all 24 preparation tests now pass.
+
+`smoke-local-show-handoff.mjs` exercises the built app with actual auth, D1,
+BridgeRelay and RundownRelay; the rebuilt native sidecar and OS vault; the shipped
+offline HTML/JS; and an authenticated Home Assistant equipment simulator. The
+Chrome automation channel supplies Tauri IPC transport and unrelated desktop
+decorations. Every local-show response comes from the real native loopback API.
+It does not manufacture preparation, timer state, device receipts or sync results.
+
+Verified behavior:
+
+- The app prepares the two-item rundown and its approved device cue, with fresh
+  Home Assistant discovery and no equipment service execution.
+- With the actual cloud Worker stopped and unreachable, the shipped offline page
+  enables local control, advances both items and sends the authenticated device cue.
+- Finish holds the timer and preserves its journal and device receipt.
+- After restart, the cloud still has its original revision. Dropping the sync
+  response after the real commit preserves the local journal; the app retry
+  confirms the existing receipt without another revision or device execution.
+- A second preparation reconnects the approved device. A later local session
+  conflicts with a newer cloud edit; the app preserves the complete local journal
+  and the cloud's newer revision, current item and stage message.
+- The equipment received exactly one service command across both sessions and
+  all sync attempts. No external email was sent. Temporary data, browser profiles,
+  native processes and fixture OS-vault keys are cleaned up.
+
+Validation: 2,349 unit and 1,172 Worker tests, web typecheck and production build
+passed. The main client bundle is 551,648 raw / 174,468 gzip bytes. Native source
+is unchanged from four-platform unsigned run 42432936054. PR #215's Native Rust
+and main CI jobs also completed successfully before this PR was opened.
+
+Logs: /tmp/showpilot-local-handoff-before6.log, /tmp/showpilot-local-ha-before.log,
+/tmp/showpilot-local-ha-after2.log, /tmp/showpilot-local-handoff-after2.log,
+/tmp/showpilot-local-handoff-full.log, /tmp/showpilot-local-handoff-tsc4.log,
+/tmp/showpilot-local-handoff-build2.log and
+/tmp/showpilot-local-handoff-native-build.log. To repeat, build web and the Bridge
+sidecar, then run `SHOWPILOT_SMOKE_RUNTIME=miniflare node
+apps/web/scripts/smoke-local-show-handoff.mjs`.
+
+The rehearsal also reports recoverable React #418 hydration warnings on native
+page loads. The local workflow completes, but this remains an open product-wide
+UI finding. Native-only first-render markup is the next investigation target;
+this record does not claim a clean native hydration pass.
+
+Phase 2 is 59/79 verified, with 20 remaining. The full local mode satisfies the
+conditional queue-only fallback requirement; no queue-only substitute is claimed.
+The overall Phase 2 gate remains open. No production deployment or release.
