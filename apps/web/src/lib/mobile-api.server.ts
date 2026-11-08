@@ -53,6 +53,7 @@ import {
   parseHomeAssistantEntities,
 } from "./device-modules/homeassistant/homeassistant-module";
 import { createServiceForOrg } from "./service-creation.server";
+import { createShowInputSchema } from "./show-creation-contract";
 import { PlanLimitError } from "./plan-limits";
 import { isValidServiceDate } from "./validation";
 import { issueChatPass, CHAT_PASS_CREATORS, ChatPassCreationError, chatPassCreationMessage } from "./chat-pass-issuance.server";
@@ -1551,99 +1552,29 @@ async function createRundown(
   db: MobileApiDatabase,
 ): Promise<Response> {
   const body = await readJson(request);
-  if (
-    !body ||
-    !validId(body.orgId) ||
-    !validDate(body.serviceDate) ||
-    (body.requestId !== undefined && !validId(body.requestId))
-  ) {
-    return json({ error: "Choose a valid workspace and date." }, 400);
-  }
-
-  const name =
-    body.name === undefined
-      ? ""
-      : typeof body.name === "string"
-        ? body.name.trim()
-        : null;
-  const location =
-    body.location === undefined
-      ? ""
-      : typeof body.location === "string"
-        ? body.location.trim()
-        : null;
-  const startTime =
-    body.startTime === undefined || body.startTime === ""
-      ? undefined
-      : typeof body.startTime === "string"
-        ? body.startTime.trim()
-        : null;
-  const callTime =
-    body.callTime === undefined || body.callTime === ""
-      ? undefined
-      : typeof body.callTime === "string"
-        ? body.callTime.trim()
-        : null;
-  const inventoryId =
-    body.inventoryId === undefined || body.inventoryId === ""
-      ? undefined
-      : typeof body.inventoryId === "string"
-        ? body.inventoryId.trim()
-        : null;
-  const copyFrom =
-    body.copyFrom === undefined || body.copyFrom === ""
-      ? undefined
-      : typeof body.copyFrom === "string"
-        ? body.copyFrom.trim()
-        : null;
-  const copyFromShowId =
-    body.copyFromShowId === undefined || body.copyFromShowId === ""
-      ? undefined
-      : typeof body.copyFromShowId === "string"
-        ? body.copyFromShowId.trim()
-        : null;
-  if (
-    name === null ||
-    name.length > 120 ||
-    location === null ||
-    location.length > 240 ||
-    startTime === null ||
-    (startTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) ||
-    callTime === null ||
-    (callTime !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(callTime)) ||
-    inventoryId === null ||
-    (inventoryId !== undefined && !validId(inventoryId)) ||
-    copyFrom === null ||
-    (copyFrom !== undefined && !validDate(copyFrom)) ||
-    copyFromShowId === null ||
-    (copyFromShowId !== undefined && !validId(copyFromShowId)) ||
-    Boolean(copyFrom) !== Boolean(copyFromShowId) ||
-    (Boolean(inventoryId) && Boolean(copyFrom))
-  ) {
-    return json(
-      { error: "Check the show details and choose one valid rundown source." },
-      400,
-    );
+  if (!body) return json({ error: "Choose a valid workspace and date." }, 400);
+  const optional = (value: unknown) => value === "" ? undefined : typeof value === "string" ? value.trim() : value;
+  const parsed = createShowInputSchema.safeParse({
+    ...body,
+    name: body.name === undefined ? "" : body.name,
+    location: body.location === undefined ? "" : body.location,
+    startTime: optional(body.startTime),
+    callTime: optional(body.callTime),
+    inventoryId: optional(body.inventoryId),
+    copyFrom: optional(body.copyFrom),
+    copyFromShowId: optional(body.copyFromShowId),
+  });
+  if (!parsed.success || Boolean(parsed.data.copyFrom) !== Boolean(parsed.data.copyFromShowId)) {
+    return json({ error: "Check the show details and choose one valid rundown source." }, 400);
   }
 
   const url = new URL(request.url);
-  url.searchParams.set("orgId", body.orgId);
+  url.searchParams.set("orgId", parsed.data.orgId);
   const access = await authorize(request, url, db, ["schedule:manage"]);
   if (access instanceof Response) return access;
 
   try {
-    const result = await createServiceForOrg({
-      orgId: access.orgId,
-      requestId:
-        typeof body.requestId === "string" ? body.requestId : undefined,
-      serviceDate: body.serviceDate,
-      name,
-      startTime,
-      callTime,
-      location,
-      ...(inventoryId ? { inventoryId } : {}),
-      ...(copyFrom && copyFromShowId ? { copyFrom, copyFromShowId } : {}),
-    });
+    const result = await createServiceForOrg({ ...parsed.data, orgId: access.orgId }, request.headers);
     return json(result, 201);
   } catch (error) {
     if (error instanceof PlanLimitError)

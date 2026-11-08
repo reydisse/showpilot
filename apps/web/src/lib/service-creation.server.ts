@@ -1,139 +1,244 @@
-import { getPrisma } from "@/lib/db";
-import { checkPlanLimit } from "@/lib/plan-limits";
+import { getPrisma } from "./db";
+import { getD1 } from "./d1";
+import { getAuth } from "./auth";
+import { memberPermissionGuard } from "./member-permission-guard.server";
+import { markDatabaseWrite } from "./request-database.server";
+import { checkPlanLimit, PLAN_LIMITS } from "./plan-limits";
+import { getRundownStateForOrg, normalizeLegacyRundownItems } from "./rundown";
+import { readShowInventoryItem } from "./show-inventory";
+import { serviceTimeToIso } from "./utils";
 import {
-  getRundownStateForOrg,
-  normalizeLegacyRundownItems,
-  persistRundownItemsForOrg,
-} from "@/lib/rundown";
-import { readShowInventoryItem } from "@/lib/show-inventory";
+  createShowInputSchema,
+  type CreateServiceForOrgInput,
+} from "./show-creation-contract";
 import type { RundownItem } from "@/types/rundown";
-import { serviceTimeToIso } from "@/lib/utils";
+export type { CreateServiceForOrgInput } from "./show-creation-contract";
 
-export interface CreateServiceForOrgInput {
-  orgId: string;
-  timeZone?: string;
-  requestId?: string;
-  serviceDate: string;
-  copyFrom?: string;
-  copyFromShowId?: string;
-  name?: string;
-  startTime?: string;
-  callTime?: string;
-  location?: string;
-  inventoryId?: string;
-}
+type Database = Pick<D1Database, "prepare" | "batch">;
+type Receipt = { actorId: string; fingerprint: string; serviceDate: string };
 
-/**
- * Create one show after the caller has authorized `schedule:manage`.
- * Both the web server function and native HTTP adapter use this mutation so
- * plan limits, timezone conversion, and cloned execution-state resets cannot
- * drift between clients.
- */
-export async function createServiceForOrg(data: CreateServiceForOrgInput) {
-  const prisma = getPrisma();
-  const timezone = await prisma.appSetting.findUnique({
-    where: { orgId_key: { orgId: data.orgId, key: "org-timezone" } },
-    select: { value: true },
+/** Both web and native creation commit the show, seed and receipt together.
+ * Retry reads the receipt before mutable source material or current show details. */
+export async function createServiceForOrg(
+  input: CreateServiceForOrgInput,
+  headers: Headers,
+  db: Database = getD1(),
+) {
+  const data = createShowInputSchema.parse(input);
+  const session = await getAuth().api.getSession({
+    headers,
+    query: { disableCookieCache: true },
   });
-  const inventory = data.inventoryId
-    ? await readShowInventoryItem(data.orgId, data.inventoryId)
-    : null;
-  const startTimeZone = data.startTime ? data.timeZone || timezone?.value : timezone?.value;
-  if (data.requestId) {
-    const existing = await prisma.rundown.findUnique({
-      where: { id: data.requestId },
-      select: { id: true, orgId: true, serviceDate: true, name: true, location: true, scheduledStartTime: true, scheduledCallTime: true },
-    });
-    if (existing) {
-      if (existing.orgId !== data.orgId) throw new Error("Show request ID is already in use");
-      const expectedStart = serviceTimeToIso(
-        data.serviceDate,
-        data.startTime || inventory?.defaultStartTime || "",
-        startTimeZone,
-      );
-      const expectedCall = serviceTimeToIso(
-        data.serviceDate,
-        data.callTime || "",
-        data.timeZone || timezone?.value,
-      );
-      if (
-        existing.serviceDate !== data.serviceDate
-        || existing.name !== (data.name?.trim() || inventory?.name || "")
-        || existing.location !== (data.location || inventory?.location || "")
-        || (existing.scheduledStartTime?.toISOString() ?? null) !== expectedStart
-        || (existing.scheduledCallTime?.toISOString() ?? null) !== expectedCall
-      ) throw new Error("Show request ID was already used with different details");
-      return { ok: true as const, showId: existing.id, serviceDate: existing.serviceDate };
-    }
-  }
-  const showCount = await prisma.rundown.count({ where: { orgId: data.orgId } });
-  await checkPlanLimit(data.orgId, "shows", showCount);
-
-  if (data.inventoryId && !inventory) {
-    throw new Error("Show inventory item not found");
-  }
-
-  let sourceItems: RundownItem[] = [];
-  if (inventory) {
-    try {
-      const parsed: unknown = JSON.parse(inventory.rundownJson);
-      sourceItems = normalizeLegacyRundownItems(parsed);
-    } catch {
-      sourceItems = [];
-    }
-  } else if (data.copyFrom) {
-    const source = await getRundownStateForOrg({
-      orgId: data.orgId,
-      serviceDate: data.copyFrom,
-      showId: data.copyFromShowId,
-    });
-    sourceItems = source.items;
-  }
-
-  const startTime = data.startTime || inventory?.defaultStartTime || "";
-  const scheduledStartIso = serviceTimeToIso(data.serviceDate, startTime, startTimeZone);
-  const scheduledStartTime = scheduledStartIso ? new Date(scheduledStartIso) : null;
-  const scheduledCallIso = serviceTimeToIso(data.serviceDate, data.callTime || "", data.timeZone || timezone?.value);
-  const scheduledCallTime = scheduledCallIso ? new Date(scheduledCallIso) : null;
-  const rundown = await prisma.rundown.create({
-    data: {
-      ...(data.requestId ? { id: data.requestId } : {}),
-      orgId: data.orgId,
-      serviceDate: data.serviceDate,
-      scheduledStartTime,
-      scheduledCallTime,
-      status: "stopped",
-      name: data.name?.trim() || inventory?.name || "",
-      location: data.location || inventory?.location || "",
-    },
-    select: { id: true },
-  });
-
-  const cloned: RundownItem[] = sourceItems.map((item, index) => ({
-    ...item,
-    id: `${rundown.id}-${index}`,
-    status: "upcoming",
-    scheduledStart: null,
-    expectedEnd: null,
-    actualStart: null,
-    actualEnd: null,
-  }));
-  try {
-    await persistRundownItemsForOrg(
-      data.orgId,
-      data.serviceDate,
-      cloned,
-      rundown.id,
+  if (!session || (data.userId && data.userId !== session.user.id))
+    throw new Error(
+      "Your account changed. Reopen this form before creating a show.",
     );
-  } catch (error) {
-    await prisma.$transaction([
-      prisma.rundown.deleteMany({ where: { id: rundown.id, orgId: data.orgId } }),
-      prisma.appSetting.deleteMany({
-        where: { orgId: data.orgId, key: { in: [`rundown-items:${rundown.id}`, `rundown-items-storage:${rundown.id}`] } },
-      }),
+  const actorId = session.user.id,
+    orgId = data.orgId;
+  const access = await memberPermissionGuard(
+    db,
+    orgId,
+    { userId: actorId, sessionId: session.session.id },
+    ["schedule:manage"],
+  );
+  const requestId = data.requestId ?? crypto.randomUUID();
+  const fingerprint = JSON.stringify([
+    data.serviceDate,
+    data.name ?? "",
+    data.startTime ?? "",
+    data.callTime ?? "",
+    data.location ?? "",
+    data.timeZone ?? "",
+    data.inventoryId ?? "",
+    data.copyFrom ?? "",
+    data.copyFromShowId ?? "",
+  ]);
+  const read = `SELECT actorId,fingerprint,serviceDate FROM show_creation_request
+    WHERE orgId=? AND requestId=? AND ${access.guard}`;
+  const readArgs = [orgId, requestId, ...access.guardArgs];
+  let receipt = await db
+    .prepare(read)
+    .bind(...readArgs)
+    .first<Receipt>();
+  if (!receipt) {
+    const prisma = getPrisma();
+    const timezone =
+      (
+        await prisma.appSetting.findUnique({
+          where: { orgId_key: { orgId, key: "org-timezone" } },
+          select: { value: true },
+        })
+      )?.value ?? "";
+    const inventory = data.inventoryId
+      ? await readShowInventoryItem(orgId, data.inventoryId)
+      : null;
+    if (data.inventoryId && !inventory)
+      throw new Error("Show inventory item not found");
+    let items: RundownItem[] = [];
+    let sourceShowId: string | undefined;
+    if (inventory) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(inventory.rundownJson);
+      } catch {
+        throw new Error(
+          "The inventory rundown could not be read. Review that inventory item before trying again.",
+        );
+      }
+      if (!Array.isArray(parsed))
+        throw new Error(
+          "The inventory rundown is invalid. Review it before trying again.",
+        );
+      items = normalizeLegacyRundownItems(parsed);
+      if (items.length !== parsed.length)
+        throw new Error(
+          "The inventory rundown contains invalid items. Review it before trying again.",
+        );
+    } else if (data.copyFrom) {
+      const source = await getRundownStateForOrg({
+        orgId,
+        serviceDate: data.copyFrom,
+        showId: data.copyFromShowId,
+      });
+      sourceShowId = source.meta?.showId;
+      if (!sourceShowId) throw new Error("Source show not found");
+      items = source.items;
+    }
+    const start = serviceTimeToIso(
+      data.serviceDate,
+      data.startTime || inventory?.defaultStartTime || "",
+      (data.startTime ? data.timeZone : undefined) || timezone || undefined,
+    );
+    const call = serviceTimeToIso(
+      data.serviceDate,
+      data.callTime || "",
+      data.timeZone || timezone || undefined,
+    );
+    const nonce = crypto.randomUUID();
+    const owns = "r.orgId=? AND r.requestId=? AND r.nonce=?";
+    const ownsArgs = [orgId, requestId, nonce];
+    const sourceGuard = inventory
+      ? "EXISTS(SELECT 1 FROM show_inventory_item WHERE orgId=? AND id=? AND archivedAt IS NULL)"
+      : sourceShowId
+        ? "EXISTS(SELECT 1 FROM rundown WHERE orgId=? AND id=? AND serviceDate=?)"
+        : "1";
+    const sourceArgs = inventory
+      ? [orgId, inventory.id]
+      : sourceShowId
+        ? [orgId, sourceShowId, data.copyFrom!]
+        : [];
+    // Count and current paid/trial entitlement are evaluated inside the write,
+    // so concurrent creators cannot both take the final available slot.
+    const capacity = `(SELECT CASE
+      WHEN betaTester=1 AND (julianday((SELECT value FROM platform_setting WHERE key='publicLaunchDate')) IS NULL
+        OR julianday((SELECT value FROM platform_setting WHERE key='publicLaunchDate'))>julianday('now')) THEN ?
+      WHEN (CASE WHEN typeof(trialEndsAt) IN ('integer','real') THEN julianday(trialEndsAt/1000.0,'unixepoch') ELSE julianday(trialEndsAt) END)>julianday('now') THEN ?
+      WHEN plan='pro' AND (subscriptionStatus IS NULL OR subscriptionStatus IN ('active','trialing','past_due')) THEN ?
+      WHEN plan='starter' AND (subscriptionStatus IS NULL OR subscriptionStatus IN ('active','trialing','past_due')) THEN ?
+      ELSE ? END FROM organization WHERE id=?)`;
+    markDatabaseWrite();
+    const result = await db.batch([
+      db
+        .prepare(
+          `INSERT INTO show_creation_request(orgId,requestId,actorId,fingerprint,nonce,serviceDate,createdAt)
+        SELECT ?,?,?,?,?,?,? WHERE ${access.guard} AND ${sourceGuard}
+          AND COALESCE((SELECT value FROM app_setting WHERE orgId=? AND key='org-timezone'),'')=?
+          AND NOT EXISTS(SELECT 1 FROM rundown WHERE id=?)
+          AND (SELECT COUNT(*) FROM rundown WHERE orgId=?)<${capacity}
+        ON CONFLICT(orgId,requestId) DO NOTHING`,
+        )
+        .bind(
+          orgId,
+          requestId,
+          actorId,
+          fingerprint,
+          nonce,
+          data.serviceDate,
+          Date.now(),
+          ...access.guardArgs,
+          ...sourceArgs,
+          orgId,
+          timezone,
+          requestId,
+          orgId,
+          PLAN_LIMITS.pro.shows,
+          PLAN_LIMITS.pro.shows,
+          PLAN_LIMITS.pro.shows,
+          PLAN_LIMITS.starter.shows,
+          PLAN_LIMITS.free.shows,
+          orgId,
+        ),
+      db
+        .prepare(
+          `INSERT INTO rundown(id,orgId,serviceDate,name,scheduledStartTime,scheduledCallTime,location,status,createdAt,updatedAt)
+        SELECT ?,?,?,?,?,?,?,'stopped',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP FROM show_creation_request r WHERE ${owns}`,
+        )
+        .bind(
+          requestId,
+          orgId,
+          data.serviceDate,
+          data.name || inventory?.name || "",
+          start,
+          call,
+          data.location || inventory?.location || "",
+          ...ownsArgs,
+        ),
+      db
+        .prepare(
+          `INSERT INTO rundown_item(id,orgId,showId,serviceDate,itemId,title,type,duration,notes,assignee,cue,status,sortOrder,
+        hardStop,lowerThirdId,scheduledStart,expectedEnd,actualStart,actualEnd,createdAt,updatedAt)
+        SELECT lower(hex(randomblob(16))),r.orgId,r.requestId,r.serviceDate,r.requestId||'-'||j.key,
+          json_extract(j.value,'$.title'),json_extract(j.value,'$.type'),json_extract(j.value,'$.duration'),
+          json_extract(j.value,'$.notes'),json_extract(j.value,'$.assignee'),json_extract(j.value,'$.cue'),'upcoming',j.key,
+          json_extract(j.value,'$.hardStop'),json_extract(j.value,'$.lowerThirdId'),NULL,NULL,NULL,NULL,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
+        FROM show_creation_request r,json_each(?) j WHERE ${owns}`,
+        )
+        .bind(JSON.stringify(items), ...ownsArgs),
+      db
+        .prepare(
+          `INSERT INTO app_setting(id,orgId,key,value)
+        SELECT ?,r.orgId,'rundown-items-storage:'||r.requestId,'rows-v1' FROM show_creation_request r WHERE ${owns}`,
+        )
+        .bind(crypto.randomUUID(), ...ownsArgs),
+      db.prepare(read).bind(...readArgs),
     ]);
-    throw error;
+    receipt = (result[4].results[0] as Receipt | undefined) ?? null;
+    if (!receipt) {
+      await checkPlanLimit(
+        orgId,
+        "shows",
+        await prisma.rundown.count({ where: { orgId } }),
+      );
+      throw new Error(
+        "Show creation was not accepted. Your permission, timezone or source show may have changed. Review the form and retry.",
+      );
+    }
   }
-
-  return { ok: true as const, showId: rundown.id, serviceDate: data.serviceDate };
+  if (receipt.actorId !== actorId || receipt.fingerprint !== fingerprint)
+    throw new Error(
+      "This creation request was already used with a different account or details.",
+    );
+  const existing = await db
+    .prepare(
+      `SELECT id FROM rundown WHERE orgId=? AND id=? AND ${access.guard}`,
+    )
+    .bind(orgId, requestId, ...access.guardArgs)
+    .first();
+  if (!existing) {
+    // Distinguish removal from revocation without granting either a new write.
+    await memberPermissionGuard(
+      db,
+      orgId,
+      { userId: actorId, sessionId: session.session.id },
+      ["schedule:manage"],
+    );
+    throw new Error(
+      "This show was created and later removed. This retry will not recreate it.",
+    );
+  }
+  return {
+    ok: true as const,
+    showId: requestId,
+    serviceDate: receipt.serviceDate,
+  };
 }

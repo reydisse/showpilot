@@ -102,7 +102,18 @@ describe("mobile show creation", () => {
       name: "Sunday Morning",
       startTime: "09:30",
       location: "Main auditorium",
-    });
+    }, expect.any(Headers));
+  });
+
+  it("retains the explicit timezone and rejects invalid creation contracts before writing", async () => {
+    const body = { orgId:"org-1", requestId:"show-timezone", serviceDate:"2026-09-06", startTime:"09:30", timeZone:"America/Toronto" };
+    expect((await createShow(body)).status).toBe(201);
+    expect(mocks.createServiceForOrg).toHaveBeenLastCalledWith(expect.objectContaining(body),expect.any(Headers));
+    mocks.createServiceForOrg.mockClear();
+    for (const invalid of [{timeZone:"Mars/Base"},{requestId:"x".repeat(65)},{startTime:"25:00"},{serviceDate:"2026-02-30"}]) {
+      expect((await createShow({...body,...invalid})).status).toBe(400);
+    }
+    expect(mocks.createServiceForOrg).not.toHaveBeenCalled();
   });
 
   it("requires schedule management access", async () => {
@@ -136,7 +147,7 @@ describe("mobile show creation", () => {
       startTime: undefined,
       location: "",
       inventoryId: "inventory-1",
-    });
+    }, expect.any(Headers));
   });
 
   it("rejects conflicting or incomplete rundown sources at the HTTP boundary", async () => {
