@@ -214,7 +214,7 @@ it("rolls back a mobile template if the common receipt cannot be stored", async 
   expect(await f.rows()).toEqual([]);
   expect((await f.save()).status).toBe(201);
 });
-it("rejects a revoked editor before creating a template or receipt", async () => {
+it("rejects an unsupported membership role before creating a template or receipt", async () => {
   const f = await fixture();
   await env.DB.prepare(
     "UPDATE member SET role='viewer' WHERE organizationId=? AND userId=?",
