@@ -1,3 +1,4 @@
+import { nextFixtureAddress } from "@/test/fixture-address";
 import { env } from "cloudflare:workers";
 import { SELF } from "cloudflare:test";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -5,7 +6,7 @@ import { hashPassword } from "better-auth/crypto";
 import { getPrisma } from "../db";
 import { createLiveInput, deleteLiveInput, getLiveInputStatus, getLiveInputs, resumeLiveInput } from "../stream";
 import { connectDestinationsForOrg, resolveOrgLiveInput } from "../stream-destinations";
-const request = vi.hoisted(() => ({ cookie: "", ip: 0 }));
+const request = vi.hoisted(() => ({ cookie: "" }));
 vi.mock("better-auth/tanstack-start", () => ({ tanstackStartCookies: () => ({ id: "test-cookie-bridge" }) }));
 vi.mock("@tanstack/react-start/server", () => ({ getRequestHeaders: () => new Headers({ Cookie: request.cookie }) }));
 vi.mock("@tanstack/react-start", () => {
@@ -20,14 +21,13 @@ const account = env.CLOUDFLARE_ACCOUNT_ID, token = env.CLOUDFLARE_STREAM_API_TOK
 afterEach(() => { request.cookie = ""; vi.restoreAllMocks(); env.CLOUDFLARE_ACCOUNT_ID = account; env.CLOUDFLARE_STREAM_API_TOKEN = token; env.CREDENTIAL_ENCRYPTION_KEYS = encryption; });
 async function fixture() {
   const prisma = getPrisma(), userId = crypto.randomUUID(), orgId = crypto.randomUUID();
-  const ip = ++request.ip;
   const email = `${userId}@example.test`, password = "Stream-fixture-password-92!";
   await prisma.user.create({ data: { id: userId, name: "Stream operator", email, emailVerified: true } });
   await prisma.account.create({ data: { id: crypto.randomUUID(), issuer: "local:credential", accountId: userId, providerId: "credential", userId, password: await hashPassword(password) } });
   await prisma.organization.create({ data: { id: orgId, name: "Stream fixture", slug: orgId, createdAt: new Date() } });
   await prisma.member.create({ data: { id: crypto.randomUUID(), organizationId: orgId, userId, role: "owner", createdAt: new Date() } });
   const response = await SELF.fetch(new Request("https://app.showpilot.tech/api/auth/sign-in/email", {
-    method: "POST", headers: { "Content-Type": "application/json", Origin: "https://app.showpilot.tech", "cf-connecting-ip": `198.18.${Math.floor(ip / 250)}.${ip % 250 + 1}` },
+    method: "POST", headers: { "Content-Type": "application/json", Origin: "https://app.showpilot.tech", "cf-connecting-ip": nextFixtureAddress() },
     body: JSON.stringify({ email, password }),
   }));
   expect(response.status).toBe(200); await response.arrayBuffer();

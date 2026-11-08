@@ -1,3 +1,4 @@
+import { nextFixtureAddress } from "@/test/fixture-address";
 import { env } from "cloudflare:workers";
 import { SELF } from "cloudflare:test";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -88,7 +89,7 @@ async function fixture() {
       headers: {
         "Content-Type": "application/json",
         Origin: "https://app.showpilot.tech",
-        "cf-connecting-ip": `192.0.2.${Math.floor(Math.random() * 200) + 1}`,
+        "cf-connecting-ip": nextFixtureAddress(),
       },
       body: JSON.stringify({ email, password }),
     }),

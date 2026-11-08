@@ -1,3 +1,4 @@
+import { nextFixtureAddress } from "@/test/fixture-address";
 import { env } from "cloudflare:workers";
 import { SELF } from "cloudflare:test";
 import { afterEach, expect, it, vi } from "vitest";
@@ -33,7 +34,7 @@ async function fixture() {
   await prisma.organization.create({ data: { id: orgId, name: "Device fixture", slug: orgId, createdAt: new Date() } });
   await prisma.member.create({ data: { id: crypto.randomUUID(), organizationId: orgId, userId, role: "owner", createdAt: new Date() } });
   const response = await SELF.fetch(new Request("https://app.showpilot.tech/api/auth/sign-in/email", {
-    method: "POST", headers: { "Content-Type": "application/json", Origin: "https://app.showpilot.tech", "cf-connecting-ip": `192.0.2.${Math.floor(Math.random()*200)+1}` },
+    method: "POST", headers: { "Content-Type": "application/json", Origin: "https://app.showpilot.tech", "cf-connecting-ip": nextFixtureAddress() },
     body: JSON.stringify({ email, password }),
   }));
   expect(response.status).toBe(200); await response.arrayBuffer();
