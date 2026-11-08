@@ -5173,3 +5173,46 @@ Phase 2 remains 60/79 verified. This completes the Reports portion of the broad
 loading/dialog/keyboard/narrow-screen requirements. First-session checklist
 failures, assignment controls, and the remaining product-wide gates are still
 open. No production deployment, native release or real-organization changes.
+
+
+## Phase 2 first-session checklist recovery, 2026-11-07
+
+The first-session checklist previously suppressed read and save errors, marked
+items complete before saving, and hid immediately on dismissal. Three UI
+regressions reproduced those failures. Reads now have an eight-second deadline
+and visible Retry. Writes retain the confirmed checklist until acknowledgement,
+with a ten-second deadline and an exact retry retained across navigation in an
+account/org-scoped query cache. Failed dismissals stay recoverable, including
+when the server saved the dismissal but its reply was lost.
+
+Owner-only commands derive the personal preference key on the server. They reuse
+the existing atomic settings receipt and compare-and-set helper. A revision token
+inside each saved snapshot prevents a changed-then-restored checklist from making
+an old request current again. Conflicts show the saved progress for review before
+another change. Unreadable saved state is reported instead of overwritten with
+an empty checklist. The public Settings key allowlist remains unchanged. The old
+onboarding upsert helper had no remaining callers and was removed. No migration
+is needed.
+
+The widget has 44px buttons and links, visible focus, announced completion state,
+and a bounded scrolling panel for short windows. The compiled browser rehearsal
+uses real local authentication/D1 and withholds actual successful responses. It
+passes read timeout/retry/late reply, a lost completion followed by a newer
+uncheck, exact Retry after navigating away and back, stale-edit review, a lost
+dismissal followed by navigation and Retry, and 320/768/1440px plus 320x480.
+Six receipts and one personal record remain; no runtime errors or outgoing
+emails. The 320px screenshot was inspected.
+
+Validation: five UI and five real-auth Worker cases, ten existing settings-write
+regressions, full 2,361 unit / 1,186 Worker tests, typecheck and production build
+passed. The final Worker rerun also passed after TypeScript cleanup. Main entry:
+551,911 raw / 174,531 gzip bytes. Logs:
+/tmp/showpilot-first-session-before.log (three reproduced failures),
+/tmp/showpilot-first-session-ui3.log, /tmp/showpilot-first-session-worker2.log,
+/tmp/showpilot-first-session-full.log, /tmp/showpilot-first-session-tsc2.log,
+/tmp/showpilot-first-session-build2.log and /tmp/showpilot-first-session-browser.log.
+Screenshot: /tmp/showpilot-first-session-320.png.
+
+Phase 2 remains 60/79 verified. This closes the specific checklist gap identified
+in the operator-label pass; assignment controls and the broader requirements and
+gates remain open. Nothing deployed or released, no real organization data changed.
