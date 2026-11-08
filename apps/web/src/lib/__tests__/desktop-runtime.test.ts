@@ -1,10 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
 const nativeNotifications = vi.hoisted(() => ({
   granted: false,
   sent: [] as Array<Record<string, unknown>>,
   action: null as ((notification: { extra?: Record<string, unknown> }) => void) | null,
   unregister: vi.fn(),
+  permission: vi.fn(),
 }));
 const nativeUpdater = vi.hoisted(() => ({
   available: null as null | { version: string; body?: string; date?: string },
@@ -18,7 +25,7 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
 }));
 
 vi.mock("@tauri-apps/plugin-notification", () => ({
-  isPermissionGranted: async () => nativeNotifications.granted,
+  isPermissionGranted: () => nativeNotifications.permission(),
   requestPermission: async () => {
     nativeNotifications.granted = true;
     return "granted" as const;
@@ -67,6 +74,7 @@ const originalTauri = window.__TAURI__;
 
 beforeEach(() => {
   nativeNotifications.granted = false;
+  nativeNotifications.permission.mockReset().mockImplementation(async () => nativeNotifications.granted);
   nativeNotifications.sent.length = 0;
   nativeNotifications.action = null;
   nativeNotifications.unregister.mockClear();
@@ -210,6 +218,28 @@ describe("desktop runtime boundary", () => {
         orgSlug: "faithfire-production",
       },
     })]);
+  });
+
+  it("does not send a stale alert when permission arrives after the deadline", async () => {
+    window.__TAURI__ = { core: { invoke: vi.fn() } };
+    const permission = deferred<boolean>();
+    nativeNotifications.permission.mockReturnValueOnce(permission.promise);
+    const controller = new AbortController();
+    const pending = showDesktopNotification("Expired", "Alert", undefined, controller.signal);
+    controller.abort();
+    permission.resolve(true);
+    await expect(pending).rejects.toThrow();
+    expect(nativeNotifications.sent).toEqual([]);
+  });
+
+  it("deactivates native action callbacks before awaiting listener removal", async () => {
+    window.__TAURI__ = { core: { invoke: vi.fn() } };
+    nativeNotifications.unregister.mockRejectedValueOnce(new Error("Native cleanup failed"));
+    const action = vi.fn();
+    const remove = await listenForDesktopNotificationActions(action);
+    await expect(remove()).rejects.toThrow("Native cleanup failed");
+    nativeNotifications.action?.({ extra: { notificationId: "retired", orgSlug: "fixture" } });
+    expect(action).not.toHaveBeenCalled();
   });
 
   it("validates native notification action payloads and focuses the app", async () => {

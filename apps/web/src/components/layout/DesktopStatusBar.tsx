@@ -3,6 +3,7 @@ import { useParams } from "@tanstack/react-router";
 import { Download, Laptop, MonitorPlay, PanelTopOpen, RadioTower, RefreshCw, Timer, UserCheck } from "lucide-react";
 import { configureDesktopLocalDevices } from "@/lib/desktop-local-devices";
 import { useDesktopRuntime } from "@/hooks/useDesktopRuntime";
+import { DesktopNotificationNotice } from "./DesktopNotificationNotice";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   getDesktopBridgeStatus,
@@ -227,6 +228,7 @@ export function DesktopStatusBar({ orgId }: { orgId?: string } = {}) {
 
   return (
     <>
+    <DesktopNotificationNotice />
     <div className="flex min-h-8 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-board-border bg-board-card px-3 py-1 text-[10px] text-board-muted">
       <span className="flex items-center gap-1.5 font-semibold text-fire-400">
         <PanelTopOpen className="h-3.5 w-3.5" />

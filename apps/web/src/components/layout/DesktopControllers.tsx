@@ -1,5 +1,6 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { useDesktopRuntime } from "@/hooks/useDesktopRuntime";
+import { DesktopNotificationContext, type DesktopNotificationDelivery } from "./DesktopNotificationContext";
 
 const BridgeController = lazy(() => import("./DesktopBridgeController").then((module) => ({
   default: module.DesktopBridgeController,
@@ -9,14 +10,17 @@ const NotificationController = lazy(() => import("./DesktopNotificationControlle
 })));
 
 /** Browser sessions never download the native background controllers. */
-export function DesktopControllers() {
+export function DesktopControllers({ children }: { children: ReactNode }) {
   const desktop = useDesktopRuntime();
-  if (!desktop) return null;
+  const [delivery, setDelivery] = useState<DesktopNotificationDelivery | null>(null);
 
   return (
-    <Suspense fallback={null}>
-      <BridgeController />
-      <NotificationController />
-    </Suspense>
+    <DesktopNotificationContext.Provider value={desktop ? delivery : null}>
+      {children}
+      {desktop ? <Suspense fallback={null}>
+        <BridgeController />
+        <NotificationController onDeliveryChange={setDelivery} />
+      </Suspense> : null}
+    </DesktopNotificationContext.Provider>
   );
 }

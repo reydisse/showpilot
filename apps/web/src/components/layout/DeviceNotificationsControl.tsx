@@ -92,7 +92,7 @@ export function DeviceNotificationsControl({ orgId }: { orgId: string }) {
               </span>
               <span className="mt-0.5 block text-xs leading-5">
                 {pushEnabled
-                  ? "Enabled on this device"
+                  ? isDesktopNotificationSupported() ? "Allowed by system settings" : "Enabled on this device"
                   : "Blocked in browser or system settings"}
               </span>
             </span>

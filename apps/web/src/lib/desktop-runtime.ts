@@ -110,8 +110,11 @@ export async function showDesktopNotification(
   title: string,
   body: string,
   payload?: DesktopNotificationPayload,
+  signal?: AbortSignal,
 ): Promise<boolean> {
+  signal?.throwIfAborted();
   if (!isDesktopRuntime() || !(await isNativeNotificationPermissionGranted())) return false;
+  signal?.throwIfAborted();
   sendNativeNotification({
     ...(payload ? { id: notificationNumber(payload.notificationId), extra: payload } : {}),
     title,
@@ -124,9 +127,11 @@ export async function showDesktopNotification(
 
 export async function listenForDesktopNotificationActions(
   onAction: (payload: DesktopNotificationPayload) => void,
-): Promise<() => void> {
-  if (!isDesktopRuntime()) return () => {};
+): Promise<() => Promise<void>> {
+  if (!isDesktopRuntime()) return async () => {};
+  let active = true;
   const listener = await onNativeNotificationAction((notification) => {
+    if (!active) return;
     const extra = notification.extra;
     if (
       !extra
@@ -142,7 +147,7 @@ export async function listenForDesktopNotificationActions(
       ...(typeof extra.actionUrl === "string" ? { actionUrl: extra.actionUrl } : {}),
     });
   });
-  return () => listener.unregister();
+  return async () => { active = false; await listener.unregister(); };
 }
 
 export async function focusDesktopMainWindow(): Promise<void> {
