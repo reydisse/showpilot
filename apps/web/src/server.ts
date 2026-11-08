@@ -1,3 +1,4 @@
+import { handleAccountProfileRequest } from "./lib/account-profile-api.server";
 import { handleOperationalErrorRequest } from "./lib/operational-error-api.server";
 import { pruneOperationalErrors } from "./lib/operational-errors.server";
 import { backfillDeviceCredentials } from "./lib/device-settings.server";
@@ -637,6 +638,10 @@ const appServer = {
       return stub.fetch(relayRequest);
     }
 
+    if (url.pathname === "/api/user/profile" || url.pathname === "/api/user/profile/photo") {
+      return handleAccountProfileRequest(request, e.STORAGE);
+    }
+
     // Avatar upload — POST /api/user/avatar
     if (url.pathname === "/api/user/avatar" && request.method === "POST") {
       const session = await getAuth().api.getSession({ headers: request.headers });
@@ -669,7 +674,7 @@ const appServer = {
     }
 
     // Avatar serve — GET /api/user/avatar/:userId.jpg
-    const avatarServeMatch = url.pathname.match(/^\/api\/user\/avatar\/([^/]+\.jpg)$/);
+    const avatarServeMatch = url.pathname.match(/^\/api\/user\/avatar\/([^/]+\.jpg|[^/]+\/[a-f0-9]{64}\.jpg)$/);
     if (avatarServeMatch && request.method === "GET") {
       const obj = await e.STORAGE.get(`avatars/${avatarServeMatch[1]}`);
       if (!obj) return new Response("Not Found", { status: 404 });

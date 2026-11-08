@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, reportRecovery = false, personalAssignments = false, calendarNavigation = false, notificationInbox = false, notificationTimezoneRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, reportRecovery = false, personalAssignments = false, calendarNavigation = false, notificationInbox = false, notificationTimezoneRecovery = false, accountProfileRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false } = {}) {
   if (streamOutputs) {
     assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Stream status requires the isolated outbound handler");
     assert.equal(captureEmail, false, "Use separate fixtures for email and Stream status");
@@ -123,12 +123,12 @@ export async function withLocalSmokeFixture(check, { secondShow = false, reportR
     assert.ok(migrations.length > 0);
     migrations.forEach((name, index) => assert.equal(Number(name.slice(0, 4)), index + 1));
     const migrationSql = await Promise.all(migrations.map((name) => readFile(join(web, "prisma/migrations", name), "utf8")));
-    const splitAt = notificationTimezoneRecovery ? migrations.indexOf("0076_notification_timezone_recovery.sql") : migrations.length;
+    const splitAt = notificationTimezoneRecovery ? migrations.indexOf("0076_notification_timezone_recovery.sql") : accountProfileRecovery ? migrations.indexOf("0077_account_profile_recovery.sql") : migrations.length;
     assert.ok(splitAt >= 0);
     const schema = migrationSql.slice(0, splitAt).join("\n\n");
     const timezoneUpgrade = notificationTimezoneRecovery ? `
       INSERT INTO app_setting(id,orgId,key,value) VALUES ('fixture-old-timezone','display-smoke','notification-timezone:smoke-operator','America/Vancouver');
-      ${migrationSql.slice(splitAt).join("\n\n")}` : "";
+      ${migrationSql.slice(splitAt).join("\n\n")}` : migrationSql.slice(splitAt).join("\n\n");
     const password = randomUUID();
     const passwordHash = await hashPassword(password);
     const sceneFixture = (id, name, templateId = "classic") => ({ id, name,

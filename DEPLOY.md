@@ -5919,3 +5919,64 @@ Phase 2 remains 67/79. Profile name/photo saves, reset-email requests, native
 notification delivery and the remaining broad audit are still open. No deployment,
 release, migration, real-organization write, paid service or new Markdown file.
 Twenty necessary tracked Markdown files remain.
+
+
+## Phase 2 profile save and recovery — 2026-11-08
+
+On `fix/account-profile-recovery`, profile reads, image preparation, name/photo
+saves and reset-email requests have bounded recovery. Name drafts and prepared
+photos survive panel closure; timed-out replies cannot replace current state.
+Errors include a timestamp and explicit Retry. A reset-email retry explains that
+it requests another link and waits for a 60-second cooldown. Empty name drafts do
+not claim to be saved, and conflicts display the saved name beside the draft.
+
+The baseline reproduced an old name request overwriting a newer name. A second
+compiled auth/R2 baseline showed that uploading a replacement photo changed the
+bytes behind the published URL before the profile update succeeded. Migration
+0077 adds account revisions, legacy-writer triggers and atomic request receipts.
+Name/photo writes check the session and expected account; exact retries cannot
+replace a newer revision. Photos use content-addressed immutable paths. An
+explicit “Use selected photo” action reapplies the retained bytes against the
+current revision. Failed storage/publication leaves the current photo unchanged.
+Account deletion removes versioned photos. Web/mobile URL handling accepts both
+legacy and versioned paths; mobile profile mutations otherwise retain their
+existing behavior and still need the broader recovery audit.
+
+Validation:
+- Eight real-auth/D1/R2 profile cases cover concurrent requests, exact replays,
+  conflicting payloads, legacy ABA updates, transaction rollback, failed storage
+  and failed publication, account/session boundaries, body limits and origins.
+  Account deletion verifies version cleanup without deleting another user's photo.
+- Nine rendered panel cases cover read/write/preparation deadlines, late replies,
+  retained drafts and bytes across closure, typing during saves, read-only refresh
+  retry, explicit photo conflict recovery, reset cooldown and truthful empty input.
+- Final full suite: 2,429 unit / 1,216 Worker tests pass. Web/mobile typechecks and
+  production build pass. Main entry 551,757 raw / 174,785 gzip bytes, under the
+  unchanged limits.
+- Compiled Chrome/auth/D1/R2 passes migration backfill, actual canvas preparation,
+  immutable published bytes, lost committed replies, exact retries preserving
+  newer profiles, explicit selected-photo reuse, refresh-only recovery and reset
+  resend after cooldown. Two emails were captured locally; none were delivered.
+  Recovery controls fit 320x480/768/1440, with inspected phone screenshots and no
+  runtime errors or document reload. Empty-draft and saved-name comparison checks
+  pass against the final build.
+- Account-panel download/network regressions pass all five scenarios, retaining
+  the exact profile input node and draft across resizing. Navigation passes
+  21 routes and 13 Settings sections at 320/768/1024/1440 without reload.
+
+Evidence: `/tmp/showpilot-profile-{before,photo-before,worker1,ui3,
+ui-review-before,full2,tsc9,mobile-tsc2,build2,browser5,
+account-regression1,navigation}.log`. Rerun `smoke-account-profile.mjs`,
+`smoke-account-panel-loading.mjs` and `smoke-navigation-audit.mjs` with
+`SHOWPILOT_SMOKE_RUNTIME=miniflare`. Initial browser checks were corrected to
+wait for the acknowledged save and target the profile file input rather than the
+chat attachment input; the final run passes. Typecheck also caught and corrected
+a test helper's widened command discriminant. The final UI review reproduced and
+fixed the false Saved label and missing saved-name comparison.
+
+PR #234 is green (run 42466651442), and #235 is green (run 42467842084:
+CI 13m23s, native Rust 4m28s). Phase 2 remains 67/79; this is scoped profile
+evidence, not completion of the product-wide gate. Native notification delivery,
+schedule/assignment recovery and the remaining broad audit are still open.
+No deployment, release, remote migration or real-organization write. Twenty
+necessary tracked Markdown files remain; no new Markdown file was added.
