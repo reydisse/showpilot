@@ -7911,3 +7911,8 @@ Screenshots: /tmp/showpilot-native-template-delete-{confirm,unknown,refresh,conf
 No deployment, remote migration or product-wide gate closure. Phase 2 remains
 67/79. The timestamp PR is still held until #264's CI rerun passes; this deletion
 follow-up stays behind that change in the stack.
+
+Stack gate update: #264 is green at 00dcd104 in run 42532247791: web CI 14m42s,
+Native Rust tests 4m25s. Draft timestamp PR #265 is now open at db426401, with
+run 42533504976 queued. The template deletion implementation is pushed at
+d3bb2fc7; its PR remains held until #265's current-head checks pass.
