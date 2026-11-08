@@ -9,9 +9,13 @@ type AssignmentNotificationInput = {
   role: string;
   start: string;
   reminder?: boolean;
+  deliveryId: string;
 };
 
-export async function clearAssignmentInvitation(orgId: string, assignmentId: string) {
+export async function clearAssignmentInvitation(
+  orgId: string,
+  assignmentId: string,
+) {
   await getD1()
     .prepare(
       "DELETE FROM notification WHERE orgId = ? AND source = ? AND type = 'assignment'",
@@ -46,11 +50,15 @@ export async function notifyAssignmentRecipient(
 
   // Reassignment must not leave an actionable invitation in the previous
   // assignee's inbox. Response notifications use different types and remain.
-  await clearAssignmentInvitation(input.orgId, input.assignmentId);
+  await db
+    .prepare(
+      "DELETE FROM notification WHERE orgId=? AND source=? AND type='assignment' AND userId<>?",
+    )
+    .bind(input.orgId, input.assignmentId, recipient.userId)
+    .run();
 
-  const { notifyOperationalEvent } = await import(
-    "@/lib/operational-notifications.server"
-  );
+  const { notifyOperationalEvent } =
+    await import("@/lib/operational-notifications.server");
   const result = await notifyOperationalEvent({
     orgId: input.orgId,
     recipientIds: [recipient.userId],
@@ -62,7 +70,23 @@ export async function notifyAssignmentRecipient(
     actionUrl: `assignments?assignment=${encodeURIComponent(input.assignmentId)}`,
     source: input.assignmentId,
     pushTag: `assignment-${input.assignmentId}`,
-    dedupeKey: `assignment-${input.assignmentId}`,
+    dedupeKey: `assignment-${input.assignmentId}-${input.deliveryId}`,
+    once: true,
   });
-  return { notified: result.notified > 0 };
+  if (result.notified > 0) return { notified: true };
+  const { operationalNotificationId } =
+    await import("./operational-notifications.server");
+  const id = await operationalNotificationId(
+    {
+      orgId: input.orgId,
+      dedupeKey: `assignment-${input.assignmentId}-${input.deliveryId}`,
+    },
+    recipient.userId,
+  );
+  return {
+    notified: !!(await db
+      .prepare("SELECT 1 FROM notification WHERE orgId=? AND userId=? AND id=?")
+      .bind(input.orgId, recipient.userId, id)
+      .first()),
+  };
 }

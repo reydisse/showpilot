@@ -33,8 +33,9 @@ if (emailCaptureDirectory) {
     assert.equal(request.method, "POST");
     const email = await request.json();
     assert.ok(typeof email.to === "string" && /^[a-z0-9-]+@display-smoke\.invalid$/.test(email.to), "Only disposable fixture recipients are allowed");
-    const mode = (await readFile(join(emailCaptureDirectory, "email-mode"), "utf8")).trim();
-    assert.ok(["success", "fail", "lose-reply"].includes(mode));
+    const configuredMode = (await readFile(join(emailCaptureDirectory, "email-mode"), "utf8")).trim();
+    assert.ok(["success", "fail", "lose-reply", "partial-schedule"].includes(configuredMode));
+    const mode = configuredMode === "partial-schedule" ? email.to === "other@display-smoke.invalid" ? "lose-reply" : "success" : configuredMode;
     const key = request.headers.get("Idempotency-Key"), payload = JSON.stringify(email);
     const previous = key ? acceptedEmails.get(key) : null;
     if (previous) assert.equal(previous.payload, payload, "An idempotent retry must preserve its email body");

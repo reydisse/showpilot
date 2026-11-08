@@ -1,3 +1,4 @@
+import { ReminderControl } from "@/components/schedule/ReminderControl";
 import { ScheduleProviderControl } from "@/components/schedule/ScheduleProviderControl";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
@@ -36,8 +37,6 @@ import {
   deleteService,
   getSchedule,
   getServiceAssignments,
-  remindAllServiceAssignments,
-  remindServiceAssignment,
   saveServiceAssignment,
   saveServiceDetails,
   type ScheduleProvider,
@@ -475,28 +474,13 @@ function SchedulePage() {
                   </div>
                   {data.provider.type === "native" && data.canManage ? (
                     <div className="flex flex-wrap gap-2">
-                      <button
-                        disabled={busy || stats.awaiting === 0}
-                        onClick={async () => {
-                          setBusy(true);
-                          try {
-                            await remindAllServiceAssignments({
-                              data: {
-                                orgId: data.orgId,
-                                showId: selected.id,
-                              },
-                            });
-                          } finally {
-                            setBusy(false);
-                          }
-                        }}
-                        className="flex items-center gap-2 rounded-lg bg-fire-500 px-3 py-2 text-xs font-semibold text-black disabled:opacity-40"
-                      >
-                        <Send className="h-3.5 w-3.5" />
-                        {busy
-                          ? "Sending reminders…"
-                          : `Remind awaiting crew (${stats.awaiting})`}
-                      </button>
+                      <ReminderControl
+                        orgId={data.orgId}
+                        target={{ kind: "show", id: selected.id }}
+                        label={`Remind awaiting crew (${stats.awaiting})`}
+                        disabled={stats.awaiting === 0}
+                        onChanged={async () => { await router.invalidate(); const match = router.state.matches.find(value => value.routeId === Route.id); if (match?.status === "error") throw match.error; }}
+                      />
                       <button
                         onClick={() => {
                           setTeamBuilderOpen(true);
@@ -1051,8 +1035,8 @@ function RosterMobileCard({
       {canManage ? (
         <div className="flex flex-wrap gap-2">
           <button onClick={onEdit} aria-label={`Edit ${assignment.role}`} className="rounded-lg border border-board-border px-3 py-2 text-[11px] text-board-text">Edit</button>
-          {pending ? (
-            <button disabled={busy} onClick={async () => { setBusy(true); try { await remindServiceAssignment({ data: { orgId, id: assignment.id } }); } finally { setBusy(false); } }} className="rounded-lg border border-fire-500/25 px-3 py-2 text-[11px] text-fire-400 disabled:opacity-50">Resend invite</button>
+          {assignment.crewMemberId ? (
+            <ReminderControl orgId={orgId} target={{ kind: "assignment", id: assignment.id }} label="Resend invite" disabled={!pending} onChanged={onChanged} />
           ) : null}
           <button disabled={busy} onClick={() => void remove()} className="ml-auto rounded-lg px-3 py-2 text-[11px] text-red-300 disabled:opacity-50">Remove</button>
         </div>
@@ -1078,7 +1062,6 @@ function RosterRow({
 }) {
   const locale = useDeviceLocale();
   const deviceTimeZone = useDeviceTimeZone();
-  const [busy, setBusy] = useState(false);
   const responseOpen = assignment.responseWindow.status === "open";
   const closed =
     assignment.status === "assigned" &&
@@ -1144,21 +1127,8 @@ function RosterRow({
                 : "Awaiting"
               : assignment.status
             : "Open"}</span>
-          {pending && canManage ? (
-            <button
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  await remindServiceAssignment({ data: { orgId, id: assignment.id } });
-                } finally {
-                  setBusy(false);
-                }
-              }}
-              className="ml-auto shrink-0 text-[9px] normal-case text-fire-400 disabled:opacity-50"
-            >
-              Resend
-            </button>
+          {canManage && assignment.crewMemberId ? (
+            <ReminderControl orgId={orgId} target={{ kind: "assignment", id: assignment.id }} label="Resend invite" disabled={!pending} onChanged={onChanged} />
           ) : null}
         </div>
         {assignment.responseNote ? (

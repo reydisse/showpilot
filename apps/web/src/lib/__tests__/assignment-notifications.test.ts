@@ -30,6 +30,7 @@ vi.mock("../operational-notifications.server", () => ({
 const assignment = {
   orgId: "org-1",
   assignmentId: "assignment-1",
+  deliveryId: "delivery-1",
   crewEmail: "  Person@Example.com ",
   serviceName: "Sunday Service",
   serviceDate: "2026-09-30",
@@ -46,9 +47,13 @@ describe("assignment notifications", () => {
   });
 
   it("notifies the signed-in organization member matched by normalized email", async () => {
-    await expect(notifyAssignmentRecipient(assignment)).resolves.toEqual({ notified: true });
+    await expect(notifyAssignmentRecipient(assignment)).resolves.toEqual({
+      notified: true,
+    });
 
-    const lookup = mocks.statements.find((statement) => statement.sql.includes("JOIN user"));
+    const lookup = mocks.statements.find((statement) =>
+      statement.sql.includes("JOIN user"),
+    );
     expect(lookup?.params).toEqual(["org-1", "person@example.com"]);
     expect(mocks.notifyOperationalEvent).toHaveBeenCalledWith({
       orgId: "org-1",
@@ -61,17 +66,18 @@ describe("assignment notifications", () => {
       actionUrl: "assignments?assignment=assignment-1",
       source: "assignment-1",
       pushTag: "assignment-assignment-1",
-      dedupeKey: "assignment-assignment-1",
+      dedupeKey: "assignment-assignment-1-delivery-1",
+      once: true,
     });
   });
 
-  it("replaces the previous actionable invite before sending a reminder", async () => {
+  it("removes only stale recipients before sending a reminder", async () => {
     await notifyAssignmentRecipient({ ...assignment, reminder: true });
 
     const cleanup = mocks.statements.find((statement) =>
       statement.sql.startsWith("DELETE FROM notification"),
     );
-    expect(cleanup?.params).toEqual(["org-1", "assignment-1"]);
+    expect(cleanup?.params).toEqual(["org-1", "assignment-1", "user-1"]);
     expect(mocks.notifyOperationalEvent).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Assignment reminder" }),
     );
@@ -80,10 +86,14 @@ describe("assignment notifications", () => {
   it("does not expose an assignment when the crew email has no org account", async () => {
     mocks.recipient = null;
 
-    await expect(notifyAssignmentRecipient(assignment)).resolves.toEqual({ notified: false });
+    await expect(notifyAssignmentRecipient(assignment)).resolves.toEqual({
+      notified: false,
+    });
     expect(mocks.notifyOperationalEvent).not.toHaveBeenCalled();
-    expect(mocks.statements.some((statement) =>
-      statement.sql.startsWith("DELETE FROM notification"),
-    )).toBe(false);
+    expect(
+      mocks.statements.some((statement) =>
+        statement.sql.startsWith("DELETE FROM notification"),
+      ),
+    ).toBe(false);
   });
 });

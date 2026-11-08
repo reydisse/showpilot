@@ -20,15 +20,6 @@ const publicTokenSchema = z
   .max(160)
   .regex(/^[A-Za-z0-9_-]+$/);
 
-function toBase64Url(bytes: Uint8Array) {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
 async function tokenHash(token: string) {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -47,13 +38,51 @@ export async function sendCrewScheduleInvite(input: {
   role: string;
   origin: string;
   reminder?: boolean;
+  requestId?: string;
+  reviewedAssignment?: { showId: string | null; callTime: string };
+  authority?: import("./schedule-invitation-delivery.server").InvitationGuard;
 }) {
   const prisma = getPrisma();
+  const requestId = input.requestId ?? crypto.randomUUID();
+  const accepted = await getD1()
+    .prepare(
+      "SELECT updatedAt,inAppDelivered FROM schedule_invitation_delivery WHERE orgId=? AND assignmentId=? AND requestId=? AND state='accepted'",
+    )
+    .bind(input.orgId, input.assignmentId, requestId)
+    .first<{ updatedAt: number; inAppDelivered: number }>();
+  if (accepted)
+    return {
+      delivered: true,
+      reason: null,
+      emailState: "accepted" as const,
+      inAppDelivered: !!accepted.inAppDelivered,
+      requestId,
+      updatedAt: accepted.updatedAt,
+    };
   const assignment = await prisma.serviceAssignment.findFirst({
-    where: { id: input.assignmentId, orgId: input.orgId, crewMemberId: input.crewMemberId },
-    select: { showId: true, serviceDate: true, role: true, callTime: true, status: true },
+    where: {
+      id: input.assignmentId,
+      orgId: input.orgId,
+      crewMemberId: input.crewMemberId,
+    },
+    select: {
+      showId: true,
+      serviceDate: true,
+      role: true,
+      callTime: true,
+      status: true,
+    },
   });
-  if (!assignment) return { delivered: false, reason: "assignment-not-found" as const };
+  if (!assignment)
+    return { delivered: false, reason: "assignment-not-found" as const };
+  if (
+    input.reviewedAssignment &&
+    (assignment.role !== input.role ||
+      assignment.serviceDate !== input.serviceDate ||
+      assignment.showId !== input.reviewedAssignment.showId ||
+      assignment.callTime !== input.reviewedAssignment.callTime)
+  )
+    return { delivered: false, reason: "assignment-changed" as const };
   const [
     crew,
     org,
@@ -76,7 +105,8 @@ export async function sendCrewScheduleInvite(input: {
         : { orgId: input.orgId, serviceDate: assignment.serviceDate },
       select: {
         name: true,
-        scheduledStartTime: true, scheduledCallTime: true,
+        scheduledStartTime: true,
+        scheduledCallTime: true,
         location: true,
         items: { select: { duration: true } },
       },
@@ -95,7 +125,9 @@ export async function sendCrewScheduleInvite(input: {
       select: { value: true },
     }),
     prisma.appSetting.findUnique({
-      where: { orgId_key: { orgId: input.orgId, key: "default-call-lead-minutes" } },
+      where: {
+        orgId_key: { orgId: input.orgId, key: "default-call-lead-minutes" },
+      },
       select: { value: true },
     }),
   ]);
@@ -127,62 +159,47 @@ export async function sendCrewScheduleInvite(input: {
     ...assignment,
     scheduledStartTime: rundown?.scheduledStartTime?.toISOString(),
     scheduledCallTime: rundown?.scheduledCallTime?.toISOString(),
-    callLeadMinutes: readPhaseSettings({ "default-call-lead-minutes": callLeadSetting?.value ?? "" }).callLeadMinutes,
+    callLeadMinutes: readPhaseSettings({
+      "default-call-lead-minutes": callLeadSetting?.value ?? "",
+    }).callLeadMinutes,
     timeZone: timezoneSetting?.value,
   });
-  const recipientZone = await getD1().prepare(
-    `SELECT s.value FROM app_setting s
+  const recipientZone = await getD1()
+    .prepare(
+      `SELECT s.value FROM app_setting s
      JOIN member m ON m.organizationId = s.orgId AND s.key = 'notification-timezone:' || m.userId
      JOIN user u ON u.id = m.userId
      WHERE s.orgId = ? AND LOWER(u.email) = ? LIMIT 1`,
-  ).bind(input.orgId, crew.email.trim().toLowerCase()).first<{ value: string }>();
+    )
+    .bind(input.orgId, crew.email.trim().toLowerCase())
+    .first<{ value: string }>();
   const start = effectiveCallTime
     ? new Date(effectiveCallTime).toLocaleTimeString([], {
-        hour: "numeric", minute: "2-digit", timeZoneName: "short",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short",
         timeZone: recipientZone?.value || timezoneSetting?.value || "UTC",
       })
     : "Time to be confirmed";
-  let notifiedInApp = false;
-  let emailAccessId: string | null = null;
-  try {
-    const { notifyAssignmentRecipient } = await import(
-      "@/lib/assignment-notifications.server"
-    );
-    const inApp = await notifyAssignmentRecipient({
-      orgId: input.orgId,
-      assignmentId: input.assignmentId,
-      crewEmail: crew.email,
-      serviceName,
-      serviceDate: assignment.serviceDate,
-      role: assignment.role,
-      start,
-      reminder: input.reminder,
-    });
-    notifiedInApp = inApp.notified;
-  } catch (error) {
-    console.error("[Schedule] In-app assignment delivery failed", error);
-  }
-
-  try {
-    const bytes = new Uint8Array(32);
-    crypto.getRandomValues(bytes);
-    const token = toBase64Url(bytes);
-    const hash = await tokenHash(token);
-    const expiresAt = new Date(
-      Date.now() + 90 * 24 * 60 * 60 * 1000,
-    ).toISOString();
-    // Keep previously delivered links valid. Every email receives a new
-    // independently revocable token; all expire automatically after 90 days.
-    emailAccessId = crypto.randomUUID();
-    await getD1()
-      .prepare(
-        "INSERT INTO crew_schedule_access (id, orgId, crewMemberId, tokenHash, expiresAt, assignmentId) VALUES (?, ?, ?, ?, ?, ?)",
-      )
-      .bind(emailAccessId, input.orgId, input.crewMemberId, hash, expiresAt, input.assignmentId)
-      .run();
-    const link = `${input.origin}/crew/schedule/${token}`;
-    const { crewScheduleEmail, sendEmail } = await import("@/lib/email");
-    const email = crewScheduleEmail({
+  const { crewScheduleEmail } = await import("./email");
+  const { deliverScheduleInvitation } =
+    await import("./schedule-invitation-delivery.server");
+  const terms = resolveWorkspaceProfile(
+    Object.fromEntries(
+      (
+        await prisma.appSetting.findMany({
+          where: {
+            orgId: input.orgId,
+            key: { in: [...WORKSPACE_SETTING_KEYS] },
+          },
+          select: { key: true, value: true },
+        })
+      ).map((setting) => [setting.key, setting.value]),
+    ),
+  ).terms;
+  const render = (link: string) => ({
+    to: crew.email!,
+    ...crewScheduleEmail({
       orgName: org.name,
       serviceName,
       serviceDate: assignment.serviceDate,
@@ -191,32 +208,65 @@ export async function sendCrewScheduleInvite(input: {
       location: rundown?.location,
       link,
       reminder: input.reminder,
-      terms: resolveWorkspaceProfile(Object.fromEntries((await prisma.appSetting.findMany({
-        where: { orgId: input.orgId, key: { in: [...WORKSPACE_SETTING_KEYS] } },
-        select: { key: true, value: true },
-      })).map(setting => [setting.key, setting.value]))).terms,
-    });
-    await sendEmail({
-      to: crew.email,
-      ...email,
-    });
-    return { delivered: true, reason: null };
-  } catch (error) {
-    if (emailAccessId) {
-      try {
-        await getD1()
-          .prepare("DELETE FROM crew_schedule_access WHERE id = ? AND orgId = ?")
-          .bind(emailAccessId, input.orgId)
-          .run();
-      } catch (cleanupError) {
-        console.error("[Schedule] Failed invitation token cleanup", cleanupError);
-      }
-    }
-    // A signed-in assignee has already received the durable app invitation.
-    // Keep email as an independent fallback instead of reversing that success.
-    if (notifiedInApp) return { delivered: true, reason: null };
-    throw error;
-  }
+      terms,
+    }),
+  });
+  const fingerprint = Array.from(
+    new Uint8Array(
+      await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(
+          JSON.stringify(render("schedule-invitation-link")),
+        ),
+      ),
+    ),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+  const guard = {
+    sql: `EXISTS(SELECT 1 FROM service_assignment a JOIN crew_member c ON c.id=a.crewMemberId AND c.orgId=a.orgId
+      WHERE a.orgId=? AND a.id=? AND a.crewMemberId=? AND a.status='assigned' AND a.serviceDate=? AND a.role=? AND a.callTime=? AND a.showId IS ? AND c.email=?)
+      AND julianday('now')<julianday(?) AND NOT EXISTS(SELECT 1 FROM app_setting WHERE orgId=? AND key='organization-deleting')${input.authority ? ` AND (${input.authority.sql})` : ""}`,
+    args: [
+      input.orgId,
+      input.assignmentId,
+      input.crewMemberId,
+      assignment.serviceDate,
+      assignment.role,
+      assignment.callTime,
+      assignment.showId,
+      crew.email,
+      responseWindow.closesAt,
+      input.orgId,
+      ...(input.authority?.args ?? []),
+    ],
+  };
+  return deliverScheduleInvitation({
+    orgId: input.orgId,
+    assignmentId: input.assignmentId,
+    crewMemberId: input.crewMemberId,
+    requestId,
+    origin: input.origin,
+    fingerprint,
+    guard,
+    render,
+    notify: async (deliveryId) => {
+      const { notifyAssignmentRecipient } =
+        await import("./assignment-notifications.server");
+      return (
+        await notifyAssignmentRecipient({
+          orgId: input.orgId,
+          assignmentId: input.assignmentId,
+          crewEmail: crew.email!,
+          serviceName,
+          serviceDate: assignment.serviceDate,
+          role: assignment.role,
+          start,
+          reminder: input.reminder,
+          deliveryId,
+        })
+      ).notified;
+    },
+  });
 }
 
 type PortalAssignmentRow = {
