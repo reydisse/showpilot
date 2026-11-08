@@ -1,3 +1,4 @@
+import { AssignmentEditor } from "@/components/schedule/AssignmentEditor";
 import { ReminderControl } from "@/components/schedule/ReminderControl";
 import { ScheduleProviderControl } from "@/components/schedule/ScheduleProviderControl";
 import { workspaceCopy } from "@showpilot/shared";
@@ -33,11 +34,9 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createNextService, copyCrewFromService } from "@/lib/pm-actions";
 import {
-  deleteServiceAssignment,
   deleteService,
   getSchedule,
   getServiceAssignments,
-  saveServiceAssignment,
   saveServiceDetails,
   type ScheduleProvider,
 } from "@/lib/schedule";
@@ -195,6 +194,11 @@ function SchedulePage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const router = useRouter();
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
+  const refreshAssignments = async () => {
+    await router.invalidate();
+    const match = router.state.matches.find(value => value.routeId === Route.id);
+    if (match?.status === "error") throw match.error;
+  };
   const [createOpen, setCreateOpen] = useState(false);
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [inventorySeedId, setInventorySeedId] = useState<string | undefined>();
@@ -649,46 +653,30 @@ function SchedulePage() {
         />
       ) : null}
       {assignmentOpen && selected ? (
-        <AssignmentModal
-          orgId={data.orgId}
-          showId={selected.id}
-          serviceDate={selected.serviceDate}
-          departments={departments}
-          initialDepartment={assignmentDepartment}
-          crew={data.crew}
-          onClose={() => setAssignmentOpen(false)}
-          onSaved={async () => {
-            setAssignmentOpen(false);
-            await router.invalidate();
-          }}
+        <AssignmentEditor
+          key={`create:${user.id}:${data.orgId}:${selected.id}`}
+          orgId={data.orgId} userId={user.id}
+          target={{ kind: "create", showId: selected.id, serviceDate: selected.serviceDate }}
+          departments={departments} initialDepartment={assignmentDepartment || "Production"}
+          crew={data.crew} venueTimeZone={data.orgTimezone} confirm={confirm}
+          onClose={() => setAssignmentOpen(false)} onSaved={refreshAssignments}
         />
       ) : null}
       {teamBuilderOpen && selected ? (
-        <TeamBuilderModal
-          orgId={data.orgId}
-          showId={selected.id}
-          serviceDate={selected.serviceDate}
-          crew={data.crew}
-          onClose={() => setTeamBuilderOpen(false)}
-          onSaved={async () => {
-            setTeamBuilderOpen(false);
-            await router.invalidate();
-          }}
+        <AssignmentEditor
+          key={`team:${user.id}:${data.orgId}:${selected.id}`}
+          orgId={data.orgId} userId={user.id}
+          target={{ kind: "team", showId: selected.id, serviceDate: selected.serviceDate }}
+          departments={departments} crew={data.crew} venueTimeZone={data.orgTimezone} confirm={confirm}
+          onClose={() => setTeamBuilderOpen(false)} onSaved={refreshAssignments}
         />
       ) : null}
       {editing ? (
-        <EditAssignmentModal
-          orgId={data.orgId}
-          showId={selected?.id ?? editing.showId ?? ""}
-          assignment={editing}
-          departments={departments}
-          crew={data.crew}
-          confirm={confirm}
-          onClose={() => setEditing(null)}
-          onSaved={async () => {
-            setEditing(null);
-            await router.invalidate();
-          }}
+        <AssignmentEditor
+          key={`edit:${user.id}:${data.orgId}:${editing.id}`}
+          orgId={data.orgId} userId={user.id} target={{ kind: "edit", id: editing.id }}
+          departments={departments} crew={data.crew} venueTimeZone={data.orgTimezone} confirm={confirm}
+          onClose={() => setEditing(null)} onSaved={refreshAssignments}
         />
       ) : null}
       {serviceOpen && selected ? (
@@ -912,7 +900,7 @@ function RosterTable({
       </div>
       <div className="hidden overflow-x-auto md:block">
       <div className="min-w-[900px]">
-        <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.8fr)_72px] border-b border-board-border bg-board-bg px-6 py-2.5 text-[10px] uppercase tracking-wider text-board-muted">
+        <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.8fr)_104px] border-b border-board-border bg-board-bg px-6 py-2.5 text-[10px] uppercase tracking-wider text-board-muted">
           <span>Position</span>
           <span>Assigned to</span>
           <span>Invitation</span>
@@ -972,7 +960,6 @@ function RosterMobileCard({
 }) {
   const locale = useDeviceLocale();
   const deviceTimeZone = useDeviceTimeZone();
-  const [busy, setBusy] = useState(false);
   const responseOpen = assignment.responseWindow.status === "open";
   const closed =
     assignment.status === "assigned" &&
@@ -996,22 +983,6 @@ function RosterMobileCard({
       : closed
         ? "text-board-muted"
         : "text-yellow-300";
-  const remove = async () => {
-    const approved = await confirm({
-      title: "Remove assignment?",
-      description: `Remove ${assignment.role} from this service?`,
-      confirmLabel: "Remove assignment",
-      variant: "danger",
-    });
-    if (!approved) return;
-    setBusy(true);
-    try {
-      await deleteServiceAssignment({ data: { orgId, id: assignment.id } });
-      await onChanged();
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <article id={`assignment-mobile-${assignment.id}`} className="min-w-0 space-y-3 bg-board-bg px-4 py-4">
       <div className="flex min-w-0 items-start gap-3">
@@ -1038,7 +1009,7 @@ function RosterMobileCard({
           {assignment.crewMemberId ? (
             <ReminderControl orgId={orgId} target={{ kind: "assignment", id: assignment.id }} label="Resend invite" disabled={!pending} onChanged={onChanged} />
           ) : null}
-          <button disabled={busy} onClick={() => void remove()} className="ml-auto rounded-lg px-3 py-2 text-[11px] text-red-300 disabled:opacity-50">Remove</button>
+          <RemoveAssignmentButton orgId={orgId} assignment={assignment} confirm={confirm} onChanged={onChanged} />
         </div>
       ) : null}
     </article>
@@ -1080,7 +1051,7 @@ function RosterRow({
           ? "text-board-muted"
           : "text-yellow-300";
   return (
-    <div id={`assignment-${assignment.id}`} className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.8fr)_72px] items-center border-b border-board-border px-6 py-3 text-xs hover:bg-board-card/60">
+    <div id={`assignment-${assignment.id}`} className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.8fr)_104px] items-center border-b border-board-border px-6 py-3 text-xs hover:bg-board-card/60">
       <button
         disabled={!canManage}
         onClick={onEdit}
@@ -1143,33 +1114,35 @@ function RosterRow({
             <button
               onClick={onEdit}
               aria-label={`Edit ${assignment.role}`}
-              className="rounded p-1.5 text-board-muted hover:bg-board-border hover:text-board-text"
+              className="min-h-11 min-w-11 rounded p-1.5 text-board-muted hover:bg-board-border hover:text-board-text"
             >
               <Pencil className="h-3.5 w-3.5" />
             </button>
-            <button
-              onClick={async () => {
-                const approved = await confirm({
-                  title: "Remove position",
-                  description: `Remove ${assignment.role} from this service?`,
-                  confirmLabel: "Remove",
-                });
-                if (!approved) return;
-                await deleteServiceAssignment({
-                  data: { orgId, id: assignment.id },
-                });
-                await onChanged();
-              }}
-              aria-label={`Remove ${assignment.role}`}
-              className="rounded p-1.5 text-board-muted hover:bg-board-border hover:text-red-400"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            <RemoveAssignmentButton orgId={orgId} assignment={assignment} confirm={confirm} onChanged={onChanged} />
           </>
         ) : null}
       </div>
     </div>
   );
+}
+
+function RemoveAssignmentButton({ orgId, assignment, confirm, onChanged }: {
+  orgId: string; assignment: Assignment; confirm: ReturnType<typeof useConfirmDialog>["confirm"]; onChanged: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const { user } = Route.useRouteContext();
+  const data = Route.useLoaderData();
+  const router = useRouter();
+  return <>
+    <button type="button" aria-label={`Remove ${assignment.role}`} onClick={() => setOpen(true)} className="min-h-11 min-w-11 rounded-lg px-2 text-xs text-red-300">Remove</button>
+    {open && <AssignmentEditor orgId={orgId} userId={user.id} target={{ kind: "delete", id: assignment.id }}
+      departments={[]} crew={data.crew} venueTimeZone={data.orgTimezone} confirm={confirm}
+      onClose={() => setOpen(false)} onSaved={async () => {
+        await onChanged();
+        const match = router.state.matches.find(value => value.routeId === Route.id);
+        if (match?.status === "error") throw match.error;
+      }} />}
+  </>;
 }
 
 function CreateServiceModal({
@@ -1702,525 +1675,6 @@ function ServiceDetailsModal({
           Delete show
         </button>
       </div>
-    </Modal>
-  );
-}
-type TeamBuilderRow = { crewId: string; role: string };
-
-function TeamBuilderModal({
-  orgId,
-  showId,
-  serviceDate,
-  crew,
-  onClose,
-  onSaved,
-}: {
-  orgId: string;
-  showId: string;
-  serviceDate: string;
-  crew: Array<{ id: string; name: string; role: string; email: string }>;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [category, setCategory] = useState("");
-  const [rows, setRows] = useState<TeamBuilderRow[]>([
-    { crewId: "", role: "" },
-  ]);
-  const [busy, setBusy] = useState(false);
-  const validRows = rows.filter((row) => row.crewId && row.role.trim());
-  const selectedIds = new Set(rows.map((row) => row.crewId).filter(Boolean));
-
-  return (
-    <Modal title="Build a team" description="Choose crew members and the roles to invite them to." onClose={onClose}>
-      <form
-        className="space-y-5"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          if (!category.trim() || validRows.length === 0) return;
-          setBusy(true);
-          try {
-            await Promise.all(
-              validRows.map((row) =>
-                saveServiceAssignment({
-                  data: {
-                    orgId,
-                    showId,
-                    serviceDate,
-                    department: category.trim(),
-                    role: row.role.trim(),
-                    crewMemberId: row.crewId,
-                    status: "assigned",
-                    notes: "",
-                  },
-                }),
-              ),
-            );
-            onSaved();
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <div>
-          <Field label="Team or category name">
-            <input
-              autoFocus
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
-              placeholder="Technical, Broadcast, Guest Experience…"
-              maxLength={80}
-              className={FORM_CONTROL}
-            />
-          </Field>
-          <p className="mt-2 text-[11px] text-board-muted">
-            Name this group in the language your production already uses.
-          </p>
-        </div>
-
-        <div className="space-y-2">
-          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] gap-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-board-muted">
-            <span>Person</span>
-            <span>Role</span>
-            <span />
-          </div>
-          {rows.map((row, index) => {
-            const person = crew.find((item) => item.id === row.crewId);
-            return (
-              <div key={index} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] gap-2">
-                <select
-                  aria-label={`Person ${index + 1}`}
-                  value={row.crewId}
-                  onChange={(event) => {
-                    const crewId = event.target.value;
-                    setRows((current) =>
-                      current.map((item, rowIndex) =>
-                        rowIndex === index
-                          ? {
-                              ...item,
-                              crewId,
-                              role:
-                                item.role ||
-                                crew.find((entry) => entry.id === crewId)
-                                  ?.role ||
-                                "",
-                            }
-                          : item,
-                      ),
-                    );
-                  }}
-                  className={FORM_CONTROL}
-                >
-                  <option value="">Choose person</option>
-                  {crew.map((personOption) => (
-                    <option
-                      key={personOption.id}
-                      value={personOption.id}
-                      disabled={
-                        selectedIds.has(personOption.id) &&
-                        personOption.id !== row.crewId
-                      }
-                    >
-                      {personOption.name}
-                      {personOption.email ? "" : " (no email)"}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  aria-label={`Role for person ${index + 1}`}
-                  value={row.role}
-                  onChange={(event) =>
-                    setRows((current) =>
-                      current.map((item, rowIndex) =>
-                        rowIndex === index
-                          ? { ...item, role: event.target.value }
-                          : item,
-                      ),
-                    )
-                  }
-                  placeholder="Role for this show"
-                  maxLength={120}
-                  className={FORM_CONTROL}
-                />
-                <button
-                  type="button"
-                  aria-label="Remove person"
-                  disabled={rows.length === 1}
-                  onClick={() =>
-                    setRows((current) =>
-                      current.filter((_, rowIndex) => rowIndex !== index),
-                    )
-                  }
-                  className="grid place-items-center rounded-lg border border-board-border text-board-muted hover:text-red-300 disabled:opacity-30"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-                {person && !person.email ? (
-                  <p className="col-span-3 text-[10px] text-red-300">
-                    Add an email address to {person.name} before inviting them.
-                  </p>
-                ) : null}
-              </div>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() =>
-              setRows((current) => [...current, { crewId: "", role: "" }])
-            }
-            className="flex items-center gap-2 rounded-lg border border-dashed border-board-border px-3 py-2 text-xs text-fire-400 hover:bg-board-card"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add another person
-          </button>
-        </div>
-
-        <button
-          disabled={
-            busy ||
-            !category.trim() ||
-            validRows.length === 0 ||
-            validRows.some(
-              (row) => !crew.find((person) => person.id === row.crewId)?.email,
-            )
-          }
-          className="w-full rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50"
-        >
-          {busy
-            ? "Creating team…"
-            : `Create ${category.trim() || "team"} & send ${validRows.length} invitation${validRows.length === 1 ? "" : "s"}`}
-        </button>
-      </form>
-    </Modal>
-  );
-}
-
-function AssignmentModal({
-  orgId,
-  showId,
-  serviceDate,
-  departments,
-  initialDepartment,
-  crew,
-  onClose,
-  onSaved,
-}: {
-  orgId: string;
-  showId: string;
-  serviceDate: string;
-  departments: string[];
-  initialDepartment: string;
-  crew: Array<{ id: string; name: string; role: string; email: string }>;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [role, setRole] = useState("");
-  const [department, setDepartment] = useState(initialDepartment);
-  const [crewId, setCrewId] = useState("");
-  const [callTime, setCallTime] = useState("");
-  const [notes, setNotes] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const selectedCrew = crew.find((person) => person.id === crewId);
-  return (
-    <Modal title="Add position" description="Add a crew role and optionally assign a person." onClose={onClose}>
-      <form
-        onSubmit={async (event) => {
-          event.preventDefault();
-          setBusy(true);
-          setSaveError(null);
-          try {
-            await saveServiceAssignment({
-              data: {
-                orgId,
-                showId,
-                serviceDate,
-                role,
-                department,
-                crewMemberId: crewId || null,
-                status: "assigned",
-                callTime,
-                timeZone: getDeviceTimeZone(),
-                notes,
-              },
-            });
-            onSaved();
-          } catch (cause) {
-            setSaveError(cause instanceof Error ? cause.message : "Assignment did not save");
-          } finally {
-            setBusy(false);
-          }
-        }}
-        className="space-y-4"
-      >
-        <Field label="Position">
-          <input
-            value={role}
-            onChange={(event) => setRole(event.target.value)}
-            placeholder="Camera Operator"
-            className={FORM_CONTROL}
-          />
-        </Field>
-        <Field label="Department">
-          <input
-            list="schedule-department-options"
-            value={department}
-            onChange={(event) => setDepartment(event.target.value)}
-            placeholder="Technical"
-            maxLength={80}
-            className={FORM_CONTROL}
-          />
-          <datalist id="schedule-department-options">
-            {departments.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </datalist>
-        </Field>
-        <Field label="Roster contact">
-          <select
-            value={crewId}
-            onChange={(event) => setCrewId(event.target.value)}
-            className={FORM_CONTROL}
-          >
-            <option value="">Leave position open</option>
-            {crew.map((person) => (
-              <option key={person.id} value={person.id}>
-                {person.name} · {person.role}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Custom call time (optional)">
-          <input type="time" value={callTime} onChange={(event) => setCallTime(event.target.value)} className={FORM_CONTROL} />
-          <p className="mt-1.5 text-xs leading-4 text-board-muted">Uses your device timezone. Leave blank to use the show's crew call time.</p>
-        </Field>
-        {saveError ? (
-          <p role="alert" className="text-sm text-red-300">{saveError}</p>
-        ) : null}
-        <Field label="Manager note (optional)">
-          <textarea
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            rows={3}
-            maxLength={500}
-            placeholder="Call time, arrival instructions or preparation notes"
-            className={FORM_CONTROL}
-          />
-        </Field>
-        {selectedCrew ? (
-          <div
-            className={`rounded-lg border px-3 py-2.5 text-[11px] leading-relaxed ${selectedCrew.email ? "border-green-500/20 bg-green-500/[0.05] text-board-muted" : "border-red-500/20 bg-red-500/[0.05] text-red-300"}`}
-          >
-            {selectedCrew.email
-              ? `A secure response link will be emailed to ${selectedCrew.email}. No account needed.`
-              : "This roster contact has no email address. Add one before sending a request."}
-          </div>
-        ) : null}
-        <button
-          disabled={
-            busy ||
-            !role.trim() ||
-            !department.trim() ||
-            (Boolean(crewId) && !selectedCrew?.email)
-          }
-          className="w-full rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50"
-        >
-          {busy
-            ? "Scheduling…"
-            : crewId
-              ? "Add position & send invitation"
-              : "Add open position"}
-        </button>
-      </form>
-    </Modal>
-  );
-}
-function EditAssignmentModal({
-  orgId,
-  showId,
-  assignment,
-  departments,
-  crew,
-  confirm,
-  onClose,
-  onSaved,
-}: {
-  orgId: string;
-  showId: string;
-  assignment: Assignment;
-  departments: string[];
-  crew: Array<{ id: string; name: string; role: string; email: string }>;
-  confirm: ReturnType<typeof useConfirmDialog>["confirm"];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [role, setRole] = useState(assignment.role);
-  const [department, setDepartment] = useState(
-    assignment.department || inferredDepartment(assignment.role),
-  );
-  const [crewId, setCrewId] = useState(assignment.crewMemberId ?? "");
-  const [callTime, setCallTime] = useState(assignment.callTime ? formatTimeInput(assignment.effectiveCallTime, getDeviceTimeZone()) : "");
-  const [notes, setNotes] = useState(assignment.notes);
-  const [busy, setBusy] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const selectedCrew = crew.find((person) => person.id === crewId);
-  const personChanged = crewId !== (assignment.crewMemberId ?? "");
-  const submit = async () => {
-    if (personChanged && assignment.status === "confirmed") {
-      const approved = await confirm({
-        title: crewId
-          ? "Replace confirmed crew member?"
-          : "Make confirmed position open?",
-        description: `${assignment.crewMember?.name ?? "This person"} has already accepted ${assignment.role}. Their confirmation will be cleared.`,
-        confirmLabel: crewId ? "Replace person" : "Make open",
-      });
-      if (!approved) return;
-    }
-    setBusy(true);
-    setSaveError(null);
-    try {
-      await saveServiceAssignment({
-        data: {
-          orgId,
-          showId,
-          id: assignment.id,
-          serviceDate: assignment.serviceDate,
-          role,
-          department,
-          crewMemberId: crewId || null,
-          status: assignment.status as "assigned" | "confirmed" | "declined",
-          callTime,
-          timeZone: getDeviceTimeZone(),
-          notes,
-        },
-      });
-      onSaved();
-    } catch (cause) {
-      setSaveError(cause instanceof Error ? cause.message : "Assignment did not save");
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Modal title="Edit assignment" description="Update the crew member, role and response for this position." onClose={onClose}>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-        className="space-y-4"
-      >
-        <div className="rounded-lg border border-board-border bg-board-bg/50 px-3 py-2.5">
-          <p className="text-[10px] uppercase tracking-wider text-board-muted">
-            Current response
-          </p>
-          <p
-            className={`mt-1 text-xs font-medium capitalize ${assignment.status === "confirmed" ? "text-green-400" : assignment.status === "declined" ? "text-red-400" : "text-yellow-300"}`}
-          >
-            {assignment.crewMemberId
-              ? assignment.status === "assigned"
-                ? "Awaiting response"
-                : assignment.status
-              : "Open position"}
-          </p>
-          {assignment.responseNote ? (
-            <div className="mt-2 border-t border-board-border pt-2">
-              <p className="text-[10px] uppercase tracking-wider text-board-muted">Crew response note</p>
-              <p className="mt-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xs leading-5 text-board-text">{assignment.responseNote}</p>
-              {assignment.respondedAt ? (
-                <p className="mt-1 text-[10px] text-board-muted">Responded {new Date(assignment.respondedAt).toLocaleString()}</p>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-        <Field label="Position">
-          <input
-            value={role}
-            onChange={(event) => setRole(event.target.value)}
-            className={FORM_CONTROL}
-          />
-        </Field>
-        <Field label="Department">
-          <select
-            value={department}
-            onChange={(event) => setDepartment(event.target.value)}
-            className={FORM_CONTROL}
-          >
-            {departments.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Assigned roster contact">
-          <select
-            value={crewId}
-            onChange={(event) => setCrewId(event.target.value)}
-            className={FORM_CONTROL}
-          >
-            <option value="">Open position — nobody assigned</option>
-            {crew.map((person) => (
-              <option key={person.id} value={person.id}>
-                {person.name} · {person.role}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Custom call time (optional)">
-          <input type="time" value={callTime} onChange={(event) => setCallTime(event.target.value)} className={FORM_CONTROL} />
-          <p className="mt-1.5 text-xs leading-4 text-board-muted">Uses your device timezone. Leave blank to use the show's crew call time.</p>
-        </Field>
-        {saveError ? (
-          <p role="alert" className="text-sm text-red-300">{saveError}</p>
-        ) : null}
-        <Field label="Manager note">
-          <textarea
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            rows={3}
-            maxLength={500}
-            className={FORM_CONTROL}
-          />
-        </Field>
-        {personChanged ? (
-          <div
-            className={`rounded-lg border px-3 py-2.5 text-[11px] leading-relaxed ${!crewId || selectedCrew?.email ? "border-fire-500/20 bg-fire-500/[0.05] text-board-muted" : "border-red-500/20 bg-red-500/[0.05] text-red-300"}`}
-          >
-            {!crewId
-              ? "The position will remain on the schedule as open. The previous person will no longer see this assignment."
-              : selectedCrew?.email
-                ? `This resets the response to Awaiting and sends ${selectedCrew.name} a new secure invitation.`
-                : "This roster contact needs an email address before they can be assigned."}
-          </div>
-        ) : (
-          <p className="text-[11px] leading-relaxed text-board-muted">
-            Changing only the position or note preserves the existing response.
-          </p>
-        )}
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-board-border px-4 py-2.5 text-sm text-board-text"
-          >
-            Cancel
-          </button>
-          <button
-            disabled={
-              busy || !role.trim() || (Boolean(crewId) && !selectedCrew?.email)
-            }
-            className="rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50"
-          >
-            {busy
-              ? "Saving…"
-              : personChanged && crewId
-                ? "Save and send request"
-                : "Save changes"}
-          </button>
-        </div>
-      </form>
     </Modal>
   );
 }

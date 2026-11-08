@@ -6117,3 +6117,69 @@ Phase 2 remains 67/79. Assignment creation/edit/removal, mobile recovery and the
 broader product gates remain open. No deployment, release, production migration,
 real-organization write or external email. Twenty necessary tracked Markdown
 files remain; none were added.
+
+### Assignment save recovery — Phase 2 partial evidence (2026-11-08)
+
+Branch: `fix/schedule-assignment-recovery`, based on the green reminder change.
+The original real-auth/D1 regressions reproduced duplicate positions on create
+retry and an older edit replacing newer notes. The web create, team, edit and
+remove controls now use one strict command path. The previous web save/delete
+RPCs were removed after their callers were migrated.
+
+Migration `0080_schedule_assignment_recovery.sql` must follow 0079 before this
+code is deployed. It adds per-assignment revisions, deletion tombstones and
+actor/org-scoped request receipts. Database triggers include legacy/mobile writes
+and crew responses; invitation-only timestamps do not invalidate an edit.
+Receipts and assignment writes commit in one D1 batch. The write rechecks session,
+permission, organization, show, crew and the reviewed revision. Deleting and
+recreating an ID does not revive an old removal request. Replacing a declined
+person preserves their original response and consumes its revision so competing
+replacements cannot both succeed. Receipts and tombstones persist until their
+organization is removed; deleting an actor also removes their request receipts.
+
+Automatic invitations reuse the save request and the shared frozen delivery
+record. A retry can recover delivery without adding another position or repeating
+an accepted email. A later assignment change prevents an old request from sending
+its invitation. Responses expose save and email outcomes separately.
+
+The shared editor retains drafts and frozen requests per account, organization
+and editor across in-app navigation. Reads have an 8-second deadline, saves a
+15-second deadline, and schedule refresh a separate 12-second deadline and retry.
+A team retry only submits unconfirmed rows or unresolved invitations. Conflict
+review retains the operator's draft and requires another explicit save/removal.
+The current response is shown before removal, and replacing confirmed crew still
+requires confirmation. Controls have labels and 44px targets; the dialog scrolls
+inside short screens and restores focus to its opener when that opener remains.
+Draft notifications are synchronous for controlled inputs, including typing
+immediately followed by Submit.
+
+Validation:
+- Fifteen real-auth/D1 Worker cases pass: duplicate and concurrent creates,
+  stale/concurrent edits, changed-back legacy writes, deletion/recreation,
+  declined replacement history, crew-response preservation, timestamp-only
+  updates, account/permission/org boundaries, transaction rollback, permission
+  revocation during a save, invitation recovery and later reassignment, venue
+  call-time conversion, and show changes during the transaction.
+- Eight rendered editor cases pass: navigation and late replies, partial teams,
+  preserved conflict drafts, read deadlines, refresh-only retry, reviewed
+  removal, account isolation, and invitation retry. Initial cases caught batched
+  draft notifications losing the last input before Submit; synchronous draft
+  subscriptions fixed that failure.
+- Full web suite: 2,464 unit / 1,260 Worker tests pass. Web typecheck passes.
+  Production build passes at 548,437 raw / 173,296 gzip main-entry bytes, within
+  unchanged 600,000 / 175,000 limits.
+- Compiled Chrome/auth/D1 passes a held successful create reply, closing and
+  navigating away/back, exact retry with one persisted position and one captured
+  email, stale edit and deletion review, and partial team retry. The original
+  invitation is not resent. Recovery controls fit 320x480, 768x1024 and
+  1440x1000; the phone screenshot was inspected. No browser runtime errors and
+  no external mail. The fixture intercepted its one email.
+
+Evidence: `/tmp/showpilot-assignment-{before,worker2,ui1,ui2,full1,tsc4,build1,
+browser1}.log`. Rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-schedule-assignment-recovery.mjs`.
+PR #239 is green in run 42475607115 (CI 15m16s, native Rust 4m37s).
+Phase 2 remains 67/79. Background roster reads, copy-team, show-detail mutations,
+mobile recovery and the broader product gates remain open. No production
+deployment, release, remote migration or real-organization write. Twenty
+necessary tracked Markdown files remain; none were added.
