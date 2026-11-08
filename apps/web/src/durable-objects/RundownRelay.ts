@@ -1,3 +1,4 @@
+import { RundownMetadataConflictError } from "@/lib/rundown-metadata-conflict";
 import { reportRelayError } from "@/lib/operational-errors.server";
 import { parseLocalRundownJournal, reconcileLocalRundown } from "@showpilot/shared/local-rundown";
 import { applyRundownTransport, parseRundownTransport } from "@showpilot/shared/rundown-transport";
@@ -220,7 +221,11 @@ export class RundownRelay extends DurableObject {
   }
 
   /** Persist in the same serialized order in which relay commands are accepted. */
-  private async persistAuthoritativeSnapshot(action: string, previousState: RundownState): Promise<void> {
+  private async persistAuthoritativeSnapshot(
+    action: string,
+    previousState: RundownState,
+    metadataGuard?: { expectedUpdatedAt: string; fields: Record<string, unknown> },
+  ): Promise<void> {
     if (!this.orgId || (!this.state.showId && !this.state.serviceDate)) return;
     const persistsFullItems = action === "activate" || action === "seed"
       || action === "add-item"
@@ -276,26 +281,30 @@ export class RundownRelay extends DurableObject {
     if (persistsMeta && this.state.showId) {
       const assignments: string[] = [];
       const values: unknown[] = [];
-      if (this.state.serviceName !== previousState.serviceName && this.state.serviceName !== undefined) {
+      if ((this.state.serviceName !== previousState.serviceName || metadataGuard?.fields.serviceName !== undefined) && this.state.serviceName !== undefined) {
         assignments.push("name = ?");
         values.push(this.state.serviceName);
       }
-      if (this.state.scheduledStartTime !== previousState.scheduledStartTime && this.state.scheduledStartTime !== undefined) {
+      if ((this.state.scheduledStartTime !== previousState.scheduledStartTime || metadataGuard?.fields.scheduledStartTime !== undefined) && this.state.scheduledStartTime !== undefined) {
         assignments.push("scheduledStartTime = ?");
         values.push(this.state.scheduledStartTime);
       }
-      if (this.state.scheduledCallTime !== previousState.scheduledCallTime && this.state.scheduledCallTime !== undefined) {
+      if ((this.state.scheduledCallTime !== previousState.scheduledCallTime || metadataGuard?.fields.scheduledCallTime !== undefined) && this.state.scheduledCallTime !== undefined) {
         assignments.push("scheduledCallTime = ?");
         values.push(this.state.scheduledCallTime);
       }
-      if (this.state.location !== previousState.location && this.state.location !== undefined) {
+      if ((this.state.location !== previousState.location || metadataGuard?.fields.location !== undefined) && this.state.location !== undefined) {
         assignments.push("location = ?");
         values.push(this.state.location);
       }
       if (assignments.length > 0) {
+        const guard = metadataGuard
+          ? " AND serviceDate = ? AND updatedAt = ? AND NOT EXISTS (SELECT 1 FROM app_setting WHERE orgId = rundown.orgId AND key = 'show-deleting:' || rundown.id)"
+          : "";
         statements.push(env.DB.prepare(
-          `UPDATE rundown SET ${assignments.join(", ")}, updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ', MAX(julianday('now'), julianday(updatedAt) + 1.0 / 86400000)) WHERE id = ? AND orgId = ?`,
-        ).bind(...values, this.state.showId, this.orgId));
+          `UPDATE rundown SET ${assignments.join(", ")}, updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ', MAX(julianday('now'), julianday(updatedAt) + 1.0 / 86400000)) WHERE id = ? AND orgId = ?${guard}`,
+        ).bind(...values, this.state.showId, this.orgId,
+          ...(metadataGuard ? [this.state.serviceDate, metadataGuard.expectedUpdatedAt] : [])));
       }
     }
 
@@ -363,7 +372,10 @@ export class RundownRelay extends DurableObject {
     // example, saving an unchanged show title). Avoid depending on whether a
     // runtime accepts an empty D1 batch.
     if (statements.length === 0) return;
-    await env.DB.batch(statements);
+    const results = await env.DB.batch(statements);
+    // Guarded update-meta contains only the metadata UPDATE. A rejected compare
+    // and swap writes nothing; the caller restores the unbroadcast room state.
+    if (metadataGuard && results[0]?.meta.changes !== 1) throw new RundownMetadataConflictError();
   }
 
   private async readProPresenterStageDisplaySetting(): Promise<boolean> {
@@ -612,7 +624,13 @@ export class RundownRelay extends DurableObject {
           state: this.getPublicState(),
         }, { status: 409 });
       }
-      const accepted = await this.handleCommand(body.action, body.payload, body.id);
+      let accepted: boolean;
+      try {
+        accepted = await this.handleCommand(body.action, body.payload, body.id);
+      } catch (error) {
+        if (!(error instanceof RundownMetadataConflictError)) throw error;
+        return this.targetJson({ ok: false, reason: "metadata-conflict", revision: this.state.revision }, { status: 409 });
+      }
       return this.targetJson(
         {
           ok: accepted,
@@ -720,7 +738,16 @@ export class RundownRelay extends DurableObject {
           return;
         }
 
-        const accepted = await this.handleCommand(parsed.action, parsed.payload, parsed.id);
+        let accepted: boolean;
+        try {
+          accepted = await this.handleCommand(parsed.action, parsed.payload, parsed.id);
+        } catch (error) {
+          if (!(error instanceof RundownMetadataConflictError)) throw error;
+          this.sendStateToSocket(ws);
+          ws.send(JSON.stringify({ type: "command-result", ...this.resolvedTarget(), id: parsed.id,
+            accepted: false, reason: "metadata-conflict", revision: this.state.revision }));
+          return;
+        }
         if (!accepted) this.sendStateToSocket(ws);
         ws.send(JSON.stringify({
           type: "command-result",
@@ -781,6 +808,7 @@ export class RundownRelay extends DurableObject {
     commandId?: string,
   ): Promise<boolean> {
     const previousState = this.cloneState();
+    let metadataGuard: { expectedUpdatedAt: string; fields: Record<string, unknown> } | undefined;
 
     switch (action) {
       case "seed": {
@@ -988,6 +1016,12 @@ export class RundownRelay extends DurableObject {
       }
 
       case "update-meta": {
+        const expectedUpdatedAt = payload?.expectedUpdatedAt;
+        if (expectedUpdatedAt !== undefined) {
+          if (typeof expectedUpdatedAt !== "string" || expectedUpdatedAt.length > 64
+            || !Number.isFinite(Date.parse(expectedUpdatedAt)) || !this.state.showId || !payload) return false;
+          metadataGuard = { expectedUpdatedAt, fields: payload };
+        }
         const serviceName = payload?.serviceName;
         const scheduledStartTime = payload?.scheduledStartTime;
         const scheduledCallTime = payload?.scheduledCallTime;
@@ -1028,9 +1062,10 @@ export class RundownRelay extends DurableObject {
 
     this.state.items = this.state.items.map((item, sortOrder) => item.sortOrder === sortOrder ? item : { ...item, sortOrder });
     try {
-      await this.persistAuthoritativeSnapshot(action, previousState);
+      await this.persistAuthoritativeSnapshot(action, previousState, metadataGuard);
     } catch (error) {
       this.state = previousState;
+      if (error instanceof RundownMetadataConflictError) throw error;
       reportRelayError(this.ctx, this.env.DB, this.orgId, "rundown_persistence", error);
       return false;
     }
