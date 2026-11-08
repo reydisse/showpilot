@@ -1,10 +1,8 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 import { Bell, CalendarDays, ChevronLeft, ChevronRight, LogOut, Settings, UserRound } from "lucide-react";
 import { CatchBoundary, Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { ROLE_COLOURS, getAccountInitials } from "./account-role";
-import { savePersonalNotificationTimeZone } from "@/lib/personal-notifications";
 import { useAccountNotificationCount } from "@/hooks/useAccountNotificationCount";
-import { getDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { authClient } from "@/lib/auth-client";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { getPortableAvatarUrl } from "@/lib/avatar-image";
@@ -52,6 +50,8 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   const AccountPanels = useMemo(() => lazy(() => runRouteLoad(() => import("./AccountPanels").then(module => ({ default: module.createAccountPanels() })))), [panelAttempt]);
   const DeviceNotifications = useMemo(() => lazy(() => runRouteLoad(() => import("./DeviceNotificationsControl").then(module => ({ default: module.DeviceNotificationsControl })))), [panelAttempt]);
   const PanelError = useCallback(() => <AccountPanelFailure retry={() => setPanelAttempt(attempt => attempt + 1)} />, []);
+  const reviewTimeZone = useCallback(() => { setAccountView("menu"); setAccountOpen(true); }, []);
+  const TimeZoneFailure = useCallback(() => <button type="button" aria-label="Alert timezone needs attention" title="Alert timezone needs attention" className="size-11 shrink-0 text-amber-500" onClick={reviewTimeZone}>!</button>, [reviewTimeZone]);
 
   const [localUser, setLocalUser] = useState(user);
   const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
@@ -60,12 +60,6 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   const unread = countState.snapshot?.unread ?? null;
   const unreadBadge = countState.kind === "failed" ? "!" : unread === null ? "…" : unread > 99 ? "99+" : unread || null;
   const [confirmSignOut, setConfirmSignOut] = useState(false);
-
-  useEffect(() => {
-    void savePersonalNotificationTimeZone({ data: { orgId, timeZone: getDeviceTimeZone() } }).catch(() => {
-      // Inbox access still works while the preference waits for a connection.
-    });
-  }, [orgId]);
 
   const roleColour = ROLE_COLOURS[role] ?? ROLE_COLOURS.member;
   const initials = getAccountInitials(localUser.name);
@@ -169,6 +163,9 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
         <Bell className="size-4" />
         {unreadBadge !== null ? <span className="absolute right-0 top-0 flex min-w-4 items-center justify-center rounded-full bg-fire-500 px-1 text-[9px] font-semibold leading-4 text-black">{unreadBadge}</span> : null}
       </button>
+      <CatchBoundary key={`${orgId}:${user.id}`} getResetKey={() => panelAttempt} errorComponent={TimeZoneFailure}>
+        <Suspense fallback={null}><AccountPanels view="timezone" panelProps={{ orgId, userId: user.id, mode: "background", onReview: reviewTimeZone }} /></Suspense>
+      </CatchBoundary>
       </div>
 
       <Dialog open={accountOpen} onOpenChange={closeAccount}>
@@ -252,13 +249,12 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
                 <LogOut className="size-[18px]" />
                 <span className="text-sm font-medium">{confirmSignOut ? "Tap again to sign out" : "Sign Out"}</span>
               </button>
-              <div className="mt-2 border-t border-board-border px-3 py-3 text-xs text-board-muted">
-                {countState.kind === "failed" ? <div role="alert" aria-label="Notification count recovery" className="space-y-2 text-amber-700 dark:text-amber-300">
-                  <p>Unread count unavailable.{unread !== null ? ` Last confirmed: ${unread} unread.` : ""}</p>
-                  <p>Last failed read <time dateTime={new Date(countState.occurredAt).toISOString()}>{new Date(countState.occurredAt).toLocaleTimeString()}</time></p>
-                  <Button type="button" variant="outline" className="min-h-11" disabled={countState.retrying} onClick={notificationCount.retry}>{countState.retrying ? "Retrying…" : "Retry notification count"}</Button>
-                </div> : countState.kind === "loading" ? <p role="status">Checking notifications…</p> : <p>{unread} unread notification{unread === 1 ? "" : "s"}<span className="mt-1 block">Checked <time dateTime={new Date(countState.snapshot.confirmedAt).toISOString()}>{new Date(countState.snapshot.confirmedAt).toLocaleTimeString()}</time></span></p>}
-              </div>
+              <CatchBoundary getResetKey={() => panelAttempt} errorComponent={PanelError}>
+                <Suspense fallback={<p role="status" className="p-3 text-xs text-board-muted">Checking account status…</p>}>
+                  <AccountPanels view="timezone" panelProps={{ orgId, userId: user.id, mode: "status" }} />
+                  <AccountPanels view="count" panelProps={{ state: countState, onRetry: notificationCount.retry }} />
+                </Suspense>
+              </CatchBoundary>
             </div>
           ) : null}
 

@@ -55,6 +55,9 @@ await withLocalSmokeFixture(
             deviceScaleFactor: 1,
             mobile: false,
           });
+          if (chunk === "AccountPanels") await page("Fetch.enable", {
+            patterns: [{ urlPattern: `*/assets/${chunk}-*.js`, requestStage: "Request" }],
+          });
           await page("Page.navigate", { url: `${origin}/${orgId}/show` });
           const button = (text) =>
             `[...document.querySelectorAll('button')].find(el=>el.textContent.trim()===${JSON.stringify(text)})`;
@@ -81,7 +84,7 @@ await withLocalSmokeFixture(
           };
           await click(`document.querySelector('button[title="Account menu"]')`);
           await evaluate("window.accountDocument='same';true");
-          await page("Fetch.enable", {
+          if (chunk !== "AccountPanels") await page("Fetch.enable", {
             patterns: [
               { urlPattern: `*/assets/${chunk}-*.js`, requestStage: "Request" },
             ],

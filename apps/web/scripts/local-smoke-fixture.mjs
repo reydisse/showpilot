@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, reportRecovery = false, personalAssignments = false, calendarNavigation = false, notificationInbox = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, reportRecovery = false, personalAssignments = false, calendarNavigation = false, notificationInbox = false, notificationTimezoneRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false } = {}) {
   if (streamOutputs) {
     assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Stream status requires the isolated outbound handler");
     assert.equal(captureEmail, false, "Use separate fixtures for email and Stream status");
@@ -122,7 +122,13 @@ export async function withLocalSmokeFixture(check, { secondShow = false, reportR
     const migrations = (await readdir(join(web, "prisma/migrations"))).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort();
     assert.ok(migrations.length > 0);
     migrations.forEach((name, index) => assert.equal(Number(name.slice(0, 4)), index + 1));
-    const schema = (await Promise.all(migrations.map((name) => readFile(join(web, "prisma/migrations", name), "utf8")))).join("\n\n");
+    const migrationSql = await Promise.all(migrations.map((name) => readFile(join(web, "prisma/migrations", name), "utf8")));
+    const splitAt = notificationTimezoneRecovery ? migrations.indexOf("0076_notification_timezone_recovery.sql") : migrations.length;
+    assert.ok(splitAt >= 0);
+    const schema = migrationSql.slice(0, splitAt).join("\n\n");
+    const timezoneUpgrade = notificationTimezoneRecovery ? `
+      INSERT INTO app_setting(id,orgId,key,value) VALUES ('fixture-old-timezone','display-smoke','notification-timezone:smoke-operator','America/Vancouver');
+      ${migrationSql.slice(splitAt).join("\n\n")}` : "";
     const password = randomUUID();
     const passwordHash = await hashPassword(password);
     const sceneFixture = (id, name, templateId = "classic") => ({ id, name,
@@ -229,7 +235,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, reportR
       INSERT INTO live_input(id,orgId,name,cfInputId) VALUES('smoke-input','display-smoke','Fixture ingest','fixture-input');
       ${(streamOutputs === "commands" ? ["alpha","beta"] : ["enabled","disabled","missing","pending"]).map(kind => `INSERT INTO stream_destination(id,orgId,name,platform,rtmpUrl,streamKey,enabled,cfOutputId,liveInputId) VALUES('smoke-${kind}','display-smoke','Fixture ${kind}','custom','rtmp://fixture.invalid/live','${streamOutputs === "commands" ? `fixture-${kind}-key` : "fixture-stream-key"}',1,'${streamOutputs === "commands" ? "" : kind === "pending" ? "pending:1:fixture" : `fixture-output-${kind}`}','${streamOutputs === "commands" ? "" : "smoke-input"}');`).join("\n")}
     ` : "";
-    await writeFile(sqlPath, `${schema}\n${seed}\n${chatNotificationFault}\n${streamSeed}\n${inboxSeed}`);
+    await writeFile(sqlPath, `${schema}\n${seed}\n${timezoneUpgrade}\n${chatNotificationFault}\n${streamSeed}\n${inboxSeed}`);
     await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state, "--file", sqlPath);
     const startServer = async () => {
       worker = process.env.SHOWPILOT_SMOKE_RUNTIME === "miniflare"
