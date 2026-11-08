@@ -1,0 +1,67 @@
+name: Phase 2 timecode rehearsal
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/phase2-rehearsal.yml
+      - apps/web/scripts/smoke-timecode-longrun.mjs
+      - apps/web/scripts/real-browser-fixture.mjs
+      - apps/web/scripts/local-smoke-fixture.mjs
+      - apps/web/scripts/local-smoke-runtime.mjs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase2-rehearsal-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  timecode:
+    name: Real 45-minute timecode and rundown rehearsal
+    runs-on: ubuntu-22.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Generate Prisma client
+        run: pnpm --filter @showpilot/web db:generate
+      - name: Build the actual application
+        run: pnpm --filter @showpilot/web build
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - name: Install a virtual display for headed Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth
+      - name: Rehearse real clock time and acknowledged rundown advances
+        timeout-minutes: 52
+        shell: bash
+        env:
+          SHOWPILOT_CHROME_EXECUTABLE: ${{ steps.chrome.outputs.chrome-path }}
+          SHOWPILOT_SMOKE_RUNTIME: miniflare
+        run: |
+          mkdir -p rehearsal-results
+          "$SHOWPILOT_CHROME_EXECUTABLE" --version | tee rehearsal-results/chrome-version.txt
+          xvfb-run --auto-servernum --server-args="-screen 0 1440x900x24" \
+            node apps/web/scripts/smoke-timecode-longrun.mjs 2>&1 | tee rehearsal-results/timecode-longrun.log
+      - name: Upload rehearsal evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase2-timecode-rehearsal-${{ github.run_attempt }}
+          path: rehearsal-results/
+          if-no-files-found: warn
+          retention-days: 14
