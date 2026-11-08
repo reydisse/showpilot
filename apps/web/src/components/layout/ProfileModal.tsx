@@ -244,7 +244,7 @@ export function ProfilePanel({ user, role, orgName, onUserUpdated, onSignOut }: 
           <dl className="mt-4 grid gap-3 rounded-xl border border-board-border bg-board-bg/35 p-4 sm:grid-cols-2">
             <div className="min-w-0">
               <dt className="text-[11px] text-board-muted">Role</dt>
-              <dd className="mt-1 text-sm font-medium" style={{ color: roleColour }}>{roleLabel}</dd>
+              <dd className="mt-1 text-sm font-medium text-board-text" style={{ color: role === "owner" ? undefined : roleColour }}>{roleLabel}</dd>
             </div>
             <div className="min-w-0">
               <dt className="text-[11px] text-board-muted">Organization</dt>

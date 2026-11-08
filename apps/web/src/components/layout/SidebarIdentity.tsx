@@ -265,7 +265,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
           <>
             <div className="min-w-0 flex-1 text-left">
               <p className="truncate text-xs font-medium leading-tight text-board-text">{localUser.name}</p>
-              <p className="truncate text-[10px] leading-tight" style={{ color: roleColour }}>{roleLabel}</p>
+              <p className="truncate text-[10px] leading-tight text-board-text" style={{ color: role === "owner" ? undefined : roleColour }}>{roleLabel}</p>
             </div>
             <ChevronRight className="size-3.5 shrink-0 opacity-35" />
           </>
@@ -323,7 +323,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
             <div className="modern-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-3">
               <div className="mb-2 flex items-center justify-between rounded-lg border border-board-border bg-board-bg/35 px-3 py-2.5 text-xs text-board-muted">
                 <span className="truncate">{orgName}</span>
-                <span className="ml-3 shrink-0 font-medium" style={{ color: roleColour }}>{roleLabel}</span>
+                <span className="ml-3 shrink-0 font-medium text-board-text" style={{ color: role === "owner" ? undefined : roleColour }}>{roleLabel}</span>
               </div>
 
               <button type="button" onClick={() => setAccountView("notifications")} className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-3 text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text">

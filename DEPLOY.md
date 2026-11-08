@@ -5075,3 +5075,51 @@ budget. Logs: /tmp/showpilot-desktop-hydration-before.log,
 This resolves the native hydration finding recorded with #216. Phase 2 remains
 59/79 verified: the broader product-wide UX gate still needs its other checks.
 No production deployment, native release or real-organization changes.
+
+## Phase 2 operator labels and scheduled dashboard hydration, 2026-11-07
+
+Show Flow now labels its panel layout and explains the presets in a keyboard
+menu. Stored preset IDs and dimensions are unchanged. Reports spell out the two
+manager roles, announce the selected note role, and wrap their 44px controls on
+small screens. Report/debrief timing labels explain elapsed, planned and
+over/under durations. The Owner label uses normal theme text instead of error
+red, with a neutral avatar background.
+
+The compiled-app copy rehearsal verifies layout keyboard selection and reload
+persistence, manager note controls at 320/768/1440px, the Production Manager show
+menu at 320/768/1024/1440px, report dates with named months, spacing in the four
+reported phrases, named Settings spinbuttons and removal of the obsolete
+Native/7 DAYS labels. Screenshots were inspected. A completed fixture rundown
+also verifies the debrief timing labels.
+
+That scheduled-show case exposed another hydration error: header times used the
+server's local timezone on the server and the browser's timezone on the client,
+while the countdown independently initialized Date.now on each side. The show
+picker and call/start times now share the org timezone or a hydration-safe
+device fallback. Dashboard clocks render their server snapshot until hydration,
+then start ticking. The expanded browser rehearsal reports no runtime errors;
+an SSR/hydration regression preserves the operator control DOM node despite
+different server and browser clocks.
+
+The navigation rehearsal passes all 21 sidebar routes and 13 Settings sections,
+including selected-room restoration, direct-entry fallback and reachable Back
+controls at 1440/1024/768/320px. Its initial Crew Check-in timeout was an outdated
+heading assertion. A follow-up hit test found a closed dialog whose exit
+animation was suspended in a background Chrome tab. The interactive rehearsal
+now foregrounds the tab and waits within a fixed bound for pointer readiness.
+It still fails on a genuinely blocked target.
+
+Validation: 2,351 unit tests, 1,172 Worker tests, typecheck and production build
+passed. Main entry: 551,805 raw / 174,519 gzip bytes. Logs:
+/tmp/showpilot-copy-full2.log, /tmp/showpilot-copy-tsc3.log,
+/tmp/showpilot-copy-build3.log, /tmp/showpilot-copy-browser3.log (scheduled-show
+failure), /tmp/showpilot-copy-browser4.log (passed), and
+/tmp/showpilot-copy-navigation.log. Screenshots:
+/tmp/showpilot-copy-layout-768.png, /tmp/showpilot-copy-manager-notes-320.png,
+/tmp/showpilot-copy-show-menu-320.png.
+
+Phase 2 is 60/79 verified. Reports still needs its loading/retry, shared dialog,
+keyboard and narrow-list work. Static follow-up also found that the first-session
+onboarding checklist still suppresses failed reads and writes; that remains open
+in the silent-failure ledger. No production deployment, native release or real
+organization changes.

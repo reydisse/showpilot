@@ -207,7 +207,7 @@ function ReportsPage() {
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-fire-500/10 text-fire-400"><MessageSquareText className="h-4 w-4" /></span>
           <div>
             <h2 className="text-sm font-semibold text-board-text">Post-show notes live here</h2>
-            <p className="mt-1 text-xs leading-5 text-board-muted">Open any show to read the team handoff. PMs and TMs can add or update their notes here at any time; reminders bring them back to this same page.</p>
+            <p className="mt-1 text-xs leading-5 text-board-muted">Open any show to read the team handoff. Production and Technical Managers can add or update their notes here at any time; reminders bring them back to this same page.</p>
           </div>
         </section>
         <section className="overflow-hidden rounded-xl border border-board-border bg-board-card">
@@ -238,7 +238,7 @@ function ReportsPage() {
                 <tr className="border-b border-board-border text-[9px] uppercase tracking-wider text-board-muted">
                   <th className="px-4 py-3">Date</th>
                   <th className="px-4 py-3">Show</th>
-                  <th className="px-4 py-3">Actual</th>
+                  <th className="px-4 py-3">Elapsed time</th>
                   <th className="px-4 py-3">Rundown</th>
                   <th className="px-4 py-3">Checklist</th>
                   <th className="px-4 py-3">Incidents</th>
@@ -587,13 +587,13 @@ function ManagerNotes({
             <MessageSquareText className="h-3.5 w-3.5 text-fire-400" />
             Manager notes
           </h3>
-          <p className="mt-1 text-[11px] leading-5 text-board-muted">Optional context from PMs and TMs travels with the PDF and CSV.</p>
+          <p className="mt-1 text-[11px] leading-5 text-board-muted">Optional context from Production and Technical Managers travels with the PDF and CSV.</p>
         </div>
         {writable.length > 1 ? (
-          <div className="flex rounded-lg border border-board-border bg-board-card p-1">
+          <div className="flex max-w-full flex-wrap gap-1 rounded-lg border border-board-border bg-board-card p-1" role="group" aria-label="Manager note role">
             {writable.map((value) => (
-              <button key={value} type="button" onClick={() => selectLane(value)} className={`rounded-md px-2.5 py-1 text-[10px] font-semibold ${lane === value ? "bg-fire-500 text-black" : "text-board-muted"}`}>
-                {value === "pm" ? "PM note" : "TM note"}
+              <button key={value} type="button" aria-pressed={lane === value} onClick={() => selectLane(value)} className={`min-h-11 max-w-full rounded-md px-2.5 py-2 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-fire-500 ${lane === value ? "bg-fire-500 text-black" : "text-board-muted"}`}>
+                {value === "pm" ? "Production Manager note" : "Technical Manager note"}
               </button>
             ))}
           </div>
@@ -630,7 +630,7 @@ function ManagerNotes({
           </div>
         </div>
       ) : report.managerNotes.length === 0 ? (
-        <p className="px-4 py-5 text-xs text-board-muted">No PM or TM notes were submitted for this show.</p>
+        <p className="px-4 py-5 text-xs text-board-muted">No Production or Technical Manager notes were submitted for this show.</p>
       ) : null}
     </section>
   );
