@@ -4661,8 +4661,47 @@ fresh kiosk polling and explicit restore. Dialogs and 44px targets fit at
 320/768/1440px; the technical phone screenshot was inspected. Each fixture has
 three receipts and no outgoing emails or browser runtime errors.
 
-Based on #209. Keep draft and wait for its CI before opening this PR. No new
-migration, production deployment, native release or real-org/provider changes.
+Draft PR #210 is based on #209, whose CI run 42428247129 passed both jobs.
+No new migration, production deployment, native release or real-org/provider changes.
 Phase 2 remains 47/79: technical streaming and graphics controls and the remaining
 product-wide gates still need work. Twenty necessary tracked Markdown files
 remain; no new Markdown file was added.
+
+
+## Technical stream controls preserve reviewed commands (2026-11-07, not deployed)
+
+Two real-auth Worker baselines reproduced the dashboard's Go Live retry
+restarting outputs after Stop and starting destinations added after confirmation.
+The old RPC discarded the request ID, input and reviewed destination versions.
+The dashboard now uses the existing durable stream-output command handler with
+strict request/input/target validation, fresh sessions and current dashboard plus
+stream permissions. The legacy technical RPC rejects streaming actions. No second
+output coordinator or migration was added.
+
+Go Live names the input and reviewed destinations; multiple ready inputs require
+a choice. Stop has its own confirmation and can supersede unfinished Go Live,
+including retained targets after navigation and a failed feedback read. Command
+history is scoped to account and organization, read/write waits are bounded at
+8/10 seconds, exact retries keep the original payload, and delayed older command
+replies cannot overwrite newer Stop feedback. Provider failures stay visible per
+destination. Status reports output enablement rather than treating configuration
+counts as proof of broadcasting. The team activity notification is retained,
+deduplicated by receipt and retryable independently of completed output writes.
+
+Verification passes: 15 new real-auth Worker cases and 11 UI cases; existing
+stream command/status and input-health cases remain green. Full web suite:
+2,329 unit / 1,144 Worker tests; typecheck and production build pass. Main bundle:
+551,588 raw / 174,463 gzip bytes. `smoke-tm-stream-recovery.mjs` passed against
+compiled Chrome/auth/disposable D1 and the isolated provider stub. It verifies
+named confirmation/cancel, lost Go Live reply then an independent Stop, exact
+retry across navigation without restarting outputs, bounded read recovery and
+late replies, Stop during slow provider creation, and successful exact Stop retry.
+Four command receipts remain, zero browser runtime errors, and no external
+provider writes. Controls/selects and confirmation fit at 320/768/1440px with
+44px targets; the phone screenshot was inspected.
+
+Stacked on #210; keep draft and open only after its CI succeeds. Nothing deployed
+or released, and no real organization/provider data changed. Phase 2 remains
+47/79: the legacy graphics-clear control and the remaining product-wide UX and
+acceptance gates are still open. Twenty necessary tracked Markdown files remain;
+no new Markdown file was added.
