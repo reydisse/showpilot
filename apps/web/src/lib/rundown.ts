@@ -1,3 +1,6 @@
+import { getAuth } from "./auth";
+import { getRequestHeaders } from "@tanstack/react-start/server";
+import { getPresentedRundownPin } from "./rundown-pin.server";
 import { removeSavedRundown } from "./saved-rundown-delete.server";
 import { createSavedRundown } from "./saved-rundown-create.server";
 import { parseProPresenterFeedEvent, type ProPresenterFeedState } from "./propresenter-client";
@@ -1128,7 +1131,13 @@ export const deleteSavedRundown = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertRundownEditAccess(data.orgId);
-    await removeSavedRundown(requestDatabase, data.orgId, data.rundownId);
+    const headers = getRequestHeaders();
+    const session = await getAuth().api.getSession({ headers, query: { disableCookieCache: true } });
+    if (!session) throw new Error("Sign in again before deleting this template.");
+    await removeSavedRundown(requestDatabase, data.orgId, data.rundownId, {
+      userId: session.user.id, sessionId: session.session.id,
+      pin: getPresentedRundownPin(new Request("https://showpilot.local/template-delete", { headers }), data.orgId),
+    });
     markDatabaseWrite();
 
     return { ok: true };

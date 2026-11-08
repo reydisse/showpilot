@@ -7857,3 +7857,57 @@ still cover the final implementation. Evidence:
 /tmp/showpilot-timestamp-coverage3.log and /tmp/showpilot-timestamp-tsc4.log.
 PR #264's new CI run is 42532247791 at 00dcd104. The timestamp PR remains held
 until that run is green.
+
+### Phase 2 follow-up: retained native template deletion
+
+The actual native sheet regression reproduced a missing confirmation in the web
+export: Delete only called Alert, which rendered no actionable confirmation there.
+Deletion also used an unbounded callback and a refetch that could return an error
+without throwing. Closing lost the pending action and a failed refresh could hide
+whether deletion had already succeeded.
+
+The sheet now shows a visible danger confirmation naming the selected template
+and item count, with Keep template before submission. Confirmed requests retain
+the original template/account/org/show identity across panel and route navigation.
+The show screen exposes Resume template deletion. A lost reply or the 15-second
+request deadline leaves a visible uncertain result and exact-target retry. Once
+acknowledged, only the list refresh is retried, with its own 12-second deadline.
+The retained request prevents loading/deleting the same stale list entry again.
+Template metadata labels now have a 12px floor. The old page callback and Alert
+path were removed.
+
+Deletion reuses immutable template IDs and the existing deletion fence; it does
+not need a new migration or cancellation receipt. Cancellation is offered before
+submission, not claimed after an uncertain reply. Retrying cannot resurrect the
+template or delete a different copy. Current client replies carry the original
+request identity; installed clients' empty request bodies remain supported.
+Both web and mobile callers now supply current actor/session/PIN authority to
+the shared atomic delete. Membership, grants, session expiry, organization
+deletion and PIN changes are guarded in the database transaction.
+
+Verification: the baseline actual-sheet test fails on the old confirmation.
+Seven sheet tests and five hook tests pass, including retained exact retry,
+request/refresh deadlines, account changes, duplicate clicks and mismatched
+replies. Worker coverage adds seven cases for retained API identity and authority
+changes at commit; existing receipt, rollback, cross-org and concurrent save/
+delete cases still pass. Full suite passes 346 unit files / 2,800 tests and 139
+Worker files / 1,558 tests, 4,358 total. Web typecheck 2 and build 1 pass. Main
+bundle remains 549,593 raw / 173,783 gzip bytes against unchanged budgets.
+
+Mobile verify 1 passes typecheck, lint with 17 existing warnings, iOS/Android/web
+exports, Expo Doctor 18/18, API/release contracts and polling boundaries. Hermes
+is 5,709,166 bytes on iOS and 5,708,250 on Android. The compiled Expo web rehearsal
+uses real isolated authentication, D1 and relay traffic. At 320/768/1440px it
+passes visible confirmation, keeping without deleting, a committed deletion with
+held reply, the request deadline, navigation retention, exact retry, refresh-only
+recovery, preserving another template and preserving the show. Zero runtime
+errors. Inspected the 320px confirmation and uncertain-result screenshots.
+This is not a physical-device run.
+
+Rehearsal after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-template-delete.mjs`.
+Evidence: /tmp/showpilot-template-delete-{before,form1,hook1,worker1,worker2,full1,tsc2,build1,verify1,browser1}.log.
+Screenshots: /tmp/showpilot-native-template-delete-{confirm,unknown,refresh,confirmed}-{320,768,1440}.png.
+No deployment, remote migration or product-wide gate closure. Phase 2 remains
+67/79. The timestamp PR is still held until #264's CI rerun passes; this deletion
+follow-up stays behind that change in the stack.
