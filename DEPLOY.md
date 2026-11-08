@@ -5339,3 +5339,35 @@ named keyboard-blockers requirement is complete. Phase 2 is 62/79 verified.
 Assignment response timeout/recovery is still a separate observed gap; this
 patch does not claim the broad loading or mutation-recovery gate. No production
 migration, deployment or release; no new Markdown files.
+
+
+## Phase 2 missing display organizations, 2026-11-07
+
+Timer and overlay treated unknown organizations as connection errors and kept
+checking them. The display-session response now distinguishes a missing
+organization from denied access. Both displays show “Organization not found”,
+stop automatic checks and offer an explicit retry and home link. Oversized route
+slugs never request authorization. Database outages remain retryable failures.
+A missing organization never receives a cookie or display pass.
+
+Validation: three reproduced UI failures pass, plus server cases for a missing
+organization with an old valid pass and a database outage. Existing denial tests
+now assert the explicit access-denied reason. Final full suite passes 2,366 unit
+and 1,186 Worker tests; typecheck and build pass. Main entry: 551,911 raw /
+174,518 gzip bytes.
+
+`smoke-display-link-validation.mjs` uses anonymous Chrome and the real compiled
+Worker. Timer and overlay each remain on the missing-organization view for 31
+seconds with exactly one authority call and no output-data requests. Explicit
+Retry, malformed route slugs, invalid passes and valid output all pass. Inspected
+both 320x480 screenshots. Existing display-access regression passes scoped,
+expired and mismatched credentials, protected projections and CORS checks.
+The public check-in browser regression also passes identity reconfirmation,
+persistent retry, late replies, later-checkout preservation, invalid orgs and
+320/768/1440px; D1 records three receipts and leaves the other org unchanged.
+
+Logs: `/tmp/showpilot-display-validation-full2.log`, `-tsc2.log`, `-build.log`,
+`-browser.log`, `-access.log`, and `-checkin.log`. The initial full suite found two
+old exact-object denial expectations; they now assert the new reason as well.
+Phase 2 is 63/79 verified. The separate published Settings kiosk-link item is
+still open. No deployment, migration, native release or new Markdown files.
