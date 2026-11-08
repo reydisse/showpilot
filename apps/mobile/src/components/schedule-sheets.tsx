@@ -16,24 +16,14 @@ import { AppButton } from "@/components/app-button";
 import { AppField } from "@/components/app-field";
 import { Page } from "@/components/page";
 import type { MobileSchedule } from "@/lib/mobile-api";
-import { createLocalRequestId } from "@/lib/request-id";
-import { getServiceDateForTimeZone, isServiceDate, serviceWallTimeInput } from "@/lib/service-time";
+import { serviceWallTimeInput } from "@/lib/service-time";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 type Service = MobileSchedule["services"][number];
 type Crew = MobileSchedule["crew"][number];
 
 export interface ScheduleServiceDraft {
-  requestId: string;
-  serviceDate: string;
-  name: string;
-  startTime: string;
-  callTime: string;
-  location: string;
-  expectedUpdatedAt?: string;
-  inventoryId?: string;
-  copyFrom?: string;
-  copyFromShowId?: string;
+  name: string; startTime: string; callTime: string; location: string; expectedUpdatedAt: string;
 }
 
 function ScheduleSheet({ children, onClose, title, eyebrow }: {
@@ -66,130 +56,27 @@ function runSave(save: () => Promise<void>, setBusy: (value: boolean) => void) {
   }).finally(() => setBusy(false));
 }
 
-export function ScheduleServiceSheet({ initialInventoryId, inventory, onClose, onSave, previousServices, service, timeZone }: {
-  initialInventoryId?: string;
-  inventory: MobileSchedule["inventory"];
-  onClose: () => void;
-  onSave: (draft: ScheduleServiceDraft) => Promise<void>;
-  previousServices: Service[];
-  service: Service | null;
-  timeZone: string;
+export function ScheduleServiceSheet({ onClose, onSave, service, timeZone }: {
+  onClose: () => void; onSave: (draft: ScheduleServiceDraft) => Promise<void>; service: Service; timeZone: string;
 }) {
   const workspaceTerms = useWorkspaceTerms();
-  const { colors } = useAppTheme();
   const styles = useStyles();
-  const initialInventory = inventory.find((item) => item.id === initialInventoryId);
-  const [requestId] = useState(() => createLocalRequestId("show"));
-  const [serviceDate, setServiceDate] = useState(service?.serviceDate ?? getServiceDateForTimeZone(timeZone));
-  const [name, setName] = useState(service?.name ?? initialInventory?.name ?? "");
-  const [startTime, setStartTime] = useState(
-    service
-      ? serviceWallTimeInput(service.scheduledStartTime, timeZone)
-      : (initialInventory?.defaultStartTime ?? ""),
-  );
-  const [callTime, setCallTime] = useState(service
-    ? serviceWallTimeInput(service.scheduledCallTime, timeZone)
-    : "");
-  const [location, setLocation] = useState(service?.location ?? initialInventory?.location ?? "");
-  const [inventoryId, setInventoryId] = useState(initialInventoryId ?? "");
-  const [copyFromShowId, setCopyFromShowId] = useState("");
+  const [name, setName] = useState(service.name);
+  const [startTime, setStartTime] = useState(serviceWallTimeInput(service.scheduledStartTime, timeZone));
+  const [callTime, setCallTime] = useState(serviceWallTimeInput(service.scheduledCallTime, timeZone));
+  const [location, setLocation] = useState(service.location);
   const [busy, setBusy] = useState(false);
-  const selectedPrevious = previousServices.find((candidate) => candidate.id === copyFromShowId);
-  const availablePrevious = previousServices.filter((candidate) => candidate.serviceDate < serviceDate);
-  const valid = isServiceDate(serviceDate)
-    && name.trim().length > 0
-    && (!startTime || /^([01]\d|2[0-3]):[0-5]\d$/.test(startTime))
-    && (!callTime || /^([01]\d|2[0-3]):[0-5]\d$/.test(callTime))
-    && (!selectedPrevious || selectedPrevious.serviceDate < serviceDate);
-  const applyInventory = (id: string) => {
-    const item = inventory.find((candidate) => candidate.id === id);
-    setInventoryId(id);
-    setCopyFromShowId("");
-    if (!item) return;
-    setName(item.name);
-    setLocation(item.location);
-    setStartTime(item.defaultStartTime ?? "");
-    setCallTime("");
-  };
-  const applyPrevious = (id: string) => {
-    const previous = previousServices.find((candidate) => candidate.id === id);
-    setCopyFromShowId(id);
-    setInventoryId("");
-    if (!previous) return;
-    setName(previous.name);
-    setLocation(previous.location);
-    setStartTime(serviceWallTimeInput(previous.scheduledStartTime, timeZone));
-    setCallTime(serviceWallTimeInput(previous.scheduledCallTime, timeZone));
-  };
-  return (
-    <ScheduleSheet eyebrow={service ? "EDIT SHOW" : "NEW SHOW"} onClose={onClose} title={service?.name || "Schedule a show"}>
-      <Text style={styles.intro}>{service ? "Changes synchronize to every operator. A newer edit on another device will be protected." : "Create one shared show for web, desktop, and mobile operators."}</Text>
-      {!service && (inventory.length > 0 || availablePrevious.length > 0) ? (
-        <View style={styles.picker}>
-          <Text style={styles.fieldLabel}>STARTING RUNDOWN</Text>
-          <Pressable accessibilityRole="radio" accessibilityState={{ checked: !inventoryId && !copyFromShowId }} onPress={() => { setInventoryId(""); setCopyFromShowId(""); }} style={[styles.choice, !inventoryId && !copyFromShowId && styles.choiceActive]}>
-            <View style={styles.choiceCopy}><Text style={styles.choiceName}>Start blank</Text><Text style={styles.choiceMeta}>Build a new rundown from scratch</Text></View>
-            {!inventoryId && !copyFromShowId ? (
-              <Check color={colors.amberText} size={17} />
-            ) : null}
-          </Pressable>
-          {inventory.slice(0, 12).map((item) => (
-            <Pressable accessibilityRole="radio" accessibilityState={{ checked: inventoryId === item.id }} key={item.id} onPress={() => applyInventory(item.id)} style={[styles.choice, inventoryId === item.id && styles.choiceActive]}>
-              <View style={styles.choiceCopy}><Text style={styles.choiceName}>{item.name}</Text><Text style={styles.choiceMeta}>Inventory · {item.itemCount} rundown item{item.itemCount === 1 ? "" : "s"}</Text></View>
-              {inventoryId === item.id ? (
-                <Check color={colors.amberText} size={17} />
-              ) : null}
-            </Pressable>
-          ))}
-          {availablePrevious.slice(0, 8).map((previous) => (
-            <Pressable accessibilityRole="radio" accessibilityState={{ checked: copyFromShowId === previous.id }} key={previous.id} onPress={() => applyPrevious(previous.id)} style={[styles.choice, copyFromShowId === previous.id && styles.choiceActive]}>
-              <View style={styles.choiceCopy}><Text style={styles.choiceName}>{previous.name || "Untitled show"}</Text><Text style={styles.choiceMeta}>Previous show · {previous.serviceDate} · {previous.itemCount} items</Text></View>
-              {copyFromShowId === previous.id ? (
-                <Check color={colors.amberText} size={17} />
-              ) : null}
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
-      {!service ? (
-        <AppField
-          autoCapitalize="none"
-          error={serviceDate && !isServiceDate(serviceDate) ? "Use YYYY-MM-DD." : undefined}
-          label={workspaceCopy("Service date", workspaceTerms)}
-          maxLength={10}
-          onChangeText={setServiceDate}
-          placeholder="2026-09-06"
-          value={serviceDate}
-        />
-      ) : null}
-      <AppField
-        autoCapitalize="sentences"
-        label={workspaceCopy("Show or service name", workspaceTerms)}
-        maxLength={120}
-        onChangeText={setName}
-        placeholder={workspaceCopy("Sunday Morning", workspaceTerms)}
-        value={name}
-      />
-      <AppField autoCapitalize="none" error={startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime) ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Start time (optional)" maxLength={5} onChangeText={setStartTime} placeholder="09:30" value={startTime} />
-      <AppField autoCapitalize="none" error={callTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(callTime) ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Crew call (optional)" maxLength={5} onChangeText={setCallTime} placeholder="08:00 · blank uses workspace default" value={callTime} />
-      <AppField autoCapitalize="words" label="Venue or location" maxLength={240} onChangeText={setLocation} placeholder="Main auditorium" value={location} />
-      <AppButton disabled={!valid || busy} label={busy ? "Saving show…" : service ? "Save show" : "Create show"} loading={busy} onPress={() => runSave(async () => {
-        await onSave({
-          requestId,
-          serviceDate,
-          name: name.trim(),
-          startTime,
-          callTime,
-          location: location.trim(),
-          expectedUpdatedAt: service?.updatedAt,
-          inventoryId: inventoryId || undefined,
-          copyFrom: selectedPrevious?.serviceDate,
-          copyFromShowId: selectedPrevious?.id,
-        });
-        onClose();
-      }, setBusy)} />
-    </ScheduleSheet>
-  );
+  const valid = name.trim().length > 0 && (!startTime || /^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) && (!callTime || /^([01]\d|2[0-3]):[0-5]\d$/.test(callTime));
+  return <ScheduleSheet eyebrow="EDIT SHOW" title="Edit show" onClose={onClose}>
+    <Text style={styles.intro}>Changes synchronize to every operator. A newer edit on another device will be protected.</Text>
+    <AppField autoCapitalize="sentences" label={workspaceCopy("Show or service name", workspaceTerms)} placeholder={workspaceCopy("Sunday Morning", workspaceTerms)} maxLength={120} value={name} onChangeText={setName} />
+    <AppField autoCapitalize="none" keyboardType="numbers-and-punctuation" placeholder="09:30" error={startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime) ? "Use 24-hour HH:mm." : undefined} label="Start time (optional)" maxLength={5} value={startTime} onChangeText={setStartTime} />
+    <AppField autoCapitalize="none" keyboardType="numbers-and-punctuation" placeholder="08:00 · blank uses workspace default" error={callTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(callTime) ? "Use 24-hour HH:mm." : undefined} label="Crew call (optional)" maxLength={5} value={callTime} onChangeText={setCallTime} />
+    <AppField autoCapitalize="words" placeholder="Main auditorium" label="Venue or location" maxLength={240} value={location} onChangeText={setLocation} />
+    <AppButton disabled={!valid || busy} label="Save show" loading={busy} onPress={() => runSave(async () => {
+      await onSave({ name: name.trim(), startTime, callTime, location: location.trim(), expectedUpdatedAt: service.updatedAt }); onClose();
+    }, setBusy)} />
+  </ScheduleSheet>;
 }
 
 function CrewPicker({ crew, selectedId, onSelect, disabled = false }: {

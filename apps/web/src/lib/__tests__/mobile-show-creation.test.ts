@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  handleMobileApi,
-  type MobileApiDatabase,
-} from "../mobile-api.server";
+import { handleMobileApi, type MobileApiDatabase } from "../mobile-api.server";
 import { PlanLimitError } from "../plan-limits";
 
 const mocks = vi.hoisted(() => ({
   createServiceForOrg: vi.fn(),
+  reviewShowCreationRequest: vi.fn(),
   getSession: vi.fn(),
   resolveAccess: vi.fn(),
 }));
@@ -21,6 +19,10 @@ vi.mock("../effective-access", () => ({
 
 vi.mock("../service-creation.server", () => ({
   createServiceForOrg: mocks.createServiceForOrg,
+}));
+
+vi.mock("../show-creation-review.server", () => ({
+  reviewShowCreationRequest: mocks.reviewShowCreationRequest,
 }));
 
 const database: MobileApiDatabase = {
@@ -49,9 +51,12 @@ const database: MobileApiDatabase = {
   },
 };
 
-async function createShow(body: Record<string, unknown>) {
+async function createShow(
+  body: Record<string, unknown>,
+  path = "/api/mobile/v1/rundowns",
+) {
   const response = await handleMobileApi(
-    new Request("https://showpilot.tech/api/mobile/v1/rundowns", {
+    new Request(`https://showpilot.tech${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -95,23 +100,40 @@ describe("mobile show creation", () => {
       showId: "show-new",
       serviceDate: "2026-09-06",
     });
-    expect(mocks.createServiceForOrg).toHaveBeenCalledWith({
-      orgId: "org-1",
-      requestId: "mobile-show-1",
-      serviceDate: "2026-09-06",
-      name: "Sunday Morning",
-      startTime: "09:30",
-      location: "Main auditorium",
-    }, expect.any(Headers));
+    expect(mocks.createServiceForOrg).toHaveBeenCalledWith(
+      {
+        orgId: "org-1",
+        requestId: "mobile-show-1",
+        serviceDate: "2026-09-06",
+        name: "Sunday Morning",
+        startTime: "09:30",
+        location: "Main auditorium",
+      },
+      expect.any(Headers),
+    );
   });
 
   it("retains the explicit timezone and rejects invalid creation contracts before writing", async () => {
-    const body = { orgId:"org-1", requestId:"show-timezone", serviceDate:"2026-09-06", startTime:"09:30", timeZone:"America/Toronto" };
+    const body = {
+      orgId: "org-1",
+      requestId: "show-timezone",
+      serviceDate: "2026-09-06",
+      startTime: "09:30",
+      timeZone: "America/Toronto",
+    };
     expect((await createShow(body)).status).toBe(201);
-    expect(mocks.createServiceForOrg).toHaveBeenLastCalledWith(expect.objectContaining(body),expect.any(Headers));
+    expect(mocks.createServiceForOrg).toHaveBeenLastCalledWith(
+      expect.objectContaining(body),
+      expect.any(Headers),
+    );
     mocks.createServiceForOrg.mockClear();
-    for (const invalid of [{timeZone:"Mars/Base"},{requestId:"x".repeat(65)},{startTime:"25:00"},{serviceDate:"2026-02-30"}]) {
-      expect((await createShow({...body,...invalid})).status).toBe(400);
+    for (const invalid of [
+      { timeZone: "Mars/Base" },
+      { requestId: "x".repeat(65) },
+      { startTime: "25:00" },
+      { serviceDate: "2026-02-30" },
+    ]) {
+      expect((await createShow({ ...body, ...invalid })).status).toBe(400);
     }
     expect(mocks.createServiceForOrg).not.toHaveBeenCalled();
   });
@@ -139,15 +161,18 @@ describe("mobile show creation", () => {
     });
 
     expect(response.status).toBe(201);
-    expect(mocks.createServiceForOrg).toHaveBeenCalledWith({
-      orgId: "org-1",
-      requestId: "mobile-show-from-inventory",
-      serviceDate: "2026-09-13",
-      name: "Sunday Morning",
-      startTime: undefined,
-      location: "",
-      inventoryId: "inventory-1",
-    }, expect.any(Headers));
+    expect(mocks.createServiceForOrg).toHaveBeenCalledWith(
+      {
+        orgId: "org-1",
+        requestId: "mobile-show-from-inventory",
+        serviceDate: "2026-09-13",
+        name: "Sunday Morning",
+        startTime: undefined,
+        location: "",
+        inventoryId: "inventory-1",
+      },
+      expect.any(Headers),
+    );
   });
 
   it("rejects conflicting or incomplete rundown sources at the HTTP boundary", async () => {
@@ -203,4 +228,64 @@ describe("mobile show creation", () => {
       error: "The free plan allows up to 3 shows.",
     });
   });
+});
+
+it("native recovery binds create and review replies to the original actor and request", async () => {
+  const body = {
+    orgId: "org-1",
+    userId: "user-1",
+    requestId: "show-new",
+    serviceDate: "2026-09-06",
+    timeZone: "America/Toronto",
+  };
+  mocks.getSession.mockResolvedValue({
+    user: { id: "user-1", name: "Owner", email: "owner@example.com" },
+  });
+  mocks.resolveAccess.mockResolvedValue({
+    role: "owner",
+    permissions: ["schedule:manage"],
+  });
+  mocks.createServiceForOrg.mockResolvedValue({
+    ok: true,
+    showId: "show-new",
+    serviceDate: body.serviceDate,
+  });
+  mocks.reviewShowCreationRequest.mockResolvedValue({ kind: "cancelled" });
+  const created = await createShow(body, "/api/mobile/v1/shows/create");
+  expect(created.status).toBe(201);
+  expect(await created.json()).toEqual({
+    orgId: body.orgId,
+    userId: body.userId,
+    requestId: body.requestId,
+    result: {
+      kind: "created",
+      result: { ok: true, showId: "show-new", serviceDate: body.serviceDate },
+    },
+  });
+  const reviewed = await createShow(
+    body,
+    "/api/mobile/v1/shows/review-creation",
+  );
+  expect(reviewed.status).toBe(200);
+  expect(await reviewed.json()).toEqual({
+    orgId: body.orgId,
+    userId: body.userId,
+    requestId: body.requestId,
+    result: { kind: "cancelled" },
+  });
+  expect(mocks.reviewShowCreationRequest).toHaveBeenCalledWith(
+    expect.any(Headers),
+    body,
+  );
+  for (const invalid of [
+    { userId: "another-user" },
+    { requestId: undefined },
+    { copyFrom: "2026-09-05" },
+  ]) {
+    const response = await createShow(
+      { ...body, ...invalid },
+      "/api/mobile/v1/shows/review-creation",
+    );
+    expect([400, 403]).toContain(response.status);
+  }
 });

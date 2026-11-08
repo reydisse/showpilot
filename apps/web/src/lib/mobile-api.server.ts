@@ -53,7 +53,7 @@ import {
   parseHomeAssistantEntities,
 } from "./device-modules/homeassistant/homeassistant-module";
 import { createServiceForOrg } from "./service-creation.server";
-import { createShowInputSchema } from "./show-creation-contract";
+import { createShowInputSchema, reviewShowCreationSchema } from "./show-creation-contract";
 import { PlanLimitError } from "./plan-limits";
 import { isValidServiceDate } from "./validation";
 import { issueChatPass, CHAT_PASS_CREATORS, ChatPassCreationError, chatPassCreationMessage } from "./chat-pass-issuance.server";
@@ -1546,6 +1546,30 @@ async function deleteMobileRundownTemplate(
     .bind(access.orgId, `rundown-saved:${templateId}`)
     .run();
   return json({ ok: true });
+}
+
+/** Retained native creation uses the same durable receipt and cancellation fence
+ * as the web form. Legacy installed clients retain their existing response. */
+async function recoverMobileShowCreation(request: Request, db: MobileApiDatabase, review: boolean): Promise<Response> {
+  const parsed = reviewShowCreationSchema.safeParse(await readJson(request));
+  if (!parsed.success || Boolean(parsed.data.copyFrom) !== Boolean(parsed.data.copyFromShowId))
+    return json({ error: "Check the show details and choose one valid rundown source." }, 400);
+  const input = parsed.data;
+  const url = new URL(request.url);
+  url.searchParams.set("orgId", input.orgId);
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  if (input.userId !== access.identity.userId)
+    return json({ error: "Your account changed. Reopen the show form." }, 403);
+  try {
+    const result = review
+      ? await (await import("./show-creation-review.server")).reviewShowCreationRequest(request.headers, input)
+      : { kind: "created" as const, result: await createServiceForOrg(input, request.headers) };
+    return json({ orgId: input.orgId, userId: input.userId, requestId: input.requestId, result }, review ? 200 : 201);
+  } catch (error) {
+    if (error instanceof PlanLimitError) return json({ error: error.message }, error.status);
+    throw error;
+  }
 }
 
 async function createRundown(
@@ -7189,6 +7213,8 @@ export async function handleMobileApi(
     return saveMobileWorkspace(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/bootstrap" && request.method === "GET")
     return bootstrap(request, url, env.DB);
+  if (["/api/mobile/v1/shows/create", "/api/mobile/v1/shows/review-creation"].includes(url.pathname) && request.method === "POST")
+    return recoverMobileShowCreation(request, env.DB, url.pathname.endsWith("/review-creation"));
   if (url.pathname === "/api/mobile/v1/rundowns" && request.method === "POST")
     return createRundown(request, env.DB);
   if (url.pathname === "/api/mobile/v1/schedule" && request.method === "GET")

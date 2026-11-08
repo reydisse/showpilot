@@ -1,3 +1,4 @@
+import { showCreationReplySchema, type ShowCreationCommand } from "./show-creation-recovery";
 import { scheduleAssignmentResultSchema, assignmentReadSchema, type ScheduleAssignmentCommand } from "./assignment-recovery";
 import { copyTeamResultSchema, type CopyTeamCommand } from "./copy-recovery";
 import { scheduleReminderResultSchema, type ScheduleReminderCommand } from "./reminder-recovery";
@@ -192,12 +193,6 @@ export type MobileRundownTemplate = z.infer<
 export type MobilePreviousRundown = z.infer<
   typeof mobileRundownTemplatesSchema
 >["previousShows"][number];
-
-const createMobileRundownResponseSchema = z.object({
-  ok: z.literal(true),
-  showId: z.string(),
-  serviceDate: z.string(),
-});
 
 const showInventoryItemSchema = z.object({
   id: z.string(),
@@ -1454,23 +1449,11 @@ export async function updateMobileProPresenterStageDisplay(input: {
     .parse(await response.json());
 }
 
-export async function createMobileRundown(input: {
-  orgId: string;
-  requestId?: string;
-  serviceDate: string;
-  name?: string;
-  startTime?: string;
-  callTime?: string;
-  location?: string;
-  inventoryId?: string;
-  copyFrom?: string;
-  copyFromShowId?: string;
-}) {
-  const response = await authenticatedFetch("/api/mobile/v1/rundowns", {
-    method: "POST",
-    body: JSON.stringify(input),
+export async function commandMobileShowCreation(input: ShowCreationCommand, review: boolean, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/shows/${review ? "review-creation" : "create"}`, {
+    method: "POST", body: JSON.stringify(input), signal,
   });
-  return createMobileRundownResponseSchema.parse(await response.json());
+  return showCreationReplySchema.parse(await response.json());
 }
 
 export async function getMobileSchedule(
