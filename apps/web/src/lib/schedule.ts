@@ -14,7 +14,7 @@ import { saveShowDetailsRequest } from "./show-details.server";
 import { getCrewScheduleResponseWindow } from "@/lib/crew-schedule-response";
 import { getServiceTiming, readPhaseSettings } from "@/lib/service-phase";
 import { buildScheduleQuerySelection } from "@/lib/schedule-selection";
-import { deleteShowInputSchema } from "./show-deletion-contract";
+import { deleteShowInputSchema, ShowDeletionRejectedError } from "./show-deletion-contract";
 import { deleteServiceForOrg } from "@/lib/service-deletion.server";
 import { env } from "cloudflare:workers";
 import { getAssignmentCallTime } from "@/lib/assignment-call-time";
@@ -46,7 +46,13 @@ export const deleteService = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     await assertAccess(data.orgId, true);
-    return deleteServiceForOrg(data, getRequestHeaders());
+    try {
+      return await deleteServiceForOrg(data, getRequestHeaders());
+    } catch (error) {
+      if (error instanceof ShowDeletionRejectedError)
+        return { ok: false as const, message: error.message };
+      throw error;
+    }
   });
 
 async function assertAccess(orgId: string, manage = false) {

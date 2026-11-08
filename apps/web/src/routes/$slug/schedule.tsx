@@ -1,3 +1,5 @@
+import { useShowDeletions } from "@/hooks/useShowDeletions";
+import { ShowDeletionProgress } from "@/components/shows/ShowDeletionProgress";
 import { ShowDetailsEditor } from "@/components/shows/ShowDetailsEditor";
 import { CopyTeamControl } from "@/components/schedule/CopyTeamControl";
 import { useScheduleRoster } from "@/hooks/useScheduleRoster";
@@ -37,7 +39,6 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ShowCreationForm, inventoryDraft, type ShowDraft } from "@/components/shows/ShowCreationForm";
 import {
-  deleteService,
   getSchedule,
   type ScheduleProvider,
 } from "@/lib/schedule";
@@ -216,6 +217,15 @@ function SchedulePage() {
     data.services.find((service) => service.id === data.defaultSelectedShowId) ??
     data.services[0] ??
     null;
+  const deletions = useShowDeletions({ orgId: data.orgId, userId: user.id }, {
+    refresh: async signal => {
+      await router.invalidate();
+      signal.throwIfAborted();
+      const failed = router.state.matches.find(match => match.status === "error");
+      if (failed) throw failed.error;
+    },
+    onConfirmed: id => { if (selected?.id === id) setServiceOpen(false); },
+  });
   const selectedIndex = selected
     ? data.services.findIndex((service) => service.id === selected.id)
     : -1;
@@ -333,6 +343,7 @@ function SchedulePage() {
           ) : null}
         </div>
       </header>
+      <ShowDeletionProgress controller={deletions} />
       <div className="mx-auto grid min-h-[calc(100vh-58px)] max-w-[1700px] grid-cols-[minmax(0,1fr)] border-x border-board-border lg:grid-cols-[344px_minmax(0,1fr)]">
         <aside className="border-b border-board-border bg-board-card lg:border-b-0 lg:border-r">
           <MonthCalendar
@@ -625,7 +636,6 @@ function SchedulePage() {
           userId={user.id}
           orgTimezone={deviceTimeZone}
           service={selected}
-          confirm={confirm}
           onClose={() => setServiceOpen(false)}
           onSaved={async (signal) => {
             await router.invalidate();
@@ -633,21 +643,12 @@ function SchedulePage() {
             const failed = router.state.matches.find(match => match.status === "error");
             if (failed) throw failed.error;
           }}
-          onDeleted={async () => {
-            setServiceOpen(false);
-            if (requestedShowId || requestedDate) {
-              await navigate({
-                search: {
-                  show: undefined,
-                  date: undefined,
-                  assignment: undefined,
-                },
-                replace: true,
-              });
-            } else {
-              await router.invalidate();
-            }
-          }}
+          deletion={deletions.work[selected.id]}
+          onDelete={() => deletions.confirmDeletion({ showId: selected.id, name: selected.name, expectedUpdatedAt: new Date(selected.updatedAt).toISOString() }, () => confirm({
+            title: "Delete this show?",
+            description: `Delete ${selected.name || "this show"} and its rundown, crew assignments, notes, checklist and incidents? This cannot be undone.`,
+            confirmLabel: "Delete show", variant: "danger",
+          }))}
         />
       ) : null}
       {ConfirmDialogEl}
@@ -1379,24 +1380,23 @@ function ServiceDetailsModal({
   userId,
   orgTimezone,
   service,
-  confirm,
   onClose,
   onSaved,
-  onDeleted,
+  deletion,
+  onDelete,
 }: {
   orgId: string;
   userId: string;
   orgTimezone?: string;
   service: Awaited<ReturnType<typeof getSchedule>>["services"][number];
-  confirm: ReturnType<typeof useConfirmDialog>["confirm"];
   onClose: () => void;
   onSaved: (signal: AbortSignal) => Promise<void>;
-  onDeleted: () => void | Promise<void>;
+  deletion: ReturnType<typeof useShowDeletions>["work"][string];
+  onDelete: () => Promise<void>;
 }) {
   const locale = useDeviceLocale();
   const workspaceTerms = useWorkspaceTerms();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const deleting = !!deletion && deletion.kind !== "rejected";
   return (
     <Modal title="Show details" description="Edit this show’s name, times and location." onClose={onClose}>
       <ShowDetailsEditor
@@ -1407,40 +1407,21 @@ function ServiceDetailsModal({
           timeZone: orgTimezone || getDeviceTimeZone() }}
         nameLabel={workspaceCopy("Show or service name", workspaceTerms)}
         callTimeNote={service.effectiveCallTime ? `Organization default: ${timeLabel(service.effectiveCallTime, orgTimezone, locale)}.` : "No call time until this show has a start time."}
-        refresh={onSaved} onRefreshed={onClose} disabled={busy}
+        refresh={onSaved} onRefreshed={onClose} disabled={deleting}
       >
       {(locked) => <>
       <div className="mt-5 border-t border-board-border pt-4">
-        <p className="text-[10px] leading-4 text-board-muted">Deleting removes this stopped show’s rundown, crew assignments, notes, checklist, incidents and related notifications.</p>
+        <p className="text-xs leading-5 text-board-muted">Deleting removes this stopped show’s rundown, crew assignments, notes, checklist, incidents and related notifications.</p>
         <button
           type="button"
           disabled={locked}
-          onClick={async () => {
-            const approved = await confirm({
-              title: "Delete this show?",
-              description: `Delete ${service.name || "this show"} and its service records? This cannot be undone.`,
-              confirmLabel: "Delete show",
-              variant: "danger",
-            });
-            if (!approved) return;
-            setBusy(true);
-            setError(null);
-            try {
-              await deleteService({ data: { orgId, showId: service.id } });
-              await onDeleted();
-            } catch (cause) {
-              setError(cause instanceof Error ? cause.message : "Could not delete show");
-            } finally {
-              setBusy(false);
-            }
-          }}
-          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/30 px-4 py-2.5 text-sm font-semibold text-red-300 transition hover:bg-red-500/10 disabled:opacity-50"
+          onClick={() => void onDelete()}
+          className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-red-500/30 px-4 py-2.5 text-sm font-semibold text-red-300 transition hover:bg-red-500/10 disabled:opacity-50"
         >
           <Trash2 className="h-4 w-4" />
           Delete show
         </button>
       </div>
-      {error ? <p role="alert" className="mt-3 text-sm text-red-300">{error}</p> : null}
       </>}
       </ShowDetailsEditor>
     </Modal>

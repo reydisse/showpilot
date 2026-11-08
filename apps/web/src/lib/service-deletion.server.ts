@@ -6,6 +6,7 @@ import { markDatabaseWrite } from "./request-database.server";
 import {
   deleteShowInputSchema,
   ShowDeletionBlockedError,
+  ShowDeletionRejectedError,
   type DeleteShowInput,
 } from "./show-deletion-contract";
 import {
@@ -75,7 +76,7 @@ export async function deleteServiceForOrg(
     query: { disableCookieCache: true },
   });
   if (!session || (data.userId && data.userId !== session.user.id))
-    throw new Error(
+    throw new ShowDeletionRejectedError(
       "Your account changed. Reopen this show before deleting it.",
     );
   const access = await memberPermissionGuard(
@@ -93,12 +94,24 @@ export async function deleteServiceForOrg(
       )
       .bind(data.orgId, data.showId)
       .first<{ serviceDate: string; updatedAt: string | number }>();
-    if (!show) throw new Error("Show not found");
+    if (!show) {
+      // Another copy of this deletion may finish between the receipt read and
+      // the show read. Its accepted result wins over a missing-row rejection.
+      const concurrent = await readOperation(db, data.orgId, data.showId);
+      if (concurrent?.stage === "deleted") return { ok: true as const };
+      if (concurrent)
+        throw new Error(
+          "Deletion cleanup is not confirmed. Retry deletion to finish.",
+        );
+      throw new ShowDeletionRejectedError("Show not found");
+    }
     if (
       data.expectedUpdatedAt &&
       new Date(show.updatedAt).getTime() !== Date.parse(data.expectedUpdatedAt)
     )
-      throw new Error("This show changed. Refresh and confirm deletion again.");
+      throw new ShowDeletionRejectedError(
+        "This show changed. Refresh and confirm deletion again.",
+      );
     markDatabaseWrite();
     const nonce = crypto.randomUUID();
     await db.batch([
@@ -147,7 +160,9 @@ export async function deleteServiceForOrg(
         .bind(data.orgId, data.showId)
         .first();
       if (!available) throw new ShowDeletionBlockedError();
-      throw new Error("This show changed. Refresh and confirm deletion again.");
+      throw new ShowDeletionRejectedError(
+        "This show changed. Refresh and confirm deletion again.",
+      );
     }
   }
   if (operation.stage === "preparing") {
@@ -181,14 +196,31 @@ export async function deleteServiceForOrg(
         throw new Error("This deletion changed. Refresh before retrying.");
       operation = current;
     } catch (error) {
-      if (error instanceof ShowDeletionBlockedError)
+      if (error instanceof ShowDeletionBlockedError) {
         await abortPreparation(db, operation);
+        // A concurrent retry may already have accepted deletion, in which case
+        // preparation cannot be rolled back and the client must retain recovery.
+        if (await readOperation(db, data.orgId, data.showId))
+          throw new Error(
+            "Deletion cleanup is not confirmed. Retry deletion to finish.",
+            { cause: error },
+          );
+      }
       throw error;
     }
   }
   if (operation.stage === "deleted") return { ok: true as const };
   markDatabaseWrite();
-  await relays.purge(operation);
+  try {
+    await relays.purge(operation);
+  } catch (error) {
+    if (error instanceof ShowDeletionRejectedError)
+      throw new Error(
+        "Deletion was accepted, but cleanup is not confirmed. Retry deletion to finish.",
+        { cause: error },
+      );
+    throw error;
+  }
   await db.batch([
     ...cleanupStatements(db, operation),
     db
