@@ -7184,3 +7184,70 @@ Phase 2 remains 67/79. Native show editing/deletion, other mutation recovery and
 product-wide gates remain open. There was no production deployment/release,
 remote migration, real-org write or external mail. Twenty necessary tracked
 Markdown files remain.
+
+
+### Native Schedule show edit/delete recovery, 2026-11-08
+
+Branch: `fix/native-show-edit-delete-recovery`, stacked on
+`fix/native-show-creation-recovery`. Schedule previously held show edits only in
+the open sheet, coupled saves to refresh, and deleted through a one-shot alert
+without a retained original request or reviewed version. Both new native command
+adapter tests initially failed with 404.
+
+Schedule now retains edit/delete drafts and immutable requests per account,
+workspace and show for the signed-in app session. Edit and delete share one slot,
+so a new action cannot replace an unresolved change. Closing the sheet preserves
+its fields and request. Resume remains above the list even after deletion removes
+the row. Retry sends the original payload; edits can also review the existing
+receipt/cancellation fence before allowing changes. A confirmed change with a
+failed list refresh offers Refresh only. A conflict keeps the draft, and replacing
+it requires an explicit Load current confirmation. Deletion previews its scope,
+requires confirmation and the reviewed version, and cannot be discarded while its
+outcome is unknown. Command/review deadlines are 15 seconds, refresh 12 seconds,
+and explicit current-show reads 8 seconds.
+
+New native adapters delegate to the existing edit receipt and deletion lifecycle.
+They bind actor, organization, show and request identity and recheck current
+permissions. Current-show reads recheck permission after fetching the snapshot.
+A reproduced server bug also misclassified expired authentication as a definitive
+deletion rejection after purge had already started. That now remains unconfirmed
+until the original account can retry the existing journal. Installed-client
+server routes remain available; obsolete current-native wrappers and the old
+Schedule edit sheet were removed. Rundown metadata editing keeps its separate
+PIN/revision path and remains follow-up work. There is no migration.
+
+Validation:
+- Twenty-one new native hook/form cases pass, plus related inventory, assignment
+  and team form regressions. They cover exact retry, shared edit/delete ownership,
+  unknown outcomes, deadlines, failed refresh, explicit current reads, cancellation,
+  focus/account changes, identity mismatches and retained drafts.
+- Fifty-nine real-auth/D1/relay Worker cases pass, including ten added cases for
+  native commands/reads and expired authentication after accepted deletion.
+- Full suite: 2,660 unit / 1,410 Worker tests. Web typecheck and production build
+  pass. Main remains 549,525 raw / 173,749 gzip bytes within unchanged budgets.
+- Native verification passes typecheck, lint with existing warnings, all three
+  exports, Expo doctor 18/18, API contracts and polling checks. Hermes is
+  5,585,330 bytes on iOS and 5,584,398 on Android, below the 6,500,000 limit.
+- The compiled Expo app against disposable real auth/D1 passes close/resume,
+  competing-action retention, committed-but-lost reply with exact retry, refresh
+  failure without repeat mutation, review cancellation of a delayed save,
+  conflict preservation and explicit reload, deletion confirmation cancellation,
+  resume after the row disappears, and exact deletion retry to completed cleanup.
+  Controls pass 44px, text-fit and reachability checks at 320/768/1440 pixels.
+  Phone/tablet screenshots inspected; zero browser runtime errors.
+- The compiled creation regression passes all three entry points, cross-route
+  retention, exact retry, refresh recovery, review cancellation and same-day copy.
+  Expo web checks do not establish physical iOS/Android UI behavior.
+
+Evidence: `/tmp/showpilot-native-show-edit-{before,worker1,worker2,worker3,
+hooks1,web-tsc1,web-tsc2,web-tsc3,native-tsc1,full1,build1,verify1,browser1,
+creation-browser}.log` and `/tmp/showpilot-native-show-delete-auth-before.log`.
+Screenshots: `/tmp/showpilot-native-show-{edit,delete}-{320,768,1440}.png`.
+After web build and mobile verify, rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-show-management.mjs`.
+
+Preceding draft PR #255 is green (CI 42508833299, web 16m13s / Rust 3m10s).
+Phase 2 remains 67/79; these are partial product-wide gate results. Other native
+mutations and the broad UX checks remain open. No production deployment, release,
+remote migration, real-org write or external mail. Twenty necessary tracked
+Markdown files remain.

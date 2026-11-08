@@ -145,7 +145,11 @@ export interface MobileApiEnvironment {
   BETTER_AUTH_SECRET?: string;
   DB: MobileApiDatabase;
   BRIDGE_RELAY?: DurableObjectNamespace<BridgeRelay>;
-  RUNDOWN_RELAY?: DurableObjectNamespace;
+  RUNDOWN_RELAY?: {
+    idFromName(name: string): DurableObjectId;
+    get(id: DurableObjectId): { fetch(request: Request): Promise<Response> };
+    getByName(name: string): { fetch(request: Request): Promise<Response> };
+  };
   KIOSK_SECRET?: string;
 }
 
@@ -3008,6 +3012,47 @@ async function remindMobileScheduleAssignments(
   const { runScheduleReminders } = await import("./schedule-reminder.server");
   const result = await runScheduleReminders(request.headers, parsed.data);
   return json({ ok: true, delivered: result.items.filter(item => item.email === "accepted").length, total: result.items.filter(item => item.email !== "changed").length });
+}
+
+async function commandMobileShowManagement(request: Request, url: URL, env: MobileApiEnvironment, review: boolean): Promise<Response> {
+  const { mobileShowManagementSchema } = await import("./mobile-show-management-contract");
+  const parsed = mobileShowManagementSchema.safeParse(await readJson(request));
+  if (!parsed.success || (review && parsed.data.kind !== "edit"))
+    return json({ error: "Check the show details and original request." }, 400);
+  const command = parsed.data;
+  const access = await authorize(request, url, env.DB, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  if (command.orgId !== access.orgId || command.userId !== access.identity.userId)
+    return json({ error: "Your account or workspace changed. Reopen Schedule." }, 403);
+  const identity = { orgId: command.orgId, userId: command.userId, requestId: command.requestId, showId: command.showId, kind: command.kind };
+  if (command.kind === "edit") {
+    const { saveShowDetailsRequest } = await import("./show-details.server");
+    const result = await saveShowDetailsRequest(request.headers, command, env, review ? "review" : "save");
+    return json({ ...identity, result });
+  }
+  const { deleteServiceForOrg } = await import("./service-deletion.server");
+  const { ShowDeletionRejectedError } = await import("./show-deletion-contract");
+  try {
+    return json({ ...identity, result: await deleteServiceForOrg(command, request.headers) });
+  } catch (error) {
+    // Once purge starts, errors stay unconfirmed and retries finish the journal.
+    // Only the shared lifecycle can classify a definitive rejection.
+    if (error instanceof ShowDeletionRejectedError)
+      return json({ ...identity, result: { ok: false, message: error.message } });
+    throw error;
+  }
+}
+
+async function readMobileManagedShow(request: Request, url: URL, showId: string, db: MobileApiDatabase): Promise<Response> {
+  const { mobileShowReadSchema } = await import("./mobile-show-management-contract");
+  const parsed = mobileShowReadSchema.safeParse({ orgId: url.searchParams.get("orgId"), userId: url.searchParams.get("userId"), showId });
+  if (!parsed.success) return json({ error: "Choose a valid show and account." }, 400);
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  if (access.identity.userId !== parsed.data.userId)
+    return json({ error: "Your account changed. Reopen Schedule." }, 403);
+  const { readMobileShowDetails } = await import("./mobile-show-management.server");
+  return json(await readMobileShowDetails(request.headers, parsed.data));
 }
 
 async function updateMobileScheduleService(
@@ -7219,6 +7264,11 @@ export async function handleMobileApi(
     return createRundown(request, env.DB);
   if (url.pathname === "/api/mobile/v1/schedule" && request.method === "GET")
     return schedule(request, url, env.DB);
+  if (request.method === "POST" && ["/api/mobile/v1/schedule/shows/command", "/api/mobile/v1/schedule/shows/review"].includes(url.pathname))
+    return commandMobileShowManagement(request, url, env, url.pathname.endsWith("/review"));
+  const managedShowRead = url.pathname.match(/^\/api\/mobile\/v1\/schedule\/shows\/([^/]+)$/);
+  if (managedShowRead && request.method === "GET")
+    return readMobileManagedShow(request, url, decodeURIComponent(managedShowRead[1]), env.DB);
   if (request.method === "POST" && ["/api/mobile/v1/schedule/assignments/command", "/api/mobile/v1/schedule/assignments/review"].includes(url.pathname))
     return commandMobileAssignment(request, url, env.DB, url.pathname.endsWith("/review"));
   const mobileAssignmentRead = url.pathname.match(/^\/api\/mobile\/v1\/schedule\/assignments\/([^/]+)$/);

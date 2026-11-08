@@ -787,3 +787,173 @@ it("does not reject a preparation refusal if an overlapping request already acce
     await deleteService({ data: { orgId: f.orgId, showId: f.showId } }),
   ).toEqual({ ok: true });
 });
+
+it("native deletion uses the reviewed show version and returns a known rejection for a live show", async () => {
+  const f = await fixture();
+  await env.DB.prepare(
+    "UPDATE rundown SET status='running' WHERE orgId=? AND id=?",
+  )
+    .bind(f.orgId, f.showId)
+    .run();
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const requestId = crypto.randomUUID();
+  const row = await env.DB.prepare(
+    "SELECT updatedAt FROM rundown WHERE orgId=? AND id=?",
+  )
+    .bind(f.orgId, f.showId)
+    .first<{ updatedAt: string | number }>();
+  const expectedUpdatedAt = new Date(row!.updatedAt).toISOString();
+  const response = await handleMobileApi(
+    new Request(
+      `https://app.showpilot.tech/api/mobile/v1/schedule/shows/command?orgId=${f.orgId}`,
+      {
+        method: "POST",
+        headers: {
+          Cookie: f.headers.get("Cookie") ?? "",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          orgId: f.orgId,
+          userId: f.userId,
+          requestId,
+          kind: "delete",
+          showId: f.showId,
+          expectedUpdatedAt,
+        }),
+      },
+    ),
+    { DB: env.DB },
+  );
+  expect(response?.status).toBe(200);
+  expect(await response?.json()).toMatchObject({
+    orgId: f.orgId,
+    userId: f.userId,
+    requestId,
+    kind: "delete",
+    result: { ok: false, message: "Stop the show before deleting it" },
+  });
+});
+
+it("an expired account cannot classify an already accepted deletion as rejected", async () => {
+  const f = await fixture();
+  await expect(
+    f.remove({
+      prepare: showDeletionRelays.prepare,
+      purge: async () => {
+        throw new Error("Lost cleanup response");
+      },
+    }),
+  ).rejects.toThrow("Lost cleanup response");
+  expect(await f.operation()).toMatchObject({ stage: "purging" });
+  const { ShowDeletionRejectedError } =
+    await import("../show-deletion-contract");
+  const result = await deleteServiceForOrg(
+    { orgId: f.orgId, showId: f.showId, userId: f.userId },
+    new Headers(),
+  ).catch((error) => error);
+  expect(result).toBeInstanceOf(Error);
+  expect(result).not.toBeInstanceOf(ShowDeletionRejectedError);
+  expect(await f.operation()).toMatchObject({ stage: "purging" });
+  await expect(f.remove()).resolves.toEqual({ ok: true });
+});
+
+async function nativeDeletion(f: Awaited<ReturnType<typeof fixture>>) {
+  const row = await env.DB.prepare(
+    "SELECT updatedAt FROM rundown WHERE orgId=? AND id=?",
+  )
+    .bind(f.orgId, f.showId)
+    .first<{ updatedAt: string | number }>();
+  const command = {
+    orgId: f.orgId,
+    userId: f.userId,
+    showId: f.showId,
+    requestId: crypto.randomUUID(),
+    kind: "delete",
+    expectedUpdatedAt: new Date(row!.updatedAt).toISOString(),
+  };
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const send = async (body = command, review = false) => {
+    const response = await handleMobileApi(
+      new Request(
+        `https://app.showpilot.tech/api/mobile/v1/schedule/shows/${review ? "review" : "command"}?orgId=${f.orgId}`,
+        {
+          method: "POST",
+          headers: {
+            Cookie: f.headers.get("Cookie") ?? "",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        },
+      ),
+      env,
+    );
+    if (!response) throw new Error("Missing native delete route");
+    return response;
+  };
+  return { command, send };
+}
+it("native deletion resumes accepted cleanup after a lost response and exact retry remains successful", async () => {
+  const f = await fixture(),
+    native = await nativeDeletion(f);
+  vi.spyOn(showDeletionRelays, "purge").mockRejectedValueOnce(
+    new Error("Cleanup reply lost"),
+  );
+  await expect(native.send()).rejects.toThrow("Cleanup reply lost");
+  expect(await f.operation()).toMatchObject({ stage: "purging" });
+  const { showManagementReplySchema } =
+    await import("../../../../mobile/src/lib/show-management-recovery");
+  const result = showManagementReplySchema.parse(
+    await (await native.send()).json(),
+  );
+  expect(result).toMatchObject({
+    kind: "delete",
+    requestId: native.command.requestId,
+    result: { ok: true },
+  });
+  expect(await (await native.send()).json()).toEqual(result);
+  expect(await f.row()).toBeNull();
+  expect(await f.operation()).toMatchObject({ stage: "deleted" });
+});
+it("native stale or review-only deletion cannot purge a show", async () => {
+  const f = await fixture(),
+    native = await nativeDeletion(f);
+  const stale = await native.send({
+    ...native.command,
+    expectedUpdatedAt: "2020-01-01T00:00:00Z",
+  });
+  expect(await stale.json()).toMatchObject({
+    result: {
+      ok: false,
+      message: "This show changed. Refresh and confirm deletion again.",
+    },
+  });
+  expect((await native.send(native.command, true)).status).toBe(400);
+  expect(await f.operation()).toBeNull();
+  expect(await f.row()).not.toBeNull();
+});
+it("native deletion cannot use another actor or workspace and exposes no deleted-show snapshot", async () => {
+  const f = await fixture(),
+    native = await nativeDeletion(f);
+  expect(
+    (await native.send({ ...native.command, userId: "other-account" })).status,
+  ).toBe(403);
+  expect(
+    (await native.send({ ...native.command, orgId: "other-org" })).status,
+  ).toBe(403);
+  expect(await f.operation()).toBeNull();
+  await (await native.send()).arrayBuffer();
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const response = await handleMobileApi(
+    new Request(
+      `https://app.showpilot.tech/api/mobile/v1/schedule/shows/${f.showId}?orgId=${f.orgId}&userId=${f.userId}`,
+      { headers: f.headers },
+    ),
+    env,
+  );
+  expect(await response?.json()).toMatchObject({
+    orgId: f.orgId,
+    userId: f.userId,
+    showId: f.showId,
+    snapshot: null,
+  });
+});

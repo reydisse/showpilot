@@ -1,3 +1,4 @@
+import { showManagementReplySchema, showManagementReadSchema, type ShowManagementCommand } from "./show-management-recovery";
 import { showCreationReplySchema, type ShowCreationCommand } from "./show-creation-recovery";
 import { scheduleAssignmentResultSchema, assignmentReadSchema, type ScheduleAssignmentCommand } from "./assignment-recovery";
 import { copyTeamResultSchema, type CopyTeamCommand } from "./copy-recovery";
@@ -1515,31 +1516,17 @@ export async function copyMobileScheduleTeam(input: CopyTeamCommand, signal: Abo
   return copyTeamResultSchema.parse(await response.json());
 }
 
-export async function updateMobileScheduleService(input: {
-  orgId: string;
-  showId: string;
-  name: string;
-  startTime: string;
-  callTime: string;
-  location: string;
-  expectedUpdatedAt: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/schedule/services/${encodeURIComponent(input.showId)}?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify(input) },
-  );
-  return okSchema.parse(await response.json());
+export async function commandMobileShowManagement(input: ShowManagementCommand, review: boolean, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/schedule/shows/${review ? "review" : "command"}?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", body: JSON.stringify(input), signal,
+  });
+  return showManagementReplySchema.parse(await response.json());
 }
 
-export async function removeMobileScheduleService(input: {
-  orgId: string;
-  showId: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/schedule/services/${encodeURIComponent(input.showId)}/remove?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify({}) },
-  );
-  return okSchema.parse(await response.json());
+export async function readMobileManagedShow(input: { orgId: string; userId: string; showId: string }, signal: AbortSignal) {
+  const query = new URLSearchParams({ orgId: input.orgId, userId: input.userId });
+  const response = await authenticatedFetch(`/api/mobile/v1/schedule/shows/${encodeURIComponent(input.showId)}?${query}`, { signal });
+  return showManagementReadSchema.parse(await response.json());
 }
 
 export async function saveMobileScheduleProvider(input: {
