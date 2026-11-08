@@ -7598,6 +7598,16 @@ Expo web does not establish physical-device behavior. Re-run after web build and
 mobile verify with
 `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-rundown-details.mjs`.
 
+PR #261 CI 42524889710 passed Rust but failed two native-details authority
+matrix cases at Vitest's 5s default. Both verify the full 210,000-iteration PIN;
+the neighboring passing cases took 4.843s and 4.932s, and the failed cases took
+5.248s and 5.139s. There is no event waiter in these tests. The matrix now uses
+the same explicit 30s budget as the other PIN authority case. Application
+request deadlines and cryptographic work factors are unchanged. All fourteen
+native-details Worker cases pass with Istanbul coverage, and web typecheck
+passes. Evidence: `/tmp/showpilot-pr261-{ci-failed,pin-coverage,pin-tsc}.log`.
+Full CI must pass on the updated head before opening the next PR.
+
 Preceding draft #260 is green (CI 42522683978, web 13m57s / Rust 4m30s).
 Phase 2 remains 67/79. Broader UX and physical-device gates remain open, and the
 Founding Member closing date/timezone still awaits the owner's answer. No

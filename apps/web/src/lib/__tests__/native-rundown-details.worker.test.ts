@@ -354,6 +354,9 @@ it.each(["session", "role", "pin", "deleting"])(
     expect(await f.receiptCount()).toBe(0);
     expect(await f.row()).toMatchObject({ name: "Original" });
   },
+  // Each case verifies a full-strength 210,000-iteration PIN. CI measured
+  // 4.8-5.2s with coverage, so use the existing PIN authority test budget.
+  30000,
 );
 it("metadata persistence and live state recover after relay eviction", async () => {
   const f = await nativeFixture();
