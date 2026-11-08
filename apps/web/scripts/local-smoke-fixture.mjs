@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, reportRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false } = {}) {
   if (streamOutputs) {
     assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Stream status requires the isolated outbound handler");
     assert.equal(captureEmail, false, "Use separate fixtures for email and Stream status");
@@ -191,6 +191,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     ('smoke-setup-role','display-smoke','onboarding-role:smoke-operator','{"archetype":"td","landing":"/show"}');` : ""}
     ${setupTeam ? `INSERT INTO app_setting(id,orgId,key,value) VALUES ('smoke-setup-seed','display-smoke','onboarding-template-seeded','{"template":"blank","serviceDate":"${date}"}');` : ""}` : ""}
   INSERT INTO rundown (id,orgId,serviceDate,name) VALUES ('smoke-show','display-smoke','${date}','Display test show');
+  ${reportRecovery ? Array.from({length:11},(_,i)=>`INSERT INTO rundown(id,orgId,serviceDate,name) VALUES ('report-fixture-${i}','display-smoke','${date}','Report fixture ${i} ${i===0?'LongShowTitle'.repeat(20):''}');`).join('\n') : ''}
   ${secondShow ? `INSERT INTO rundown (id,orgId,serviceDate,name) VALUES ('smoke-second-show','display-smoke','${date}','Evening test show');` : ""}
   INSERT INTO app_setting (id,orgId,key,value) VALUES ('smoke-message','display-smoke','rundown-message:smoke-show','Fixture private stage message'), ('smoke-active','display-smoke','active-graphics','["smoke-graphic"]'), ('smoke-show-setting','display-smoke','active-show-id','smoke-show');
   INSERT INTO graphic_template (id,orgId,name,title,subtitle,updatedAt) VALUES ('smoke-graphic','display-smoke','Fixture','Fixture overlay title','Fixture subtitle',CURRENT_TIMESTAMP);

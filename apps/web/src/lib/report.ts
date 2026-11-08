@@ -231,7 +231,7 @@ export const exportShowReport = createServerFn({ method: "POST" })
       }),
       getD1().prepare(
         `SELECT id, showId, userId, authorName, role, summary, wins, issues,
-                followUps, createdAt, updatedAt
+                followUps, revision, createdAt, updatedAt
            FROM show_report_note
           WHERE orgId = ? AND showId = ?
           ORDER BY CASE role WHEN 'pm' THEN 0 ELSE 1 END, updatedAt ASC`,

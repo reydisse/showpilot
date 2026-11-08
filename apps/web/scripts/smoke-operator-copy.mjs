@@ -84,7 +84,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, operatorCookie }) => {
     await check(`document.body.textContent.includes('1 report')&&document.querySelector('th:nth-child(3)')?.textContent==='Elapsed time'`, 'report count and duration label');
     const expectedDate = new Date(`${date}T12:00:00`).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
     assert.equal(await evaluate(`document.querySelector('tbody td')?.textContent.trim()`), expectedDate);
-    await click(`document.querySelector('tbody tr')`);
+    await click(`document.querySelector('tbody button[aria-label^="Open report:"]')`);
     await check(`!!(${button('Production Manager note')})&&!!(${button('Technical Manager note')})`, 'manager names spelled out');
     for (const viewport of [1440,768,320]) {
       await width(viewport);
