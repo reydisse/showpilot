@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { Bell, BellRing, CheckCircle2, ChevronLeft, ChevronRight, LogOut, Settings, UserRound } from "lucide-react";
+import { Bell, BellRing, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, LogOut, Settings, UserRound } from "lucide-react";
 import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { ROLE_COLOURS } from "./account-role";
 import { getPersonalNotifications, savePersonalNotificationTimeZone } from "@/lib/personal-notifications";
@@ -331,6 +331,12 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
                 <span className="text-sm font-medium">Notifications</span>
                 {unread > 0 ? <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-fire-500 px-1 text-[10px] font-semibold text-black">{unread > 99 ? "99+" : unread}</span> : <ChevronRight className="ml-auto size-3.5 opacity-40" />}
               </button>
+
+              <Link to="/$slug/assignments" params={{ slug }} search={{ date: undefined, assignment: undefined }} onClick={() => setAccountOpen(false)} className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-3 text-board-muted outline-none transition-colors hover:bg-board-border/50 hover:text-board-text focus-visible:ring-2 focus-visible:ring-fire-500">
+                <CalendarDays className="size-[18px]" />
+                <span className="text-sm font-medium">My assignments</span>
+                <ChevronRight className="ml-auto size-3.5 opacity-40" />
+              </Link>
 
               {pushSupported && pushStatusReady ? (
                 pushEnabled || pushPermission === "denied" ? (

@@ -1,3 +1,4 @@
+import { PageBreadcrumb } from "@/components/ui/PageBreadcrumb";
 import {
   createFileRoute,
   Link,
@@ -547,15 +548,18 @@ function SongStudioPage() {
     <div className="min-h-full min-w-0 bg-board-bg p-4 sm:p-6">
       <div className="mx-auto max-w-7xl space-y-5">
         <header className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <Link
-              to="/$slug/songs"
-              params={{ slug }}
-              aria-label="Back to songs"
-              className="rounded-xl border border-board-border bg-board-card p-2.5 text-board-muted"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <PageBreadcrumb current="Song studio">
+              <Link activeOptions={{ exact: true }}
+                to="/$slug/songs"
+                params={{ slug }}
+                aria-label="Back to songs"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 px-3 outline-none focus-visible:ring-2 focus-visible:ring-fire-500 rounded-xl border border-board-border bg-board-card p-2.5 text-board-muted"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Songs
+              </Link>
+            </PageBreadcrumb>
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-fire-500">
                 Song studio

@@ -81,7 +81,7 @@ export function CrewCheckInPage({ orgId, slug, initialMembers }: { orgId: string
         {completedId && !needsRead && !crew.error ? <section className="space-y-3 rounded-xl border border-board-border bg-board-card p-4">
           <h2 className="text-lg font-medium">Latest attendance</h2>
           <p className="break-words">{completed ? `${completed.name}: ${completed.isOnline ? "checked in" : "checked out"}` : "This crew member is no longer in the roster."}</p>
-          {completed?.isOnline && <div className="flex flex-wrap gap-2"><Link to="/$slug/crew-chat" params={{ slug }} search={{ name: completed.name }} className={actionClass}>Join Production Chat</Link><Link to="/$slug/rundown" params={{ slug }} className={actionClass}>View Rundown</Link></div>}
+          {completed?.isOnline && <div className="flex flex-wrap gap-2"><Link to="/$slug/chat" params={{ slug }} search={{ room: "production", message: undefined }} className={actionClass}>Join Production Chat</Link><Link to="/$slug/rundown" params={{ slug }} className={actionClass}>View Rundown</Link></div>}
           <button className={actionClass} onClick={() => { setCompletedId(null); setNotice(""); }}>Done</button>
         </section> : selected ? <section className="space-y-3 rounded-xl border border-board-border bg-board-card p-4">
           <h2 className="break-words text-lg font-medium">{selected.name}</h2><p className="text-sm text-board-muted">{selected.role} · Selected status: {selected.isOnline ? "Checked in" : "Checked out"}</p>
