@@ -1,9 +1,8 @@
+import { CrewResponseRecovery } from "@/components/schedule/CrewResponseRecovery";
+import { useCrewResponseWork } from "@/hooks/useCrewResponseWork";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
-import {
-  createFileRoute,
-  useRouter,
-} from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
@@ -17,6 +16,7 @@ import {
 import {
   getCrewSchedulePortal,
   respondToCrewScheduleInvite,
+  reviewCrewScheduleResponse,
 } from "@/lib/crew-schedule";
 import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { isCrewScheduleResponseOpen } from "@/lib/crew-schedule-response";
@@ -59,24 +59,51 @@ function formatTime(value: string | null, timeZone?: string) {
 
 function CrewSchedulePortal() {
   const workspaceTerms = useWorkspaceTerms();
-  const data = Route.useLoaderData();
+  const initialData = Route.useLoaderData();
+  const [data, setData] = useState(initialData);
   const deviceTimeZone = useDeviceTimeZone();
   const { token } = Route.useParams();
   const { assignment: requestedId } = Route.useSearch();
-  const [selectedId, setSelectedId] = useState(requestedId ?? data.initialAssignmentId);
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [declining, setDeclining] = useState(false);
-  const [reason, setReason] = useState("");
-  const [responseError, setResponseError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState(
+    requestedId ?? data.initialAssignmentId,
+  );
   const [nowMs, setNowMs] = useState(data.responseAsOf);
-  const selected = useMemo(
+  const liveSelected = useMemo(
     () =>
       data.assignments.find((assignment) => assignment.id === selectedId) ??
       data.assignments[0] ??
       null,
     [data.assignments, selectedId],
   );
+  const work = useCrewResponseWork(token, {
+    send: (command, review, signal) =>
+      review
+        ? reviewCrewScheduleResponse({ data: command, signal })
+        : respondToCrewScheduleInvite({ data: command, signal }),
+    refresh: async (signal) => {
+      const refreshed = await getCrewSchedulePortal({
+        data: { token },
+        signal,
+      });
+      signal.throwIfAborted();
+      setData((current) =>
+        refreshed.responseAsOf >= current.responseAsOf ? refreshed : current,
+      );
+      setNowMs(Date.now());
+    },
+  });
+  const entry = selectedId
+    ? work.entries[selectedId]
+    : liveSelected
+      ? work.entries[liveSelected.id]
+      : undefined;
+  const selected = entry?.selection ?? liveSelected;
+  const latest = selected
+    ? (data.assignments.find((row) => row.id === selected.id) ?? null)
+    : null;
+  const declining = entry?.declining ?? false;
+  const reason = entry?.reason ?? "";
+  const busy = !!entry?.attempt;
   const selectedClosesAt =
     selected?.responseWindow.status === "open"
       ? selected.responseWindow.closesAt
@@ -103,35 +130,31 @@ function CrewSchedulePortal() {
       if (timer) clearTimeout(timer);
     };
   }, [selectedClosesAt]);
-  const respond = async (response: "confirmed" | "declined") => {
-    if (!selected) return;
-    setBusy(true);
-    setResponseError(null);
-    try {
-      await respondToCrewScheduleInvite({
-        data: {
-          token,
-          assignmentId: selected.id,
-          reviewedVersion: selected.responseVersion,
-          response,
-          reason: response === "declined" ? reason : "",
-        },
-      });
-      setDeclining(false);
-      await router.invalidate();
-    } catch (error) {
-      setNowMs(Date.now());
-      setResponseError(
-        error instanceof Error ? error.message : "Could not save your response",
-      );
-    } finally {
-      setBusy(false);
-    }
+  const respond = (response: "confirmed" | "declined") => {
+    if (selected) work.submit(selected, response);
   };
 
+  const resume = Object.values(work.entries).filter(
+    (value) => value.selection.id !== selected?.id,
+  );
+  const resumeControls = resume.length ? (
+    <nav aria-label="Retained responses" className="mb-5 space-y-2">
+      {resume.map((value) => (
+        <button
+          key={value.selection.id}
+          onClick={() => setSelectedId(value.selection.id)}
+          className="min-h-11 w-full rounded-xl border border-board-border p-3 text-left text-sm"
+        >
+          Resume response: {value.selection.role} ·{" "}
+          {value.selection.serviceDate}
+        </button>
+      ))}
+    </nav>
+  ) : null;
   if (!selected)
     return (
       <PortalShell>
+        {resumeControls}
         <div className="py-20 text-center">
           <CalendarDays className="mx-auto h-10 w-10 text-zinc-600" />
           <h1 className="mt-5 text-2xl font-semibold">
@@ -153,6 +176,7 @@ function CrewSchedulePortal() {
 
   return (
     <PortalShell>
+      {resumeControls}
       <header className="border-b border-board-border pb-7 text-center">
         <p className="text-sm text-board-muted">{data.orgName}</p>
         <div className="mx-auto mt-5 flex h-14 w-14 items-center justify-center rounded-full border border-fire-500/30 bg-fire-500/10 text-fire-500">
@@ -167,25 +191,29 @@ function CrewSchedulePortal() {
           )}
         </div>
         <h1 className="mt-5 text-3xl font-semibold tracking-tight text-board-text sm:text-4xl">
-          {confirmed
-            ? "You’re scheduled"
-            : declined
-              ? "Response received"
-              : closed
-                ? "Response closed"
-                : `Can you ${terms.participate}?`}
+          {entry?.attempt
+            ? "Your response"
+            : confirmed
+              ? "You’re scheduled"
+              : declined
+                ? "Response received"
+                : closed
+                  ? "Response closed"
+                  : `Can you ${terms.participate}?`}
         </h1>
         <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-board-muted">
-          {confirmed
-            ? "Thanks! You’re all set for this assignment."
-            : declined
-              ? "Thanks for letting the team know."
-              : closed
-                ? workspaceCopy(
-                    "This service ended before a response was received. Contact your team leader if the schedule needs to change.",
-                    workspaceTerms,
-                  )
-                : `Hi ${data.crewName}, please respond to this ${terms.event} request.`}
+          {entry?.attempt
+            ? "The details below belong to your original response."
+            : confirmed
+              ? "Thanks! You’re all set for this assignment."
+              : declined
+                ? "Thanks for letting the team know."
+                : closed
+                  ? workspaceCopy(
+                      "This service ended before a response was received. Contact your team leader if the schedule needs to change.",
+                      workspaceTerms,
+                    )
+                  : `Hi ${data.crewName}, please respond to this ${terms.event} request.`}
         </p>
       </header>
       <section className="divide-y divide-board-border">
@@ -211,12 +239,21 @@ function CrewSchedulePortal() {
           />
         ) : null}
       </section>
-      {responseError ? (
-        <p className="mt-5 rounded-xl border border-red-500/25 bg-red-500/[0.06] px-4 py-3 text-sm text-red-300">
-          {responseError}
+      {!selected.revision ? (
+        <p role="alert" className="mt-5 text-sm text-red-300">
+          Assignment details are incomplete. Reopen your invitation before
+          responding.
         </p>
       ) : null}
-      {!confirmed && !declined && !closed ? (
+      {entry ? (
+        <CrewResponseRecovery
+          key={entry.selection.id}
+          entry={entry}
+          latest={latest}
+          work={work}
+        />
+      ) : null}
+      {(!confirmed && !declined && !closed && !busy) || (declining && busy) ? (
         <section className="space-y-3 pt-6">
           {declining ? (
             <div className="space-y-3">
@@ -224,7 +261,10 @@ function CrewSchedulePortal() {
                 Optional note
                 <textarea
                   value={reason}
-                  onChange={(event) => setReason(event.target.value)}
+                  readOnly={busy}
+                  onChange={(event) =>
+                    work.setReason(selected.id, event.target.value)
+                  }
                   rows={3}
                   maxLength={500}
                   placeholder={`Let the team know why you can’t ${terms.participate}`}
@@ -233,15 +273,16 @@ function CrewSchedulePortal() {
               </label>
               <div className="grid grid-cols-2 gap-3">
                 <button
-                  onClick={() => setDeclining(false)}
-                  className="rounded-xl border border-board-border px-4 py-3 text-sm font-medium text-board-text"
+                  disabled={busy}
+                  onClick={() => work.back(selected.id)}
+                  className="min-h-11 rounded-xl border border-board-border px-4 py-3 text-sm font-medium text-board-text"
                 >
                   Back
                 </button>
                 <button
-                  disabled={busy}
+                  disabled={busy || !selected.revision}
                   onClick={() => void respond("declined")}
-                  className="rounded-xl bg-red-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                  className="min-h-11 rounded-xl bg-red-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
                 >
                   Send decline
                 </button>
@@ -250,7 +291,7 @@ function CrewSchedulePortal() {
           ) : (
             <>
               <button
-                disabled={busy}
+                disabled={busy || !selected.revision}
                 onClick={() => void respond("confirmed")}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-fire-500 px-5 py-4 text-base font-semibold text-black disabled:opacity-50"
               >
@@ -258,8 +299,8 @@ function CrewSchedulePortal() {
                 Accept assignment
               </button>
               <button
-                disabled={busy}
-                onClick={() => setDeclining(true)}
+                disabled={busy || !selected.revision}
+                onClick={() => work.decline(selected)}
                 className="flex w-full items-center justify-center gap-2 rounded-xl border border-board-border px-5 py-4 text-base font-medium text-board-text disabled:opacity-50"
               >
                 <X className="h-5 w-5" />
@@ -300,11 +341,8 @@ function CrewSchedulePortal() {
                   key={assignment.id}
                   onClick={() => {
                     setSelectedId(assignment.id);
-                    setDeclining(false);
-                    setReason("");
-                    setResponseError(null);
                   }}
-                  className="flex w-full items-center justify-between gap-4 py-3 text-left hover:bg-board-bg/50"
+                  className="flex min-h-11 w-full items-center justify-between gap-4 py-3 text-left hover:bg-board-bg/50"
                 >
                   <span>
                     <span className="block text-sm font-medium text-board-text">
@@ -319,7 +357,10 @@ function CrewSchedulePortal() {
                   >
                     {assignment.status === "confirmed"
                       ? "Accepted"
-                      : isCrewScheduleResponseOpen(assignment.responseWindow, nowMs)
+                      : isCrewScheduleResponseOpen(
+                            assignment.responseWindow,
+                            nowMs,
+                          )
                         ? "Reply"
                         : "Closed"}
                   </span>
@@ -371,7 +412,7 @@ function Detail({
   return (
     <div className="flex gap-4 py-5">
       <Icon className="mt-1 h-5 w-5 shrink-0 text-board-muted" />
-      <div>
+      <div className="min-w-0 break-words">
         <p className="text-sm font-medium text-board-text">{label}</p>
         <p className="mt-1 text-sm leading-relaxed text-board-muted">{value}</p>
       </div>

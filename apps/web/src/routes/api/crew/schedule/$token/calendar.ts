@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { getCrewScheduleCalendar } from "@/lib/crew-schedule";
+import { getCrewScheduleCalendar } from "@/lib/crew-schedule-calendar.server";
 
 export const Route = createFileRoute("/api/crew/schedule/$token/calendar")({
   server: {
