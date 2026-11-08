@@ -4621,3 +4621,48 @@ native release or real-org/provider mutation. Phase 2 remains 47/79: technical
 display blanking, legacy graphics clear and stream commands still require their
 own authoritative recovery work, along with the remaining broad UX/error gates.
 Twenty necessary tracked Markdown files remain; no new Markdown file was added.
+
+## Technical kiosk controls share safe command recovery (2026-11-07, not deployed)
+
+Two real-auth Worker baselines proved the technical dashboard's old blank action
+re-blanked kiosks after another controller restored them, both on a lost-reply
+retry and after a stale confirmation. The dashboard now uses the same kiosk
+editor and atomic receipt/revision command handler as Settings. The old technical
+RPC rejects both blank and restore actions. The card names kiosk displays and
+explains that connected kiosks apply the desired state on their next poll.
+
+Dedicated technical RPCs retain existing dashboard access without extending
+Settings' permanent settings:members permission. Owners/admins/TMs use their
+current role; temporary device operators use current dashboard:tm grants. The
+atomic commit rechecks session, membership/role revision, organization deletion,
+and live grant contents, revocation and dates. Grant dates use the organization's
+local day, with a commit bound at its actual next date transition and a timezone
+setting guard. This handles DST day length without treating a UTC date as venue
+local time. Request receipts remain shared across Settings and dashboard entry
+points and isolated by org/actor/request.
+
+The shared editor remounts on account/org/surface changes so an open confirmation
+cannot follow another workspace. Read Retry stays visible and disabled during an
+initial retry, failures stop automatic polling, and a late command snapshot does
+not replace feedback read after that command began. Uncertain commands remain
+available across navigation and between the two entry points. Blank requires a
+confirmation; restore does not. Companion's existing revision advancement and
+the authenticated kiosk polling contract remain intact.
+
+Verification passes: 13 new real-auth Worker cases plus nine existing kiosk
+command cases; ten shared editor cases including four new cases, plus nine
+existing stream-health cases. Full web suite: 2,318 unit / 1,129 Worker tests;
+typecheck and production build pass. Main bundle: 551,588 raw / 174,455 gzip bytes.
+`smoke-kiosk-display-command.mjs` passes in both default Settings mode and
+`--technical` dashboard mode against compiled Chrome/auth/disposable D1. Each
+rehearsal verifies bounded unknown reads, confirmation/cancel, lost-reply retry
+across navigation, preservation of a newer Companion restore, late replies,
+fresh kiosk polling and explicit restore. Dialogs and 44px targets fit at
+320/768/1440px; the technical phone screenshot was inspected. Each fixture has
+three receipts and no outgoing emails or browser runtime errors.
+
+Based on #209. Keep draft and wait for its CI before opening this PR. No new
+migration, production deployment, native release or real-org/provider changes.
+Phase 2 remains 47/79: technical streaming and graphics controls and the remaining
+product-wide gates still need work. Twenty necessary tracked Markdown files
+remain; no new Markdown file was added.

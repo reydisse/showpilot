@@ -1,4 +1,5 @@
-// Actual Settings, Companion writes and kiosk display polling in a disposable org.
+// Actual Settings or technical dashboard, Companion writes and kiosk polling.
+// Pass --technical to exercise the dashboard entry point.
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFile, readdir, writeFile } from "node:fs/promises";
@@ -10,13 +11,11 @@ const router = createRequire(require.resolve("@tanstack/react-router"));
 const core = createRequire(router.resolve("@tanstack/router-core"));
 const { toJSONAsync, fromJSON, fromCrossJSON } = core("seroval");
 const { defaultSerovalPlugins } = router("@tanstack/router-core");
+const technical = process.argv.includes("--technical"),
+  readName = technical ? "getTechnicalKioskDisplay" : "getKioskBlankState",
+  writeName = technical ? "writeTechnicalKioskDisplay" : "setKioskBlankState";
 const ids = {},
-  names = [
-    "getKioskBlankState",
-    "setKioskBlankState",
-    "createKioskToken",
-    "createCompanionToken",
-  ];
+  names = [readName, writeName, "createKioskToken", "createCompanionToken"];
 const assets = resolve(import.meta.dirname, "../dist/server/assets");
 for (const file of (await readdir(assets)).filter((file) =>
   file.endsWith(".js"),
@@ -108,7 +107,7 @@ await withLocalSmokeFixture(
       window.kioskCalls=[];window.kioskErrors=[];window.holdKioskReads=true;window.holdKioskWrites=true;window.kioskReplies=[];
       addEventListener('error',e=>window.kioskErrors.push(e.message));addEventListener('unhandledrejection',e=>window.kioskErrors.push(String(e.reason)));
       const original=fetch;window.fetch=async(input,options)=>{
-        const url=input instanceof Request?input.url:String(input),read=url.includes('/_serverFn/${ids.getKioskBlankState}'),write=url.includes('/_serverFn/${ids.setKioskBlankState}');
+        const url=input instanceof Request?input.url:String(input),read=url.includes('/_serverFn/${ids[readName]}'),write=url.includes('/_serverFn/${ids[writeName]}');
         if(write)window.kioskCalls.push(options.body);
         const response=await original(input,options);
         if((read&&window.holdKioskReads)||(write&&window.holdKioskWrites)){const body=await response.text();return new Promise(resolve=>window.kioskReplies.push(()=>resolve(new Response(body,{status:response.status,headers:response.headers}))));}
@@ -126,9 +125,9 @@ await withLocalSmokeFixture(
             );
             throw error;
           });
-        const click = async (name) => {
+        const click = async (name, selector = "button") => {
           const box = await check(
-            `(async()=>{const n=[...document.querySelectorAll('button')].find(n=>n.textContent.trim()===${JSON.stringify(name)}&&!n.disabled);if(!n)return null;n.scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;return n.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`,
+            `(async()=>{const n=[...document.querySelectorAll(${JSON.stringify(selector)})].find(n=>n.textContent.trim()===${JSON.stringify(name)}&&!n.disabled);if(!n)return null;n.scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;return n.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`,
             "clickable " + name,
           );
           await page("Input.dispatchMouseEvent", {
@@ -149,10 +148,14 @@ await withLocalSmokeFixture(
             `fetch('/api/v1/kiosk/display',{headers:${JSON.stringify(kioskHeaders)}}).then(r=>r.json()).then(r=>r.blanked)`,
           );
         await page("Page.navigate", {
-          url: `${origin}/${orgId}/settings?section=kiosk`,
+          url: technical
+            ? `${origin}/${orgId}/dashboard/tech-manager`
+            : `${origin}/${orgId}/settings?section=kiosk`,
         });
         await check(
-          `!!document.body&&[...document.querySelectorAll('h1')].some(n=>n.textContent==='Kiosk Displays')`,
+          technical
+            ? `!!document.querySelector('section[aria-label="Kiosk display control"]')`
+            : `!!document.body&&[...document.querySelectorAll('h1')].some(n=>n.textContent==='Kiosk Displays')`,
           "kiosk section",
         );
         await check(
@@ -201,7 +204,9 @@ await withLocalSmokeFixture(
           );
           if (width === 320)
             await writeFile(
-              "/tmp/showpilot-kiosk-blank-320.png",
+              technical
+                ? "/tmp/showpilot-tm-kiosk-blank-320.png"
+                : "/tmp/showpilot-kiosk-blank-320.png",
               Buffer.from(
                 (await page("Page.captureScreenshot", { format: "png" })).data,
                 "base64",
@@ -226,12 +231,21 @@ await withLocalSmokeFixture(
           `[...document.querySelectorAll('button')].some(n=>n.textContent==='Retry display command')`,
           "bounded lost command reply",
         );
-        await click("Notifications");
-        await check(
-          `[...document.querySelectorAll('h1')].some(n=>n.textContent==='Notifications')`,
-          "navigate away",
-        );
-        await click("Kiosk Displays");
+        if (technical) {
+          await click("Open rundown", "a");
+          await check(
+            `location.pathname.endsWith('/rundown')&&!document.querySelector('section[aria-label="Kiosk display control"]')`,
+            "navigate away",
+          );
+          await evaluate("history.back()");
+        } else {
+          await click("Notifications");
+          await check(
+            `[...document.querySelectorAll('h1')].some(n=>n.textContent==='Notifications')`,
+            "navigate away",
+          );
+          await click("Kiosk Displays");
+        }
         await check(
           `[...document.querySelectorAll('button')].some(n=>n.textContent==='Retry display command')`,
           "retained command across navigation",
@@ -297,6 +311,7 @@ await withLocalSmokeFixture(
     console.log(
       JSON.stringify({
         passed: true,
+        surface: technical ? "technical" : "settings",
         confirmation: true,
         cancelSendsNothing: true,
         boundedRead: true,

@@ -5,34 +5,56 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useState } from "react";
+import {
+  getTechnicalKioskDisplay,
+  writeTechnicalKioskDisplay,
+} from "@/lib/technical-kiosk-display";
 import { getKioskBlankState, setKioskBlankState } from "@/lib/kiosk-display";
 import {
   kioskDisplayCommandSchema,
   kioskDisplayResultSchema,
   kioskDisplaySnapshotSchema,
   type KioskDisplayCommand,
+  type KioskDisplaySnapshot,
 } from "@/lib/kiosk-display-contract";
 import { withOperationTimeout } from "@/lib/operation-timeout";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Button } from "@/components/ui/button";
 
-export function KioskDisplayControl({
-  orgId,
-  userId,
-}: {
+type Props = {
   orgId: string;
   userId: string;
-}) {
+  surface?: "settings" | "technical";
+};
+export function KioskDisplayControl(props: Props) {
+  return (
+    <ScopedKioskDisplayControl
+      key={`${props.orgId}:${props.userId}:${props.surface ?? "settings"}`}
+      {...props}
+    />
+  );
+}
+function ScopedKioskDisplayControl({
+  orgId,
+  userId,
+  surface = "settings",
+}: Props) {
+  const readDisplay =
+    surface === "technical" ? getTechnicalKioskDisplay : getKioskBlankState;
+  const writeDisplay =
+    surface === "technical" ? writeTechnicalKioskDisplay : setKioskBlankState;
   const client = useQueryClient();
-  const queryKey = ["kiosk-display-state", orgId, userId];
+  const readPrefix = ["kiosk-display-state", orgId, userId];
+  const queryKey = [...readPrefix, surface];
   const mutationKey = ["kiosk-display-command", orgId, userId];
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const [confirming, setConfirming] = useState(false);
-  const state = useQuery({
+  const state = useQuery<KioskDisplaySnapshot>({
     queryKey,
     retry: false,
     networkMode: "always",
-    refetchInterval: 5_000,
+    refetchInterval: (query) =>
+      query.state.status === "error" ? false : 5_000,
     queryFn: async ({ signal }) => {
       const controller = new AbortController();
       const cancel = () => controller.abort(signal.reason);
@@ -41,7 +63,7 @@ export function KioskDisplayControl({
       try {
         return kioskDisplaySnapshotSchema.parse(
           await withOperationTimeout(
-            getKioskBlankState({ data: { orgId }, signal: controller.signal }),
+            readDisplay({ data: { orgId }, signal: controller.signal }),
             8_000,
             "Display state could not be confirmed. Retry the read before changing it.",
           ),
@@ -79,13 +101,16 @@ export function KioskDisplayControl({
     retry: false,
     networkMode: "always",
     gcTime: Infinity,
-    onMutate: () => client.cancelQueries({ queryKey, exact: true }),
+    onMutate: async () => {
+      await client.cancelQueries({ queryKey: readPrefix });
+      return { readAt: client.getQueryState(queryKey)?.dataUpdatedAt };
+    },
     mutationFn: async (command: KioskDisplayCommand) => {
       const controller = new AbortController();
       try {
         return kioskDisplayResultSchema.parse(
           await withOperationTimeout(
-            setKioskBlankState({ data: command, signal: controller.signal }),
+            writeDisplay({ data: command, signal: controller.signal }),
             10_000,
             "Display command was not confirmed. Retry the same command to recover its result.",
           ),
@@ -94,9 +119,15 @@ export function KioskDisplayControl({
         controller.abort();
       }
     },
-    onSuccess: async (result) => {
-      await client.cancelQueries({ queryKey, exact: true });
-      client.setQueryData(queryKey, result.snapshot);
+    onSuccess: async (result, _command, context) => {
+      await client.cancelQueries({ queryKey: readPrefix });
+      if (client.getQueryState(queryKey)?.dataUpdatedAt === context?.readAt)
+        client.setQueryData(queryKey, result.snapshot);
+      else void client.invalidateQueries({ queryKey, exact: true });
+      void client.invalidateQueries({
+        queryKey: readPrefix,
+        predicate: (query) => query.queryKey.at(-1) !== surface,
+      });
     },
     onSettled: () => {
       for (const entry of client
@@ -106,6 +137,9 @@ export function KioskDisplayControl({
           client.getMutationCache().remove(entry);
     },
   });
+  const readFailure =
+    state.isError ||
+    (state.isFetching && state.errorUpdatedAt > state.dataUpdatedAt);
   const change = async () => {
     const reviewed = state.data;
     if (!reviewed || state.isError || unfinished || confirming) return;
@@ -162,7 +196,7 @@ export function KioskDisplayControl({
           {state.data?.blanked ? "Restore displays" : "Blank all displays"}
         </Button>
       </div>
-      {state.isError ? (
+      {readFailure ? (
         <div
           role="alert"
           aria-label="Display state error"
@@ -182,9 +216,11 @@ export function KioskDisplayControl({
           <Button
             className="h-auto min-h-11 whitespace-normal"
             variant="outline"
+            aria-label="Retry display state"
+            disabled={state.isFetching}
             onClick={() => void state.refetch()}
           >
-            Retry display state
+            {state.isFetching ? "Retrying…" : "Retry display state"}
           </Button>
         </div>
       ) : null}
