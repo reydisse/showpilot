@@ -8,13 +8,14 @@ import { getPrisma } from "@/lib/db";
 import { getD1 } from "@/lib/d1";
 import { assertOrgPermission, getRequestOrgAccess } from "@/lib/org-access";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
-import { editServiceTimeToIso } from "@/lib/utils";
+import { getRequestHeaders } from "@tanstack/react-start/server";
+import { showDetailsInputSchema, showDetailsCommandSchema } from "./show-details-contract";
+import { saveShowDetailsRequest } from "./show-details.server";
 import { getCrewScheduleResponseWindow } from "@/lib/crew-schedule-response";
 import { getServiceTiming, readPhaseSettings } from "@/lib/service-phase";
 import { buildScheduleQuerySelection } from "@/lib/schedule-selection";
 import { deleteServiceForOrg } from "@/lib/service-deletion.server";
 import { env } from "cloudflare:workers";
-import { updateRundownMetadataThroughRelay } from "@/lib/rundown-meta-update.server";
 import { getAssignmentCallTime } from "@/lib/assignment-call-time";
 import { assignmentResponseVersion } from "@/lib/assignment-response-version";
 
@@ -31,65 +32,12 @@ const rangeInput = z.object({
 export type { ScheduleProvider } from "./schedule-provider-contract";
 
 export const saveServiceDetails = createServerFn({ method: "POST" })
-  .inputValidator((value: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        showId: idSchema,
-        serviceDate: serviceDateSchema,
-        name: z.string().trim().max(120),
-        startTime: z.union([
-          z.literal(""),
-          z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-        ]),
-        callTime: z.union([
-          z.literal(""),
-          z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-        ]).default(""),
-        location: z.string().trim().max(240),
-        expectedUpdatedAt: z.string().min(1).max(64),
-        timeZone: z.string().min(1).max(100).optional(),
-      }),
-      value,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertAccess(data.orgId, true);
-    const show = await getPrisma().rundown.findFirst({
-      where: {
-        id: data.showId,
-        orgId: data.orgId,
-        serviceDate: data.serviceDate,
-      },
-      select: { id: true, scheduledStartTime: true, scheduledCallTime: true },
-    });
-    if (!show) throw new Error("Show not found");
-    const timezone = await getPrisma().appSetting.findUnique({
-      where: { orgId_key: { orgId: data.orgId, key: "org-timezone" } },
-      select: { value: true },
-    });
-    const scheduledStartIso = editServiceTimeToIso({ serviceDate: data.serviceDate, time: data.startTime, timeZone: data.timeZone || timezone?.value || "UTC", referenceTime: show.scheduledStartTime });
-    const scheduledStartTime = scheduledStartIso ? new Date(scheduledStartIso) : null;
-    const scheduledCallIso = editServiceTimeToIso({ serviceDate: data.serviceDate, time: data.callTime, timeZone: data.timeZone || timezone?.value || "UTC", referenceTime: show.scheduledCallTime ?? show.scheduledStartTime });
-    const scheduledCallTime = scheduledCallIso ? new Date(scheduledCallIso) : null;
-    await updateRundownMetadataThroughRelay({
-      env: env as unknown as {
-        DB: D1Database;
-        RUNDOWN_RELAY?: DurableObjectNamespace<import("@/durable-objects/RundownRelay").RundownRelay>;
-      },
-      orgId: data.orgId,
-      showId: show.id,
-      serviceDate: data.serviceDate,
-      expectedUpdatedAt: data.expectedUpdatedAt,
-      payload: {
-        serviceName: data.name,
-        scheduledStartTime: scheduledStartTime?.toISOString() ?? null,
-        scheduledCallTime: scheduledCallTime?.toISOString() ?? null,
-        location: data.location,
-      },
-    });
-    return getPrisma().rundown.findUniqueOrThrow({ where: { id: show.id } });
-  });
+  .inputValidator((value: unknown) => parseOrThrow(showDetailsInputSchema, value))
+  .handler(({ data }) => saveShowDetailsRequest(getRequestHeaders(), data, env));
+
+export const reviewServiceDetails = createServerFn({ method: "POST" })
+  .inputValidator((value: unknown) => parseOrThrow(showDetailsCommandSchema, value))
+  .handler(({ data }) => saveShowDetailsRequest(getRequestHeaders(), data, env, "review"));
 
 export const deleteService = createServerFn({ method: "POST" })
   .inputValidator((value: unknown) =>
