@@ -12,6 +12,8 @@ interface QueuedCommand {
   action: string;
   payload?: Record<string, unknown>;
   attempts: number;
+  queuedAt: number;
+  expiresAt?: number;
   expectedRevision?: number;
 }
 
@@ -35,6 +37,10 @@ interface RelayState {
     updatedAt: number;
   } | null;
 }
+
+const TRANSPORT_MAX_AGE_MS = 5_000;
+function isTransport(action: string) { return action.startsWith("timer-") && action !== "timer-mode"; }
+function expired(command: QueuedCommand) { return isTransport(command.action) && Date.now() - command.queuedAt >= TRANSPORT_MAX_AGE_MS; }
 
 const EMPTY_TIMER: RundownTimer = {
   playback: "stop",
@@ -82,7 +88,10 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
   const [state, setState] = useState<RelayState>(emptyRelayState);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [hydrated, setHydrated] = useState(false);
-  const [lastError, setLastError] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [commandError, setCommandError] = useState<string | null>(null);
+  const [unconfirmedCount, setUnconfirmedCount] = useState(0);
+  const serverClockOffsetRef = useRef<number | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const hydratedRef = useRef(false);
   const revisionRef = useRef(0);
@@ -95,37 +104,60 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
     pendingTimerRef.current = null;
   }, []);
 
+  const updateCount = useCallback(() => setUnconfirmedCount(queueRef.current.length + (pendingRef.current ? 1 : 0)), []);
+
   const dispatchNext = useCallback(() => {
     const socket = socketRef.current;
     if (!socket || socket.readyState !== WebSocket.OPEN || !hydratedRef.current || pendingRef.current) return;
-    const command = queueRef.current.shift();
+    let command = queueRef.current.shift();
+    while (command && expired(command)) {
+      setCommandError("An unconfirmed transport command expired and will not be retried. Review live state before trying again.");
+      command = queueRef.current.shift();
+    }
+    updateCount();
     if (!command) return;
     const pending = {
       ...command,
       expectedRevision: command.expectedRevision ?? revisionRef.current,
     };
     pendingRef.current = pending;
+    updateCount();
     clearPendingTimer();
     pendingTimerRef.current = setTimeout(() => {
       if (pendingRef.current?.id !== pending.id) return;
       pendingRef.current = null;
       pendingTimerRef.current = null;
-      if (pending.attempts < 3) {
+      if (expired(pending)) {
+        setCommandError("An unconfirmed transport command expired and will not be retried. It may have completed; review live state before trying again.");
+      } else if (pending.attempts < 3) {
         queueRef.current.unshift({ ...pending, attempts: pending.attempts + 1 });
-        setLastError("ShowPilot is refreshing live state before retrying that control change.");
+        setConnectionError("ShowPilot is refreshing live state before retrying that control change.");
       } else {
-        setLastError("That control change could not be confirmed. Check the live state before trying again.");
+        setCommandError("That control change could not be confirmed. Check the live state before trying again.");
       }
-      if (socketRef.current === socket) socket.close();
+      updateCount();
+      if (socketRef.current === socket) {
+        hydratedRef.current = false;
+        setHydrated(false);
+        setStatus("reconnecting");
+        socket.close();
+      }
     }, 8_000);
-    socket.send(JSON.stringify({
+    try { socket.send(JSON.stringify({
       type: "command",
       id: pending.id,
       expectedRevision: pending.expectedRevision,
       action: pending.action,
       payload: pending.payload,
-    }));
-  }, [clearPendingTimer]);
+      ...(pending.expiresAt === undefined ? {} : { expiresAt: pending.expiresAt }),
+    })); } catch {
+      setConnectionError("The control change could not be sent. Reconnecting with its original request retained.");
+      hydratedRef.current = false;
+      setHydrated(false);
+      setStatus("reconnecting");
+      socket.close();
+    }
+  }, [clearPendingTimer, updateCount]);
 
   useEffect(() => {
     let disposed = false;
@@ -136,12 +168,15 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
 
     hydratedRef.current = false;
     revisionRef.current = 0;
+    serverClockOffsetRef.current = null;
     queueRef.current = [];
     pendingRef.current = null;
     clearPendingTimer();
     setState(emptyRelayState());
     setHydrated(false);
-    setLastError(null);
+    setConnectionError(null);
+    setCommandError(null);
+    updateCount();
 
     if (!orgId || !serviceDate || !showId) {
       setStatus("offline");
@@ -178,12 +213,15 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
         (!incomingShowId && incomingServiceDate && incomingServiceDate !== serviceDate)
       ) {
         setState((current) => ({ ...current, serviceDate: incomingServiceDate, showId: incomingShowId }));
-        hydratedRef.current = true;
-        setHydrated(true);
-        dispatchNext();
+        hydratedRef.current = false;
+        setHydrated(false);
+        setConnectionError("Live state belongs to another show. Reconnect before sending controls.");
         return;
       }
 
+      if (isRecord(value.timer) && typeof value.timer.serverTime === "number" && Number.isFinite(value.timer.serverTime)) {
+        serverClockOffsetRef.current = value.timer.serverTime - Date.now();
+      }
       if (typeof value.revision === "number" && Number.isFinite(value.revision)) {
         revisionRef.current = Math.max(revisionRef.current, value.revision);
       }
@@ -219,7 +257,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       }));
       hydratedRef.current = true;
       setHydrated(true);
-      setLastError(null);
+      setConnectionError(null);
       dispatchNext();
     }
 
@@ -236,7 +274,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       } catch (error) {
         connecting = false;
         if (!disposed) {
-          setLastError(error instanceof Error ? error.message : "Live authentication failed.");
+          setConnectionError(error instanceof Error ? error.message : "Live authentication failed.");
           scheduleReconnect();
         }
         return;
@@ -271,26 +309,36 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
           if (message.type !== "command-result") return;
           const pending = pendingRef.current;
           if (!pending || message.id !== pending.id) return;
+          if (typeof message.accepted !== "boolean") {
+            setConnectionError("The control acknowledgement was unreadable. Waiting to confirm the original request.");
+            return;
+          }
           clearPendingTimer();
           if (typeof message.revision === "number" && Number.isFinite(message.revision)) {
             revisionRef.current = message.revision;
           }
           pendingRef.current = null;
           if (message.accepted === false && message.reason === "revision-conflict") {
-            setLastError("Another operator changed the rundown first. Live state was refreshed; review it before trying again.");
+            setCommandError("Another operator changed the rundown first. Live state was refreshed; review it before trying again.");
           } else if (message.accepted === false) {
-            setLastError("That control change was not accepted. The live state has been refreshed.");
-          } else {
-            setLastError(null);
+            setCommandError(message.reason === "expired"
+              ? "That transport command expired and was not applied. Review live state before trying again."
+              : "That control change was not accepted. Review the current live state before trying again.");
           }
+          updateCount();
           dispatchNext();
         } catch {
-          setLastError("ShowPilot received an unreadable live update.");
+          setConnectionError("ShowPilot received an unreadable live update.");
         }
       };
 
       socket.onerror = () => {
-        if (!disposed) setLastError("The live connection was interrupted. Reconnecting…");
+        if (disposed || socketRef.current !== socket) return;
+        hydratedRef.current = false;
+        setHydrated(false);
+        setStatus("reconnecting");
+        setConnectionError("The live connection was interrupted. Reconnecting…");
+        socket.close();
       };
 
       socket.onclose = () => {
@@ -303,7 +351,11 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
         }
         socketRef.current = null;
         hydratedRef.current = false;
-        if (!disposed) scheduleReconnect();
+        updateCount();
+        if (!disposed) {
+          setHydrated(false);
+          scheduleReconnect();
+        }
       };
     }
 
@@ -330,12 +382,25 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       socketRef.current = null;
       socket?.close();
     };
-  }, [clearPendingTimer, dispatchNext, orgId, serviceDate, showId]);
+  }, [clearPendingTimer, dispatchNext, orgId, serviceDate, showId, updateCount]);
 
   const sendCommand = useCallback((action: string, payload?: Record<string, unknown>) => {
-    queueRef.current.push({ id: commandId(), action, payload, attempts: 0 });
+    const transport = isTransport(action);
+    const clockOffset = serverClockOffsetRef.current;
+    const ready = socketRef.current?.readyState === WebSocket.OPEN && hydratedRef.current;
+    if (transport && (!ready || clockOffset === null)) {
+      setCommandError("Transport command not sent. Reconnect and review live state before trying again.");
+      return "blocked" as const;
+    }
+    const queuedAt = Date.now();
+    const waiting = !ready || Boolean(pendingRef.current) || queueRef.current.length > 0;
+    queueRef.current.push({ id: commandId(), action, payload, attempts: 0, queuedAt,
+      ...(transport && clockOffset !== null ? { expectedRevision: revisionRef.current, expiresAt: queuedAt + TRANSPORT_MAX_AGE_MS + clockOffset } : {}),
+    });
+    updateCount();
     dispatchNext();
-  }, [dispatchNext]);
+    return waiting ? "queued" as const : "sent" as const;
+  }, [dispatchNext, updateCount]);
 
   const seedState = useCallback((
     items: RundownItem[],
@@ -350,7 +415,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
     sendCommand("seed", { items, timer, force: false, ...meta });
   }, [sendCommand]);
 
-  return { ...state, status, hydrated, lastError, sendCommand, seedState };
+  return { ...state, status, hydrated, lastError: commandError ?? connectionError, commandError, unconfirmedCount, dismissCommandError: () => setCommandError(null), sendCommand, seedState };
 }
 
 function normalizePPSlide(value: unknown): RelayState["ppPreviewSlide"] {

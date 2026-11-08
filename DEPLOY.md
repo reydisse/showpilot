@@ -8007,3 +8007,64 @@ Phase 2 remains 67/79; these are focused controls, not a product-wide gate resul
 No deployment, migration, release or new Markdown file. Twenty necessary tracked
 Markdown files remain. #265's repaired head 9812e235 is running CI 42535312517;
 Rust is green (4m45s), web is pending, and the next PR is held.
+
+
+Stack gate update: repaired timestamp PR #265 is green at 9812e235 in run
+42535312517 (web CI 15m43s, Native Rust 4m45s). Draft template-deletion PR #266
+is open at 8e941d36, based on fix/rundown-timestamp-versions. The verified native
+rundown removal/clear/undo implementation is pushed at 03ecdeaf; its PR waits
+for #266's current-head CI. Phase 2 remains 67/79.
+
+### Phase 2 follow-up: native transport expiry
+
+Four actual native-hook regressions reproduced missing relay-clock expiry,
+connected state remaining hydrated after disconnect, a rejection notice erased
+by the next state snapshot, and a Next command replayed after reconnect beyond
+its useful window. Native transport commands now capture the reviewed revision,
+local submission time and a fixed five-second relay-clock deadline. New controls
+are blocked while disconnected; an old transport command is dropped instead of
+replayed after its window. The original deadline stays fixed if clock alignment
+changes on reconnect. Existing relay expiry and deduplication enforcement is
+unchanged. Non-transport edit handling has not been replaced by this change.
+
+Command errors are separate from connection status and remain visible until
+explicitly dismissed. Malformed acknowledgements do not confirm a request.
+Unconfirmed counts appear in the show header; transport controls wait for
+acknowledgement. Closing/error/timeout immediately marks state unhydrated, and a
+socket that has opened but not hydrated is no longer labelled Live sync. A
+mismatched-show snapshot cannot enable command dispatch.
+
+Ten focused native-hook tests pass. Full suite passes 349 unit files / 2,824 tests
+and 140 Worker files / 1,571 tests, 4,395 total. This includes the existing real
+relay test that rejects expired HTTP/socket controls and acknowledges an already
+applied retry. Web typecheck 2 passes. Native verify 2 passes typecheck, lint
+with 17 existing warnings, all three exports, Expo Doctor 18/18, API/release
+contracts and polling boundaries. Hermes is 5,734,506 bytes on iOS / 5,733,609 on
+Android. No web production source changed in this follow-up.
+
+Compiled-browser runs 1 and 2 pass against real isolated authentication, D1 and
+relay traffic at 320/768/1440px. The rehearsal withholds Next before delivery,
+checks that controls disable while unconfirmed, waits for expiry and reconnect,
+proves the native client does not replay it, then delivers the original command
+to the real HTTP relay and verifies an expired rejection without advancement.
+A new snapshot preserves the notice; explicit dismissal clears it and a fresh
+Next works. A Pause with a lost acknowledgement remains visibly uncertain even
+though hydration correctly shows the paused state; it is not replayed.
+Zero runtime errors. This is not a physical-device rehearsal.
+
+The first 320px screenshot exposed cramped custom adjustment buttons and 40px
+targets. Timer adjustment controls now wrap as pairs, the custom field wraps
+above its buttons where necessary, and adjustment/mode targets are at least
+44px. Run 2 also checks every adjustment button's bounds, text fit and target
+height at all three widths. Inspected the final 320px screenshot.
+
+Rehearsal after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-transport-safety.mjs`.
+Evidence: /tmp/showpilot-native-transport-{before,unit1,unit2,unit3,full1,tsc2,verify2,browser1,browser2}.log.
+Screenshots: /tmp/showpilot-native-transport-{expired,uncertain}-{320,768,1440}.png.
+Phase 2 remains 67/79. The native Reset button still needs visible confirmation;
+its stopped-show reset currently dispatches directly. Authentication/socket
+handshake deadlines, stale read-only native status, and native editor draft/
+acknowledgement handling remain separate open work. No product-wide gate closure,
+deployment, migration or release. #266 CI 42536611342 is pending; Rust passed
+4m43s. Later PRs remain held.
