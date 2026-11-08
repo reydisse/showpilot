@@ -4874,3 +4874,80 @@ Phase 2 advances to 51/79 verified, with 28 remaining. The full Phase 2 gate sta
 incomplete. Stack this draft on #213, whose CI run 42433557842 passed both jobs.
 No production deployment, migration, release or real-organization changes.
 Twenty necessary tracked Markdown files remain.
+
+
+## Native implementation and controller acceptance (2026-11-07, not released)
+
+[Unsigned run 42432936054](https://github.com/reydisse/showpilot/actions/runs/42432936054)
+completed successfully on all four platforms at
+`b299e9ed5c8718c94bced425817581ffd44eba0b`. Native and shared source is unchanged
+between that build and web acceptance commit `19b842e`. No signing secrets were
+used; searching `test-build.yml` for `secrets.` returns no matches.
+
+| Platform | Desktop and Bridge bundles | Native probes |
+| --- | --- | --- |
+| Windows | [Download](https://github.com/reydisse/showpilot/actions/runs/42432936054/artifacts/13599235550) | Passed |
+| Linux | [Download](https://github.com/reydisse/showpilot/actions/runs/42432936054/artifacts/13598054046) | Passed |
+| Intel Mac | [Download](https://github.com/reydisse/showpilot/actions/runs/42432936054/artifacts/13599555482) | Passed, including CoreMIDI |
+| Apple Silicon | [Download](https://github.com/reydisse/showpilot/actions/runs/42432936054/artifacts/13598955183) | Passed, including CoreMIDI |
+
+These are unsigned test artifacts, not production releases. Artifact retention
+ends November 22, 2026. Each platform passed real OS credential-store tests,
+compiled MIDI transport, native LTC and compiled local-show probes. Each native
+LTC run delivered 20 decoded frames through the actual Rust runtime/queue and
+compiled sidecar to an authenticated fixture WebSocket, ending at 00:00:01:22.
+The audio capture factory supplies independently encoded 48 kHz PCM in 10 ms
+blocks; it replaces the hardware input, not the decoder or sidecar. Both Mac
+jobs also passed the actual CoreMIDI virtual-port test, including input filtering,
+LED output, hotplug, stale generations, lease expiry and cleanup.
+
+The compiled local-show probe passed encrypted preparation, native loopback
+control, OS vault retrieval, equipment dispatch, duplicate suppression, exclusive
+engine ownership, forced-crash recovery with unknown device receipts and cloud
+handoff. Its cloud peer is a fixture and its final reconciliation calls the shared
+reconciler directly. Full product acceptance still needs the real app's cloud
+reconciliation, and the LTC gate still needs native PCM reaching the real app
+relay rather than stopping at the fixture receiver. Do not claim those gates from
+compilation or these narrower probes.
+
+Current compiled browser rehearsals passed:
+
+- `smoke-midi-controller.mjs`: learning never fires; 77 mappings persist;
+  65-cue banks, fire/skip/re-arm confirmation, start/pause/resume/stop/reset/seek,
+  scrub/jog/offset, separate MTC/controller inputs and reconnect all work. New
+  assertions inspect the latest actual MIDI output message for armed blue,
+  next yellow, fired green and the running/paused/stopped transport indicator.
+  Controller layouts and 44px controls pass at 320/768/2560px.
+- `smoke-native-midi-controller.mjs`: the built web UI and real Tauri Channel
+  serialization drive actual fixture-org relay/lyrics changes through simulated
+  native IPC. Explicit arm, LED output, unplug rejection, replug, lease recovery,
+  re-arm and disarm cleanup pass. The native half is independently covered by
+  the real CoreMIDI test above.
+- `smoke-midi-reconnect.mjs`: DAW Stop holds the clock and cancels a buffered feed;
+  Continue waits for position, SPP/full-frame locate works, static frames do not
+  disguise a stopped source, and reconnect preserves input identity. Controller
+  messages never enter the MTC parser; another input listener survives.
+- `apps/bridge-desktop/scripts/smoke-timecode-inputs.mjs`: rebuilt production Bridge
+  UI passes microphone-denial retry, selected channel/rate, lock, unplug/replug,
+  last-frame age and Stop at 320/560/680/2560px. Native IPC is a fixture here.
+
+The current full web suite remains 2,349 unit / 1,166 Worker tests, with passing
+web typecheck/build. It includes the MIDI controller and transport suites, real
+Worker LTC loss/format/eviction tests, and HTTP/WebSocket rejection of unsupported
+sources. Selecting LTC cannot pretend it is active without valid Bridge audio.
+The Bridge UI typecheck/build passed separately. No application source changed
+for this acceptance record; the new browser LED assertions passed on that build.
+
+Logs: /tmp/showpilot-native-midi-browser2.log,
+/tmp/showpilot-native-controller-browser1.log,
+/tmp/showpilot-native-midi-reconnect.log,
+/tmp/showpilot-native-bridge-ui-build.log and /tmp/showpilot-native-ltc-ui.log.
+Read-only macOS device inventory found no attached USB MIDI/audio test device;
+audio inputs are the built-in/continuity microphones. Physical APC/DAW cabling and
+a venue audio interface have not been exercised. The MIDI gate's available-gear
+coverage uses OS virtual ports and protocol fixtures, with this limitation stated.
+
+This closes the controller/feedback implementation, MIDI acceptance and LTC
+implementation requirements. Phase 2 is 55/79 verified, with 24 remaining. The
+LTC integration gate, local-show gate and full Phase 2 gate remain open. No
+production release, deployment, real-organization writes or outgoing email.
