@@ -1,3 +1,5 @@
+import { ScheduleProviderSheet } from "@/components/schedule-provider-sheet";
+import { useScheduleProviderDraft } from "@/hooks/use-schedule-provider";
 import { usePersonalResponses } from "@/hooks/use-personal-responses";
 import { PersonalResponseProgress } from "@/components/personal-response-progress";
 import type { ResponseSelection } from "@/lib/personal-response-recovery";
@@ -36,12 +38,10 @@ import Trash2 from "lucide-react-native/icons/trash-2";
 import UserPlus from "lucide-react-native/icons/user-plus";
 import Users from "lucide-react-native/icons/users";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
-import * as Haptics from "@/lib/haptics";
 import { ActivityIndicator, Alert, FlatList, useWindowDimensions, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import {
   ScheduleAssignmentSheet,
   ScheduleInventorySheet,
-  ScheduleProviderSheet,
   ScheduleTeamSheet,
 } from "@/components/schedule-sheets";
 import { Page } from "@/components/page";
@@ -56,7 +56,6 @@ import {
   getMobileSchedule,
   sendMobileScheduleReminders,
   respondToMobileAssignment,
-  saveMobileScheduleProvider,
   type MobileSchedule,
 } from "@/lib/mobile-api";
 import { formatServiceTime, getServiceDateForTimeZone, isServiceDate, serviceWallTimeInput } from "@/lib/service-time";
@@ -98,6 +97,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
   const showManagementDrafts = useShowManagementDrafts({ orgId, userId });
   const showDrafts = useShowCreationDrafts({ orgId, userId });
   const teamDrafts = useTeamDrafts({ orgId, userId });
+  const providerDraft = useScheduleProviderDraft({ orgId, userId });
   const [editor, setEditor] = useState<EditorState>(null);
   const [copyConfirmation, setCopyConfirmation] = useState<{ selection: CopyTeamSelection; label: string; count: number; again: boolean } | null>(null);
   const requestedDate = isServiceDate(params.date) ? params.date : undefined;
@@ -141,18 +141,6 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
   }
   const canSendReminder = (target: ReminderTarget) => Boolean(schedule?.canManage && schedule.provider.type === "native" && schedule.assignments.some(assignment =>
     (target.kind === "show" ? assignment.showId === target.id : assignment.id === target.id) && assignment.status === "assigned" && assignment.crewMemberId && assignment.responseWindow.status === "open"));
-
-  async function refreshSchedule() {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["mobile-schedule", orgId] }),
-      queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap"] }),
-    ]);
-  }
-
-  async function saved() {
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    await refreshSchedule();
-  }
 
   function openShowManagement(service: Service, mode: "edit" | "delete") {
     setEditor({ kind: "showManagement", initial: showDraftFromSnapshot(mode, service, schedule?.timeZone ?? "UTC") });
@@ -277,6 +265,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
             {schedule?.canViewFull ? (
               <View style={styles.dateBrowser}><Pressable accessibilityLabel="Previous day" disabled={!selectedDate} onPress={() => selectedDate && browse(shiftServiceDate(selectedDate, -1))} style={styles.dateArrow}><ChevronLeft color={selectedDate ? colors.textMuted : colors.textFaint} size={18} /></Pressable><TextInput accessibilityLabel="Schedule date" autoCapitalize="none" keyboardType="numbers-and-punctuation" maxLength={10} onChangeText={setDateInput} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textFaint} style={styles.dateInput} value={dateInput} /><Pressable accessibilityRole="button" onPress={() => isServiceDate(dateInput) ? browse(dateInput) : Alert.alert("Invalid date", "Enter the date as YYYY-MM-DD.")} style={styles.dateGo}><Text style={styles.dateGoText}>Go</Text></Pressable><Pressable accessibilityLabel="Next day" disabled={!selectedDate} onPress={() => selectedDate && browse(shiftServiceDate(selectedDate, 1))} style={styles.dateArrow}><ChevronRight color={selectedDate ? colors.textMuted : colors.textFaint} size={18} /></Pressable><Pressable accessibilityRole="button" onPress={() => browse(undefined)} style={styles.rangeButton}><Text style={styles.rangeButtonText}>Range</Text></Pressable></View>
             ) : null}
+            {providerDraft ? <AppButton label="Resume source change" variant="secondary" onPress={() => setEditor({ kind: "provider" })} /> : null}
             {schedule && schedule.provider.type !== "native" ? (
               <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(schedule.provider.url).catch(() => Alert.alert("Could not open scheduling platform"))} style={styles.provider}><ExternalLink color={colors.amberText} size={17} /><View style={styles.providerCopy}><Text style={styles.providerTitle}>{schedule.provider.label || schedule.provider.type}</Text><Text numberOfLines={1} style={styles.providerUrl}>{schedule.provider.url}</Text></View><ChevronRight color={colors.textFaint} size={17} /></Pressable>
             ) : null}
@@ -407,21 +396,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
           if (signal.aborted) throw new Error("Team refresh cancelled.");
         }} />
       ) : null}
-      {editor?.kind === "provider" && schedule ? (
-        <ScheduleProviderSheet
-          current={schedule.provider}
-          onClose={() => setEditor(null)}
-          onSave={async (input) => {
-            await saveMobileScheduleProvider({
-              orgId,
-              provider: input.type,
-              url: input.url,
-              label: input.label,
-            });
-            await saved();
-          }}
-        />
-      ) : null}
+      {editor?.kind === "provider" ? <ScheduleProviderSheet key={`${userId}:${orgId}`} orgId={orgId} userId={userId} onClose={() => setEditor(null)} /> : null}
       {editor?.kind === "inventory" && schedule ? (
         <ScheduleInventorySheet key={`${userId}:${orgId}`} orgId={orgId} userId={userId} active={pollingInterval !== false} onCommand={commandMobileInventory} onRefresh={async (signal) => {
           await queryClient.invalidateQueries({ queryKey: ["mobile-schedule", orgId] }, { throwOnError: true });

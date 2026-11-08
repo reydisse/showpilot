@@ -1,3 +1,4 @@
+import { scheduleProviderSnapshotSchema, providerReplySchema, type ScheduleProviderCommand } from "./schedule-provider-recovery";
 import { personalResponseResultSchema, type PersonalResponseCommand } from "./personal-response-recovery";
 import { showManagementReplySchema, showManagementReadSchema, type ShowManagementCommand } from "./show-management-recovery";
 import { showCreationReplySchema, type ShowCreationCommand } from "./show-creation-recovery";
@@ -1524,25 +1525,13 @@ export async function readMobileManagedShow(input: { orgId: string; userId: stri
   return showManagementReadSchema.parse(await response.json());
 }
 
-export async function saveMobileScheduleProvider(input: {
-  orgId: string;
-  provider: "native" | "planning-center" | "faithteams" | "other";
-  url: string;
-  label: string;
-  terminologyProfile?: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/schedule/provider?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        provider: input.provider,
-        url: input.url,
-        label: input.label,
-      }),
-    },
-  );
-  return okSchema.parse(await response.json());
+export async function readMobileScheduleProvider(input: { orgId: string; userId: string }, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/schedule/provider?${new URLSearchParams(input)}`, { signal });
+  return scheduleProviderSnapshotSchema.parse(await response.json());
+}
+export async function commandMobileScheduleProvider(input: ScheduleProviderCommand, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/schedule/provider?orgId=${encodeURIComponent(input.orgId)}`, { method: "POST", body: JSON.stringify(input), signal });
+  return providerReplySchema.parse(await response.json());
 }
 
 export async function commandMobileInventory(

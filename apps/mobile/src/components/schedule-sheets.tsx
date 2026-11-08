@@ -5,8 +5,8 @@ import { assignmentFieldsSchema, assignmentRetryable, type AssignmentDraft, type
 import { reminderMessage } from "@/lib/reminder-recovery";
 import { useMobileInventory } from "@/hooks/use-mobile-inventory";
 import type { InventoryCommand, InventoryResult, InventoryDraft } from "@/lib/inventory-recovery";
-import { workspaceCopy , WORKSPACE_DEFINITIONS } from "@showpilot/shared";
-import { useTerms as useWorkspaceTerms , useWorkspace } from "@/providers/workspace-provider";
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Check from "lucide-react-native/icons/check";
 import Search from "lucide-react-native/icons/search";
@@ -41,13 +41,6 @@ function ScheduleSheet({ children, onClose, title, eyebrow }: {
       </Page>
     </Modal>
   );
-}
-
-function runSave(save: () => Promise<void>, setBusy: (value: boolean) => void) {
-  setBusy(true);
-  void save().catch((error: unknown) => {
-    Alert.alert("Schedule not saved", error instanceof Error ? error.message : "Try again.");
-  }).finally(() => setBusy(false));
 }
 
 function CrewPicker({ crew, selectedId, onSelect, disabled = false }: {
@@ -1218,60 +1211,6 @@ export function ScheduleInventorySheet({
           />
         </View>
       ) : null}
-    </ScheduleSheet>
-  );
-}
-
-export function ScheduleProviderSheet({
-  current,
-  onClose,
-  onSave,
-}: {
-  current: MobileSchedule["provider"];
-  onClose: () => void;
-  onSave: (input: MobileSchedule["provider"]) => Promise<void>;
-}) {
-  const styles = useStyles();
-  const [provider, setProvider] = useState(current.type);
-  const [url, setUrl] = useState(current.url);
-  const [label, setLabel] = useState(current.label);
-  const workspace = useWorkspace();
-  const [busy, setBusy] = useState(false);
-  const providers = [
-    ["native", "ShowPilot native"], ["planning-center", "Planning Center"], ["faithteams", "Faith Teams"], ["other", "Other platform"],
-  ] as const;
-  return (
-    <ScheduleSheet eyebrow="SCHEDULING SOURCE" onClose={onClose} title="Schedule settings">
-      <Text style={styles.fieldLabel}>SOURCE</Text>
-      <View style={styles.options}>
-        {providers.map(([value, title]) => (
-          <Pressable accessibilityRole="radio" accessibilityState={{ checked: provider === value }} key={value} onPress={() => setProvider(value)} style={[styles.option, provider === value && styles.optionActive]}><Text style={[styles.optionText, provider === value && styles.optionTextActive]}>{title}</Text></Pressable>
-        ))}
-      </View>
-      <Text style={styles.fieldLabel}>ORGANIZATION LANGUAGE</Text>
-      <Text style={styles.hint}>
-        Wording follows your workspace type (
-        {WORKSPACE_DEFINITIONS[workspace.type].label}). Change it in Settings →
-        Workspace.
-      </Text>
-      {provider !== "native" ? (
-        <><AppField autoCapitalize="words" label="Platform name" maxLength={80} onChangeText={setLabel} placeholder="My scheduling platform" value={label} /><AppField autoCapitalize="none" autoCorrect={false} keyboardType="url" label="Scheduling workspace URL" maxLength={500} onChangeText={setUrl} placeholder="https://…" value={url} /></>
-      ) : null}
-      <AppButton
-        disabled={busy || (provider !== "native" && !url.trim())}
-        label={busy ? "Saving settings…" : "Save schedule settings"}
-        loading={busy}
-        onPress={() =>
-          runSave(async () => {
-            await onSave({
-              type: provider,
-              url: provider === "native" ? "" : url.trim(),
-              label: provider === "native" ? "" : label.trim(),
-            });
-            onClose();
-          }, setBusy)
-        }
-      />
     </ScheduleSheet>
   );
 }
