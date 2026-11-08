@@ -5511,3 +5511,70 @@ Logs: `/tmp/showpilot-schedule-calendar-before.log`, `-unit-before.log`,
 `-full2.log`, `-tsc2.log`, `-build2.log`, `-after3.log`, `-dialogs.log`, and
 `-navigation.log`. This is scoped calendar evidence. The broad responsive and
 product-wide gates remain open; Phase 2 stays 66/79. Nothing deployed or released.
+
+
+### 2026-11-08: Real long-run, device and lyrics acceptance
+
+The 45-minute rehearsal passed on GitHub Actions run
+[42454853635](https://github.com/reydisse/showpilot/actions/runs/42454853635),
+PR #225 head `6a103a3f6da6b1a2b6dc1089065f377b6997fa2a`. The actual compiled
+browser clock, authenticated Worker and RundownRelay ran for 2,710.336 seconds.
+Rundown advances acknowledged once each at 2,100.020 and 2,700.020 seconds.
+The script verifies the current item after each advance, stable execution IDs,
+one attempt per cue, no premature execution and no browser errors. Across 530
+samples, maximum clock drift from elapsed wall time was 0.156061 seconds.
+No accelerated clocks or physical equipment were used.
+
+Downloaded and inspected artifact `phase2-timecode-rehearsal-1`, ID 13608590801.
+Local copy: `/tmp/showpilot-longrun-artifact-42454853635/timecode-longrun.log`.
+Ordinary CI run 42454853508 also passed. Earlier interrupted local attempts remain
+recorded as incomplete; this successful CI run supplies the long-run evidence.
+
+The other two parts of this acceptance item were rerun on the current compiled
+web build and a fresh Bridge build:
+- `smoke-homeassistant-cues.mjs` passes browser-to-authenticated-equipment flow
+  through real TimecodeRelay, BridgeRelay and compiled Bridge. The equipment is
+  a local HTTP simulator. Saved cue acknowledgement, malformed-discovery Retry,
+  removed-entity refusal and explicit execution Retry pass. Exactly two approved
+  service POSTs, encrypted saved credentials, no returned target/token leaks,
+  and 320/768/1440px controls.
+- `smoke-lyrics-steps.mjs` passes operator and confidence Next/Previous/Clear
+  after a successful lyrics cue. Correct lyric states appear while the confidence
+  lyric DOM node stays mounted.
+
+Logs: `/tmp/showpilot-phase2-device-bridge-build.log`,
+`/tmp/showpilot-phase2-device-acceptance.log`, and
+`/tmp/showpilot-phase2-lyrics-acceptance.log`. This verifies requirement
+3277f632c1aea066, taking Phase 2 to 67/79. The overall Phase 2 gate remains open;
+Phase 3 has not started. No production deployment, release or real-org writes.
+
+
+### 2026-11-08: Recoverable rundown PIN verification
+
+A held real verification reply reproduced a page stuck on Verifying. The inline
+rundown Unlock dialog had the same unbounded request. Both now share
+`useRundownPinVerification`: an eight-second deadline, timestamped error with
+Retry, transport cancellation and request-generation checks. The PIN remains
+available for explicit retry. Editing it, leaving the page or closing the dialog
+invalidates the pending attempt, so a late valid reply cannot grant access.
+
+The dedicated PIN page opens the rundown through app navigation. The inline
+rundown dialog keeps the existing reload after Lock/Unlock, which reconnects its
+current live socket with the new write authority. The short-phone check exposed
+its 36px default button. Retry and Close now meet 44px; width and height stay
+within the viewport and allow scrolling.
+
+Four rendered tests verify timeout and late success, successful retry, unmount,
+changed PIN, and actual Escape from the inline dialog. The real compiled-browser
+rehearsal exercises both entry points against actual auth/D1/PIN verification,
+including held valid replies, incorrect PIN, late replies after timeout and
+Escape, cookie/authority changes, and successful reconnection. Page and dialog
+recovery controls fit and are hit-testable at 320x480, 768x900 and 1440x900.
+Both phone screenshots were inspected. No runtime errors.
+
+Full suite: 2,389 unit and 1,186 Worker tests pass; typecheck and build pass.
+Main entry: 551,944 raw / 174,737 gzip bytes, under the unchanged limit.
+Logs: `/tmp/showpilot-rundown-pin-before.log`, `-full3.log`, `-tsc3.log`,
+`-build3.log` and `-after4.log`. The first inline phone geometry check failed;
+`-after4.log` proves the final control dimensions. This closes these PIN paths,
+not the broad loading/UX gate. Phase 2 stays 67/79. Nothing deployed or released.

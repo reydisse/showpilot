@@ -1,11 +1,18 @@
 import { PageBreadcrumb } from "@/components/ui/PageBreadcrumb";
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { useState } from "react";
+import {
+  createFileRoute,
+  Link,
+  redirect,
+  useNavigate,
+} from "@tanstack/react-router";
+import { useRundownPinVerification } from "@/hooks/useRundownPinVerification";
 import { Lock, ShieldAlert } from "lucide-react";
 import { BoardSkeleton } from "@/components/ui/Skeleton";
-import { getRundownPinCookieName } from "@/lib/rundown-pin";
-import { getRundownPinRequirement, validateRundownPin } from "@/lib/rbac";
-import { hasEffectivePermission, roleRequiresRundownPin } from "@/lib/app-permissions";
+import { getRundownPinRequirement } from "@/lib/rbac";
+import {
+  hasEffectivePermission,
+  roleRequiresRundownPin,
+} from "@/lib/app-permissions";
 
 export const Route = createFileRoute("/$slug/rundown-pin")({
   pendingComponent: () => <BoardSkeleton />,
@@ -24,7 +31,9 @@ export const Route = createFileRoute("/$slug/rundown-pin")({
       throw redirect({ to: "/$slug/rundown", params: { slug: params.slug } });
     }
 
-    const requirement = await getRundownPinRequirement({ data: { orgId: context.orgId } });
+    const requirement = await getRundownPinRequirement({
+      data: { orgId: context.orgId },
+    });
     if (!requirement.enabled) {
       throw redirect({ to: "/$slug/rundown", params: { slug: params.slug } });
     }
@@ -36,38 +45,34 @@ export const Route = createFileRoute("/$slug/rundown-pin")({
 
 function RundownPinPage() {
   const { orgId, slug } = Route.useRouteContext();
-  const [pin, setPin] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const navigate = useNavigate();
+  return (
+    <RundownPinForm
+      orgId={orgId}
+      slug={slug}
+      onUnlocked={() => navigate({ to: "/$slug/rundown", params: { slug } })}
+    />
+  );
+}
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!pin.trim()) return;
-
-    setSubmitting(true);
-    setError(null);
-    try {
-      const result = await validateRundownPin({ data: { orgId, pin } });
-      if (!result.ok) {
-        setError("Incorrect PIN. Please try again.");
-        return;
-      }
-
-      const secure = window.location.protocol === "https:" ? "; Secure" : "";
-      document.cookie = `${getRundownPinCookieName(orgId)}=${encodeURIComponent(pin.trim())}; Path=/; Max-Age=14400; SameSite=Lax${secure}`;
-      window.location.href = `/${slug}/rundown`;
-    } catch {
-      setError("Could not verify the PIN right now.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
+export function RundownPinForm({
+  orgId,
+  slug,
+  onUnlocked,
+}: {
+  orgId: string;
+  slug: string;
+  onUnlocked: () => Promise<void>;
+}) {
+  const { pin, state, submitting, verify, changePin } =
+    useRundownPinVerification(orgId, onUnlocked);
 
   return (
-    <div className="min-h-[100dvh] bg-board-bg flex items-center justify-center px-4">
+    <div className="min-h-[100dvh] bg-board-bg flex items-center justify-center px-4 py-6">
       <div className="w-full max-w-sm rounded-2xl border border-board-border bg-board-card p-6 shadow-2xl">
         <PageBreadcrumb current="Unlock changes">
-          <Link activeOptions={{ exact: true }}
+          <Link
+            activeOptions={{ exact: true }}
             to="/$slug/rundown"
             params={{ slug }}
             className="inline-flex min-h-11 items-center rounded underline outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
@@ -90,7 +95,13 @@ function RundownPinPage() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void verify();
+          }}
+          className="space-y-4"
+        >
           <div>
             <label
               htmlFor="rundown-pin"
@@ -104,16 +115,28 @@ function RundownPinPage() {
               inputMode="numeric"
               autoFocus
               value={pin}
-              onChange={(event) => setPin(event.target.value)}
+              onChange={(event) => changePin(event.target.value)}
               className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-3 text-board-text outline-none focus:border-fire-500/50"
               placeholder="Enter rundown PIN"
             />
           </div>
 
-          {error && (
-            <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+          {state.status === "error" && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-300"
+            >
               <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
-              <span>{error}</span>
+              <div>
+                <p>{state.message}</p>
+                <time
+                  dateTime={new Date(state.occurredAt).toISOString()}
+                  className="mt-1 block text-xs"
+                >
+                  Last attempt:{" "}
+                  {new Date(state.occurredAt).toLocaleTimeString()}
+                </time>
+              </div>
             </div>
           )}
 
@@ -122,7 +145,11 @@ function RundownPinPage() {
             disabled={submitting || !pin.trim()}
             className="w-full rounded-xl bg-fire-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-fire-600 disabled:opacity-50"
           >
-            {submitting ? "Verifying..." : "Unlock changes"}
+            {submitting
+              ? "Verifying..."
+              : state.status === "error"
+                ? "Retry verification"
+                : "Unlock changes"}
           </button>
         </form>
       </div>
