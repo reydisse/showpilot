@@ -78,8 +78,7 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <DesktopBridgeController />
-      <DesktopNotificationController />
-      <Outlet />
+      <DesktopNotificationController><Outlet /></DesktopNotificationController>
     </QueryClientProvider>
   );
 }

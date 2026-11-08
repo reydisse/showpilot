@@ -5918,3 +5918,64 @@ evidence, not completion of the product-wide gate. Native notification delivery,
 schedule/assignment recovery and the remaining broad audit are still open.
 No deployment, release, remote migration or real-organization write. Twenty
 necessary tracked Markdown files remain; no new Markdown file was added.
+
+
+## Phase 2 desktop notification recovery — 2026-11-08
+
+On `fix/desktop-notification-recovery`, a stalled context/inbox/native-permission
+request releases the poll after eight seconds. Failures show a timestamp and
+Retry in the desktop status bar; polling also retries automatically. Delivery
+checkpoints each accepted notification, so a failure later in a batch cannot
+repeat earlier deliveries. Memory history takes precedence when localStorage
+writes fail. This fallback only guarantees deduplication for the current delivery
+lifetime; it cannot provide persistence while storage is unavailable.
+
+The root controller owns delivery and React context carries its status. Keeping
+this in the account panel would stop it on closure/navigation; a module-global
+store would introduce another shared state owner. The native loop is loaded only
+for the desktop main window, with a bounded module-start error and Retry. Web and
+public display windows do not load it. Inbox replies include their account and
+workspace identity, which must match the context before history or native output
+is touched. No inbox item is marked read merely because a desktop alert is sent.
+
+Listener registration has a deadline. Late registrations are retired; retirement
+failures are surfaced and removal is retried. A retired callback becomes inert
+before native removal completes. Native permission replies cannot send an alert
+after its attempt expires. Notification actions use the existing validated route
+mapping and still navigate after a stalled native-focus request. Permission UI
+says “Allowed by system settings” rather than implying delivery succeeded.
+
+Validation:
+- The baseline rendered tests reproduced a permanently locked poll after a hung
+  request and a successful delivery missing from history after the next failed.
+- Ten rendered controller cases and thirteen runtime cases pass. They cover read
+  and context deadlines, late reply rejection, duplicate retry coalescing, partial
+  delivery, memory fallback, changed accounts, listener retirement/retry, inert
+  retired callbacks, native permission cancellation and signed-out web rendering.
+- Final full suite: 2,440 unit / 1,216 Worker tests pass. Typecheck passes. Production
+  build passes; the main entry is 549,032 raw / 173,556 gzip bytes under unchanged
+  limits. Formatting afterward changed no behavior; the final suite/typecheck pass.
+- Compiled Chrome/auth/D1 with the actual Tauri JavaScript API and simulated IPC
+  passes held module download, inbox and native permission recovery,
+  retired listener cleanup, per-alert checkpoints, storage-failure memory history,
+  and notification navigation when native focus never replies. Existing baseline
+  alerts are not replayed; three new alerts are delivered once to the simulated
+  constructor and all four inbox records remain unread. No runtime errors.
+  This does not claim an actual OS notification was displayed.
+- Retry controls fit 320x480/768/1440 after the responsive sidebar transition
+  settles; module and delivery failure screenshots were inspected. The first
+  screenshot check captured the transition and was tightened before final evidence.
+  A script-only ID capture initially confused Tauri's numeric OS identifier with
+  the notification record ID; the final rehearsal keeps them separate.
+- Account-panel download/network/draft preservation passes all five cases.
+  Navigation passes 21 routes and 13 Settings sections at four widths.
+
+Evidence: `/tmp/showpilot-desktop-notification-{before,ui3,full2,tsc4,build1,
+browser3,account-regression,navigation}.log`. Rerun
+`smoke-desktop-notification-recovery.mjs` with
+`SHOWPILOT_SMOKE_RUNTIME=miniflare`; native IPC is deliberately simulated.
+PR #236 is green in run 42469875367 (CI 15m23s, native Rust 3m9s).
+Phase 2 remains 67/79. Schedule-provider saves still have an unhandled rejection
+and no request deadline; schedule/assignment recovery and the broader gate remain
+open. No deployment, release, remote migration, real-organization write, or new
+Markdown file. Twenty necessary tracked Markdown files remain.
