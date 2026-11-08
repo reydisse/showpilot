@@ -4571,3 +4571,53 @@ Stacked on #207, whose CI run 42423815285 is green. Keep this PR draft. Migratio
 native release or real-org/provider mutation. Phase 2 remains 47/79: the technical
 dashboard control pad and broader confirmation/error/UX gates remain open.
 Twenty necessary tracked Markdown files remain; no new Markdown file was added.
+
+## Technical dashboard rundown recovery (2026-11-07, not deployed)
+
+Four real-auth Worker baselines reproduced repeated Next advancing twice, an old
+click controlling a newly selected show, expired transport executing, and dashboard
+access bypassing rundown permissions. Three UI baselines reproduced indefinite
+feedback/command waits and enabled transport without confirmed state.
+
+The eight rundown/lyrics controls now use a dedicated member-authorized RPC and
+RundownRelay command path. The previous technical-control RPC rejects these
+transport actions. Current session, dashboard access and rundown control/PIN are
+checked before dispatch; the relay checks live rundown authority inside its
+serialized command handling. Commands carry the reviewed show/date, revision,
+request ID and original five-second deadline. Reads never initialize or relabel a
+room. Starts skip section headings, paused starts preserve elapsed time, and
+adjustments remain in the authoritative transport implementation.
+
+Migration 0072 adds org/actor/request receipts, binding each request to its
+original payload and storing its terminal outcome. Retrying an uncertain request
+uses the original relay ID/revision/deadline. Completed receipt replay does not
+modify a newer show state. D1 receipts and relay state do not share a transaction;
+if the receipt outcome was not persisted, the relay's duplicate acknowledgement
+recovers it. If that acknowledgement is no longer available, revision/expiry
+checks prevent replay and the UI asks the operator to review current feedback.
+It does not claim an expired or conflicted uncertain command never ran.
+
+The dashboard retains confirmed state, timestamps failures, bounds reads at eight
+seconds and commands at ten, and keeps exact retry available across account/org-
+scoped SPA navigation. Unknown, stale, unprepared, locked and unconfirmed states
+block fresh commands. Successful acknowledgement survives a subsequent read
+failure. End show confirmation follows show identity across item advances; hiding
+lyrics requires confirmation and retains the reviewed revision.
+
+Verification passes: 17 real-auth Worker cases, 11 new UI cases plus the existing
+nine stream-health cases, the full web suite (2,314 unit / 1,116 Worker), typecheck
+and production build. Main bundle: 551,540 raw / 174,413 gzip bytes.
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-tm-rundown-recovery.mjs`
+passes against the compiled Worker and Chrome with disposable authenticated D1.
+It withholds a successful Next reply, advances again independently, navigates
+away/back and retries the exact request without changing the newer item/revision.
+It also tests bounded read recovery, late replies, confirmed lyrics/show end,
+320/768/1440px panel/dialog containment and 44px touch targets. Three command
+receipts remain, no runtime errors or outgoing emails. Phone screenshot inspected.
+
+Stacked on #208; CI run 42426620978 is fully green. Keep this PR draft. Migration
+0072 ran only in disposable local fixtures. No production migration, deployment,
+native release or real-org/provider mutation. Phase 2 remains 47/79: technical
+display blanking, legacy graphics clear and stream commands still require their
+own authoritative recovery work, along with the remaining broad UX/error gates.
+Twenty necessary tracked Markdown files remain; no new Markdown file was added.

@@ -11,8 +11,6 @@ import { env } from "cloudflare:workers";
 const showTargetSchema = z.object({ showId: idSchema.nullable(), serviceDate: serviceDateSchema });
 
 const actionSchema = z.enum([
-  "timer-start", "timer-stop", "timer-add", "timer-subtract",
-  "rundown-next", "rundown-previous", "lyrics-on", "lyrics-off",
   "lower-third-clear", "displays-blank", "displays-restore",
   "stream-live", "stream-stop",
 ]);
@@ -62,27 +60,13 @@ export const getTmControlState = createServerFn({ method: "GET" })
   });
 
 export const runTmControl = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.discriminatedUnion("action", [
-    z.object({ orgId: idSchema, action: z.literal("timer-stop"), target: showTargetSchema }),
-    z.object({ orgId: idSchema, action: actionSchema.exclude(["timer-stop"]) }),
-  ]), data))
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, action: actionSchema }), data))
   .handler(async ({ data }) => {
     const viewer = await assertControlAccess(data.orgId, data.action);
     const [api, control] = await Promise.all([import("@/lib/companion-api"), import("@/lib/companion-control")]);
     const target = await getActiveRundownRelayTarget(env.DB, data.orgId);
-    if (data.action === "timer-stop" && target && (
-      target.showId !== data.target.showId || target.serviceDate !== data.target.serviceDate
-    )) throw new Error("Active show changed, confirmation cancelled. Review the current show before ending it.");
     const deps = api.buildCompanionDeps({ orgId: data.orgId, target });
     const handlers: Record<TmControlAction, () => Promise<{ status: number; body: Record<string, unknown> }>> = {
-      "timer-start": () => control.timerStart(deps, data.orgId),
-      "timer-stop": () => control.timerStop(deps, data.orgId),
-      "timer-add": () => control.timerAdd(deps, data.orgId, 60),
-      "timer-subtract": () => control.timerSubtract(deps, data.orgId, 60),
-      "rundown-next": () => control.rundownNext(deps, data.orgId),
-      "rundown-previous": () => control.rundownPrevious(deps, data.orgId),
-      "lyrics-on": () => control.setLyrics(deps, data.orgId, true),
-      "lyrics-off": () => control.setLyrics(deps, data.orgId, false),
       "lower-third-clear": () => control.clearLowerThird(deps, data.orgId),
       "displays-blank": () => control.kioskBlank(deps, data.orgId, true),
       "displays-restore": () => control.kioskBlank(deps, data.orgId, false),

@@ -427,6 +427,7 @@ function TechManagerPage() {
               title: "Live operations",
               content: (
                 <TmOperations
+                  userId={viewerId}
                   orgId={orgId}
                   slug={slug}
                   inputs={liveInputs}
