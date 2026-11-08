@@ -1,3 +1,4 @@
+import { rundownDetailsReadSchema, rundownDetailsReplySchema, type RundownDetailsScope, type RundownDetailsCommand } from "./rundown-details-recovery";
 import { scheduleProviderSnapshotSchema, providerReplySchema, type ScheduleProviderCommand } from "./schedule-provider-recovery";
 import { personalResponseResultSchema, type PersonalResponseCommand } from "./personal-response-recovery";
 import { showManagementReplySchema, showManagementReadSchema, type ShowManagementCommand } from "./show-management-recovery";
@@ -1292,14 +1293,11 @@ export async function createMobilePlanningChatPass(input: {
   return chatPassSchema.parse(await response.json());
 }
 
-export async function getMobileRundown(
-  orgId: string,
-  showId: string,
-): Promise<MobileRundown> {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/rundowns/${encodeURIComponent(showId)}?orgId=${encodeURIComponent(orgId)}`,
-  );
-  return mobileRundownSchema.parse(await response.json());
+export async function getMobileRundown(orgId: string, showId: string): Promise<MobileRundown> {
+  return withMobileRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/rundowns/${encodeURIComponent(showId)}?orgId=${encodeURIComponent(orgId)}`, { signal });
+    return mobileRundownSchema.parse(await response.json());
+  });
 }
 
 export async function getMobileRundownTemplates(orgId: string, showId: string) {
@@ -1395,33 +1393,13 @@ export async function deleteMobileRundownTemplate(input: {
   return z.object({ ok: z.literal(true) }).parse(await response.json());
 }
 
-export async function updateMobileRundownMeta(input: {
-  orgId: string;
-  showId: string;
-  requestId: string;
-  expectedRevision: number;
-  name: string;
-  startTime: string;
-  callTime: string;
-  location: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/meta?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        requestId: input.requestId,
-        expectedRevision: input.expectedRevision,
-        name: input.name,
-        startTime: input.startTime,
-        callTime: input.callTime,
-        location: input.location,
-      }),
-    },
-  );
-  return z
-    .object({ ok: z.literal(true), revision: z.number() })
-    .parse(await response.json());
+export async function readMobileRundownDetails(input: RundownDetailsScope, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/details?${new URLSearchParams({ orgId: input.orgId, userId: input.userId })}`, { signal });
+  return rundownDetailsReadSchema.parse(await response.json());
+}
+export async function commandMobileRundownDetails(input: RundownDetailsCommand, review: boolean, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/details/${review ? "review" : "command"}?orgId=${encodeURIComponent(input.orgId)}`, { method: "POST", signal, body: JSON.stringify(input) });
+  return rundownDetailsReplySchema.parse(await response.json());
 }
 
 export async function controlMobileProPresenter(input: {
