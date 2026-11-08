@@ -7642,9 +7642,10 @@ claim new commit-time authority checks.
 Twenty focused real auth/D1 tests pass: eleven native endpoint cases and nine
 shared create/delete cases, including exact retry, changed source, concurrent
 writers, native/web interoperability, legacy deletion through both clients,
-receipt/delete rollback, deletion before delivery, org isolation, and revoked
-session rejection. The role-change fixture initially expected 403; the existing
-role-change invalidation correctly revokes its session and returns 401.
+receipt/delete rollback, deletion before delivery, org isolation, and unknown-role
+rejection. The role-change fixture initially expected 403, but its unsupported
+viewer role fails identity normalization and returns 401. This case does not
+establish session revocation.
 
 The compiled Worker rehearsal passes against disposable local auth and D1:
 immutable replay, changed contents rejected, deletion retained after late retry,
