@@ -1,7 +1,10 @@
+import { useRundownChange } from "@/hooks/use-rundown-change";
+import { RundownChangeStatus } from "@/components/rundown-change-status";
+import { RundownClearConfirmation } from "@/components/rundown-clear-confirmation";
 import { useTemplateDeleteAttempts } from "@/hooks/use-template-delete";
 import {useRundownReplacementDraft} from "@/hooks/use-rundown-replacement";
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import CircleStop from "lucide-react-native/icons/circle-stop";
@@ -39,6 +42,7 @@ import { useRundownRelay } from "@/hooks/use-rundown-relay";
 import { authClient } from "@/lib/auth-client";
 import { SHOWPILOT_URL } from "@/lib/env";
 import {
+  commandMobileRundownChange,
   controlMobileProPresenter,
   getMobileRundown,
   getMobileRundownTemplates,
@@ -217,6 +221,18 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
   const controlsEnabled = detail.canControl && liveReady;
   const editControlsEnabled = canAuthor && liveReady;
   const liveWriteEnabled = canUseLiveRelay && liveReady;
+  const client = useQueryClient();
+  const changes = useRundownChange({ orgId, userId, showId: detail.show.id, serviceDate: detail.show.serviceDate }, {
+    active: editControlsEnabled,
+    send: commandMobileRundownChange,
+    refresh: async signal => {
+      await client.invalidateQueries({ queryKey: ["mobile-rundown", orgId, detail.show.id, userId] }, { throwOnError: true });
+      if (signal.aborted) throw new Error("Rundown refresh cancelled.");
+    },
+  });
+  const [clearOpen, setClearOpen] = useState(false);
+  const canRemove = editControlsEnabled && !changes.attempt;
+
 
   useEffect(() => {
     if (!relay.hydrated || seededRef.current) return;
@@ -292,15 +308,10 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
     setEditor(null);
   }
 
-  function deleteItem(item: RundownItem) {
-    Alert.alert("Delete rundown item?", `Remove “${item.title}” from this show?`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: () => {
-        if (timer.currentItemId === item.id) relay.sendCommand("timer-stop");
-        relay.sendCommand("remove-item", { id: item.id });
-        setEditor(null);
-      } },
-    ]);
+  function deleteItem(item: RundownItem, revision: number) {
+    if (!canRemove || revision !== relay.revision) return;
+    changes.confirm({ action: "remove-item", itemId: item.id }, revision, item.title);
+    setEditor(null);
   }
 
   function exportRundown(format: "csv" | "pdf") {
@@ -351,6 +362,8 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
         ListEmptyComponent={<Text style={styles.empty}>This show has no rundown items yet.</Text>}
         ListHeaderComponent={(
           <View style={styles.listHeader}>
+            <RundownChangeStatus state={changes} active={editControlsEnabled} revision={relay.revision} itemIds={items.map(item => item.id)}/>
+            {clearOpen ? <RundownClearConfirmation title={showTitle} count={items.length} revision={relay.revision} playing={timer.playback !== "stop"} active={canRemove} onClose={() => setClearOpen(false)} onConfirm={revision => { if (!canRemove || revision !== relay.revision) return; changes.confirm({action:"clear-all"}, revision, showTitle); setClearOpen(false); }}/> : null}
             {refreshError ? <View><Text accessibilityRole="alert" style={styles.syncError}>{refreshError} The last loaded show is still displayed.</Text><AppButton label="Refresh show" loading={refreshing} onPress={onRefresh} /></View> : null}
             {templateDeletions.length ? <AppButton label="Resume template deletion" variant="secondary" onPress={()=>setTemplatesOpen(true)}/>:null}
             {replacementDraft ? <AppButton label="Resume rundown replacement" variant="secondary" onPress={()=>setTemplatesOpen(true)}/>:null}
@@ -407,7 +420,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
             </View> : relay.stageMessage ? <View style={[styles.activeMessage, stageMessagePriority && styles.activeMessagePriority]}><Send color={stageMessagePriority ? colors.red : colors.amberText} size={16} /><Text style={[styles.activeMessageText, stageMessagePriority && styles.activeMessagePriorityText]}>{displayStageMessage}</Text></View> : null}
             <View style={styles.sectionHeading}>
               <Text style={styles.sectionTitle}>RUNDOWN</Text>
-              <View style={styles.sectionActions}><Text style={styles.sectionCount}>{items.length} ITEMS</Text><Pressable accessibilityLabel="Export rundown" accessibilityRole="button" onPress={() => Alert.alert("Export rundown", "Choose a shareable format.", [{ text: "Cancel", style: "cancel" }, { text: "CSV", onPress: () => exportRundown("csv") }, { text: "PDF", onPress: () => exportRundown("pdf") }])} style={styles.templateButton}><Share2 color={colors.textMuted} size={16} /></Pressable>{canAuthor ? <><Pressable accessibilityLabel="Open rundown templates" accessibilityRole="button" onPress={() => setTemplatesOpen(true)} style={styles.templateButton}><Files color={colors.textMuted} size={16} /></Pressable>{items.length > 0 ? <Pressable accessibilityLabel="Clear rundown" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => Alert.alert("Clear this rundown?", "Every item will be removed for all operators. Save a template first if you may need it again.", [{ text: "Keep rundown", style: "cancel" }, { text: "Clear all", style: "destructive", onPress: () => relay.sendCommand("clear-all") }])} style={[styles.templateButton, !editControlsEnabled && styles.disabled]}><Trash2 color={colors.red} size={16} /></Pressable> : null}<Pressable accessibilityLabel="Add rundown item" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setEditor({ item: null, index: items.length })} style={[styles.addItem, !editControlsEnabled && styles.disabled]}><Plus color={colors.black} size={16} /><Text style={styles.addItemText}>Add</Text></Pressable></> : null}</View>
+              <View style={styles.sectionActions}><Text style={styles.sectionCount}>{items.length} ITEMS</Text><Pressable accessibilityLabel="Export rundown" accessibilityRole="button" onPress={() => Alert.alert("Export rundown", "Choose a shareable format.", [{ text: "Cancel", style: "cancel" }, { text: "CSV", onPress: () => exportRundown("csv") }, { text: "PDF", onPress: () => exportRundown("pdf") }])} style={styles.templateButton}><Share2 color={colors.textMuted} size={16} /></Pressable>{canAuthor ? <><Pressable accessibilityLabel="Open rundown templates" accessibilityRole="button" onPress={() => setTemplatesOpen(true)} style={styles.templateButton}><Files color={colors.textMuted} size={16} /></Pressable>{items.length > 0 ? <Pressable accessibilityLabel="Clear rundown" accessibilityRole="button" disabled={!canRemove} onPress={() => setClearOpen(true)} style={[styles.templateButton, !editControlsEnabled && styles.disabled]}><Trash2 color={colors.red} size={16} /></Pressable> : null}<Pressable accessibilityLabel="Add rundown item" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setEditor({ item: null, index: items.length })} style={[styles.addItem, !editControlsEnabled && styles.disabled]}><Plus color={colors.black} size={16} /><Text style={styles.addItemText}>Add</Text></Pressable></> : null}</View>
             </View>
           </View>
         )}
@@ -437,7 +450,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
         }}
         windowSize={7}
       />
-      {editor ? <RundownItemSheet index={editor.index} item={editor.item} itemCount={items.length} onClose={() => setEditor(null)} onDelete={deleteItem} onMove={moveItem} onSave={saveItem} /> : null}
+      {editor ? <RundownItemSheet currentItem={items.find(item => item.id === editor.item?.id) ?? null} currentItemId={timer.currentItemId} revision={relay.revision} canEdit={canRemove} index={editor.index} item={editor.item} itemCount={items.length} onClose={() => setEditor(null)} onDelete={deleteItem} onMove={moveItem} onSave={saveItem} /> : null}
       {templatesOpen ? <RundownTemplateSheet
         key={`${userId}:${orgId}:${detail.show.id}`} orgId={orgId} userId={userId} showId={detail.show.id}
         copy={{ serviceName: showTitle, scheduledStartTime: serviceWallTimeInput(showStart, detail.timeZone), items }} canCapture={editControlsEnabled}
@@ -579,13 +592,13 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   activeMessageText: { flex: 1, color: colors.amberText, fontFamily, fontSize: 13, lineHeight: 19 },
   activeMessagePriority: { borderColor: colors.redBorder, backgroundColor: colors.redSoft },
   activeMessagePriorityText: { color: colors.red },
-  sectionHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  sectionHeading: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.6 },
   sectionCount: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "700", letterSpacing: 1 },
-  sectionActions: { flexDirection: "row", alignItems: "center", gap: 10 },
-  addItem: { minHeight: 36, flexDirection: "row", alignItems: "center", gap: 5, borderRadius: radii.pill, backgroundColor: colors.amber, paddingHorizontal: 12 },
+  sectionActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
+  addItem: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 5, borderRadius: radii.pill, backgroundColor: colors.amber, paddingHorizontal: 12 },
   addItemText: { color: colors.black, fontFamily, fontSize: 11, fontWeight: "800" },
-  templateButton: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
+  templateButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
   list: { gap: 8, paddingBottom: spacing.large },
   listHeader: { gap: spacing.large, marginBottom: 8 },
   item: { minHeight: 68, flexDirection: "row", alignItems: "center", borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, paddingLeft: 12 },
