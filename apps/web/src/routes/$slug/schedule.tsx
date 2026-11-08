@@ -1,3 +1,4 @@
+import { ShowDetailsEditor } from "@/components/shows/ShowDetailsEditor";
 import { CopyTeamControl } from "@/components/schedule/CopyTeamControl";
 import { useScheduleRoster } from "@/hooks/useScheduleRoster";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
@@ -38,7 +39,6 @@ import { ShowCreationForm, inventoryDraft, type ShowDraft } from "@/components/s
 import {
   deleteService,
   getSchedule,
-  saveServiceDetails,
   type ScheduleProvider,
 } from "@/lib/schedule";
 import {
@@ -622,13 +622,16 @@ function SchedulePage() {
         <ServiceDetailsModal
           key={selected.id}
           orgId={data.orgId}
+          userId={user.id}
           orgTimezone={deviceTimeZone}
           service={selected}
           confirm={confirm}
           onClose={() => setServiceOpen(false)}
-          onSaved={async () => {
-            setServiceOpen(false);
+          onSaved={async (signal) => {
             await router.invalidate();
+            signal.throwIfAborted();
+            const failed = router.state.matches.find(match => match.status === "error");
+            if (failed) throw failed.error;
           }}
           onDeleted={async () => {
             setServiceOpen(false);
@@ -1373,6 +1376,7 @@ function ScheduleLiveDetails({ orgId, service }: {
 
 function ServiceDetailsModal({
   orgId,
+  userId,
   orgTimezone,
   service,
   confirm,
@@ -1381,110 +1385,36 @@ function ServiceDetailsModal({
   onDeleted,
 }: {
   orgId: string;
+  userId: string;
   orgTimezone?: string;
   service: Awaited<ReturnType<typeof getSchedule>>["services"][number];
   confirm: ReturnType<typeof useConfirmDialog>["confirm"];
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (signal: AbortSignal) => Promise<void>;
   onDeleted: () => void | Promise<void>;
 }) {
   const locale = useDeviceLocale();
   const workspaceTerms = useWorkspaceTerms();
-  // Background live updates must not let an older open form overwrite newer edits.
-  const [expectedUpdatedAt] = useState(() => new Date(service.updatedAt).toISOString());
-  const [name, setName] = useState(service.name);
-  const [time, setTime] = useState(inputTime(service.scheduledStartTime, orgTimezone));
-  const [callTime, setCallTime] = useState(inputTime(service.scheduledCallTime, orgTimezone));
-  const [location, setLocation] = useState(service.location);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <Modal title="Show details" description="Edit this show’s date, time and location." onClose={onClose}>
-      <form
-        className="space-y-4"
-        onSubmit={async (event) => {
-          event.preventDefault();
-          setBusy(true);
-          setError(null);
-          try {
-            await saveServiceDetails({
-              data: {
-                orgId,
-                showId: service.id,
-                serviceDate: service.serviceDate,
-                name,
-                startTime: time,
-                callTime,
-                location,
-                expectedUpdatedAt,
-                timeZone: getDeviceTimeZone(),
-              },
-            });
-            onSaved();
-          } catch (cause) {
-            setError(cause instanceof Error ? cause.message : "Could not save show details");
-          } finally {
-            setBusy(false);
-          }
-        }}
+    <Modal title="Show details" description="Edit this show’s name, times and location." onClose={onClose}>
+      <ShowDetailsEditor
+        scope={{ orgId, userId, showId: service.id }}
+        initialDraft={{ serviceDate: service.serviceDate, expectedUpdatedAt: new Date(service.updatedAt).toISOString(),
+          name: service.name, startTime: inputTime(service.scheduledStartTime, orgTimezone),
+          callTime: inputTime(service.scheduledCallTime, orgTimezone), location: service.location,
+          timeZone: orgTimezone || getDeviceTimeZone() }}
+        nameLabel={workspaceCopy("Show or service name", workspaceTerms)}
+        callTimeNote={service.effectiveCallTime ? `Organization default: ${timeLabel(service.effectiveCallTime, orgTimezone, locale)}.` : "No call time until this show has a start time."}
+        refresh={onSaved} onRefreshed={onClose} disabled={busy}
       >
-        <Field label={workspaceCopy("Show or service name", workspaceTerms)}>
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            maxLength={120}
-            className={FORM_CONTROL}
-          />
-        </Field>
-        <Field label="Start time">
-            <input
-              type="time"
-              value={time}
-              onChange={(event) => setTime(event.target.value)}
-              className={FORM_CONTROL}
-            />
-          </Field>
-        <Field label={`Crew call time (${getDeviceTimeZone()})`}>
-          <input
-            type="time"
-            value={callTime}
-            onChange={(event) => setCallTime(event.target.value)}
-            className={FORM_CONTROL}
-          />
-          <p className="mt-1.5 text-[10px] leading-4 text-board-muted">
-            {callTime
-              ? "This show overrides the organization default. Clear it to use the default."
-              : service.effectiveCallTime
-                ? `Using organization default: ${timeLabel(service.effectiveCallTime, orgTimezone, locale)}.`
-                : "No call time until this show has a start time."}
-          </p>
-        </Field>
-        <Field label="Venue or location">
-          <input
-            value={location}
-            onChange={(event) => setLocation(event.target.value)}
-            maxLength={240}
-            placeholder="Main auditorium, Studio A, 123 Main St…"
-            className={FORM_CONTROL}
-          />
-        </Field>
-        {error ? (
-          <p role="alert" className="text-xs leading-relaxed text-red-300">
-            {error}
-          </p>
-        ) : null}
-        <button
-          disabled={busy || !name.trim()}
-          className="w-full rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50"
-        >
-          {busy ? "Saving…" : "Save show details"}
-        </button>
-      </form>
+      {(locked) => <>
       <div className="mt-5 border-t border-board-border pt-4">
         <p className="text-[10px] leading-4 text-board-muted">Deleting removes this stopped show’s rundown, crew assignments, notes, checklist, incidents and related notifications.</p>
         <button
           type="button"
-          disabled={busy}
+          disabled={locked}
           onClick={async () => {
             const approved = await confirm({
               title: "Delete this show?",
@@ -1510,6 +1440,9 @@ function ServiceDetailsModal({
           Delete show
         </button>
       </div>
+      {error ? <p role="alert" className="mt-3 text-sm text-red-300">{error}</p> : null}
+      </>}
+      </ShowDetailsEditor>
     </Modal>
   );
 }

@@ -6513,3 +6513,72 @@ No migration is required. Phase 2 remains 67/79. Retained detail drafts, recover
 from lost successful save replies, deletion lifecycle races, inventory/mobile
 forms and broad product gates remain open. No production deployment, release,
 remote migration, real-organization writes or new Markdown files.
+
+
+### Retained show details and save recovery, Phase 2 partial evidence (2026-11-08)
+
+Branch: `fix/show-details-recovery`, based on the green metadata version guard.
+The compiled baseline reproduced a successful Schedule save whose exact retry
+failed as a stale edit. The form also kept its draft only in component state and
+closed before its page refresh had succeeded.
+
+Schedule show details now retains the draft, original version and request in an
+account/org/show query entry across navigation. Saving and request review have
+15-second deadlines; refreshing a confirmed save has its own 12-second deadline.
+Expired requests abort their browser fetch. Labels name the operation that timed
+out. Synchronous ownership of the actual cache entry prevents repeated clicks,
+late results, cleared accounts and newer work from claiming each other's result.
+A failed refresh retries only the refresh. Closing the modal stays available.
+Fields and recovery controls have 44-pixel targets and show the draft timezone.
+
+Migration `0084_show_details_recovery.sql` records the actor, original input and
+outcome in the same D1 transaction as the metadata edit. Exact retries acknowledge
+that outcome, including later changes and deletion, without writing the show
+again. The transaction checks membership/session, show/date/version and deletion
+state. Review can cancel an undelivered request before the draft becomes editable.
+Conflicts show the current details and require an explicit choice to retain edits
+against that version or use current details. Refresh is not offered as an implicit
+way to discard a conflicted draft. Delete remains disabled while a save is unresolved.
+
+The new internal operation runs in the existing serialized rundown writer. A small
+DO intent, written before the D1 transaction, repairs a committed edit if DO state
+persistence fails. Recovery reads current database rows rather than replaying old
+fields. It preserves the live revision after an already-persisted intent fails to
+clear. Member/session checks run when the relay processes the request and again in
+the committing transaction. Unexpected persistence errors are recorded internally;
+the form receives recovery instructions. Existing native calls still use the prior
+version-guarded metadata path; native draft/request retention remains open.
+
+Validation:
+- Eighteen real-auth/D1/relay Worker cases pass: exact retries, later changes,
+  deletion, cancellation fencing, duplicate saves, account/payload mismatch,
+  stale conflicts, commit races, permission revocation, D1 rollback, DO persistence
+  and intent-cleanup failures across restart, queued review, changed timezone
+  settings, internal authentication and input validation.
+- Thirteen rendered editor cases pass: draft retention, latest input, one pending
+  operation, deadlines/aborted fetch, exact retry after navigation, no background
+  navigation, separate refresh retry, review fencing, conflict choices, removed
+  shows, account isolation and late results after cache removal.
+- Final full suite passes: 2,505 unit / 1,323 Worker tests. Web typecheck and build
+  pass. Main entry is 548,801 raw / 173,455 gzip bytes under unchanged limits.
+  Migration manifest audit passes with 0084 pending; no remote migration ran.
+- Compiled authenticated endpoint rehearsal recovers a lost successful save with
+  one durable receipt. The existing web/native version-guard rehearsal also passes.
+- Final compiled Chrome/auth/D1/relay rehearsal passes draft retention through
+  navigation, held-success exact retry, cancellation of a request held before
+  delivery, a newly reviewed save, and explicit review of a real competing relay
+  edit before replacement. Retry and conflict controls pass actual hit tests at
+  320x480, 768x1024 and 1440x1000. Phone screenshots were inspected. No browser
+  runtime errors occurred. Retention is across SPA navigation, not hard reloads.
+
+Evidence: `/tmp/showpilot-show-details-{before,worker1,worker2,ui1,ui2,ui3,full1,
+full2,full3,tsc1,tsc2,tsc3,tsc4,tsc5,build1,build2,smoke1,browser1,browser2,
+native-regression1,migrations}.log`. The first editor test run exposed use of the
+proposed cache object instead of QueryClient's structurally shared stored object;
+all ownership checks now use the actual stored claim. Rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-show-details-recovery.mjs`
+and `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-show-details-form.mjs`
+after building. #245 is green in run 42488482641, CI 15m34s and native Rust 4m42s.
+Phase 2 remains 67/79. Deletion lifecycle/recovery, inventory, mobile recovery and
+broad gates remain open. No production deployment, release, remote migration or
+real-organization writes. Twenty necessary tracked Markdown files remain.
