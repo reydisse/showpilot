@@ -1807,7 +1807,7 @@ function RundownPage() {
         <DesktopLocalShowPanel key={`${orgId}:${showId}:${serviceDate}`} orgId={orgId} slug={slug} showId={showId} serviceDate={serviceDate}
           cloudRevision={cloudRevision} canControl={canControlRundown}
           canPrepare={canControlRundown && hasEffectivePermission(role, grantedPermissions, "devices:access") && hasEffectivePermission(role, grantedPermissions, "timecode:access")}
-          cloudReady={syncConnected && syncHydrated && syncedInitialized && relayMatchesTarget && !syncSaving && !metaSavePending && !hasPendingCommands && !saveError && !syncError} />
+          cloudReady={syncConnected && syncHydrated && syncedInitialized && relayMatchesTarget && !syncSaving && !metaSavePending && !hasPendingCommands() && !saveError && !syncError} />
       </Suspense>}
 
       {(selectionError || saveError || syncError) && (
