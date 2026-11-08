@@ -35,6 +35,8 @@
         "/api/mobile/v1/schedule/reminders",
         "/api/mobile/v1/schedule/copy-team",
         "/api/mobile/v1/schedule/assignments",
+        "/api/mobile/v1/schedule/assignments/command",
+        "/api/mobile/v1/schedule/assignments/review",
         "/api/mobile/v1/schedule/inventory",
         "/api/mobile/v1/schedule/inventory/command",
         "/api/mobile/v1/schedule/inventory/review",

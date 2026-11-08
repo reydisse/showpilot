@@ -6977,3 +6977,71 @@ other native profile/schedule paths, the remaining product-wide audits, owner
 Founding Member deadline and broad gates remain open. No production deployment,
 release, remote migration, real-org writes or external email. Twenty necessary
 tracked Markdown files remain.
+
+## Phase 2 follow-up: native assignment draft and save recovery (2026-11-08)
+
+On `fix/native-assignment-recovery`, the actual native assignment sheet first
+failed two regressions: closing/reopening discarded the draft, and submitted
+fields stayed editable while a save was unconfirmed. The editor now retains
+account/workspace/editor-scoped drafts and exact requests across screen closure.
+Schedule exposes resume controls independently of the selected date or surviving
+show/position rows. Fields lock while results are unconfirmed, current details
+are loading, or a destructive confirmation is open. Explicit Finish removes a
+settled editor; unsent drafts have confirmed discard. This cache survives screen
+navigation, not sign-out or process restart; the editor states that limit.
+
+Native create/edit/delete now use the existing 0080 assignment receipts and
+revision checks, with full invitation results from the 0079 outbox. Retry keeps
+the original command, position and invitation identity. A new review command
+records a conflict receipt for an unapplied request before unlocking its draft,
+so a late original request cannot apply afterward. Already-applied review recovers
+the original receipt and may retry the same invitation; it is explicitly different
+from read-only refresh. Revision conflicts preserve typed fields until the user
+loads current details. Missing positions are not recreated. Current-detail reads
+return venue timezone for ISO-to-wall-time conversion. Confirmed crew replacement,
+removal and draft discard use inline confirmations with Cancel. Replacement of a
+declined assignment preserves that original response and is described as a new
+replacement position.
+
+Writes/reviews use the shared 15-second deadline, refresh uses 12 seconds, and
+current-detail reads use 8 seconds. Late reads, abandoned focus/account callbacks
+and cleared caches cannot overwrite new drafts. The installed-client backend
+routes remain for compatibility; unused current-client edit/delete wrappers are
+removed. Team builder still uses the older create flow and remains separate work.
+No migration is added; existing 0079/0080 and their prerequisites are required.
+
+Validation:
+- Sixteen new native hook/component cases pass, including both reproduced
+  failures, exact retry, cancellation review, partial delivery, refresh-only
+  recovery, revision conflict, removed rows, ignored transport deadlines, blur,
+  account-cache clearing, global resume, Finish/discard and scoped confirmations.
+- Twenty-three real-auth/D1 assignment Worker cases pass, including eight new
+  native-route cases: review-before-create/edit/delete, review after uncertain
+  delivery with identical provider request, concurrent review/write, versioned
+  edit/delete/tombstones, read timezone/revision, anonymous/actor/org/revocation
+  denial. One initial fixture omitted app_setting.id; the corrected fixture passes.
+- Final full suite: 2,601 unit / 1,391 Worker tests. Web typecheck and build pass;
+  main entry remains 549,525 raw / 173,749 gzip bytes under unchanged budgets.
+- Final mobile verification passes typecheck, lint with warnings only, doctor
+  18/18, polling/contracts and all three platform exports. Hermes bundles are
+  iOS 5,538,999 / Android 5,538,006 bytes against the unchanged 6,500,000 limit.
+- Exported Expo editor against disposable real auth/D1 passes retained drafts,
+  locked fields, exact retry without duplicate positions, refresh without writes,
+  review fencing delayed delivery, conflict preservation, explicit current-detail
+  review and confirmed removal. Retry/review/close controls pass visible text,
+  reachability and 44px checks at 320/768/1440 pixels. Final phone/tablet screenshots
+  were inspected; recovery text is 13px. Zero browser runtime errors. Team-copy
+  and reminder browser rehearsals also pass after the shared request-owner change.
+  These are exported Expo checks, not physical iOS/Android UI verification.
+
+Evidence: `/tmp/showpilot-native-assignment-{before,mobile-tsc1,ui1,ui2,hooks1,
+worker1,worker2,web-tsc1,web-tsc2,full1,full2,build1,verify1,verify2,browser1,
+browser2,copy-browser,reminder-browser}.log`. After web build and mobile verify,
+rerun `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-assignment-recovery.mjs`.
+Final screenshots: `/tmp/showpilot-native-assignment-{320,768,1440}.png`.
+
+Preceding draft PR #252 is green (CI 42502924082, web and native Rust).
+Phase 2 remains 67/79. Team-builder and other native profile/schedule recovery,
+product-wide audits, the owner Founding Member deadline and broad gates remain
+open. No production deployment, release, remote migration, real-org writes or
+external email. Twenty necessary tracked Markdown files remain.

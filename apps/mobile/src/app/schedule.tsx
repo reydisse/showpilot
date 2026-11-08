@@ -1,3 +1,5 @@
+import { useAssignmentDrafts } from "@/hooks/use-mobile-assignment";
+import type { AssignmentDraft } from "@/lib/assignment-recovery";
 import { AppButton } from "@/components/app-button";
 import { useMobileCopy } from "@/hooks/use-mobile-copy";
 import { ScheduleCopyProgress } from "@/components/schedule-copy-progress";
@@ -33,7 +35,6 @@ import {
   ScheduleProviderSheet,
   ScheduleServiceSheet,
   ScheduleTeamSheet,
-  type ScheduleAssignmentDraft,
   type ScheduleServiceDraft,
   type ScheduleTeamDraft,
 } from "@/components/schedule-sheets";
@@ -45,25 +46,25 @@ import {
   createMobileRundown,
   createMobileScheduleAssignment,
   commandMobileInventory,
+  commandMobileAssignment,
+  readMobileAssignment,
   copyMobileScheduleTeam,
   getMobileSchedule,
   sendMobileScheduleReminders,
-  removeMobileScheduleAssignment,
   removeMobileScheduleService,
   respondToMobileAssignment,
   saveMobileScheduleProvider,
-  updateMobileScheduleAssignment,
   updateMobileScheduleService,
   type MobileSchedule,
 } from "@/lib/mobile-api";
-import { formatServiceTime, isServiceDate } from "@/lib/service-time";
+import { formatServiceTime, isServiceDate, serviceWallTimeInput } from "@/lib/service-time";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 type Service = MobileSchedule["services"][number];
 type Assignment = MobileSchedule["assignments"][number];
 type EditorState =
   | { kind: "service"; service: Service | null; initialInventoryId?: string }
-  | { kind: "assignment"; service: Service; assignment: Assignment | null }
+  | { kind: "assignment"; initial: AssignmentDraft }
   | { kind: "team"; service: Service }
   | { kind: "provider" }
   | { kind: "inventory" }
@@ -90,6 +91,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
   const { width, fontScale } = useWindowDimensions();
   const narrowHeader = width / fontScale < 400;
   const queryClient = useQueryClient();
+  const assignmentDrafts = useAssignmentDrafts({ orgId, userId });
   const [editor, setEditor] = useState<EditorState>(null);
   const [copyConfirmation, setCopyConfirmation] = useState<{ selection: CopyTeamSelection; label: string; count: number; again: boolean } | null>(null);
   const [decliningId, setDecliningId] = useState<string | null>(null);
@@ -177,19 +179,19 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
     await saved();
   }
 
-  async function saveAssignment(draft: ScheduleAssignmentDraft) {
-    const result = draft.expectedUpdatedAt && editor?.kind === "assignment" && editor.assignment
-      ? await updateMobileScheduleAssignment({
-        orgId,
-        assignmentId: editor.assignment.id,
-        ...draft,
-        expectedUpdatedAt: draft.expectedUpdatedAt,
-      })
-      : await createMobileScheduleAssignment({ orgId, ...draft });
-    await saved();
-    if (draft.crewMemberId && !result.delivered) {
-      Alert.alert("Assignment saved", "The position is on the shared schedule, but ShowPilot could not deliver the invitation. Use Resend invite after checking the person’s email.");
-    }
+  function openAssignment(service: Service, assignment: Assignment | null, remove = false) {
+    const timeZone = schedule?.timeZone ?? "UTC";
+    const initial: AssignmentDraft = {
+      editorId: assignment ? `${remove ? "delete" : "edit"}:${assignment.id}` : `create:${service.id}`,
+      mode: remove ? "delete" : assignment ? "edit" : "create",
+      showName: service.name || "Untitled show",
+      fields: { showId: service.id, serviceDate: service.serviceDate, timeZone,
+        role: assignment?.role ?? "", department: assignment?.department ?? "Production", crewMemberId: assignment?.crewMemberId ?? null,
+        callTime: assignment?.callTime ? /^([01]\d|2[0-3]):[0-5]\d$/.test(assignment.callTime) ? assignment.callTime : serviceWallTimeInput(assignment.callTime, timeZone) : "",
+        notes: assignment?.notes ?? "" },
+      base: assignment ? { id: assignment.id, revision: assignment.revision ?? null, status: assignment.status, crewMemberId: assignment.crewMemberId, responseNote: assignment.responseNote } : null,
+    };
+    setEditor({ kind: "assignment", initial });
   }
 
   async function saveTeam(draft: ScheduleTeamDraft) {
@@ -258,13 +260,6 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
     }
   }
 
-  function removeAssignment(assignment: Assignment) {
-    Alert.alert("Remove assignment?", `${assignment.role} will be removed from this show and its pending invitation will close.`, [
-      { text: "Keep", style: "cancel" },
-      { text: "Remove", style: "destructive", onPress: () => void removeMobileScheduleAssignment({ orgId, assignmentId: assignment.id }).then(saved).catch((error: Error) => Alert.alert("Assignment not removed", error.message)) },
-    ]);
-  }
-
   function removeService(service: Service) {
     Alert.alert("Delete show?", `${service.name || "This show"} and all of its rundown, assignments, checklist, cues, and incidents will be removed permanently.`, [
       { text: "Keep show", style: "cancel" },
@@ -326,6 +321,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
             </View> : null}
             <ScheduleCopyProgress copies={copies} canCopyAgain={canCopyAgain} onCopyAgain={copyAgain} />
             <ScheduleReminderProgress reminders={reminders} canSendNew={canSendReminder} />
+            {assignmentDrafts.map(draft => <AppButton key={draft.editorId} variant="secondary" label={`Resume ${draft.mode === "delete" ? "removal" : "assignment"}: ${draft.fields.role || "New position"} · ${draft.showName} (${draft.fields.serviceDate})`} onPress={() => setEditor({ kind: "assignment", initial: draft })} />) }
             {schedule ? (
               <View style={styles.stats}><Stat label="SHOWS" value={schedule.services.length} /><Stat label="POSITIONS" value={schedule.assignments.length} /><Stat label="CONFIRMED" value={schedule.assignments.filter((assignment) => assignment.status === "confirmed").length} /></View>
             ) : null}
@@ -386,7 +382,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
                   <SmallAction icon={<Pencil color={colors.textMuted} size={14} />} label="Edit" onPress={() => setEditor({ kind: "service", service })} />
                   {canManageAssignments ? (
                     <>
-                      <SmallAction icon={<UserPlus color={colors.amberText} size={14} />} label="Position" onPress={() => setEditor({ kind: "assignment", service, assignment: null })} />
+                      <SmallAction icon={<UserPlus color={colors.amberText} size={14} />} label="Position" onPress={() => openAssignment(service, null)} />
                       <SmallAction icon={<Users color={colors.amberText} size={14} />} label="Team" onPress={() => setEditor({ kind: "team", service })} />
                       {assignments.length === 0 && previousWithTeam ? (
                         <SmallAction disabled={!!copies.work[service.id]} icon={<Copy color={colors.textMuted} size={14} />} label={copies.work[service.id] ? "Copy status above" : "Copy team"} onPress={() => copyTeam(service, previousWithTeam)} />
@@ -402,7 +398,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
               {assignments.length ? (
                 <View style={styles.assignments}>
                   {assignments.map((assignment) => (
-                    <AssignmentRow assignment={assignment} canManage={canManageAssignments} declining={decliningId === assignment.id} focused={assignment.id === requestedAssignmentId} key={assignment.id} onCancel={() => { setDecliningId(null); setReason(""); }} onDecline={() => { setDecliningId(assignment.id); setReason(""); }} onEdit={() => setEditor({ kind: "assignment", service, assignment })} onReason={setReason} reminderStarted={!!reminders.work[reminderSlot({ kind: "assignment", id: assignment.id })]} onRemind={() => startReminder({ kind: "assignment", id: assignment.id }, `${assignment.role} · ${assignment.crewName ?? "Crew"}`)} onRemove={() => removeAssignment(assignment)} onRespond={(response) => void respond(assignment, response)} pending={respondingId === assignment.id} reason={reason} />
+                    <AssignmentRow assignment={assignment} canManage={canManageAssignments} declining={decliningId === assignment.id} focused={assignment.id === requestedAssignmentId} key={assignment.id} onCancel={() => { setDecliningId(null); setReason(""); }} onDecline={() => { setDecliningId(assignment.id); setReason(""); }} onEdit={() => openAssignment(service, assignment)} onReason={setReason} reminderStarted={!!reminders.work[reminderSlot({ kind: "assignment", id: assignment.id })]} onRemind={() => startReminder({ kind: "assignment", id: assignment.id }, `${assignment.role} · ${assignment.crewName ?? "Crew"}`)} onRemove={() => openAssignment(service, assignment, true)} onRespond={(response) => void respond(assignment, response)} pending={respondingId === assignment.id} reason={reason} />
                   ))}
                 </View>
               ) : (
@@ -416,8 +412,14 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
       {editor?.kind === "service" && schedule ? (
         <ScheduleServiceSheet initialInventoryId={editor.initialInventoryId} inventory={schedule.inventory} onClose={() => setEditor(null)} onSave={saveService} previousServices={[...schedule.services].filter((candidate) => candidate.serviceDate <= (editor.service?.serviceDate ?? schedule.to)).reverse()} service={editor.service} timeZone={schedule.timeZone} />
       ) : null}
-      {editor?.kind === "assignment" && schedule ? (
-        <ScheduleAssignmentSheet assignment={editor.assignment} crew={schedule.crew} onClose={() => setEditor(null)} onSave={saveAssignment} showId={editor.service.id} />
+      {editor?.kind === "assignment" ? (
+        <ScheduleAssignmentSheet key={`${userId}:${orgId}:${editor.initial.editorId}`} orgId={orgId} userId={userId} active={pollingInterval !== false} initial={editor.initial} crew={schedule?.crew ?? []} onClose={() => setEditor(null)} onCommand={commandMobileAssignment} onRead={readMobileAssignment} onRefresh={async signal => {
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["mobile-schedule", orgId] }, { throwOnError: true }),
+            queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap"] }, { throwOnError: true }),
+          ]);
+          if (signal.aborted) throw new Error("Assignment refresh cancelled.");
+        }} />
       ) : null}
       {editor?.kind === "team" && schedule ? (
         <ScheduleTeamSheet crew={schedule.crew} onClose={() => setEditor(null)} onSave={saveTeam} showId={editor.service.id} />

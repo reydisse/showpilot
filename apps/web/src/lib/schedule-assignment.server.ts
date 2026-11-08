@@ -89,6 +89,38 @@ function iso(value: string | number | null) {
   return new Date(normalized).toISOString();
 }
 
+/** Fence an undelivered command before its draft is unlocked. If it already
+ * committed, recover that receipt and the same invitation instead. */
+export async function reviewScheduleAssignment(
+  headers: Headers,
+  command: ScheduleAssignmentCommand,
+  db: Database = getD1(),
+): Promise<ScheduleAssignmentResult> {
+  const { orgId, userId, requestId, operation } = command;
+  const access = await authority(headers, orgId, db);
+  if (access.userId !== userId) throw denied();
+  await db
+    .prepare(
+      `INSERT INTO schedule_assignment_request
+    (orgId,actorId,requestId,fingerprint,nonce,outcome,assignmentId,createdAt)
+    SELECT ?,?,?,?,?,'conflict',?,? WHERE ${access.guard}
+    ON CONFLICT(orgId,actorId,requestId) DO NOTHING`,
+    )
+    .bind(
+      orgId,
+      userId,
+      requestId,
+      JSON.stringify(operation),
+      crypto.randomUUID(),
+      operation.kind === "create" ? requestId : operation.id,
+      Date.now(),
+      ...access.guardArgs,
+    )
+    .run();
+  markDatabaseWrite();
+  return writeScheduleAssignment(headers, command, db);
+}
+
 /** The receipt and assignment commit together. Replaying a receipt never writes the assignment again. */
 export async function writeScheduleAssignment(
   headers: Headers,
