@@ -1,3 +1,4 @@
+import { NEXT_UPDATED_AT_SQL } from "./sqlite-timestamp.server";
 import { z } from "zod";
 import { getAuth } from "./auth";
 import { getD1 } from "./d1";
@@ -184,7 +185,7 @@ export async function writeShowInventory(
       change = db
         .prepare(
           `UPDATE show_inventory_item SET archivedAt=CASE WHEN ?=1 THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE NULL END,
-        updatedAt=strftime('%Y-%m-%dT%H:%M:%fZ',MAX(julianday('now'),(CASE WHEN typeof(updatedAt) IN ('integer','real') THEN julianday(updatedAt/1000.0,'unixepoch') ELSE julianday(updatedAt) END)+1.0/86400000))
+        updatedAt=${NEXT_UPDATED_AT_SQL}
         WHERE orgId=? AND id=? AND ${owns}`,
         )
         .bind(op.archived ? 1 : 0, orgId, id, ...ownsArgs);

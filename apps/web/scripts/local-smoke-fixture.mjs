@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, reportRecovery = false, personalAssignments = false, calendarNavigation = false, notificationInbox = false, desktopNotificationRecovery = false, notificationTimezoneRecovery = false, accountProfileRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, reportRecovery = false, personalAssignments = false, calendarNavigation = false, notificationInbox = false, desktopNotificationRecovery = false, notificationTimezoneRecovery = false, accountProfileRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false, timestampVersions = false } = {}) {
   if (streamOutputs) {
     assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Stream status requires the isolated outbound handler");
     assert.equal(captureEmail, false, "Use separate fixtures for email and Stream status");
@@ -205,6 +205,8 @@ export async function withLocalSmokeFixture(check, { secondShow = false, reportR
     ('smoke-setup-role','display-smoke','onboarding-role:smoke-operator','{"archetype":"td","landing":"/show"}');` : ""}
     ${setupTeam ? `INSERT INTO app_setting(id,orgId,key,value) VALUES ('smoke-setup-seed','display-smoke','onboarding-template-seeded','{"template":"blank","serviceDate":"${date}"}');` : ""}` : ""}
   INSERT INTO rundown (id,orgId,serviceDate,name) VALUES ('smoke-show','display-smoke','${date}','Display test show');
+  ${timestampVersions ? Object.entries({numeric: String(Date.parse("2090-01-01T00:00:00.000Z")), prisma: "'2090-01-01T00:00:00.000+00:00'", sqlite: "'2090-01-01 00:00:00'"}).flatMap(([format, value]) => ["details", "metadata", "timer"].map(kind => `INSERT INTO rundown (id,orgId,serviceDate,name,updatedAt) VALUES ('timestamp-${format}-${kind}','display-smoke','${date}','Timestamp fixture',${value});`)).join("\n") : ""}
+
   ${calendarNavigation ? `
     INSERT INTO rundown(id,orgId,serviceDate,name) VALUES
       ('calendar-february','display-smoke','2099-02-09','February calendar fixture');
