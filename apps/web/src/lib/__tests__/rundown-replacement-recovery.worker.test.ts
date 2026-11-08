@@ -429,3 +429,45 @@ it("accepts a numeric millisecond metadata version and advances it monotonically
   expect((await f.save()).outcome).toBe("applied");
   expect(Date.parse((await f.read()).expectedUpdatedAt)).toBeGreaterThan(version);
 });
+
+it.each(["{", "null", "[]", "{}"]) (
+  "rejects malformed replacement body %s without changing the show",
+  async body => {
+    const f = await fixture(), before = await f.state(), row = await f.row();
+    const response = await f.relay.fetch(new Request(
+      `https://rundown.test/internal/rundown-replacement?orgId=${f.orgId}`,
+      { method: "POST", headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET }, body },
+    ));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "Invalid rundown replacement." });
+    expect(await f.state()).toEqual({ ...before, timer: { ...before.timer, serverTime: expect.any(Number) } });
+    expect(await f.row()).toEqual(row);
+    expect((await f.receipts()).results).toEqual([]);
+  },
+);
+
+it("rejects replacement calls without the internal credential before any write", async () => {
+  const f = await fixture(), before = await f.state();
+  const response = await f.relay.fetch(new Request(
+    `https://rundown.test/internal/rundown-replacement?orgId=${f.orgId}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode: "save", command: f.command, sessionId: f.sessionId, pin: null }) },
+  ));
+  expect(response.status).toBe(401);
+  await response.arrayBuffer();
+  expect(await f.state()).toEqual({ ...before, timer: { ...before.timer, serverTime: expect.any(Number) } });
+  expect((await f.receipts()).results).toEqual([]);
+});
+
+it.each(["organization", "show"]) (
+  "rejects a replacement command targeting another %s in the current room",
+  async target => {
+    const f = await fixture(), before = await f.state(), row = await f.row();
+    const command = { ...f.command, ...(target === "organization" ? { orgId: crypto.randomUUID() } : { showId: crypto.randomUUID() }) };
+    const response = await f.call({ mode: "save", command, sessionId: f.sessionId, pin: null });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: expect.stringMatching(/correct organization|correct show/) });
+    expect(await f.state()).toEqual({ ...before, timer: { ...before.timer, serverTime: expect.any(Number) } });
+    expect(await f.row()).toEqual(row);
+    expect((await f.receipts()).results).toEqual([]);
+  },
+);

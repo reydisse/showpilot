@@ -7816,3 +7816,34 @@ advancement. Command after web build:
 Evidence: /tmp/showpilot-timestamp-{worker2,full1,full2,tsc3,build1,smoke1}.log.
 No production deployment or migration. Phase 2 remains 67/79; this is a narrow
 save-reliability correction, not completion of a product-wide gate.
+
+### Phase 2 follow-up: replacement request boundaries and coverage
+
+PR #264's first CI run, 42530711027, passed all 2,791 unit and 1,530 Worker
+tests but failed the unchanged relay function coverage floor: 329/366 functions,
+89.89%, below 90%. The missing new function was the invalid-JSON handler on the
+replacement endpoint. Seven boundary cases now verify malformed JSON/schema
+bodies, a missing internal credential, and commands for another organization or
+show. Rejected calls leave rundown metadata, items, revision, timer state and
+replacement receipts unchanged. The response clock is asserted as a number rather
+than compared with an earlier sample. No app behavior or coverage floor changed.
+
+The full coverage run passes 2,791 unit / 1,537 Worker tests, 4,328 total. Relay
+function coverage is now 330/366, 90.16%. All measured coverage groups pass:
+timecode statements/branches/functions/lines 92.44/90.57/91.56/95.09;
+relays 86.47/84.19/90.16/92; devices 64.55/49.88/62.9/67.19. Web typecheck passes.
+Evidence: /tmp/showpilot-pr264-{ci-failure,boundaries1,coverage2,tsc2}.log and the
+CI coverage artifact from that run. The initial boundary test assertions compared
+the sampled timer serverTime; the final assertions exclude only that clock from
+exact equality. That was a fixture assertion error, not a product regression.
+
+A separate full run on the timestamp follow-up exposed a fixture login returning
+429 before a moderation test ran. Eight random-address login fixtures now use a
+shared sequential address allocator; the previously corrected Stream fixture uses
+it too. Real auth and production rate limits remain enabled and unchanged.
+
+Timestamp attribution correction: the installed Prisma adapter writes ISO-offset
+text, confirmed by a real Prisma create/read. The numeric millisecond regression
+explicitly seeds that supported representation in D1. It does not demonstrate
+that the current Prisma adapter writes numeric values. Earlier test and evidence
+wording has been corrected. No deployment or broad Phase 2 gate closure.
