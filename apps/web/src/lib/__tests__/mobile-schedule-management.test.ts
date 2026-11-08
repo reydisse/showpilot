@@ -216,7 +216,7 @@ describe("mobile schedule management", () => {
   it("delegates complete service deletion after tenant authorization", async () => {
     const response = await post(fakeDatabase(), "/api/mobile/v1/schedule/services/show-1/remove?orgId=org-1");
     expect(response.status).toBe(200);
-    expect(mocks.deleteService).toHaveBeenCalledWith({ orgId: "org-1", showId: "show-1" });
+    expect(mocks.deleteService).toHaveBeenCalledWith({ orgId: "org-1", showId: "show-1" }, expect.any(Headers));
   });
 
   it("rejects insecure external provider URLs before persisting settings", async () => {
