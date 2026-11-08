@@ -3,6 +3,7 @@ import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
 import {
   useState,
   useCallback,
@@ -36,7 +37,6 @@ import {
   type RundownAdapterType,
 } from "@/lib/settings";
 import {
-  cn,
   getTodayDateString,
   formatTime,
   formatClockFull,
@@ -93,13 +93,14 @@ type ShowLayoutPreset =
 const SHOW_LAYOUT_PRESETS: Array<{
   id: Exclude<ShowLayoutPreset, "custom">;
   label: string;
+  description: string;
   left: number;
   top: number;
 }> = [
-  { id: "balanced", label: "Balanced", left: 40, top: 45 },
-  { id: "show-focus", label: "Show focus", left: 62, top: 70 },
-  { id: "chat-focus", label: "Chat focus", left: 62, top: 24 },
-  { id: "rundown-focus", label: "Rundown focus", left: 25, top: 50 },
+  { id: "balanced", label: "Default", description: "Timer, chat and rundown together", left: 40, top: 45 },
+  { id: "show-focus", label: "Timer focus", description: "More space for the timer", left: 62, top: 70 },
+  { id: "chat-focus", label: "Chat focus", description: "More space for team messages", left: 62, top: 24 },
+  { id: "rundown-focus", label: "Rundown focus", description: "More space for the rundown", left: 25, top: 50 },
 ];
 
 const TYPE_COLORS: Record<ItemType, string> = {
@@ -494,7 +495,6 @@ function ShowPageLayout({
   const [topHeightPercent, setTopHeightPercent] = useState(45);
   const [layoutPreset, setLayoutPreset] =
     useState<ShowLayoutPreset>("balanced");
-  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
 
   useEffect(() => {
     leftWidthRef.current = leftWidthPercent;
@@ -541,7 +541,6 @@ function ShowPageLayout({
   const chooseLayout = (preset: (typeof SHOW_LAYOUT_PRESETS)[number]) => {
     applyStoredLayout(preset.left, preset.top);
     setLayoutPreset(preset.id);
-    setLayoutMenuOpen(false);
     if (typeof window !== "undefined") {
       window.localStorage.setItem(STORAGE_LEFT_WIDTH, String(preset.left));
       window.localStorage.setItem(STORAGE_TOP_HEIGHT, String(preset.top));
@@ -677,51 +676,42 @@ function ShowPageLayout({
               Show Flow
             </h1>
             <div className="flex items-center gap-2 sm:gap-4">
-              <div className="relative hidden sm:block">
-                <button
-                  type="button"
-                  onClick={() => setLayoutMenuOpen((open) => !open)}
-                  className="flex items-center gap-1.5 rounded-md border border-board-border bg-board-card px-2.5 py-1.5 text-[10px] font-medium text-board-muted transition-colors hover:text-board-text"
-                  aria-expanded={layoutMenuOpen}
-                  aria-haspopup="menu"
-                >
-                  <LayoutGrid className="h-3.5 w-3.5" />
-                  <span>
-                    {layoutPreset === "custom"
-                      ? "Custom"
-                      : SHOW_LAYOUT_PRESETS.find(
-                          (preset) => preset.id === layoutPreset,
-                        )?.label}
-                  </span>
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-                {layoutMenuOpen && (
-                  <div
-                    className="absolute right-0 top-full z-50 mt-1.5 w-40 overflow-hidden rounded-lg border border-board-border bg-board-card p-1 shadow-2xl"
-                    role="menu"
-                  >
-                    {SHOW_LAYOUT_PRESETS.map((preset) => (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={layoutPreset === preset.id}
-                        onClick={() => chooseLayout(preset)}
-                        className={cn(
-                          "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-xs transition-colors",
-                          layoutPreset === preset.id
-                            ? "bg-fire-500/10 text-fire-400"
-                            : "text-board-muted hover:bg-board-border/50 hover:text-board-text",
-                        )}
-                      >
-                        {preset.label}
-                        {layoutPreset === preset.id && (
-                          <span className="h-1.5 w-1.5 rounded-full bg-fire-500" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )}
+              <div className="hidden sm:block">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex min-h-11 items-center gap-1.5 rounded-md border border-board-border bg-board-card px-2.5 py-1.5 text-xs font-medium text-board-muted transition-colors hover:text-board-text focus-visible:outline-2 focus-visible:outline-fire-500"
+                    >
+                      <LayoutGrid className="h-3.5 w-3.5" />
+                      <span>
+                        Layout:{" "}
+                        {layoutPreset === "custom"
+                          ? "Custom"
+                          : SHOW_LAYOUT_PRESETS.find(
+                              (preset) => preset.id === layoutPreset,
+                            )?.label}
+                      </span>
+                      <ChevronDown className="h-3 w-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" aria-label="Panel layout" className="w-72 max-w-[calc(100vw-2rem)] border-board-border bg-board-card text-board-text">
+                    <DropdownMenuRadioGroup value={layoutPreset} onValueChange={value => {
+                      const preset = SHOW_LAYOUT_PRESETS.find(preset => preset.id === value);
+                      if (preset) chooseLayout(preset);
+                    }}>
+                      {SHOW_LAYOUT_PRESETS.map((preset) => (
+                        <DropdownMenuRadioItem
+                          key={preset.id}
+                          value={preset.id}
+                          className="min-h-11 py-2 focus:bg-board-border/50 focus:text-board-text"
+                        >
+                          <span><span className="block text-sm font-medium">{preset.label}</span><span className="block text-xs text-board-muted">{preset.description}</span></span>
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
               <span className="text-xs text-board-muted tabular-nums">
                 {statusClock}

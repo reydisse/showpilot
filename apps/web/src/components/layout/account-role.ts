@@ -1,5 +1,5 @@
 export const ROLE_COLOURS: Record<string, string> = {
-  owner: "#dc2626",
+  owner: "#475569",
   admin: "#b45309",
   pm: "#2563eb",
   tm: "#047857",

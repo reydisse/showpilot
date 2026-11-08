@@ -6,6 +6,8 @@ import { poll, withRealBrowser } from './real-browser-fixture.mjs';
 await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
   await withRealBrowser({ origin, cookie: operatorCookie }, async ({ page, evaluate }) => {
     await page('Page.enable');
+    await page('Page.bringToFront');
+    await page('Emulation.setFocusEmulationEnabled', { enabled: true });
     await page('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
     await page('Page.navigate', { url: `${origin}/${orgId}/show` });
     const hydrated = selector => evaluate(`(() => { const node = document.querySelector(${JSON.stringify(selector)}); return node && Object.keys(node).some(key => key.startsWith('__reactProps$') && typeof node[key]?.onClick === 'function'); })()`);
@@ -13,7 +15,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
     await evaluate(`window.navigationDocument = 'same'; window.navigationErrors = []; addEventListener('error', e => window.navigationErrors.push(e.message)); addEventListener('unhandledrejection', e => window.navigationErrors.push(String(e.reason))); true`);
     const links = await evaluate(`[...document.querySelectorAll('aside a[title]')].filter(node => node.pathname.startsWith('/${orgId}/')).map(node => ({ path:node.pathname, label:node.title }))`);
     assert.equal(links.length, 21);
-    const headings = { schedule:'Schedule', board:'ShowPilot', rundown:'Display test show', timecode:'SMPTE Timecode', songs:'Songs', team:'Team', 'production/cue-sheets':'Cue sheet', 'production/checklist':'Pre-Show Checklist', checkin:'Check-In', 'production/incidents':'Incident Log', 'production/assets':'Asset Inventory', 'streaming/health':'Stream', 'streaming/platforms':'Multi-Platform', 'streaming/graphics':'Lower Thirds', 'dashboard/prod-manager':'Production Manager', reports:'Reports & notes', 'dashboard/tech-manager':'Technical Control', 'dashboard/audio':'Audio', 'dashboard/devices':'Devices', show:'Show Flow' };
+    const headings = { schedule:'Schedule', board:'ShowPilot', rundown:'Display test show', timecode:'SMPTE Timecode', songs:'Songs', team:'Team', 'production/cue-sheets':'Cue sheet', 'production/checklist':'Pre-Show Checklist', checkin:'Crew check-in', 'production/incidents':'Incident Log', 'production/assets':'Asset Inventory', 'streaming/health':'Stream', 'streaming/platforms':'Multi-Platform', 'streaming/graphics':'Lower Thirds', 'dashboard/prod-manager':'Production Manager', reports:'Reports & notes', 'dashboard/tech-manager':'Technical Control', 'dashboard/audio':'Audio', 'dashboard/devices':'Devices', show:'Show Flow' };
     for (const link of [...links.slice(1), links[0]]) {
       const selector = `aside a[href="${link.path}"]`;
       await evaluate(`document.querySelector(${JSON.stringify(selector)}).click(); true`);
@@ -83,7 +85,21 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
         await poll(() => evaluate(`[...document.querySelectorAll('main h1')].some(node => node.textContent.trim() === ${JSON.stringify(section)}) && !document.querySelector('[role="listbox"]')`), `${width}px ${section} renders`);
         assert.equal(await evaluate('window.navigationDocument'), 'same');
       }
-      const bounds = await evaluate(`(() => { const node = ${button('Back to previous page')}; node.scrollIntoView({block:'center'}); const r=node.getBoundingClientRect(); return {height:r.height,left:r.left,right:r.right,reachable:node.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)),fits:document.documentElement.scrollWidth<=innerWidth}; })()`);
+      // A section change may close a dialog. Wait for its exit animation before
+      // checking hit targets; DOM clicks above do not wait for pointer readiness.
+      await evaluate(`(${button('Back to previous page')}).scrollIntoView({block:'center'}); true`);
+      let bounds;
+      try {
+        await poll(async () => {
+          bounds = await evaluate(`(() => { const node = ${button('Back to previous page')}; const r=node.getBoundingClientRect(); return {height:r.height,left:r.left,right:r.right,reachable:node.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)),fits:document.documentElement.scrollWidth<=innerWidth}; })()`);
+          return bounds.reachable;
+        }, 'Settings back button is pointer reachable');
+      } finally {
+        if (bounds && !bounds.reachable) {
+          console.log(JSON.stringify(await evaluate(`(() => { const node = ${button('Back to previous page')}; const r=node.getBoundingClientRect(); return {rect:r.toJSON(),covering:document.elementsFromPoint(r.x+r.width/2,r.y+r.height/2).map(n=>n.outerHTML.slice(0,500))}; })()`)));
+          await writeFile('/tmp/showpilot-navigation-blocked.png', Buffer.from((await page('Page.captureScreenshot', {format:'png'})).data,'base64'));
+        }
+      }
       assert.ok(bounds.height>=44 && bounds.left>=0 && bounds.right<=width && bounds.reachable && bounds.fits, JSON.stringify({width,bounds}));
       if (width === 320) {
         const screenshot = await page('Page.captureScreenshot', {format:'png'});
