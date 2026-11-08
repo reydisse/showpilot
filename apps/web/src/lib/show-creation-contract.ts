@@ -41,3 +41,33 @@ export const createShowInputSchema = z
   );
 
 export type CreateServiceForOrgInput = z.infer<typeof createShowInputSchema>;
+
+export function showCreationFingerprint(data: CreateServiceForOrgInput) {
+  return JSON.stringify([
+    data.serviceDate,
+    data.name ?? "",
+    data.startTime ?? "",
+    data.callTime ?? "",
+    data.location ?? "",
+    data.timeZone ?? "",
+    data.inventoryId ?? "",
+    data.copyFrom ?? "",
+    data.copyFromShowId ?? "",
+  ]);
+}
+export const reviewShowCreationSchema = createShowInputSchema.safeExtend({
+  requestId: idSchema,
+  userId: idSchema,
+});
+export const showCreationResultSchema = z.object({
+  ok: z.literal(true),
+  showId: idSchema,
+  serviceDate: serviceDateSchema,
+});
+export const showCreationReviewSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("created"), result: showCreationResultSchema }),
+  z.object({ kind: z.literal("cancelled") }),
+  z.object({ kind: z.literal("removed") }),
+]);
+export type ShowCreationResult = z.infer<typeof showCreationResultSchema>;
+export type ShowCreationReview = z.infer<typeof showCreationReviewSchema>;

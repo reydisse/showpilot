@@ -199,11 +199,10 @@ function ProdManagerPage() {
           <div className="px-6 pb-3">
             <PlanServicePanel
               orgId={orgId}
+              userId={user.id}
               shows={shows}
               onClose={() => setPlanOpen(false)}
-              onPlanned={(plannedShowId, plannedDate) => {
-                void navigate({ search: { date: plannedDate, show: plannedShowId } });
-              }}
+              onPlanned={(plannedShowId, plannedDate) => navigate({ search: { date: plannedDate, show: plannedShowId } })}
             />
           </div>
         )}

@@ -6344,3 +6344,67 @@ Phase 2 remains 67/79. Creation-form recovery, show edit/removal recovery, mobil
 UI recovery and the broad product gates remain open. No production deployment,
 release, remote migration or real-organization write. Twenty necessary tracked
 Markdown files remain; none were added.
+
+### Retained show creation forms, Phase 2 partial evidence (2026-11-08)
+
+Branch: `fix/show-creation-forms`, based on the green atomic-creation change.
+Two rendered baselines reproduced a draft disappearing after unmount/remount
+and an indefinitely pending creation. All four web creation callers now use
+`useShowCreation`. Schedule, Rundown and dashboard planning share one labeled
+form; the dashboard's quick-copy card uses the same request/recovery controller.
+A source audit finds the shared hook as the only web caller of createNextService.
+
+Drafts and exact requests remain in the account/org/entry query cache across
+navigation. Creation and request review have 15-second deadlines. Opening the
+confirmed show is a separate operation with a 12-second deadline; its retry
+never creates another show. Completion checks the exact cache owner so a cleared
+account, newer attempt or abandoned page cannot receive an old result. Closing
+the form remains available while saving. Inputs and recovery controls have
+44-pixel targets. Inventory default times convert from venue time into the
+explicit timezone shown in the draft. Dashboard planning scrolls within 70dvh.
+
+Migration `0083_show_creation_review.sql` must follow 0082. Edit request first
+settles the original request at the server: an existing creation stays intact;
+a pending request gets a cancellation receipt that prevents its delayed creation
+from writing. Only a confirmed cancellation or removed show unlocks a new request.
+Failed/timed-out review retains the original command. An existing legacy show
+without a matching receipt cannot be cancelled through this path. This is request
+cancellation, not deletion of a created show. No remote migration ran.
+
+Rundown opening now bounds the current-write wait and read, checks cancellation
+before changing selection, and reports opening failure to the retained creation.
+The live-output boundary test uses the remaining date-change handler as its end
+marker after removing the old create handler; its no-publish assertion remains.
+
+Validation:
+- Sixteen rendered form/controller tests pass, including the two failing baselines,
+  exact retry after navigation, single in-flight request/review, account isolation,
+  cleared-cache protection, preparation/open/review deadlines, late replies,
+  safe edited-request recovery and timezone conversion.
+- Twenty-two creation Worker cases pass, including the prior 18 and four new
+  review/cancellation cases. A creation paused before its batch cannot commit
+  after review cancels it; completed and deleted creations return their actual
+  outcomes. Review checks account/payload ownership and rolls back failed batches.
+- Full suite passes: 2,492 unit / 1,292 Worker tests. Web typecheck and build pass.
+  Main entry is 548,458 raw / 173,301 gzip bytes, below unchanged limits.
+  Migration manifest audit passes with 0083 pending.
+- Actual compiled Chrome/auth/D1/relay rehearsal passes draft restoration after
+  navigation, a held successful creation reply, exact original retry and opening
+  one show. Schedule then reviews a request held before delivery, fences that
+  delayed write, and creates exactly one show from the edited request. There are
+  no browser runtime errors. These mutation checks exercise Rundown and Schedule.
+- Dashboard planning separately passes close/reopen draft retention and reachable
+  layout. Recovery/modal and dashboard controls pass actual hit tests at 320x480,
+  768x1024 and 1440x1000. The phone screenshots were inspected. The quick-copy
+  card uses the tested controller; this run does not claim a separate browser
+  mutation through that card.
+
+Evidence: `/tmp/showpilot-create-form-{before,ui2,worker1,full1,full2,tsc3,build1,
+browser1,browser2,migrations}.log`. The first full run stopped at the obsolete
+boundary marker; the final full run passed. Rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-show-creation-forms.mjs`
+after building. #243 is green in run 42485679947, CI 14m28s and native Rust 4m13s.
+Phase 2 remains 67/79. Show details/deletion, inventory and mobile recovery plus
+the broad product gates remain open. No production deployment, release, remote
+migration or real-organization writes. Twenty necessary tracked Markdown files
+remain; none were added.

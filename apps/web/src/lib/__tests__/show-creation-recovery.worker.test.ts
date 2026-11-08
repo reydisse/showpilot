@@ -1,3 +1,4 @@
+import { reviewShowCreationRequest } from "../show-creation-review.server";
 import { env } from "cloudflare:workers";
 import { persistRundownItemsForOrg } from "../rundown";
 import { readStoredRundownItems } from "../rundown-item-storage.server";
@@ -460,3 +461,121 @@ it.each([
     ).toBe(allowed ? 4 : 3);
   },
 );
+
+it("review fences a delayed creation before allowing edited details", async () => {
+  const actor = await fixture(),
+    input = { ...command(actor.orgId), userId: actor.userId };
+  let release!: () => void, entered!: () => void;
+  const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+    started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+  const paused = {
+    prepare: (sql: string) => env.DB.prepare(sql),
+    batch: async <T>(statements: D1PreparedStatement[]) => {
+      entered();
+      await hold;
+      return env.DB.batch<T>(statements);
+    },
+  };
+  const creation = createServiceForOrg(input, actor.headers, paused);
+  const rejected = expect(creation).rejects.toThrow(/cancelled/);
+  await started;
+  try {
+    await expect(
+      reviewShowCreationRequest(actor.headers, input),
+    ).resolves.toEqual({ kind: "cancelled" });
+  } finally {
+    release();
+  }
+  await rejected;
+  expect(
+    await getPrisma().rundown.count({ where: { orgId: actor.orgId } }),
+  ).toBe(0);
+  await expect(createServiceForOrg(input, actor.headers)).rejects.toThrow(
+    /cancelled/,
+  );
+  await expect(
+    createServiceForOrg(
+      { ...input, requestId: crypto.randomUUID(), name: "Reviewed" },
+      actor.headers,
+    ),
+  ).resolves.toMatchObject({ ok: true });
+});
+it("review preserves a creation that already committed and does not cancel or duplicate it", async () => {
+  const actor = await fixture(),
+    input = { ...command(actor.orgId), userId: actor.userId };
+  const created = await createServiceForOrg(input, actor.headers);
+  await expect(
+    reviewShowCreationRequest(actor.headers, input),
+  ).resolves.toEqual({ kind: "created", result: created });
+  await expect(
+    reviewShowCreationRequest(actor.headers, input),
+  ).resolves.toEqual({ kind: "created", result: created });
+  await expect(createServiceForOrg(input, actor.headers)).resolves.toEqual(
+    created,
+  );
+  expect(
+    await getPrisma().rundown.count({ where: { orgId: actor.orgId } }),
+  ).toBe(1);
+  await getPrisma().rundown.delete({ where: { id: created.showId } });
+  await expect(
+    reviewShowCreationRequest(actor.headers, input),
+  ).resolves.toEqual({ kind: "removed" });
+});
+it("review rejects a changed request or account and rolls back a failed review batch", async () => {
+  const actor = await fixture(),
+    input = { ...command(actor.orgId), userId: actor.userId };
+  await createServiceForOrg(input, actor.headers);
+  await expect(
+    reviewShowCreationRequest(actor.headers, { ...input, name: "Different" }),
+  ).rejects.toThrow(/different/);
+  const other = await fixture();
+  await expect(reviewShowCreationRequest(other.headers, input)).rejects.toThrow(
+    /account/,
+  );
+  const pending = { ...input, requestId: crypto.randomUUID() };
+  const broken = {
+    prepare: (sql: string) => env.DB.prepare(sql),
+    batch: <T>(statements: D1PreparedStatement[]) =>
+      env.DB.batch<T>([
+        ...statements,
+        env.DB.prepare("INSERT INTO absent_review_table(id) VALUES ('fail')"),
+      ]),
+  };
+  await expect(
+    reviewShowCreationRequest(actor.headers, pending, broken),
+  ).rejects.toThrow();
+  expect(
+    await env.DB.prepare(
+      "SELECT requestId FROM show_creation_request WHERE orgId=? AND requestId=?",
+    )
+      .bind(actor.orgId, pending.requestId)
+      .first(),
+  ).toBeNull();
+});
+
+it("review cannot cancel an existing show without a matching creation receipt", async () => {
+  const actor = await fixture(),
+    input = { ...command(actor.orgId), userId: actor.userId };
+  await getPrisma().rundown.create({
+    data: {
+      id: input.requestId,
+      orgId: actor.orgId,
+      serviceDate: input.serviceDate,
+      name: "Older show",
+    },
+  });
+  await expect(reviewShowCreationRequest(actor.headers, input)).rejects.toThrow(
+    /could not be settled/,
+  );
+  expect(
+    await env.DB.prepare(
+      "SELECT requestId FROM show_creation_request WHERE orgId=? AND requestId=?",
+    )
+      .bind(actor.orgId, input.requestId)
+      .first(),
+  ).toBeNull();
+});
