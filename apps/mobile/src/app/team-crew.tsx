@@ -1,19 +1,16 @@
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Redirect } from "expo-router";
 import {
-  crewCommandSchema,
-  crewMutationOptions,
-  prepareCrewPhoto,
-} from "@/lib/crew-recovery";
-import { createLocalRequestUuid } from "@/lib/request-id";
-import { workspaceCopy } from "@showpilot/shared";
-import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  useMutation,
-  useMutationState,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
-import Camera from "lucide-react-native/icons/camera";
+  ActivityIndicator,
+  FlatList,
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import Pencil from "lucide-react-native/icons/pencil";
 import Search from "lucide-react-native/icons/search";
 import Trash2 from "lucide-react-native/icons/trash-2";
@@ -21,35 +18,24 @@ import UserPlus from "lucide-react-native/icons/user-plus";
 import UserRound from "lucide-react-native/icons/user-round";
 import UsersRound from "lucide-react-native/icons/users-round";
 import X from "lucide-react-native/icons/x";
-import { Redirect, useNavigation } from "expo-router";
-import { File } from "expo-file-system";
-import * as Haptics from "@/lib/haptics";
-import * as ImageManipulator from "expo-image-manipulator";
-import * as ImagePicker from "expo-image-picker";
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Image,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { workspaceCopy } from "@showpilot/shared";
+import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { AppButton } from "@/components/app-button";
+import {
+  CrewProfileSheet,
+  crewPhotoUri,
+} from "@/components/crew-profile-sheet";
 import { LoadingView } from "@/components/loading-view";
 import { Page } from "@/components/page";
 import { authClient } from "@/lib/auth-client";
+import { getMobileTeamCrew } from "@/lib/mobile-api";
 import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
+import { useCrewDrafts } from "@/hooks/use-crew-profile";
 import {
-  executeMobileCrewCommand,
-  getMobileTeamCrew,
-  resolveMobileAvatarUrl,
-  type MobileTeamCrewMember,
-} from "@/lib/mobile-api";
+  crewDraftFromSnapshot,
+  newCrewDraft,
+  type CrewDraft,
+} from "@/lib/crew-recovery";
 import {
   createThemedStyles,
   fontFamily,
@@ -57,34 +43,6 @@ import {
   spacing,
   useAppTheme,
 } from "@/theme/tokens";
-
-const builtInRoles = [
-  "Production Director",
-  "Production Manager",
-  "Stage Manager",
-  "Technical Director",
-  "Audio Engineer",
-  "Broadcast Mixer",
-  "FOH Engineer",
-  "Monitor Engineer",
-  "Camera Director",
-  "Camera Operator",
-  "Graphics Operator",
-  "Lighting Director",
-  "Lighting Operator",
-  "Streaming Director",
-  "Stream Operator",
-  "ProPresenter Operator",
-];
-
-function crewPhotoUri(value: string): string | null {
-  if (
-    /^data:image\/(?:jpeg|jpg|png|webp);base64,[A-Za-z0-9+/]+=*$/i.test(value)
-  )
-    return value;
-  return resolveMobileAvatarUrl(value);
-}
-
 export default function TeamCrewScreen() {
   const { data: organization, isPending: organizationPending } =
     authClient.useActiveOrganization();
@@ -107,33 +65,15 @@ function CrewWorkspace({
   organization: { id: string };
   userId: string;
 }) {
-  const workspaceTerms = useWorkspaceTerms();
-  const { colors } = useAppTheme();
-  const styles = useStyles();
-  const queryClient = useQueryClient();
-  const navigation = useNavigation();
-  const allowLeave = useRef(false);
+  const workspaceTerms = useWorkspaceTerms(),
+    { colors } = useAppTheme(),
+    styles = useStyles();
   const [search, setSearch] = useState("");
-  const [editorOpen, setEditorOpen] = useState(false);
-  const [editing, setEditing] = useState<MobileTeamCrewMember | null>(null);
-  const [memberId, setMemberId] = useState("");
-  const [name, setName] = useState("");
-  const [role, setRole] = useState("");
-  const [email, setEmail] = useState("");
-  const [photoUrl, setPhotoUrl] = useState("");
-  const [customRoleOpen, setCustomRoleOpen] = useState(false);
-  const [preparingPhoto, setPreparingPhoto] = useState(false);
-  const photoAttempt = useRef(0);
-  useEffect(
-    () => () => {
-      photoAttempt.current++;
-    },
-    [],
-  );
-  const queryKey = ["mobile-team-crew", organization.id];
+  const [editor, setEditor] = useState<CrewDraft | null>(null);
+  const drafts = useCrewDrafts({ orgId: organization.id, userId });
   const pollingInterval = useScreenPollingInterval(15_000);
   const query = useQuery({
-    queryKey,
+    queryKey: ["mobile-team-crew", userId, organization.id],
     networkMode: "always",
     queryFn: () => getMobileTeamCrew(organization.id),
     enabled: Boolean(organization.id),
@@ -141,236 +81,17 @@ function CrewWorkspace({
   });
   const filteredMembers = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    if (!needle) return query.data?.members ?? [];
     return (query.data?.members ?? []).filter(
       (member) =>
-        member.name.toLowerCase().includes(needle) ||
-        member.role.toLowerCase().includes(needle) ||
-        member.memberId.toLowerCase().includes(needle) ||
-        member.email.toLowerCase().includes(needle),
+        !needle ||
+        [member.name, member.role, member.memberId, member.email].some(
+          (value) => value.toLowerCase().includes(needle),
+        ),
     );
   }, [query.data?.members, search]);
-
-  const commandKey = ["crew-profile-command", organization.id, userId];
-  const history = useMutationState({
-    filters: { mutationKey: commandKey, exact: true },
-    select: (mutation) => ({
-      status: mutation.state.status,
-      command: crewCommandSchema.safeParse(mutation.state.variables),
-      error: mutation.state.error,
-    }),
-  });
-  const latest = history.at(-1);
-  const unfinished =
-    latest && (latest.status === "pending" || latest.status === "error")
-      ? latest
-      : null;
-  const locked = !!unfinished || !query.data || !!query.error || preparingPhoto;
-  const mutation = useMutation(
-    crewMutationOptions({
-      key: commandKey,
-      client: queryClient,
-      execute: executeMobileCrewCommand,
-      confirmed: (result) => {
-        if (result.kind !== "delete") {
-          setEditorOpen(false);
-          setEditing(null);
-          setMemberId("");
-          setName("");
-          setRole("");
-          setEmail("");
-          setPhotoUrl("");
-        }
-        // Invalidating a read never repeats the acknowledged mutation.
-        void queryClient.invalidateQueries({ queryKey });
-        void queryClient.invalidateQueries({ queryKey: ["mobile-checkin"] });
-        void Haptics.notificationAsync(
-          Haptics.NotificationFeedbackType.Success,
-        );
-      },
-    }),
-  );
-  const dirty =
-    memberId !== (editing?.memberId ?? "") ||
-    name !== (editing?.name ?? "") ||
-    role !== (editing?.role ?? "") ||
-    email !== (editing?.email ?? "") ||
-    photoUrl !== (editing?.photoUrl ?? "");
-  useEffect(
-    () =>
-      navigation.addListener("beforeRemove", (event) => {
-        if (allowLeave.current || !dirty) return;
-        event.preventDefault();
-        Alert.alert(
-          "Leave crew roster?",
-          "Your unsaved draft will be discarded. Any unconfirmed request keeps its retry controls when you return.",
-          [
-            { text: "Stay", style: "cancel" },
-            {
-              text: "Leave",
-              style: "destructive",
-              onPress: () => {
-                allowLeave.current = true;
-                navigation.dispatch(event.data.action);
-              },
-            },
-          ],
-        );
-      }),
-    [navigation, dirty],
-  );
-  const review = () =>
-    Alert.alert(
-      "Review stored crew?",
-      "The previous request may already have saved. Refresh the roster before discarding its exact retry. A running request may still finish later.",
-      [
-        { text: "Keep retry", style: "cancel" },
-        {
-          text: "Review roster",
-          onPress: () => {
-            void query.refetch().then((result) => {
-              if (result.isError) return;
-              const cache = queryClient.getMutationCache();
-              for (const failed of cache.findAll({
-                mutationKey: commandKey,
-                exact: true,
-                status: "error",
-              }))
-                cache.remove(failed);
-            });
-          },
-        },
-      ],
-    );
-  function save() {
-    if (locked) return;
-    const fields = {
-      orgId: organization.id,
-      requestId: createLocalRequestUuid(),
-      memberId,
-      name,
-      role,
-      email: email.trim().toLowerCase(),
-      photoUrl,
-    };
-    const parsed = crewCommandSchema.safeParse(
-      editing
-        ? {
-            ...fields,
-            kind: "update",
-            id: editing.id,
-            expectedRevision: editing.profileRevision,
-          }
-        : { ...fields, kind: "create" },
-    );
-    if (!parsed.success) {
-      Alert.alert(
-        "Check crew details",
-        parsed.error.issues.map((issue) => issue.message).join(" "),
-      );
-      return;
-    }
-    mutation.mutate(parsed.data);
-    setEditorOpen(false);
-  }
-
-  function openEditor(member?: MobileTeamCrewMember) {
-    if (locked) return;
-    if (dirty && editing?.id !== member?.id) {
-      Alert.alert(
-        "Discard crew draft?",
-        "Your unsaved profile changes will be lost.",
-        [
-          { text: "Keep draft", style: "cancel" },
-          {
-            text: "Discard draft",
-            style: "destructive",
-            onPress: () => resetEditor(member),
-          },
-        ],
-      );
-      return;
-    }
-    if (dirty) {
-      setEditorOpen(true);
-      return;
-    }
-    resetEditor(member);
-  }
-  function resetEditor(member?: MobileTeamCrewMember) {
-    setEditing(member ?? null);
-    setMemberId(member?.memberId ?? "");
-    setName(member?.name ?? "");
-    setRole(member?.role ?? "");
-    setEmail(member?.email ?? "");
-    setPhotoUrl(member?.photoUrl ?? "");
-    setCustomRoleOpen(
-      Boolean(member?.role && !builtInRoles.includes(member.role)),
-    );
-    setEditorOpen(true);
-  }
-
-  async function choosePhoto() {
-    if (locked) return;
-    const attempt = ++photoAttempt.current;
-    try {
-      const selection = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 1,
-      });
-      if (selection.canceled || attempt !== photoAttempt.current) return;
-      setPreparingPhoto(true);
-      const prepared = await prepareCrewPhoto(async () => {
-        const processed = await ImageManipulator.manipulateAsync(
-          selection.assets[0].uri,
-          [{ resize: { width: 480, height: 480 } }],
-          { compress: 0.76, format: ImageManipulator.SaveFormat.JPEG },
-        );
-        const base64 = await new File(processed.uri).base64();
-        return `data:image/jpeg;base64,${base64}`;
-      });
-      if (attempt === photoAttempt.current) setPhotoUrl(prepared);
-    } catch (error) {
-      if (attempt === photoAttempt.current)
-        Alert.alert(
-          "Photo not prepared",
-          error instanceof Error ? error.message : "Choose another image.",
-        );
-    } finally {
-      if (attempt === photoAttempt.current) setPreparingPhoto(false);
-    }
-  }
-
-  function confirmRemove(member: MobileTeamCrewMember) {
-    if (locked) return;
-    Alert.alert(
-      "Remove crew member?",
-      `${member.name} will be removed from the production roster. Existing schedule positions will become unassigned.`,
-      [
-        { text: "Keep member", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () =>
-            mutation.mutate({
-              kind: "delete",
-              orgId: organization.id,
-              id: member.id,
-              expectedRevision: member.profileRevision,
-              requestId: createLocalRequestUuid(),
-            }),
-        },
-      ],
-    );
-  }
-
-  const formReady =
-    memberId.trim() && name.trim() && role.trim() && !preparingPhoto;
+  const locked = query.isPending || !!query.error;
   const onlineCount =
     query.data?.members.filter((member) => member.isOnline).length ?? 0;
-
   return (
     <Page
       backTo="/(app)/operations"
@@ -382,7 +103,7 @@ function CrewWorkspace({
         <Pressable
           accessibilityRole="button"
           disabled={locked}
-          onPress={() => openEditor()}
+          onPress={() => setEditor(newCrewDraft())}
           style={styles.addButton}
         >
           <UserPlus color={colors.black} size={17} />
@@ -397,57 +118,36 @@ function CrewWorkspace({
         keyExtractor={(member) => member.id}
         ListHeaderComponent={
           <View style={styles.headerContent}>
-            {unfinished && (
-              <View style={styles.summaryCard}>
-                <View style={styles.summaryCopy}>
-                  <Text accessibilityRole="alert" style={styles.summaryText}>
-                    {unfinished.status === "pending"
-                      ? "Waiting for crew change confirmation…"
-                      : unfinished.error?.message ||
-                        "Crew change was not confirmed."}
-                  </Text>
-                  {unfinished.status === "error" && (
-                    <>
-                      <AppButton
-                        label="Retry same change"
-                        onPress={() => {
-                          if (unfinished.command.success)
-                            mutation.mutate(unfinished.command.data);
-                        }}
-                      />
-                      <AppButton label="Review stored crew" onPress={review} />
-                    </>
-                  )}
-                </View>
-              </View>
-            )}
-            {latest?.status === "success" && (
-              <Text style={styles.summaryText}>
-                Crew change saved.
-                {query.isFetching ? " Refreshing roster…" : ""}
-              </Text>
-            )}
-            {dirty && (
+            {drafts.map((draft) => (
               <AppButton
-                label="Resume crew draft"
-                disabled={locked}
-                onPress={() => setEditorOpen(true)}
+                key={draft.slot}
+                label={`Resume crew change: ${draft.fields.name || "New crew member"}`}
+                variant="secondary"
+                onPress={() => setEditor(draft)}
               />
-            )}
+            ))}
             {query.isPending ? (
               <ActivityIndicator color={colors.amberText} size="large" />
             ) : null}
             {query.error ? (
               <View style={styles.summaryCopy}>
-                <Text accessibilityRole="alert" style={styles.error}>{query.error.message}</Text>
-                <AppButton label="Retry crew roster" loading={query.isFetching} onPress={() => void query.refetch()} />
+                <Text accessibilityRole="alert" style={styles.error}>
+                  {query.error.message}
+                </Text>
+                <AppButton
+                  label="Retry crew roster"
+                  loading={query.isFetching}
+                  onPress={() => void query.refetch()}
+                />
               </View>
             ) : null}
             <View style={styles.summaryCard}>
               <UsersRound color={colors.blue} size={22} />
               <View style={styles.summaryCopy}>
                 <Text style={styles.summaryTitle}>
-                  {query.data ? `${query.data.members.length} crew · ${onlineCount} checked in` : "Crew roster"}
+                  {query.data
+                    ? `${query.data.members.length} crew · ${onlineCount} checked in`
+                    : "Crew roster"}
                 </Text>
                 <Text style={styles.summaryText}>
                   This production roster drives badges, check-in, assignments,
@@ -484,7 +184,7 @@ function CrewWorkspace({
           </View>
         }
         ListEmptyComponent={
-          query.data && !query.isPending ? (
+          query.data && !query.isPending && !query.error ? (
             <View style={styles.emptyCard}>
               <UserRound color={colors.textFaint} size={25} />
               <Text style={styles.emptyTitle}>
@@ -532,7 +232,9 @@ function CrewWorkspace({
                   <Text numberOfLines={1} style={styles.memberName}>
                     {member.name}
                   </Text>
-                  <Text style={styles.memberId}>{member.memberId}</Text>
+                  <Text numberOfLines={1} style={styles.memberId}>
+                    {member.memberId}
+                  </Text>
                 </View>
                 <Text numberOfLines={1} style={styles.memberRole}>
                   {member.role}
@@ -545,17 +247,23 @@ function CrewWorkspace({
               </View>
               <View style={styles.actions}>
                 <Pressable
+                  accessibilityRole="button"
                   accessibilityLabel={`Edit ${member.name}`}
                   disabled={locked}
-                  onPress={() => openEditor(member)}
+                  onPress={() =>
+                    setEditor(crewDraftFromSnapshot("update", member))
+                  }
                   style={styles.iconButton}
                 >
                   <Pencil color={colors.textMuted} size={17} />
                 </Pressable>
                 <Pressable
+                  accessibilityRole="button"
                   accessibilityLabel={`Remove ${member.name}`}
                   disabled={locked}
-                  onPress={() => confirmRemove(member)}
+                  onPress={() =>
+                    setEditor(crewDraftFromSnapshot("delete", member))
+                  }
                   style={styles.iconButton}
                 >
                   <Trash2 color={colors.red} size={17} />
@@ -567,176 +275,15 @@ function CrewWorkspace({
         windowSize={7}
       />
 
-      <Modal
-        animationType="slide"
-        onRequestClose={() => setEditorOpen(false)}
-        transparent
-        visible={editorOpen}
-      >
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>
-                  {editing ? "Edit crew member" : "Add crew member"}
-                </Text>
-                <Text style={styles.modalSubtitle}>
-                  Roster and check-in identity
-                </Text>
-              </View>
-              <Pressable
-                accessibilityLabel="Close crew member form"
-                hitSlop={10}
-                onPress={() => setEditorOpen(false)}
-                style={styles.closeButton}
-              >
-                <X color={colors.textMuted} size={20} />
-              </Pressable>
-            </View>
-            <ScrollView
-              contentContainerStyle={styles.form}
-              keyboardShouldPersistTaps="handled"
-            >
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Choose crew photo"
-                disabled={locked}
-                onPress={choosePhoto}
-                style={styles.photoPicker}
-              >
-                {crewPhotoUri(photoUrl) ? (
-                  <Image
-                    source={{ uri: crewPhotoUri(photoUrl)! }}
-                    style={styles.photoPreview}
-                  />
-                ) : (
-                  <UserRound color={colors.amberText} size={31} />
-                )}
-                <View style={styles.cameraBadge}>
-                  <Camera color={colors.black} size={13} />
-                </View>
-              </Pressable>
-              <Text style={styles.photoHint}>
-                {preparingPhoto
-                  ? "Preparing photo…"
-                  : "Tap to choose a square photo"}
-              </Text>
-              <Text style={styles.label}>MEMBER ID</Text>
-              <TextInput
-                editable={!locked}
-                accessibilityLabel="Crew member ID"
-                autoCapitalize="characters"
-                maxLength={128}
-                onChangeText={(value) => setMemberId(value.toUpperCase())}
-                placeholder="TD3917"
-                placeholderTextColor={colors.textFaint}
-                style={styles.input}
-                value={memberId}
-              />
-              <Text style={styles.hint}>
-                Used for badge scanning and quick check-in.
-              </Text>
-              <Text style={styles.label}>FULL NAME</Text>
-              <TextInput
-                editable={!locked}
-                accessibilityLabel="Crew member name"
-                autoCapitalize="words"
-                maxLength={200}
-                onChangeText={setName}
-                placeholder="Sarah Johnson"
-                placeholderTextColor={colors.textFaint}
-                style={styles.input}
-                value={name}
-              />
-              <Text style={styles.label}>EMAIL · OPTIONAL</Text>
-              <TextInput
-                editable={!locked}
-                accessibilityLabel="Crew member email"
-                autoCapitalize="none"
-                autoComplete="email"
-                inputMode="email"
-                maxLength={254}
-                onChangeText={setEmail}
-                placeholder="crew@example.com"
-                placeholderTextColor={colors.textFaint}
-                style={styles.input}
-                value={email}
-              />
-              <Text style={styles.hint}>
-                Used for accountless schedule requests and reminders.
-              </Text>
-              <Text style={styles.label}>ROLE</Text>
-              <View style={styles.roleChoices}>
-                {builtInRoles.map((item) => (
-                  <Pressable
-                    key={item}
-                    disabled={locked}
-                    onPress={() => {
-                      setRole(item);
-                      setCustomRoleOpen(false);
-                    }}
-                    style={[
-                      styles.roleChoice,
-                      role === item &&
-                        !customRoleOpen &&
-                        styles.roleChoiceActive,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.roleChoiceText,
-                        role === item &&
-                          !customRoleOpen &&
-                          styles.roleChoiceTextActive,
-                      ]}
-                    >
-                      {item}
-                    </Text>
-                  </Pressable>
-                ))}
-                <Pressable
-                  disabled={locked}
-                  onPress={() => {
-                    setCustomRoleOpen(true);
-                    if (builtInRoles.includes(role)) setRole("");
-                  }}
-                  style={[
-                    styles.roleChoice,
-                    customRoleOpen && styles.roleChoiceActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.roleChoiceText,
-                      customRoleOpen && styles.roleChoiceTextActive,
-                    ]}
-                  >
-                    Custom role
-                  </Text>
-                </Pressable>
-              </View>
-              {customRoleOpen ? (
-                <TextInput
-                  editable={!locked}
-                  accessibilityLabel="Custom crew role"
-                  maxLength={100}
-                  onChangeText={setRole}
-                  placeholder="Set Builder"
-                  placeholderTextColor={colors.textFaint}
-                  style={styles.input}
-                  value={role}
-                />
-              ) : null}
-              <AppButton
-                label={editing ? "Update crew member" : "Add crew member"}
-                loading={mutation.isPending}
-                disabled={!formReady || locked}
-                onPress={save}
-              />
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      {editor ? (
+        <CrewProfileSheet
+          key={`${userId}:${organization.id}:${editor.slot}`}
+          orgId={organization.id}
+          userId={userId}
+          initial={editor}
+          onClose={() => setEditor(null)}
+        />
+      ) : null}
     </Page>
   );
 }
@@ -857,7 +404,7 @@ const useStyles = createThemedStyles((colors) =>
     statusOnline: { backgroundColor: colors.green },
     statusOffline: { backgroundColor: colors.textFaint },
     memberCopy: { flex: 1, minWidth: 0, gap: 3 },
-    nameRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+    nameRow: { alignItems: "flex-start", gap: 4 },
     memberName: {
       flexShrink: 1,
       color: colors.text,
@@ -866,6 +413,7 @@ const useStyles = createThemedStyles((colors) =>
       fontWeight: "800",
     },
     memberId: {
+      maxWidth: "100%",
       color: colors.textMuted,
       fontFamily,
       fontSize: 11,
@@ -914,131 +462,5 @@ const useStyles = createThemedStyles((colors) =>
       textAlign: "center",
     },
     error: { color: colors.red, fontFamily, fontSize: 12, textAlign: "center" },
-    modalBackdrop: {
-      flex: 1,
-      justifyContent: "flex-end",
-      backgroundColor: colors.overlay,
-    },
-    modalCard: {
-      maxHeight: "94%",
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.stageRaised,
-      paddingTop: spacing.medium,
-    },
-    modalHeader: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 12,
-      paddingHorizontal: spacing.large,
-      paddingBottom: spacing.medium,
-    },
-    modalTitle: {
-      color: colors.text,
-      fontFamily,
-      fontSize: 18,
-      fontWeight: "900",
-    },
-    modalSubtitle: {
-      color: colors.textMuted,
-      fontFamily,
-      fontSize: 11,
-      marginTop: 3,
-    },
-    closeButton: {
-      width: 44,
-      height: 44,
-      alignItems: "center",
-      justifyContent: "center",
-      borderRadius: 12,
-      backgroundColor: colors.panel,
-    },
-    form: {
-      gap: 10,
-      paddingHorizontal: spacing.large,
-      paddingBottom: spacing.xlarge,
-    },
-    photoPicker: {
-      width: 82,
-      height: 82,
-      alignSelf: "center",
-      alignItems: "center",
-      justifyContent: "center",
-      borderRadius: 25,
-      borderWidth: 1,
-      borderColor: colors.amberBorder,
-      backgroundColor: colors.amberSoft,
-    },
-    photoPreview: { width: 82, height: 82, borderRadius: 25 },
-    cameraBadge: {
-      position: "absolute",
-      right: -4,
-      bottom: -4,
-      width: 28,
-      height: 28,
-      alignItems: "center",
-      justifyContent: "center",
-      borderRadius: 10,
-      borderWidth: 3,
-      borderColor: colors.stageRaised,
-      backgroundColor: colors.amber,
-    },
-    photoHint: {
-      color: colors.textMuted,
-      fontFamily,
-      fontSize: 11,
-      textAlign: "center",
-    },
-    label: {
-      color: colors.textFaint,
-      fontFamily,
-      fontSize: 11,
-      fontWeight: "900",
-      letterSpacing: 1.2,
-      marginTop: 3,
-    },
-    input: {
-      minHeight: 50,
-      borderRadius: radii.small,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.panel,
-      color: colors.text,
-      fontFamily,
-      fontSize: 13,
-      paddingHorizontal: 12,
-    },
-    hint: {
-      color: colors.textFaint,
-      fontFamily,
-      fontSize: 11,
-      lineHeight: 13,
-      marginTop: -6,
-    },
-    roleChoices: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
-    roleChoice: {
-      minHeight: 44,
-      justifyContent: "center",
-      borderRadius: 9,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.panel,
-      paddingHorizontal: 10,
-      paddingVertical: 7,
-    },
-    roleChoiceActive: {
-      borderColor: colors.amber,
-      backgroundColor: colors.amberSoft,
-    },
-    roleChoiceText: {
-      color: colors.textMuted,
-      fontFamily,
-      fontSize: 11,
-      fontWeight: "800",
-    },
-    roleChoiceTextActive: { color: colors.amberText },
   }),
 );

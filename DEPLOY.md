@@ -7451,3 +7451,78 @@ write; reproduce that next. Rundown metadata and product-wide gates remain.
 The Founding Member closing date/timezone is still awaiting the owner's answer.
 No production deployment/release, remote migration, real-org write or external
 mail. Twenty necessary tracked Markdown files remain.
+
+### Phase 2 follow-up: native crew roster draft and request recovery
+
+The previous note overstated mutation-cache removal. The original native mutation
+tests pass: the initial failed request remains in TanStack's mutation cache.
+The reproduced bug is the old `Review stored crew` path: it reads the roster and
+then drops the uncertain request, although a delayed write can still arrive.
+A real D1 regression reads an empty roster, delivers the original create later,
+and observes a new crew row. Reading alone cannot settle that request.
+
+The native crew editor now retains create/edit/delete drafts and frozen requests
+by actor, organization and crew slot. Closing or navigating away keeps work while
+the signed-in app session remains alive. Edit and delete share the same profile
+slot, so opening a different action cannot replace an unresolved request. Resume
+controls remain visible when the roster read fails or a deleted row disappears.
+Review records either the existing result or cancellation under the original
+request ID before a late write can apply. A cancelled request requires explicit
+editing before a fresh ID is created. Confirmed saves have a separate refresh-only
+path. Loading current details explicitly replaces the draft and adopts its latest
+profile revision; failed reads leave it intact. Delete, draft discard and draft
+replacement require inline confirmation.
+
+Migration `0089_crew_request_review.sql` adds applied/cancelled outcomes to the
+existing atomic crew receipt. Existing receipts default to applied. Install it
+before deploying code that reads those outcomes. It has only been applied to
+local fixtures. Web and installed-client writers retain their response contract
+and honor a cancelled request. Native command/review/profile routes validate
+actor and org identity, preserve photo validation, and check current session,
+permission and organization-deleting state at commit and receipt-read boundaries.
+
+Verification on `fix/native-crew-roster-recovery`:
+
+- Full web suite: 2,728 unit and 1,467 Worker tests pass. Web typecheck passes.
+- Web production build passes, main 549,593 raw / 173,783 gzip bytes; the gzip
+  budget remains 175,000.
+- Thirty-two actual native-hook/photo cases cover retained drafts, exact retries,
+  cancellation, fresh IDs, refresh-only recovery, offline errors, 15s command/review,
+  12s refresh, 8s current-read and 10s photo deadlines, late replies, identity and
+  profile mismatch, account/focus isolation, explicit adoption and shared slots.
+- Thirty-two real auth/D1 cases include installed-client compatibility, concurrent
+  send/review, cancellation before create/update/delete, stale revisions, receipt
+  replay, badge reuse and actor/session/org-deleting races at review commit/reply.
+- Native verify passes typecheck, lint with 17 existing warnings, all three
+  exports, Expo doctor 18/18, contracts and polling. Hermes iOS 5,645,103 /
+  Android 5,644,231 bytes, below the unchanged 6,500,000-byte budget.
+
+- Compiled Expo web against disposable real auth/D1 passes failed-roster retry,
+  navigation away/back with a retained draft, lost create/delete acknowledgements
+  and exact retries, refresh-only recovery, cancellation before a held request is
+  delivered, stale-profile conflict, explicit current-profile adoption, failed
+  adoption preserving the draft, and confirmed delete/discard. Roster actions
+  with long names/badges and recovery/delete controls remain reachable at
+  320/768/1440 with 44px targets and no page overflow. Phone roster and tablet
+  confirmation screenshots inspected; zero runtime errors. Expo web is not
+  physical-device evidence. Re-run after web build/mobile verify with
+  `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-crew-roster.mjs`.
+
+Evidence: `/tmp/showpilot-native-crew-{before,read-before,worker1,worker2,worker3,
+hooks1,full1,web-tsc1,web-tsc2,tsc1,build1,build2,verify1,verify2,verify3,
+browser1,browser2}.log`. The first two Worker failures were fixture reads of a
+revision absent from Prisma's DTO; those fixtures now use the roster DTO. Initial
+build verifiers still expected the replaced mutation/editor paths; they now check
+the shared authority helper and retained hook. The first browser run passed
+create retry/cancellation and caught a missing org query parameter in its simulated
+second-operator request. The app transport already includes that parameter.
+
+Preceding draft #259 is green (CI 42520870786, web 16m53s / Rust 2m39s).
+Phase 2 remains 67/79; these checks do not close the product-wide UX gate.
+The next native gap is Rundown's metadata editor: its local request ID and fields
+reset on close, it permits changed fields under the same request ID after an
+uncertain reply, and its save reads the current relay revision rather than the
+revision reviewed in the draft. Preserve the separate rundown:edit/PIN authority
+when reproducing and fixing that path. The Founding Member closing date/timezone
+still awaits the owner's answer. No production deployment, release, remote
+migration, real-org write or external mail. Twenty necessary Markdown files remain.

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { getAuth } from "./auth";
 import {
   crewProfileCommandSchema,
@@ -51,6 +52,150 @@ async function fingerprint(command: CrewProfileCommand) {
     byte.toString(16).padStart(2, "0"),
   ).join("");
 }
+class CrewRequestCancelled extends TeamCommandError {
+  constructor() {
+    super(
+      409,
+      "This crew request was cancelled before it applied. Review your draft before sending a new request.",
+    );
+  }
+}
+async function crewAuthority(
+  db: CrewProfileDatabase,
+  actor: Actor,
+  orgId: string,
+) {
+  const access = await readTeamAuthority(db, actor, { orgId, kind: "crew" });
+  const result = teamAuthorityGuard(actor, orgId, access);
+  result.guard.push(
+    "NOT EXISTS(SELECT 1 FROM app_setting WHERE orgId=? AND key='organization-deleting')",
+  );
+  result.params.push(orgId);
+  return result;
+}
+const reviewedReceiptSchema = z.object({
+  fingerprint: z.string(),
+  id: z.string(),
+  kind: z.enum(["create", "update", "delete"]),
+  requestId: z.string(),
+  outcome: z.enum(["applied", "cancelled"]),
+});
+async function readRequest(
+  db: CrewProfileDatabase,
+  actor: Actor,
+  command: CrewProfileCommand,
+  requestId: string,
+  hash: string,
+  authority: { guard: string[]; params: (string | number | null)[] },
+) {
+  const saved = await db
+    .prepare(
+      `SELECT fingerprint,crewId AS id,kind,requestId,outcome FROM crew_write_receipt WHERE orgId=? AND actorId=? AND requestId=? AND ${authority.guard.join(" AND ")}`,
+    )
+    .bind(command.orgId, actor.userId, requestId, ...authority.params)
+    .first();
+  if (!saved) return null;
+  const result = reviewedReceiptSchema.parse(saved);
+  if (result.fingerprint !== hash)
+    throw new TeamCommandError(
+      409,
+      "This request belongs to different crew changes. Review the roster before saving another draft.",
+    );
+  return result;
+}
+export async function reviewCrewProfile(
+  db: CrewProfileDatabase,
+  actor: Actor,
+  raw: CrewProfileCommand,
+) {
+  const command = crewProfileCommandSchema.parse(raw);
+  if (!command.requestId)
+    throw new TeamCommandError(400, "Review the original crew request.");
+  const authority = await crewAuthority(db, actor, command.orgId),
+    hash = await fingerprint(command);
+  // An empty crewId is a cancellation marker for a create that never made a row.
+  await db
+    .prepare(
+      `INSERT INTO crew_write_receipt(orgId,actorId,requestId,fingerprint,crewId,kind,createdAt,precondition,outcome)
+    SELECT ?,?,?,?,?,?,?,1,'cancelled' WHERE ${authority.guard.join(" AND ")}
+    ON CONFLICT(orgId,actorId,requestId) DO NOTHING`,
+    )
+    .bind(
+      command.orgId,
+      actor.userId,
+      command.requestId,
+      hash,
+      command.kind === "create" ? "" : command.id,
+      command.kind,
+      Date.now(),
+      ...authority.params,
+    )
+    .run();
+  markDatabaseWrite();
+  const receipt = await readRequest(
+    db,
+    actor,
+    command,
+    command.requestId,
+    hash,
+    authority,
+  );
+  if (!receipt)
+    throw new TeamCommandError(
+      403,
+      "Your crew management authority changed. Reopen the roster.",
+    );
+  return {
+    id: receipt.id || null,
+    kind: receipt.kind,
+    requestId: receipt.requestId,
+    outcome: receipt.outcome,
+  };
+}
+export async function recoverCrewProfile(
+  db: CrewProfileDatabase,
+  actor: Actor,
+  command: CrewProfileCommand,
+  review: boolean,
+) {
+  if (!review) {
+    try {
+      return {
+        ...(await writeCrewProfile(db, actor, command)),
+        outcome: "applied" as const,
+      };
+    } catch (error) {
+      if (!(error instanceof CrewRequestCancelled)) throw error;
+    }
+  }
+  return reviewCrewProfile(db, actor, command);
+}
+export async function readCrewProfile(
+  db: CrewProfileDatabase,
+  actor: Actor,
+  orgId: string,
+  id: string,
+) {
+  const authority = await crewAuthority(db, actor, orgId);
+  const row = await db
+    .prepare(
+      `SELECT * FROM crew_member WHERE orgId=? AND id=? AND ${authority.guard.join(" AND ")}`,
+    )
+    .bind(orgId, id, ...authority.params)
+    .first();
+  if (
+    !(await db
+      .prepare(`SELECT 1 WHERE ${authority.guard.join(" AND ")}`)
+      .bind(...authority.params)
+      .first())
+  )
+    throw new TeamCommandError(
+      403,
+      "Your crew management authority changed. Reopen the roster.",
+    );
+  return row ? crewRosterMemberSchema.parse(row) : null;
+}
+
 /** The receipt and profile change commit together. Receipt replay acknowledges
  * the old command and never restores an older profile or reused badge identity. */
 export async function writeCrewProfile(
@@ -59,34 +204,25 @@ export async function writeCrewProfile(
   raw: CrewProfileCommand,
 ): Promise<CrewProfileResult> {
   const command = crewProfileCommandSchema.parse(raw);
-  const access = await readTeamAuthority(db, actor, {
-    orgId: command.orgId,
-    kind: "crew",
-  });
+  const authority = await crewAuthority(db, actor, command.orgId);
   const requestId = command.requestId ?? crypto.randomUUID(),
     hash = await fingerprint(command);
   const receipt = async () => {
-    const saved = await db
-      .prepare(
-        "SELECT fingerprint,crewId AS id,kind,requestId FROM crew_write_receipt WHERE orgId=? AND actorId=? AND requestId=?",
-      )
-      .bind(command.orgId, actor.userId, requestId)
-      .first<{
-        fingerprint: string;
-        id: string;
-        kind: string;
-        requestId: string;
-      }>();
-    if (saved && saved.fingerprint !== hash)
-      throw new TeamCommandError(
-        409,
-        "This request belongs to different crew changes. Review the roster before saving another draft.",
-      );
+    const saved = await readRequest(
+      db,
+      actor,
+      command,
+      requestId,
+      hash,
+      authority,
+    );
+    if (saved?.outcome === "cancelled") throw new CrewRequestCancelled();
     return saved ? crewProfileResultSchema.parse(saved) : null;
   };
   const previous = await receipt();
   if (previous) return previous;
-  const { guard, params } = teamAuthorityGuard(actor, command.orgId, access);
+  const guard = [...authority.guard],
+    params = [...authority.params];
   let statement: CrewStatement, id: string;
   if (command.kind === "create") {
     id = crypto.randomUUID();
@@ -191,5 +327,11 @@ export async function writeCrewProfile(
       "The crew change could not be confirmed. Retry the same request.",
     );
   }
-  return { id, kind: command.kind, requestId };
+  const saved = await receipt();
+  if (!saved)
+    throw new TeamCommandError(
+      403,
+      "Your crew management authority changed. Reopen the roster.",
+    );
+  return saved;
 }

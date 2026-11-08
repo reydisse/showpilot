@@ -8,7 +8,7 @@ import { scheduleReminderResultSchema, type ScheduleReminderCommand } from "./re
 import { inventoryResultSchema, type InventoryCommand } from "./inventory-recovery";
 import { preferenceReceiptSchema, type PreferenceCommand } from "./notification-preference-recovery";
 import { accessNoticeSchema, accessReceiptSchema, type AccessCommand } from "./access-recovery";
-import { crewReceiptSchema, type CrewCommand } from "./crew-recovery";
+import { crewReceiptSchema, crewReadSchema, type CrewCommand } from "./crew-recovery";
 import { invitationDeliverySchema } from "./invitation-recovery";
 import { workspaceSchema, type MobileWorkspace } from "./workspace-schema";
 export { workspaceSchema, type MobileWorkspace } from "./workspace-schema";
@@ -1852,14 +1852,13 @@ export async function getMobileTeamCrew(orgId: string) {
     return teamCrewSchema.parse(await response.json());
   });
 }
-export async function executeMobileCrewCommand(input: CrewCommand) {
-  return withMobileRequestDeadline(async signal => {
-    const suffix = input.kind === "create" ? "" : `/${encodeURIComponent(input.id)}/${input.kind === "update" ? "update" : "remove"}`;
-    const response = await authenticatedFetch(`/api/mobile/v1/team/crew${suffix}?orgId=${encodeURIComponent(input.orgId)}`, {
-      method: "POST", signal, body: JSON.stringify(input),
-    });
-    return crewReceiptSchema.parse(await response.json());
-  });
+export async function executeMobileCrewCommand(input: CrewCommand, review: boolean, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/team/crew/${review ? "review" : "command"}?orgId=${encodeURIComponent(input.orgId)}`, { method: "POST", signal, body: JSON.stringify(input) });
+  return crewReceiptSchema.parse(await response.json());
+}
+export async function readMobileCrewProfile(input: { orgId: string; userId: string; id: string }, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/team/crew/profile?${new URLSearchParams(input)}`, { signal });
+  return crewReadSchema.parse(await response.json());
 }
 
 export async function getMobileChecklist(
