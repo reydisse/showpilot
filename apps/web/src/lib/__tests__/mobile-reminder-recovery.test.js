@@ -248,7 +248,7 @@ it("rejects a reply for another request without claiming delivery", async () => 
   await waitFor(() =>
     expect(view.result.current.work[slot]).toMatchObject({
       kind: "failed",
-      message: "Reminder reply does not match this request.",
+      message: "Reply does not match this request.",
     }),
   );
   expect(refresh).not.toHaveBeenCalled();

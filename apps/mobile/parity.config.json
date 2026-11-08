@@ -33,6 +33,7 @@
         "/api/mobile/v1/schedule",
         "/api/mobile/v1/schedule/respond",
         "/api/mobile/v1/schedule/reminders",
+        "/api/mobile/v1/schedule/copy-team",
         "/api/mobile/v1/schedule/assignments",
         "/api/mobile/v1/schedule/inventory",
         "/api/mobile/v1/schedule/inventory/command",
