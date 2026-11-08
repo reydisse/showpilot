@@ -579,3 +579,122 @@ it("review cannot cancel an existing show without a matching creation receipt", 
       .first(),
   ).toBeNull();
 });
+
+async function nativeCreate(
+  actor: Awaited<ReturnType<typeof fixture>>,
+  input: ReturnType<typeof command>,
+  review = false,
+) {
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const response = await handleMobileApi(
+    new Request(
+      `https://app.showpilot.tech/api/mobile/v1/shows/${review ? "review-creation" : "create"}`,
+      {
+        method: "POST",
+        headers: {
+          Cookie: actor.headers.get("Cookie") ?? "",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ...input, userId: actor.userId }),
+      },
+    ),
+    { DB: env.DB },
+  );
+  if (!response) throw new Error("Missing native creation route");
+  return response;
+}
+it("native creation and review recover one show after a lost reply with the frozen venue timezone", async () => {
+  const actor = await fixture();
+  const input = {
+    ...command(actor.orgId),
+    timeZone: "America/Toronto",
+    startTime: "09:30",
+  };
+  const { showCreationReplySchema } =
+    await import("../../../../mobile/src/lib/show-creation-recovery");
+  const first = await nativeCreate(actor, input);
+  expect(first.status).toBe(201);
+  const parsed = showCreationReplySchema.parse(await first.json());
+  expect(parsed).toMatchObject({
+    orgId: actor.orgId,
+    userId: actor.userId,
+    requestId: input.requestId,
+    result: { kind: "created", result: { showId: input.requestId } },
+  });
+  expect(await (await nativeCreate(actor, input)).json()).toEqual(parsed);
+  expect(await (await nativeCreate(actor, input, true)).json()).toEqual(parsed);
+  expect(
+    await getPrisma().rundown.count({ where: { orgId: actor.orgId } }),
+  ).toBe(1);
+  expect(
+    (
+      await getPrisma().rundown.findUnique({ where: { id: input.requestId } })
+    )?.scheduledStartTime?.toISOString(),
+  ).toBe("2099-02-01T14:30:00.000Z");
+});
+it("native review cancels an unapplied creation before a late original request arrives", async () => {
+  const actor = await fixture(),
+    input = command(actor.orgId);
+  expect(await (await nativeCreate(actor, input, true)).json()).toMatchObject({
+    result: { kind: "cancelled" },
+  });
+  await expect(nativeCreate(actor, input)).rejects.toThrow(/cancelled/);
+  expect(
+    await getPrisma().rundown.count({ where: { orgId: actor.orgId } }),
+  ).toBe(0);
+});
+it("native review reports a removed show and never revives it", async () => {
+  const actor = await fixture(),
+    input = command(actor.orgId);
+  await (await nativeCreate(actor, input)).arrayBuffer();
+  await getPrisma().rundown.delete({ where: { id: input.requestId } });
+  expect(await (await nativeCreate(actor, input, true)).json()).toMatchObject({
+    result: { kind: "removed" },
+  });
+  await expect(nativeCreate(actor, input)).rejects.toThrow(/removed|deleted/);
+  expect(
+    await getPrisma().rundown.count({ where: { orgId: actor.orgId } }),
+  ).toBe(0);
+});
+it("native review rejects changed fields instead of cancelling a different creation", async () => {
+  const actor = await fixture(),
+    input = command(actor.orgId);
+  await (await nativeCreate(actor, input)).arrayBuffer();
+  await expect(
+    nativeCreate(actor, { ...input, name: "Changed draft" }, true),
+  ).rejects.toThrow(/different/);
+  expect(
+    (await getPrisma().rundown.findUnique({ where: { id: input.requestId } }))
+      ?.name,
+  ).toBe(input.name);
+});
+it("native create and review racing settle the same receipt without duplicates", async () => {
+  const actor = await fixture(),
+    input = command(actor.orgId);
+  const results = await Promise.allSettled([
+    nativeCreate(actor, input),
+    nativeCreate(actor, input, true),
+  ]);
+  for (const result of results)
+    if (result.status === "fulfilled") await result.value.arrayBuffer();
+  const reviewed = (await (await nativeCreate(actor, input, true)).json()) as {
+    result: { kind: string };
+  };
+  expect(["created", "cancelled"]).toContain(reviewed.result.kind);
+  expect(
+    await getPrisma().rundown.count({ where: { orgId: actor.orgId } }),
+  ).toBe(reviewed.result.kind === "created" ? 1 : 0);
+});
+it("native creation review enforces actor, tenant and current schedule permission", async () => {
+  const actor = await fixture(),
+    input = command(actor.orgId),
+    other = await fixture();
+  expect([401, 403]).toContain((await nativeCreate(other, input, true)).status);
+  await getPrisma().member.deleteMany({
+    where: { organizationId: actor.orgId, userId: actor.userId },
+  });
+  expect([401, 403]).toContain((await nativeCreate(actor, input, true)).status);
+  expect(
+    await getPrisma().rundown.count({ where: { orgId: actor.orgId } }),
+  ).toBe(0);
+});

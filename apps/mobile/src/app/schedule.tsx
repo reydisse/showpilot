@@ -1,3 +1,6 @@
+import { ShowCreationSheet } from "@/components/show-creation-sheet";
+import { useShowCreationDrafts } from "@/hooks/use-show-creation";
+import type { ShowCreationDraft } from "@/lib/show-creation-recovery";
 import { useTeamDrafts } from "@/hooks/use-mobile-team";
 import type { TeamDraft } from "@/lib/team-recovery";
 import { useAssignmentDrafts } from "@/hooks/use-mobile-assignment";
@@ -44,7 +47,6 @@ import { LoadingView } from "@/components/loading-view";
 import { authClient } from "@/lib/auth-client";
 import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import {
-  createMobileRundown,
   commandMobileInventory,
   commandMobileAssignment,
   readMobileAssignment,
@@ -57,13 +59,14 @@ import {
   updateMobileScheduleService,
   type MobileSchedule,
 } from "@/lib/mobile-api";
-import { formatServiceTime, isServiceDate, serviceWallTimeInput } from "@/lib/service-time";
+import { formatServiceTime, getServiceDateForTimeZone, isServiceDate, serviceWallTimeInput } from "@/lib/service-time";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 type Service = MobileSchedule["services"][number];
 type Assignment = MobileSchedule["assignments"][number];
 type EditorState =
-  | { kind: "service"; service: Service | null; initialInventoryId?: string }
+  | { kind: "service"; service: Service }
+  | { kind: "createShow"; initial: ShowCreationDraft }
   | { kind: "assignment"; initial: AssignmentDraft }
   | { kind: "team"; initial: TeamDraft }
   | { kind: "provider" }
@@ -92,6 +95,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
   const narrowHeader = width / fontScale < 400;
   const queryClient = useQueryClient();
   const assignmentDrafts = useAssignmentDrafts({ orgId, userId });
+  const showDrafts = useShowCreationDrafts({ orgId, userId });
   const teamDrafts = useTeamDrafts({ orgId, userId });
   const [editor, setEditor] = useState<EditorState>(null);
   const [copyConfirmation, setCopyConfirmation] = useState<{ selection: CopyTeamSelection; label: string; count: number; again: boolean } | null>(null);
@@ -163,21 +167,18 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
         location: draft.location,
         expectedUpdatedAt: draft.expectedUpdatedAt,
       });
-    } else {
-      await createMobileRundown({
-        orgId,
-        requestId: draft.requestId,
-        serviceDate: draft.serviceDate,
-        name: draft.name,
-        startTime: draft.startTime || undefined,
-        callTime: draft.callTime || undefined,
-        location: draft.location || undefined,
-        inventoryId: draft.inventoryId,
-        copyFrom: draft.copyFrom,
-        copyFromShowId: draft.copyFromShowId,
-      });
     }
     await saved();
+  }
+
+  function openShowCreation(inventoryId?: string) {
+    const item = schedule?.inventory.find(item => item.id === inventoryId);
+    const timeZone = schedule?.timeZone ?? "UTC";
+    setEditor({ kind: "createShow", initial: showDrafts[0] ?? {
+      serviceDate: selectedDate ?? getServiceDateForTimeZone(timeZone), timeZone,
+      name: item?.name ?? "", startTime: item?.defaultStartTime ?? "", callTime: "", location: item?.location ?? "",
+      source: item ? { kind: "inventory", id: item.id, name: item.name } : { kind: "blank" },
+    } });
   }
 
   function openAssignment(service: Service, assignment: Assignment | null, remove = false) {
@@ -272,7 +273,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
         <Pressable accessibilityRole="button" accessibilityLabel="Schedule settings" onPress={() => setEditor({ kind: "provider" })} style={styles.secondaryAction}><Settings2 color={colors.textMuted} size={18} /></Pressable>
       ) : null}
       {canManage ? (
-        <Pressable accessibilityRole="button" accessibilityLabel="Create show" onPress={() => setEditor({ kind: "service", service: null })} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Create show" onPress={() => openShowCreation()} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable>
       ) : null}
     </View>
   );
@@ -310,6 +311,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
             </View> : null}
             <ScheduleCopyProgress copies={copies} canCopyAgain={canCopyAgain} onCopyAgain={copyAgain} />
             <ScheduleReminderProgress reminders={reminders} canSendNew={canSendReminder} />
+            {showDrafts[0] ? <AppButton variant="secondary" label={`Resume show: ${showDrafts[0].name || "Untitled show"} (${showDrafts[0].serviceDate})`} onPress={() => openShowCreation()} /> : null}
             {teamDrafts.map(draft => <AppButton key={draft.showId} variant="secondary" label={`Resume team: ${draft.department || "New team"} · ${draft.showName} (${draft.serviceDate})`} onPress={() => setEditor({ kind: "team", initial: draft })} />)}
             {assignmentDrafts.map(draft => <AppButton key={draft.editorId} variant="secondary" label={`Resume ${draft.mode === "delete" ? "removal" : "assignment"}: ${draft.fields.role || "New position"} · ${draft.showName} (${draft.fields.serviceDate})`} onPress={() => setEditor({ kind: "assignment", initial: draft })} />) }
             {schedule ? (
@@ -329,7 +331,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
               <CalendarPlus color={colors.textFaint} size={30} />
               <Text style={styles.empty}>No shows are scheduled in this range.</Text>
               {canManage ? (
-                <Pressable onPress={() => setEditor({ kind: "service", service: null })} style={styles.emptyButton}><Text style={styles.emptyButtonText}>Schedule the first show</Text></Pressable>
+                <Pressable onPress={() => openShowCreation()} style={styles.emptyButton}><Text style={styles.emptyButtonText}>Schedule the first show</Text></Pressable>
               ) : null}
             </View>
           ) : null
@@ -400,8 +402,9 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
         windowSize={7}
       />
       {editor?.kind === "service" && schedule ? (
-        <ScheduleServiceSheet initialInventoryId={editor.initialInventoryId} inventory={schedule.inventory} onClose={() => setEditor(null)} onSave={saveService} previousServices={[...schedule.services].filter((candidate) => candidate.serviceDate <= (editor.service?.serviceDate ?? schedule.to)).reverse()} service={editor.service} timeZone={schedule.timeZone} />
+        <ScheduleServiceSheet onClose={() => setEditor(null)} onSave={saveService} service={editor.service} timeZone={schedule.timeZone} />
       ) : null}
+      {editor?.kind === "createShow" ? <ShowCreationSheet key={`${userId}:${orgId}`} orgId={orgId} userId={userId} initial={editor.initial} inventory={schedule?.inventory} shows={schedule?.services} onClose={() => setEditor(null)} /> : null}
       {editor?.kind === "assignment" ? (
         <ScheduleAssignmentSheet key={`${userId}:${orgId}:${editor.initial.editorId}`} orgId={orgId} userId={userId} active={pollingInterval !== false} initial={editor.initial} crew={schedule?.crew ?? []} onClose={() => setEditor(null)} onCommand={commandMobileAssignment} onRead={readMobileAssignment} onRefresh={async signal => {
           await Promise.all([
@@ -439,7 +442,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
         <ScheduleInventorySheet key={`${userId}:${orgId}`} orgId={orgId} userId={userId} active={pollingInterval !== false} onCommand={commandMobileInventory} onRefresh={async (signal) => {
           await queryClient.invalidateQueries({ queryKey: ["mobile-schedule", orgId] }, { throwOnError: true });
           if (signal.aborted) throw new Error("Inventory refresh cancelled.");
-        }} archivedInventory={schedule.archivedInventory} canManage={schedule.canManage} inventory={schedule.inventory} onClose={() => setEditor(null)} onUse={(inventoryId) => setEditor({ kind: "service", service: null, initialInventoryId: inventoryId })} savedTemplates={schedule.savedTemplates} />
+        }} archivedInventory={schedule.archivedInventory} canManage={schedule.canManage} inventory={schedule.inventory} onClose={() => setEditor(null)} onUse={(inventoryId) => openShowCreation(inventoryId)} savedTemplates={schedule.savedTemplates} />
       ) : null}
     </Page>
   );

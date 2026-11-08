@@ -53,7 +53,10 @@ const featureContract = [
   ["src/app/(app)/profile.tsx", "/api/user/avatar"],
 ];
 const sourceContract = [
-  ["src/app/(app)/shows.tsx", "createMobileRundown"],
+  ["src/app/(app)/shows.tsx", "ShowCreationSheet"],
+  ["src/app/schedule.tsx", "ShowCreationSheet"],
+  ["src/app/show/[showId].tsx", "ShowCreationSheet"],
+  ["src/components/show-creation-sheet.tsx", "commandMobileShowCreation"],
   ["src/app/incidents.tsx", "getServiceDateForTimeZone"],
   ["src/app/incidents.tsx", "commandMobileIncident"],
   ["src/app/incidents.tsx", "targetUserId"],

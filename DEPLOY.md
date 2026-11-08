@@ -7053,3 +7053,72 @@ Phase 2 remains 67/79. Other native profile/schedule recovery, product-wide audi
 the owner Founding Member deadline and broad gates remain open. No production
 release/deployment, remote migration, real-org writes or external email. Twenty
 necessary tracked Markdown files remain.
+
+### Native show-creation recovery, 2026-11-08
+
+Branch: `fix/native-show-creation-recovery`, stacked on
+`fix/native-team-builder-recovery`. Three native creation forms previously kept
+local drafts, allowed ambiguous retry after a failed reply, and offered no
+separate recovery for a failed list refresh after successful creation. The new
+native recovery endpoint initially failed its adapter test with 404.
+
+Schedule, Shows, and the rundown now use one retained account/workspace creation
+form. Closing or navigating preserves fields, source identity and venue timezone
+for the signed-in app session. A pending or unconfirmed command locks its fields;
+Retry original creation sends the same request. Review original creation uses the
+existing 0082/0083 receipt and cancellation fence before offering Edit unapplied
+draft. A created or removed result cannot create again. A failed refresh keeps the
+confirmed result and offers Refresh only. Mutation/review deadlines are 15 seconds;
+refresh is bounded at 12 seconds. Explicit discard is limited to unsent drafts.
+
+All three current callers migrated; the duplicate Shows/rundown forms and old
+native create wrapper were removed. The installed-client server route remains.
+The two new native endpoints require original actor/request identity and current
+schedule permission, and delegate to the existing atomic creation/review helpers.
+There is no new migration. Source choices never silently turn into blank shows
+when the list changes. Inventory defaults and same-day copy remain available.
+
+The compiled browser rehearsal exposed a real rundown-entry failure: the relay's
+initial null location made creation validation fail before live sync connected.
+The rundown now uses the loaded show's location until the relay supplies a string.
+An explicitly typed initial draft prevents the fallback branch from bypassing type
+checking through an array index. The new-show control also meets 44px/12px targets.
+
+Validation:
+- Nineteen added native adapter/hook/form cases pass. They cover retained fields
+  and sources, immutable/exact retry, 15s/12s deadlines, failed refresh without a
+  repeated mutation, review before editing, deleted shows, inactive owners, late
+  replies, account/workspace separation, identity mismatch, global resume and
+  explicit discard. Existing inventory/assignment/team form cases pass.
+- Twenty-eight real-auth/D1 creation Worker cases pass, including six new native
+  cases for receipt replay, venue timezone, cancellation-before-delivery, removal,
+  changed payload, create/review races and current tenant/permission checks.
+- Final full suite: 2,639 unit / 1,400 Worker tests. Web typecheck and production
+  build pass. Main entry remains 549,525 raw / 173,749 gzip bytes within unchanged
+  budgets.
+- Final native verification passes typecheck, lint with existing warnings only,
+  iOS/Android/web exports, Expo doctor 18/18, polling and API contracts. Hermes:
+  iOS 5,561,207 / Android 5,560,287 bytes, below the unchanged 6,500,000 budget.
+- Exported Expo app against disposable real auth/D1 passes all three creation
+  entries, close/reopen and cross-route retention, frozen source, a committed but
+  lost response with exact retry, refresh-only recovery, cancellation of an
+  undelivered request, late-arrival rejection, fresh reviewed creation, and
+  same-day rundown copying with next-hour defaults. Recovery controls pass 44px,
+  text and reachability checks at 320/768/1440 pixels. Phone/tablet screenshots
+  inspected. No browser runtime errors. The compiled team-builder regression also
+  passes partial/exact retry and cancellation recovery at those widths.
+  Expo export evidence does not establish physical iOS/Android UI behavior.
+
+Evidence: `/tmp/showpilot-native-show-{before,hooks1,hooks2,worker1,worker2,tsc1,
+tsc2,tsc3,web-tsc1,web-tsc2,web-tsc3,full1,full2,build1,verify1,verify2,
+browser1,browser2,browser3,team-browser}.log`. Browser1 needed an unambiguous
+modal-button selector; browser2 caught the null-location failure; browser3 proves
+the final behavior. Final screenshots: `/tmp/showpilot-native-show-{320,768,1440}.png`.
+After web build and mobile verify, rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-show-creation.mjs`.
+
+Preceding draft PR #254 is green (CI 42506636275; web 16m27s / Rust 3m43s).
+Phase 2 remains 67/79. Native show editing/deletion, other mutation recovery and
+product-wide gates remain open. There was no production deployment/release,
+remote migration, real-org write or external mail. Twenty necessary tracked
+Markdown files remain.

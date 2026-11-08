@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Redirect, router, useLocalSearchParams } from "expo-router";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Redirect, useLocalSearchParams } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import CircleStop from "lucide-react-native/icons/circle-stop";
 import Clock3 from "lucide-react-native/icons/clock-3";
@@ -26,7 +26,9 @@ import { ActivityIndicator, Alert, FlatList, Pressable, Share, StyleSheet, Text,
 import { AppButton } from "@/components/app-button";
 import { Page } from "@/components/page";
 import { parseRundownDuration, RundownItemSheet } from "@/components/rundown-item-sheet";
-import { RundownNewShowSheet, type RundownNewShowDraft } from "@/components/rundown-new-show-sheet";
+import { ShowCreationSheet } from "@/components/show-creation-sheet";
+import { useShowCreationDrafts } from "@/hooks/use-show-creation";
+import { nextShowStartTime, type ShowCreationDraft } from "@/lib/show-creation-recovery";
 import { RundownTemplateSheet } from "@/components/rundown-template-sheet";
 import { RundownShowSheet } from "@/components/rundown-show-sheet";
 import { useRundownRelay } from "@/hooks/use-rundown-relay";
@@ -35,7 +37,6 @@ import { SHOWPILOT_URL } from "@/lib/env";
 import {
   deleteMobileRundownTemplate,
   controlMobileProPresenter,
-  createMobileRundown,
   getMobileRundown,
   getMobileRundownTemplates,
   loadMobilePreviousRundown,
@@ -149,22 +150,28 @@ function TimerPanel({
   );
 }
 
-function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; orgId: string; orgSlug: string }) {
+function RundownContent({ detail, orgId, orgSlug, userId }: { detail: MobileRundown; orgId: string; orgSlug: string; userId: string }) {
   const { colors } = useAppTheme();
   const styles = useStyles();
-  const queryClient = useQueryClient();
   const relay = useRundownRelay(orgId, detail.show.serviceDate, detail.show.id);
   const showTitle = relay.serviceName ?? titleFor(detail.show);
   const showStart = relay.scheduledStartTime === undefined ? detail.show.scheduledStartTime : relay.scheduledStartTime;
   const showCall = relay.scheduledCallTime === undefined ? detail.show.scheduledCallTime : relay.scheduledCallTime;
-  const showLocation = relay.location === undefined ? detail.show.location : relay.location;
+  const showLocation = relay.location ?? detail.show.location;
   const showSummary = [
     `${formatServiceTime(showStart, detail.timeZone)} start`,
     showCall ? `${formatServiceTime(showCall, detail.timeZone)} call` : null,
     showLocation || null,
   ].filter(Boolean).join(" · ");
   const [editor, setEditor] = useState<{ item: RundownItem | null; index: number } | null>(null);
-  const [newShowOpen, setNewShowOpen] = useState(false);
+  const [newShow, setNewShow] = useState<ShowCreationDraft | null>(null);
+  const showDrafts = useShowCreationDrafts({ orgId, userId });
+  function openNewShow() {
+    const initial: ShowCreationDraft = { serviceDate: detail.show.serviceDate, timeZone: detail.timeZone, name: "", location: showLocation,
+      startTime: nextShowStartTime(serviceWallTimeInput(showStart, detail.timeZone)), callTime: "",
+      source: { kind: "show", id: detail.show.id, name: showTitle, serviceDate: detail.show.serviceDate } };
+    setNewShow(showDrafts[0] ?? initial);
+  }
   const [showDetailsOpen, setShowDetailsOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -316,27 +323,6 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
     });
   }
 
-  async function createShow(draft: RundownNewShowDraft) {
-    const created = await createMobileRundown({
-      orgId,
-      requestId: draft.requestId,
-      serviceDate: draft.serviceDate,
-      name: draft.name,
-      startTime: draft.startTime,
-      callTime: draft.callTime,
-      location: draft.location,
-      copyFrom: draft.copyCurrent ? detail.show.serviceDate : undefined,
-      copyFromShowId: draft.copyCurrent ? detail.show.id : undefined,
-    });
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap"] }),
-      queryClient.invalidateQueries({ queryKey: ["mobile-schedule", orgId] }),
-    ]);
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setNewShowOpen(false);
-    router.replace({ pathname: "/show/[showId]", params: { showId: created.showId } });
-  }
-
   const connectionText = relay.status === "connected"
     ? "Live sync"
     : relay.status === "offline"
@@ -345,7 +331,7 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
 
   return (
     <Page
-      action={detail.canCreateShows ? <Pressable accessibilityLabel="Create another show" accessibilityRole="button" onPress={() => setNewShowOpen(true)} style={styles.newShowButton}><Plus color={colors.black} size={16} /><Text style={styles.newShowText}>New show</Text></Pressable> : null}
+      action={detail.canCreateShows ? <Pressable accessibilityLabel="Create another show" accessibilityRole="button" onPress={openNewShow} style={styles.newShowButton}><Plus color={colors.black} size={16} /><Text style={styles.newShowText}>{showDrafts[0] ? "Resume show" : "New show"}</Text></Pressable> : null}
       backTo="/(app)/shows"
       backLabel="Back to shows"
       eyebrow={detail.show.serviceDate}
@@ -500,17 +486,7 @@ function RundownContent({ detail, orgId, orgSlug }: { detail: MobileRundown; org
           : relay.scheduledCallTime}
         timeZone={detail.timeZone}
       /> : null}
-      {newShowOpen ? <RundownNewShowSheet
-        canCopyCurrent
-        currentDate={detail.show.serviceDate}
-        currentLocation={relay.location ?? detail.show.location}
-        currentStartTime={serviceWallTimeInput(
-          relay.scheduledStartTime === undefined ? detail.show.scheduledStartTime : relay.scheduledStartTime,
-          detail.timeZone,
-        )}
-        onClose={() => setNewShowOpen(false)}
-        onCreate={createShow}
-      /> : null}
+      {newShow ? <ShowCreationSheet key={`${userId}:${orgId}`} orgId={orgId} userId={userId} initial={newShow} shows={[{ ...detail.show, name: showTitle, scheduledStartTime: showStart, scheduledCallTime: showCall, location: showLocation ?? "" }]} onClose={() => setNewShow(null)} /> : null}
     </Page>
   );
 }
@@ -559,7 +535,7 @@ export default function ShowDetailScreen() {
       </Page>
     );
   }
-  return <RundownContent key={`${query.data.show.id}:${query.data.pinAccess}`} detail={query.data} orgId={organization.id} orgSlug={organization.slug} />;
+  return <RundownContent key={`${session.user.id}:${organization.id}:${query.data.show.id}:${query.data.pinAccess}`} userId={session.user.id} detail={query.data} orgId={organization.id} orgSlug={organization.slug} />;
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
@@ -570,8 +546,8 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   permissionBadge: { borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, paddingHorizontal: 9, paddingVertical: 5 },
   permissionText: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1 },
   connectionAction: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
-  newShowButton: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: radii.pill, backgroundColor: colors.amber, paddingHorizontal: 12 },
-  newShowText: { color: colors.black, fontFamily, fontSize: 11, fontWeight: "900" },
+  newShowButton: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: radii.pill, backgroundColor: colors.amber, paddingHorizontal: 12 },
+  newShowText: { color: colors.black, fontFamily, fontSize: 12, fontWeight: "900" },
   timerCard: { alignItems: "center", gap: 10, borderRadius: radii.large, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: spacing.large },
   timerCardOvertime: { borderColor: colors.redStrongBorder, backgroundColor: colors.redSoft },
   nowRow: { flexDirection: "row", alignItems: "center", gap: 8 },
