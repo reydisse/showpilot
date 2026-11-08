@@ -1,3 +1,6 @@
+import { CopyTeamControl } from "@/components/schedule/CopyTeamControl";
+import { useScheduleRoster } from "@/hooks/useScheduleRoster";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { AssignmentEditor } from "@/components/schedule/AssignmentEditor";
 import { ReminderControl } from "@/components/schedule/ReminderControl";
 import { ScheduleProviderControl } from "@/components/schedule/ScheduleProviderControl";
@@ -20,7 +23,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
-  Copy,
   ExternalLink,
   MapPin,
   Pencil,
@@ -32,11 +34,10 @@ import {
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { createNextService, copyCrewFromService } from "@/lib/pm-actions";
+import { createNextService } from "@/lib/pm-actions";
 import {
   deleteService,
   getSchedule,
-  getServiceAssignments,
   saveServiceDetails,
   type ScheduleProvider,
 } from "@/lib/schedule";
@@ -208,16 +209,7 @@ function SchedulePage() {
   const [editing, setEditing] = useState<Assignment | null>(null);
   const [serviceOpen, setServiceOpen] = useState(false);
   const [filter, setFilter] = useState<ResponseFilter>("all");
-  const [busy, setBusy] = useState(false);
-  const [liveAssignments, setLiveAssignments] = useState(data.assignments);
   const terms = useTerms();
-  const departments = Array.from(
-    new Set(
-      liveAssignments
-        .map((assignment) => assignment.department.trim())
-        .filter(Boolean),
-    ),
-  ).sort((a, b) => a.localeCompare(b));
   const selected =
     data.services.find((service) => service.id === requestedShowId) ??
     data.services.find((service) => service.serviceDate === requestedDate) ??
@@ -228,52 +220,16 @@ function SchedulePage() {
     ? data.services.findIndex((service) => service.id === selected.id)
     : -1;
   const previous = selectedIndex > 0 ? data.services[selectedIndex - 1] : null;
-  useEffect(() => setLiveAssignments(data.assignments), [data.assignments]);
-  useEffect(() => {
-    if (!selected?.id) return;
-    let active = true;
-    let refreshing = false;
-    const refresh = async () => {
-      if (document.visibilityState !== "visible" || refreshing) return;
-      refreshing = true;
-      try {
-        const rows = await getServiceAssignments({
-          data: { orgId: data.orgId, showId: selected.id },
-        });
-        if (!active) return;
-        setLiveAssignments((current) => [
-          ...current.filter(
-            (assignment) => assignment.showId !== selected.id,
-          ),
-          ...rows,
-        ]);
-      } catch {
-        // Keep the last good roster visible through transient network loss.
-      } finally {
-        refreshing = false;
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(refresh, 15_000);
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void refresh();
-    };
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    window.addEventListener("focus", refreshWhenVisible);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-      window.removeEventListener("focus", refreshWhenVisible);
-    };
-  }, [data.orgId, data.assignments, selected?.id]);
-  const selectedAssignments = useMemo(
-    () =>
-      liveAssignments.filter(
-        (assignment) => assignment.showId === selected?.id,
-      ),
-    [liveAssignments, selected?.id],
-  );
+  const roster = useScheduleRoster({ orgId: data.orgId, userId: user.id, showId: selected?.id, assignments: data.assignments });
+  const selectedAssignments = roster.value;
+  const liveAssignments = useMemo(() => [...data.assignments.filter(row => row.showId !== selected?.id), ...selectedAssignments], [data.assignments, selected?.id, selectedAssignments]);
+  const departments = Array.from(
+    new Set(
+      liveAssignments
+        .map((assignment) => assignment.department.trim())
+        .filter(Boolean),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
   const assignments = useMemo(
     () =>
       selectedAssignments.filter(
@@ -504,32 +460,10 @@ function SchedulePage() {
                         <Plus className="h-3.5 w-3.5" />
                         Add position
                       </button>
-                      {previous ? (
-                        <button
-                          disabled={busy || selectedAssignments.length > 0}
-                          onClick={async () => {
-                            setBusy(true);
-                            try {
-                              await copyCrewFromService({
-                                data: {
-                                  orgId: data.orgId,
-                                  showId: selected.id,
-                                  serviceDate: selected.serviceDate,
-                                  copyFromShowId: previous.id,
-                                  copyFrom: previous.serviceDate,
-                                },
-                              });
-                              await router.invalidate();
-                            } finally {
-                              setBusy(false);
-                            }
-                          }}
-                          className="flex items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-text disabled:opacity-40"
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                          Copy team
-                        </button>
-                      ) : null}
+                      <CopyTeamControl orgId={data.orgId} userId={user.id} showId={selected.id}
+                        selection={previous ? { showId: selected.id, serviceDate: selected.serviceDate, copyFromShowId: previous.id, copyFrom: previous.serviceDate } : null}
+                        canCopy={selectedAssignments.length === 0 && selected.status !== "running" && selected.status !== "paused"}
+                        onChanged={refreshAssignments} />
                     </div>
                   ) : data.provider.url ? (
                     <a
@@ -587,6 +521,7 @@ function SchedulePage() {
                   layer.
                 </div>
               ) : null}
+              <ReadFailureNotice error={roster.error} refreshing={roster.refreshing} retry={roster.retry} label="Retry roster" />
               <RosterTable
                 assignments={assignments}
                 departments={departments}
