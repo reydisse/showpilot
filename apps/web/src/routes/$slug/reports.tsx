@@ -1,5 +1,9 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import {
+  createFileRoute,
+  useBlocker,
+  useNavigate,
+} from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -9,47 +13,70 @@ import {
   Download,
   ListChecks,
   MessageSquareText,
-  Save,
   Search,
   Users,
   X,
 } from "lucide-react";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { exportShowReport, getShowReportIndex, type ShowReport } from "@/lib/report";
+import {
+  exportShowReport,
+  getShowReportIndex,
+  type ShowReport,
+  type ShowReportIndexItem,
+} from "@/lib/report";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
-import { saveShowReportNote, type ShowReportLane } from "@/lib/show-report-notes";
+import type { ShowReportLane, ShowReportNote } from "@/lib/show-report-notes";
 import { ContextHelp } from "@/components/ui/context-help";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  ConfirmDialog,
+  useConfirmDialog,
+} from "@/components/ui/confirm-dialog";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import {
+  ManagerReportNotes,
+  type ReportEditingState,
+} from "@/components/reports/ManagerReportNotes";
+import { withOperationTimeout } from "@/lib/operation-timeout";
 
 const PAGE_SIZE = 10;
-
+const action =
+  "min-h-11 min-w-11 rounded-lg border border-board-border px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-fire-500 disabled:opacity-40";
 function shiftDate(date: string, days: number) {
-  const value = new Date(`${date}T12:00:00`);
-  value.setDate(value.getDate() + days);
+  const value = new Date(`${date}T12:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
   return value.toISOString().slice(0, 10);
 }
-
 function displayDate(date: string) {
-  return new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+  return new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", {
+    timeZone: "UTC",
     month: "short",
     day: "numeric",
     year: "numeric",
   });
 }
-
 function duration(start: string | null, end: string | null) {
   if (!start || !end) return "—";
   const elapsed = new Date(end).getTime() - new Date(start).getTime();
-  if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed > 12 * 60 * 60 * 1000) {
-    return "Needs review";
-  }
-  const minutes = Math.round(elapsed / 60000);
+  return !Number.isFinite(elapsed) ||
+    elapsed < 0 ||
+    elapsed > 12 * 60 * 60 * 1000
+    ? "Needs review"
+    : plannedDuration(elapsed);
+}
+function plannedDuration(ms: number) {
+  const minutes = Math.round(ms / 60000);
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
-
-function plannedDuration(milliseconds: number) {
-  const minutes = Math.round(milliseconds / 60000);
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+function percentage(done: number, total: number) {
+  return total ? `${Math.round((done / total) * 100)}%` : "—";
 }
 
 export const Route = createFileRoute("/$slug/reports")({
@@ -57,15 +84,15 @@ export const Route = createFileRoute("/$slug/reports")({
     date: typeof search.date === "string" ? search.date : undefined,
     show: typeof search.show === "string" ? search.show : undefined,
     page:
-      typeof search.page === "number" && search.page > 0
+      typeof search.page === "number" &&
+      Number.isFinite(search.page) &&
+      search.page > 0
         ? Math.floor(search.page)
         : 1,
   }),
-  // The report list is loaded once. Selecting a row or page is local UI
-  // state reflected in the URL, not a reason to reload the whole route.
   loaderDeps: () => ({}),
   pendingComponent: () => <PageSkeleton />,
-  loader: async ({ context }) => {
+  loader: async ({ context, abortController }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(
       context.role,
@@ -73,580 +100,614 @@ export const Route = createFileRoute("/$slug/reports")({
       context.slug,
       context.orgId,
     );
-    const settings = await getOrgSettings({ data: { orgId: context.orgId } });
+    const settings = await getOrgSettings({
+      data: { orgId: context.orgId },
+      signal: abortController.signal,
+    });
     const today = getTodayDateString(settings["org-timezone"]);
     const reportIndex = await getShowReportIndex({
-      data: {
-        orgId: context.orgId,
-        from: shiftDate(today, -365),
-        to: today,
-      },
+      data: { orgId: context.orgId, from: shiftDate(today, -365), to: today },
+      signal: abortController.signal,
     });
-    return {
-      services: reportIndex.services,
-      orgId: context.orgId,
-    };
+    return { services: reportIndex.services, orgId: context.orgId };
   },
   component: ReportsPage,
 });
 
 function ReportsPage() {
-  const data = Route.useLoaderData();
-  const search = Route.useSearch();
-  const navigate = useNavigate({ from: Route.fullPath });
+  const data = Route.useLoaderData(),
+    search = Route.useSearch(),
+    navigate = useNavigate({ from: Route.fullPath });
   const [query, setQuery] = useState("");
-  const [detail, setDetail] = useState<ShowReport | null>(null);
-  const [detailShowId, setDetailShowId] = useState<string | null>(() =>
-    data.services.find((item) => item.id === search.show)?.id ??
-    data.services.find((item) => item.serviceDate === search.date)?.id ??
-    null,
-  );
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const [exporting, setExporting] = useState<"pdf" | "csv" | null>(null);
-  const [exportError, setExportError] = useState<string | null>(null);
-
+  const listRoot = useRef<HTMLDivElement>(null);
+  const restoreReportFocus = (showId: string) => {
+    const root = listRoot.current;
+    if (!root) return;
+    // The table and phone cards are separate elements. Return to the visible
+    // counterpart if the viewport changed while the report was open.
+    const button = Array.from(
+      root.querySelectorAll<HTMLButtonElement>("button[data-report-id]"),
+    ).find(
+      (node) =>
+        node.dataset.reportId === showId && node.getClientRects().length > 0,
+    );
+    (
+      button ?? root.querySelector<HTMLInputElement>('input[type="search"]')
+    )?.focus();
+  };
   const filtered = useMemo(
     () =>
       data.services.filter((service) =>
-        `${service.name} ${service.serviceDate}`
+        `${service.name} ${service.serviceDate} ${displayDate(service.serviceDate)}`
           .toLowerCase()
           .includes(query.trim().toLowerCase()),
       ),
     [data.services, query],
   );
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const page = Math.min(search.page, pageCount);
-  const rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const selected = data.services.find((service) => service.id === detailShowId);
-  const detailDate = selected?.serviceDate ?? null;
-
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)),
+    page = Math.min(search.page, pageCount),
+    rows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const selected = search.show
+    ? data.services.find((service) => service.id === search.show)
+    : data.services.find((service) => service.serviceDate === search.date);
+  const openReport = (service: ShowReportIndexItem) =>
+    void navigate({
+      search: { show: service.id, date: service.serviceDate, page },
+    });
+  const closeReport = () =>
+    void navigate({
+      search: { show: undefined, date: undefined, page },
+      replace: true,
+    });
   useEffect(() => {
-    if (search.page <= pageCount) return;
-    void navigate({ search: { ...search, page: pageCount }, replace: true });
-  }, [navigate, pageCount, search]);
-
-  useEffect(() => {
-    if (!detailDate || detail || detailLoading || detailError) return;
-    let active = true;
-    setDetailLoading(true);
-    void exportShowReport({
-      data: { orgId: data.orgId, serviceDate: detailDate, showId: detailShowId ?? undefined },
-    })
-      .then((result) => {
-        if (active) setDetail(result);
-      })
-      .catch(() => {
-        if (active) setDetailError("The report details could not be loaded.");
-      })
-      .finally(() => {
-        if (active) setDetailLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [data.orgId, detail, detailDate, detailError, detailShowId]);
-
-  const openReport = async (showId: string, serviceDate: string) => {
-    setDetailShowId(showId);
-    setDetail(null);
-    setDetailError(null);
-    setExportError(null);
-    setDetailLoading(true);
-    void navigate({ search: { date: serviceDate, show: showId, page }, replace: true });
-    try {
-      setDetail(
-        await exportShowReport({ data: { orgId: data.orgId, serviceDate, showId } }),
-      );
-    } catch {
-      setDetailError("The report details could not be loaded.");
-    } finally {
-      setDetailLoading(false);
-    }
-  };
-
-  const closeReport = () => {
-    setDetailShowId(null);
-    setDetail(null);
-    setDetailError(null);
-    setExportError(null);
-    void navigate({ search: { date: undefined, show: undefined, page }, replace: true });
-  };
-
-  const exportReport = async (format: "pdf" | "csv") => {
-    if (!detailDate) return;
-    setExporting(format);
-    setExportError(null);
-    try {
-      const report =
-        detail ??
-        (await exportShowReport({
-          data: { orgId: data.orgId, serviceDate: detailDate, showId: detailShowId ?? undefined },
-        }));
-      const exports = await import("@/lib/rundown-export");
-      if (format === "pdf") await exports.exportRundownPdf(report);
-      else exports.exportRundownCsv(report);
-    } catch (error) {
-      setExportError(error instanceof Error ? error.message : "The export could not be generated.");
-    } finally {
-      setExporting(null);
-    }
-  };
-
+    if (search.page > pageCount)
+      void navigate({ search: { ...search, page: pageCount }, replace: true });
+  }, [search, pageCount, navigate]);
+  const reportButton = (service: ShowReportIndexItem) => (
+    <button
+      type="button"
+      data-report-id={service.id}
+      aria-label={`Open report: ${service.name}, ${displayDate(service.serviceDate)}`}
+      onClick={() => openReport(service)}
+      className="min-h-11 w-full break-words rounded text-left text-sm font-semibold text-board-text hover:text-fire-400 focus-visible:outline-2 focus-visible:outline-fire-500"
+    >
+      {service.name}
+      <span className="mt-1 block text-xs font-normal text-fire-400">
+        View details
+      </span>
+    </button>
+  );
   return (
-    <div className="h-full overflow-auto">
+    <div ref={listRoot} className="h-full min-w-0 overflow-auto">
       <header className="sticky top-0 z-10 border-b border-board-border bg-board-bg/90 px-4 py-3 backdrop-blur-xl md:px-6">
         <div className="flex items-center gap-2">
-          <h1 className="text-lg font-semibold text-board-text">Reports &amp; notes</h1>
-          <ContextHelp title="Reports & notes" description="Everyone on the team can review show outcomes here. Production and Technical Managers can add optional notes, and exports include every saved note." className="size-7" />
+          <h1 className="text-lg font-semibold">Reports &amp; notes</h1>
+          <ContextHelp
+            title="Reports & notes"
+            description="Everyone on the team can review show outcomes here. Production and Technical Managers can add optional notes, and exports include every saved note."
+            className="size-11"
+          />
         </div>
       </header>
-
       <div className="mx-auto max-w-[1500px] p-4 md:p-6">
-        <section className="mb-4 flex items-start gap-3 rounded-xl border border-fire-500/20 bg-fire-500/[0.055] p-4">
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-fire-500/10 text-fire-400"><MessageSquareText className="h-4 w-4" /></span>
+        <section className="mb-4 flex items-start gap-3 rounded-xl border border-fire-500/20 bg-fire-500/5 p-4">
+          <MessageSquareText className="mt-1 size-5 shrink-0 text-fire-400" />
           <div>
-            <h2 className="text-sm font-semibold text-board-text">Post-show notes live here</h2>
-            <p className="mt-1 text-xs leading-5 text-board-muted">Open any show to read the team handoff. Production and Technical Managers can add or update their notes here at any time; reminders bring them back to this same page.</p>
+            <h2 className="text-sm font-semibold">Post-show notes live here</h2>
+            <p className="mt-1 text-sm text-board-muted">
+              Open any show to read the team handoff. Production and Technical
+              Managers can add or update their notes here at any time.
+            </p>
           </div>
         </section>
         <section className="overflow-hidden rounded-xl border border-board-border bg-board-card">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-board-border p-3">
-            <label className="relative block w-full max-w-sm">
-              <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-board-muted" />
-              <input
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  void navigate({
-                    search: { date: undefined, show: undefined, page: 1 },
-                    replace: true,
-                  });
-                }}
-                placeholder="Search reports"
-                className="w-full rounded-lg border border-board-border bg-board-bg py-2 pl-9 pr-3 text-xs text-board-text outline-none focus:border-fire-500/50"
-              />
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-board-border p-3">
+            <label className="block w-full max-w-sm text-sm text-board-muted">
+              Search reports
+              <span className="relative mt-1 block">
+                <Search className="pointer-events-none absolute left-3 top-3.5 size-4" />
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    void navigate({
+                      search: { ...search, page: 1 },
+                      replace: true,
+                    });
+                  }}
+                  placeholder="Show name or date"
+                  className="min-h-11 w-full rounded-lg border border-board-border bg-board-bg pl-9 pr-3 text-sm text-board-text focus-visible:outline-2 focus-visible:outline-fire-500"
+                />
+              </span>
             </label>
-            <p className="text-[11px] text-board-muted">
+            <p className="py-3 text-sm text-board-muted">
               {filtered.length} report{filtered.length === 1 ? "" : "s"}
             </p>
           </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-left">
+          <div className="hidden xl:block">
+            <table className="w-full table-fixed text-left text-sm">
+              <caption className="sr-only">
+                Show reports. Open a show to read its full report and manager
+                notes.
+              </caption>
               <thead>
-                <tr className="border-b border-board-border text-[9px] uppercase tracking-wider text-board-muted">
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Show</th>
-                  <th className="px-4 py-3">Elapsed time</th>
-                  <th className="px-4 py-3">Rundown</th>
-                  <th className="px-4 py-3">Checklist</th>
-                  <th className="px-4 py-3">Incidents</th>
-                  <th className="px-4 py-3">Crew</th>
-                  <th className="px-4 py-3" />
+                <tr className="border-b border-board-border text-xs text-board-muted">
+                  <th className="w-[16%] p-3" scope="col">
+                    Date
+                  </th>
+                  <th className="w-[26%] p-3" scope="col">
+                    Show
+                  </th>
+                  <th className="w-[14%] p-3" scope="col">
+                    Elapsed time
+                  </th>
+                  <th className="p-3" scope="col">
+                    Rundown
+                  </th>
+                  <th className="p-3" scope="col">
+                    Checklist
+                  </th>
+                  <th className="p-3" scope="col">
+                    Incidents
+                  </th>
+                  <th className="p-3" scope="col">
+                    Crew
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((service) => (
                   <tr
                     key={service.id}
-                    onClick={() => void openReport(service.id, service.serviceDate)}
-                    className="cursor-pointer border-b border-board-border/60 text-xs last:border-0 hover:bg-fire-500/[0.04]"
+                    className="border-b border-board-border/60 last:border-0"
                   >
-                    <td className="px-4 py-3 text-board-text">
-                      {displayDate(service.serviceDate)}
-                    </td>
-                    <td className="max-w-[190px] truncate px-4 py-3 font-medium text-board-text">
-                      {service.name}
-                    </td>
-                    <td className="px-4 py-3 text-board-muted">
+                    <td className="p-3">{displayDate(service.serviceDate)}</td>
+                    <td className="p-3">{reportButton(service)}</td>
+                    <td className="p-3 text-board-muted">
                       {duration(service.actualStart, service.actualEnd)}
                     </td>
-                    <td className="px-4 py-3 text-board-muted">
-                      {service.itemCount
-                        ? `${Math.round((service.completedItems / service.itemCount) * 100)}%`
-                        : "—"}
+                    <td className="p-3 text-board-muted">
+                      {percentage(service.completedItems, service.itemCount)}
                     </td>
-                    <td className="px-4 py-3 text-board-muted">
-                      {service.checklistTotal
-                        ? `${Math.round((service.checklistComplete / service.checklistTotal) * 100)}%`
-                        : "—"}
+                    <td className="p-3 text-board-muted">
+                      {percentage(
+                        service.checklistComplete,
+                        service.checklistTotal,
+                      )}
                     </td>
-                    <td className="px-4 py-3 text-board-muted">
+                    <td className="p-3 text-board-muted">
                       {service.incidentCount}
                     </td>
-                    <td className="px-4 py-3 text-board-muted">
+                    <td className="p-3 text-board-muted">
                       {service.crewConfirmed}/{service.crewTotal}
-                    </td>
-                    <td className="px-4 py-3 text-right text-fire-400">
-                      View details
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-
-          {!rows.length ? (
-            <p className="py-16 text-center text-xs text-board-muted">
-              No matching reports.
+          <div className="xl:hidden">
+            {rows.map((service) => (
+              <article
+                key={service.id}
+                className="space-y-3 border-b border-board-border p-4 last:border-0"
+              >
+                <p className="text-sm text-board-muted">
+                  {displayDate(service.serviceDate)}
+                </p>
+                <h3>{reportButton(service)}</h3>
+                <dl className="grid grid-cols-2 gap-3 text-sm">
+                  {[
+                    [
+                      "Elapsed time",
+                      duration(service.actualStart, service.actualEnd),
+                    ],
+                    [
+                      "Rundown complete",
+                      percentage(service.completedItems, service.itemCount),
+                    ],
+                    [
+                      "Checklist complete",
+                      percentage(
+                        service.checklistComplete,
+                        service.checklistTotal,
+                      ),
+                    ],
+                    ["Incidents", service.incidentCount],
+                    [
+                      "Crew confirmed",
+                      `${service.crewConfirmed}/${service.crewTotal}`,
+                    ],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <dt className="text-board-muted">{label}</dt>
+                      <dd>{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </article>
+            ))}
+          </div>
+          {!rows.length && (
+            <p
+              role="status"
+              className="p-12 text-center text-sm text-board-muted"
+            >
+              {query
+                ? "No matching reports. Try another show name or date."
+                : "No reports in the past year. Reports appear here when a show is created."}
             </p>
-          ) : null}
-
-          {filtered.length > PAGE_SIZE ? (
-            <div className="flex items-center justify-between border-t border-board-border px-4 py-3">
-              <p className="text-[11px] text-board-muted">
+          )}
+          {filtered.length > PAGE_SIZE && (
+            <nav
+              aria-label="Report pages"
+              className="flex flex-wrap items-center justify-between gap-3 border-t border-board-border p-3"
+            >
+              <p className="text-sm text-board-muted">
                 Page {page} of {pageCount}
               </p>
               <div className="flex gap-2">
-                <PageButton
-                  label="Previous page"
+                <button
+                  className={action}
+                  aria-label="Previous page"
                   disabled={page === 1}
                   onClick={() =>
                     void navigate({
-                      search: { date: undefined, show: undefined, page: page - 1 },
+                      search: {
+                        date: undefined,
+                        show: undefined,
+                        page: page - 1,
+                      },
                     })
                   }
                 >
-                  <ChevronLeft className="h-4 w-4" />
-                </PageButton>
-                <PageButton
-                  label="Next page"
+                  <ChevronLeft className="size-4" />
+                </button>
+                <button
+                  className={action}
+                  aria-label="Next page"
                   disabled={page === pageCount}
                   onClick={() =>
                     void navigate({
-                      search: { date: undefined, show: undefined, page: page + 1 },
+                      search: {
+                        date: undefined,
+                        show: undefined,
+                        page: page + 1,
+                      },
                     })
                   }
                 >
-                  <ChevronRight className="h-4 w-4" />
-                </PageButton>
+                  <ChevronRight className="size-4" />
+                </button>
               </div>
-            </div>
-          ) : null}
+            </nav>
+          )}
         </section>
       </div>
-
-      {detailShowId && detailDate ? (
+      {selected ? (
         <ReportDetailModal
+          key={`${data.orgId}:${selected.id}`}
+          orgId={data.orgId}
           service={selected}
-          report={detail}
-          loading={detailLoading}
-          error={detailError}
-          exporting={exporting}
-          exportError={exportError}
           onClose={closeReport}
-          onExport={exportReport}
-          onReportChange={setDetail}
+          onReturnFocus={() => restoreReportFocus(selected.id)}
         />
+      ) : search.show || search.date ? (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) closeReport();
+          }}
+        >
+          <DialogContent showCloseButton={false} className="bg-board-card">
+            <DialogTitle>Report unavailable</DialogTitle>
+            <DialogDescription>
+              This show is not in the accessible report list for the past year.
+              Close this dialog to choose another show.
+            </DialogDescription>
+            <button className={action} onClick={closeReport}>
+              Back to reports
+            </button>
+          </DialogContent>
+        </Dialog>
       ) : null}
     </div>
-  );
-}
-
-function PageButton({
-  label,
-  disabled,
-  onClick,
-  children,
-}: {
-  label: string;
-  disabled: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="grid h-8 w-8 place-items-center rounded-lg border border-board-border text-board-text disabled:opacity-30"
-    >
-      {children}
-    </button>
   );
 }
 
 function ReportDetailModal({
-  service,
-  report,
-  loading,
-  error,
-  exporting,
-  exportError,
-  onClose,
-  onExport,
-  onReportChange,
-}: {
-  service:
-    | ReturnType<typeof Route.useLoaderData>["services"][number]
-    | undefined;
-  report: ShowReport | null;
-  loading: boolean;
-  error: string | null;
-  exporting: "pdf" | "csv" | null;
-  exportError: string | null;
-  onClose: () => void;
-  onExport: (format: "pdf" | "csv") => void;
-  onReportChange: (report: ShowReport) => void;
-}) {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Show report details"
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 backdrop-blur-md sm:items-center sm:p-5"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div className="max-h-[95dvh] w-full max-w-4xl overflow-auto rounded-t-2xl border border-board-border bg-board-card shadow-2xl sm:rounded-2xl">
-        <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-board-border bg-board-card/95 p-5 backdrop-blur-xl">
-          <div>
-            <p className="text-[10px] uppercase tracking-wider text-fire-400">
-              {service ? displayDate(service.serviceDate) : "Show report"}
-            </p>
-            <h2 className="mt-1 text-xl font-semibold text-board-text">
-              {service?.name || "Report details"}
-            </h2>
-          </div>
-          <button
-            aria-label="Close report"
-            onClick={onClose}
-            className="grid h-9 w-9 place-items-center rounded-lg border border-board-border text-board-muted hover:text-board-text"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </header>
-
-        {error ? (
-          <div className="grid min-h-72 place-items-center px-6 text-center text-sm text-red-300">
-            {error}
-          </div>
-        ) : loading || !report ? (
-          <div className="grid min-h-72 place-items-center text-sm text-board-muted">
-            Loading full report…
-          </div>
-        ) : (
-          <div className="space-y-5 p-5">
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-              <ReportMetric
-                icon={Clock3}
-                label="Planned duration"
-                value={plannedDuration(report.summary.plannedDurationMs)}
-              />
-              <ReportMetric
-                icon={CheckCircle2}
-                label="Rundown complete"
-                value={`${report.summary.completedItems}/${report.summary.totalItems}`}
-              />
-              <ReportMetric
-                icon={Users}
-                label="Crew positions"
-                value={report.crew.length}
-              />
-              <ReportMetric
-                icon={AlertTriangle}
-                label="Incidents"
-                value={report.incidents.length}
-              />
-            </div>
-
-            <ManagerNotes
-              orgId={report.organization.id}
-              report={report}
-              onReportChange={onReportChange}
-            />
-
-            <DetailSection
-              title="Crew"
-              icon={Users}
-              empty={!report.crew.length}
-            >
-              {report.crew.map((person, index) => (
-                <DetailRow
-                  key={`${person.role}-${index}`}
-                  title={person.role}
-                  detail={person.name}
-                  meta={person.status}
-                />
-              ))}
-            </DetailSection>
-
-            <DetailSection
-              title="Incidents"
-              icon={AlertTriangle}
-              empty={!report.incidents.length}
-            >
-              {report.incidents.map((incident) => (
-                <DetailRow
-                  key={incident.id}
-                  title={`${incident.category} · ${incident.severity}`}
-                  detail={incident.description}
-                  meta={incident.reportedBy || "Unknown reporter"}
-                />
-              ))}
-            </DetailSection>
-
-            <DetailSection
-              title="Checklist"
-              icon={ListChecks}
-              empty={!report.checklist.length}
-            >
-              {report.checklist.map((item) => (
-                <DetailRow
-                  key={item.id}
-                  title={item.label}
-                  detail={item.category}
-                  meta={item.checked ? "Complete" : "Incomplete"}
-                />
-              ))}
-            </DetailSection>
-
-            <div className="flex flex-wrap gap-2 border-t border-board-border pt-5">
-              <button
-                disabled={Boolean(exporting)}
-                onClick={() => onExport("pdf")}
-                className="rounded-lg bg-fire-500 px-3 py-2 text-xs font-semibold text-black disabled:opacity-50"
-              >
-                <Download className="mr-1.5 inline h-3.5 w-3.5" />
-                {exporting === "pdf" ? "Generating…" : "Export PDF"}
-              </button>
-              <button
-                disabled={Boolean(exporting)}
-                onClick={() => onExport("csv")}
-                className="rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-text disabled:opacity-50"
-              >
-                Export CSV
-              </button>
-            </div>
-            {exportError ? <p className="text-xs text-red-300">{exportError}</p> : null}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ManagerNotes({
   orgId,
-  report,
-  onReportChange,
+  service,
+  onClose,
+  onReturnFocus,
 }: {
   orgId: string;
-  report: ShowReport;
-  onReportChange: (report: ShowReport) => void;
+  service: ShowReportIndexItem;
+  onClose: () => void;
+  onReturnFocus: () => void;
 }) {
-  const writable = report.viewer.writableNoteLanes;
-  const ownNote = report.managerNotes.find((note) => note.userId === report.viewer.userId && note.role === (writable[0] ?? "pm"));
-  const [lane, setLane] = useState<ShowReportLane>(ownNote?.role ?? writable[0] ?? "pm");
-  const [draft, setDraft] = useState(() => ({
-    summary: ownNote?.summary ?? "",
-    wins: ownNote?.wins ?? "",
-    issues: ownNote?.issues ?? "",
-    followUps: ownNote?.followUps ?? "",
-  }));
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-
-  const selectLane = (value: ShowReportLane) => {
-    const saved = report.managerNotes.find((note) => note.userId === report.viewer.userId && note.role === value);
-    setLane(value);
-    setDraft({
-      summary: saved?.summary ?? "",
-      wins: saved?.wins ?? "",
-      issues: saved?.issues ?? "",
-      followUps: saved?.followUps ?? "",
-    });
-    setMessage("");
+  const readReport = useCallback(
+    (signal: AbortSignal) =>
+      exportShowReport({
+        data: { orgId, showId: service.id, serviceDate: service.serviceDate },
+        signal,
+      }),
+    [orgId, service.id, service.serviceDate],
+  );
+  const read = useOperatorRead<ShowReport | null>({
+    key: `${orgId}:${service.id}`,
+    initialValue: null,
+    read: readReport,
+    errorMessage:
+      "The report details could not be confirmed. Retry the read; no notes will be changed.",
+  });
+  const [updated, setUpdated] = useState<ShowReport | null>(null),
+    report = updated ?? read.value;
+  const [editing, setEditing] = useState<ReportEditingState>({
+    dirty: false,
+    unconfirmed: false,
+  });
+  const allowClose = useRef(false);
+  const guarded = editing.dirty || editing.unconfirmed;
+  const blocker = useBlocker({
+    shouldBlockFn: () => guarded && !allowClose.current,
+    enableBeforeUnload: guarded,
+    withResolver: true,
+  });
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
+  const leaveDescription = editing.unconfirmed
+    ? "A note save may still complete. Leaving discards your local drafts and retry controls. Reopen the report to check saved notes before making another change."
+    : "Your unsaved manager note drafts will be discarded. Saved notes are kept.";
+  const requestClose = async () => {
+    if (
+      guarded &&
+      !(await confirm({
+        title: "Leave this report?",
+        description: leaveDescription,
+        confirmLabel: "Leave report",
+        variant: "warning",
+      }))
+    )
+      return;
+    allowClose.current = true;
+    onClose();
   };
-
-  const save = async () => {
-    setSaving(true);
-    setMessage("");
+  const onNoteChange = (note: ShowReportNote | null, lane: ShowReportLane) =>
+    setUpdated((previous) => {
+      const value = previous ?? read.value;
+      if (!value) return value;
+      return {
+        ...value,
+        managerNotes: [
+          ...value.managerNotes.filter(
+            (item) => item.userId !== value.viewer.userId || item.role !== lane,
+          ),
+          ...(note ? [note] : []),
+        ],
+      };
+    });
+  const flight = useRef<AbortController | null>(null);
+  const [exporting, setExporting] = useState<"pdf" | "csv" | null>(null);
+  const [exportFailure, setExportFailure] = useState<{
+    format: "pdf" | "csv";
+    at: number;
+  } | null>(null);
+  useEffect(
+    () => () => {
+      flight.current?.abort();
+      flight.current = null;
+    },
+    [],
+  );
+  const exportReport = async (format: "pdf" | "csv") => {
+    if (flight.current || editing.unconfirmed) return;
+    const controller = new AbortController();
+    flight.current = controller;
+    setExporting(format);
+    setExportFailure(null);
     try {
-      const note = await saveShowReportNote({
-        data: { orgId, showId: report.showId, role: lane, ...draft },
-      });
-      const notes = [...report.managerNotes.filter((item) => item.userId !== note.userId || item.role !== note.role), note]
-        .sort((left, right) => left.role.localeCompare(right.role) || left.updatedAt.localeCompare(right.updatedAt));
-      onReportChange({ ...report, managerNotes: notes });
-      setMessage("Notes saved and included in exports.");
-    } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : "The notes could not be saved.");
+      await withOperationTimeout(
+        (async () => {
+          const fresh = await readReport(controller.signal);
+          const exports = await import("@/lib/rundown-export");
+          if (controller.signal.aborted) return;
+          if (format === "pdf")
+            await exports.exportRundownPdf(fresh, controller.signal);
+          else exports.exportRundownCsv(fresh);
+        })(),
+        15_000,
+        "Report export timed out",
+      );
+    } catch {
+      if (flight.current === controller)
+        setExportFailure({ format, at: Date.now() });
     } finally {
-      setSaving(false);
+      controller.abort();
+      if (flight.current === controller) {
+        flight.current = null;
+        setExporting(null);
+      }
     }
   };
-
   return (
-    <section className="overflow-hidden rounded-xl border border-board-border">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-board-border bg-board-bg/40 px-4 py-3">
-        <div>
-          <h3 className="flex items-center gap-2 text-xs font-semibold text-board-text">
-            <MessageSquareText className="h-3.5 w-3.5 text-fire-400" />
-            Manager notes
-          </h3>
-          <p className="mt-1 text-[11px] leading-5 text-board-muted">Optional context from Production and Technical Managers travels with the PDF and CSV.</p>
-        </div>
-        {writable.length > 1 ? (
-          <div className="flex max-w-full flex-wrap gap-1 rounded-lg border border-board-border bg-board-card p-1" role="group" aria-label="Manager note role">
-            {writable.map((value) => (
-              <button key={value} type="button" aria-pressed={lane === value} onClick={() => selectLane(value)} className={`min-h-11 max-w-full rounded-md px-2.5 py-2 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-fire-500 ${lane === value ? "bg-fire-500 text-black" : "text-board-muted"}`}>
-                {value === "pm" ? "Production Manager note" : "Technical Manager note"}
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
-
-      {report.managerNotes.length ? (
-        <div className="grid gap-3 border-b border-board-border p-4 md:grid-cols-2">
-          {report.managerNotes.map((note) => (
-            <article key={note.id} className="rounded-lg border border-board-border/70 bg-board-bg/45 p-3">
-              <p className="text-xs font-semibold text-board-text">{note.role === "pm" ? "Production Manager" : "Technical Manager"} · {note.authorName}</p>
-              {note.summary ? <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-board-text/85">{note.summary}</p> : null}
-              {note.wins ? <NoteLine label="What worked" value={note.wins} /> : null}
-              {note.issues ? <NoteLine label="Issues / changes" value={note.issues} /> : null}
-              {note.followUps ? <NoteLine label="Follow-up" value={note.followUps} /> : null}
-            </article>
-          ))}
-        </div>
-      ) : null}
-
-      {writable.length ? (
-        <div className="space-y-3 p-4">
-          <div className="grid gap-3 md:grid-cols-2">
-            <NoteField label="Overall summary" value={draft.summary} onChange={(summary) => setDraft((current) => ({ ...current, summary }))} placeholder="How did the show go overall?" />
-            <NoteField label="What worked" value={draft.wins} onChange={(wins) => setDraft((current) => ({ ...current, wins }))} placeholder="People, process, cues, or systems to repeat" />
-            <NoteField label="Issues or changes" value={draft.issues} onChange={(issues) => setDraft((current) => ({ ...current, issues }))} placeholder="What changed, failed, or ran differently?" />
-            <NoteField label="Follow-up" value={draft.followUps} onChange={(followUps) => setDraft((current) => ({ ...current, followUps }))} placeholder="Owner, action, and next deadline" />
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className={`text-[11px] ${message.includes("could not") || message.includes("do not have") ? "text-red-300" : "text-board-muted"}`}>{message || "Nothing here is compulsory; save only useful operational context."}</p>
-            <button type="button" disabled={saving} onClick={() => void save()} className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-fire-500 px-3 text-xs font-semibold text-black disabled:opacity-50">
-              <Save className="h-3.5 w-3.5" />{saving ? "Saving…" : "Save my notes"}
+    <>
+      <Dialog
+        open
+        onOpenChange={(open) => {
+          if (!open) void requestClose();
+        }}
+      >
+        <DialogContent
+          showCloseButton={false}
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            onReturnFocus();
+          }}
+          className="flex max-h-[95dvh] min-w-0 flex-col gap-0 overflow-hidden border-board-border bg-board-card p-0 text-board-text sm:max-w-4xl"
+        >
+          <header className="flex shrink-0 items-start justify-between gap-3 border-b border-board-border p-4">
+            <div className="max-h-[30dvh] min-w-0 overflow-y-auto pr-1">
+              <p className="text-xs text-fire-400">
+                {displayDate(service.serviceDate)}
+              </p>
+              <DialogTitle className="mt-1 break-words leading-7">
+                {service.name}
+              </DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-board-muted">
+                Show report details and saved manager notes.
+              </DialogDescription>
+            </div>
+            <button
+              aria-label="Close report"
+              className={`${action} grid shrink-0 place-items-center p-2`}
+              onClick={() => void requestClose()}
+            >
+              <X className="size-4" />
             </button>
+          </header>
+          <div className="min-h-0 min-w-0 overflow-y-auto overscroll-contain">
+            <ReadFailureNotice
+              error={read.error}
+              refreshing={read.refreshing}
+              retry={read.retry}
+              label="Retry report details"
+            />
+            {!report ? (
+              !read.error && (
+                <p
+                  role="status"
+                  className="p-8 text-center text-sm text-board-muted"
+                >
+                  Loading full report…
+                </p>
+              )
+            ) : (
+              <div className="min-w-0 space-y-5 p-4">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <ReportMetric
+                    icon={Clock3}
+                    label="Planned duration"
+                    value={plannedDuration(report.summary.plannedDurationMs)}
+                  />
+                  <ReportMetric
+                    icon={CheckCircle2}
+                    label="Rundown complete"
+                    value={`${report.summary.completedItems}/${report.summary.totalItems}`}
+                  />
+                  <ReportMetric
+                    icon={Users}
+                    label="Crew positions"
+                    value={report.crew.length}
+                  />
+                  <ReportMetric
+                    icon={AlertTriangle}
+                    label="Incidents"
+                    value={report.incidents.length}
+                  />
+                </div>
+                <ManagerReportNotes
+                  report={report}
+                  onNoteChange={onNoteChange}
+                  onEditingChange={setEditing}
+                />
+                <DetailSection
+                  title="Crew"
+                  icon={Users}
+                  empty={!report.crew.length}
+                >
+                  {report.crew.map((person, index) => (
+                    <DetailRow
+                      key={`${person.role}-${index}`}
+                      title={person.role}
+                      detail={person.name}
+                      meta={person.status}
+                    />
+                  ))}
+                </DetailSection>
+                <DetailSection
+                  title="Incidents"
+                  icon={AlertTriangle}
+                  empty={!report.incidents.length}
+                >
+                  {report.incidents.map((incident) => (
+                    <DetailRow
+                      key={incident.id}
+                      title={`${incident.category} · ${incident.severity}`}
+                      detail={incident.description}
+                      meta={incident.reportedBy || "Unknown reporter"}
+                    />
+                  ))}
+                </DetailSection>
+                <DetailSection
+                  title="Checklist"
+                  icon={ListChecks}
+                  empty={!report.checklist.length}
+                >
+                  {report.checklist.map((item) => (
+                    <DetailRow
+                      key={item.id}
+                      title={item.label}
+                      detail={item.category}
+                      meta={item.checked ? "Complete" : "Incomplete"}
+                    />
+                  ))}
+                </DetailSection>
+                <div className="flex flex-wrap gap-2 border-t border-board-border pt-4">
+                  {(["pdf", "csv"] as const).map((format) => (
+                    <button
+                      key={format}
+                      className={`${action} inline-flex items-center gap-2`}
+                      disabled={!!exporting || editing.unconfirmed}
+                      onClick={() => void exportReport(format)}
+                    >
+                      <Download className="size-4" />
+                      {exporting === format
+                        ? "Generating…"
+                        : `Export ${format.toUpperCase()}`}
+                    </button>
+                  ))}
+                </div>
+                {exportFailure && (
+                  <div
+                    role="alert"
+                    className="space-y-2 text-sm text-amber-200"
+                  >
+                    <p>
+                      The export could not be generated. Saved notes are
+                      unchanged. Last error{" "}
+                      <time dateTime={new Date(exportFailure.at).toISOString()}>
+                        {new Date(exportFailure.at).toLocaleTimeString()}
+                      </time>
+                    </p>
+                    <button
+                      className={action}
+                      onClick={() => void exportReport(exportFailure.format)}
+                    >
+                      Retry {exportFailure.format.toUpperCase()} export
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        </div>
-      ) : report.managerNotes.length === 0 ? (
-        <p className="px-4 py-5 text-xs text-board-muted">No Production or Technical Manager notes were submitted for this show.</p>
-      ) : null}
-    </section>
+        </DialogContent>
+      </Dialog>
+      {ConfirmDialogEl}
+      <ConfirmDialog
+        open={blocker.status === "blocked"}
+        onOpenChange={(open) => {
+          if (!open) blocker.reset?.();
+        }}
+        onConfirm={() => blocker.proceed?.()}
+        title="Leave this report?"
+        description={leaveDescription}
+        confirmLabel="Leave report"
+        cancelLabel="Keep editing"
+        variant="warning"
+      />
+    </>
   );
-}
-
-function NoteField({ label, value, placeholder, onChange }: { label: string; value: string; placeholder: string; onChange: (value: string) => void }) {
-  return (
-    <label className="space-y-1.5 text-[11px] font-medium text-board-muted">
-      {label}
-      <textarea value={value} onChange={(event) => onChange(event.target.value)} maxLength={4_000} rows={3} placeholder={placeholder} className="w-full resize-y rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs leading-5 text-board-text outline-none placeholder:text-board-muted/45 focus:border-fire-500/50" />
-    </label>
-  );
-}
-
-function NoteLine({ label, value }: { label: string; value: string }) {
-  return <p className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-board-muted"><span className="font-semibold text-board-text/80">{label}:</span> {value}</p>;
 }
 
 function DetailSection({

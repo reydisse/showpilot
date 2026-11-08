@@ -47,6 +47,10 @@ export interface ExportReport {
 /** Download a string as a file in the browser. */
 function downloadFile(filename: string, content: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });
+  downloadBlob(filename, blob);
+}
+
+function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -188,11 +192,12 @@ function csvEscape(value: unknown): string {
 }
 
 /** Export rundown as a formatted PDF using pdfmake. */
-export async function exportRundownPdf(report: ExportReport) {
+export async function exportRundownPdf(report: ExportReport, signal?: AbortSignal) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pdfMakeModule = (await import("pdfmake/build/pdfmake.js")) as any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pdfFonts = (await import("pdfmake/build/vfs_fonts.js")) as any;
+  signal?.throwIfAborted();
   const pdfMake = pdfMakeModule.default ?? pdfMakeModule;
   const fontContainer = pdfFonts.default ?? pdfFonts["module.exports"] ?? pdfFonts;
   // pdfmake 0.3 replaced the old `pdfMake.vfs = ...` assignment with an
@@ -341,7 +346,7 @@ export async function exportRundownPdf(report: ExportReport) {
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await pdfMake.createPdf(docDefinition as any).download(
-    `${report.organization.slug}-${report.serviceDate}-report.pdf`,
-  );
+  const blob: Blob = await pdfMake.createPdf(docDefinition as any).getBlob();
+  signal?.throwIfAborted();
+  downloadBlob(`${report.organization.slug}-${report.serviceDate}-report.pdf`, blob);
 }

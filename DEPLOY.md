@@ -5123,3 +5123,53 @@ keyboard and narrow-list work. Static follow-up also found that the first-sessio
 onboarding checklist still suppresses failed reads and writes; that remains open
 in the silent-failure ledger. No production deployment, native release or real
 organization changes.
+
+
+## Phase 2 Reports recovery, 2026-11-07
+
+Reports now bounds detail reads and exports, exposes persistent errors with
+Retry, and ignores late responses after changing or closing the selected report.
+Exports fetch current saved notes; an aborted PDF cannot download after its
+original window closes. The shared Dialog protects unsaved and unconfirmed
+notes on Close, Escape, browser Back and route navigation. Each manager role
+keeps its own draft, including through conflicts and lost save replies.
+
+Migration `0074_report_note_recovery.sql` adds note revisions and actor-scoped
+write receipts. It must follow 0073 before deploying this code. The receipt and
+conditional save commit atomically. An exact replay returns its original outcome
+and the latest note without applying the old text again. Changed request payloads
+are rejected; concurrent first saves and stale revisions require review. A trigger
+includes legacy note edits in revision checks. Current membership and role access
+are checked on every request, including retries. This migration ran only in
+local disposable fixtures; the production migration manifest is unchanged.
+
+The list now has labeled search, 44px pagination, native report buttons for
+keyboard activation, and cards below xl. Browser checks exposed two additional
+problems: closing after changing breakpoints lost focus, and long titles could
+hide Close in a short window. Focus now returns to the visible report button,
+and the title scrolls within a bounded area while Close stays reachable.
+
+Verification: nine new Worker cases and five component/PDF cases, 2,356 unit
+tests, 1,181 Worker tests, typecheck and production build passed. The compiled
+`smoke-reports-recovery.mjs` rehearsal uses real authentication and local D1.
+It covers pagination at 320/768/1024/1440px, 320x480 long-title dialogs, keyboard
+activation/focus return, read timeout and late replies, per-role drafts,
+Escape/Back discard cancellation, a withheld committed save followed by a newer
+save and exact Retry, explicit conflict review, actual PDF/CSV downloads with
+fresh saved notes, and closing during export. Final storage has five receipts
+and two notes; no runtime errors or outgoing emails. The existing operator-copy
+browser regression also passed. Phone screenshots were inspected.
+
+Logs: /tmp/showpilot-report-notes-before.log (four reproduced failures),
+/tmp/showpilot-report-notes-after2.log, /tmp/showpilot-reports-ui-tests2.log,
+/tmp/showpilot-reports-full2.log, /tmp/showpilot-reports-tsc4.log,
+/tmp/showpilot-reports-build5.log, /tmp/showpilot-reports-browser6.log and
+/tmp/showpilot-reports-copy.log. Main entry: 551,905 raw / 174,550 gzip bytes.
+Screenshots: /tmp/showpilot-reports-list-320.png,
+/tmp/showpilot-reports-notes-320.png and
+/tmp/showpilot-reports-long-name-320-short.png.
+
+Phase 2 remains 60/79 verified. This completes the Reports portion of the broad
+loading/dialog/keyboard/narrow-screen requirements. First-session checklist
+failures, assignment controls, and the remaining product-wide gates are still
+open. No production deployment, native release or real-organization changes.
