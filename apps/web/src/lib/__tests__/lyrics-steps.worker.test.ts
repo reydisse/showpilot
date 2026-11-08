@@ -68,14 +68,17 @@ it.each([
   expect((await test.events())[0]).toMatchObject({ fired: false, executionStatus: "failed", executionRetryable: false, executionError: `Already at the ${boundary} song section.` });
 });
 
-it("honors disable, kill switch, explicit retry and reviewed re-fire", async () => {
+it.each([
+  ["lyrics-next-section", 0, 2],
+  ["lyrics-previous-section", 2, 0],
+] as const)("honors disable, kill switch, explicit retry and reviewed re-fire for %s", async (action, startIndex, endIndex) => {
   const test = await fixture();
-  await test.add("next", "lyrics-next-section", false);
+  await test.add("next", action, false);
   await test.command("fire-event", { id: "next" }, 400);
   await test.command("set-event-enabled", { id: "next", enabled: true });
   await test.command("fire-event", { id: "next" });
   expect((await test.events())[0]).toMatchObject({ fired: false, executionStatus: "failed", executionError: "Show a song section before stepping lyrics." });
-  await test.show();
+  await test.show(startIndex);
   await test.command("set-triggers-enabled", { enabled: false });
   await test.command("fire-event", { id: "next" }, 400);
   await test.command("set-triggers-enabled", { enabled: true });
@@ -86,7 +89,7 @@ it("honors disable, kill switch, explicit retry and reviewed re-fire", async () 
   await test.command("fire-event", { id: "next" }, 400);
   await test.command("rearm-event", { id: "next", confirmed: true, expected: { fired: true, skipped: false, executionId: first.executionId } });
   await test.command("fire-event", { id: "next" });
-  expect((await test.state()).lyrics?.sectionId).toBe(test.ids[2]);
+  expect((await test.state()).lyrics?.sectionId).toBe(test.ids[endIndex]);
 });
 
 it("cannot read lyrics from another organization or advance a removed section", async () => {
