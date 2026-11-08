@@ -27,7 +27,6 @@ import {
   ScheduleServiceSheet,
   ScheduleTeamSheet,
   type ScheduleAssignmentDraft,
-  type ScheduleInventoryDraft,
   type ScheduleServiceDraft,
   type ScheduleTeamDraft,
 } from "@/components/schedule-sheets";
@@ -38,7 +37,7 @@ import { useScreenPollingInterval } from "@/hooks/use-screen-polling";
 import {
   createMobileRundown,
   createMobileScheduleAssignment,
-  createMobileShowInventoryItem,
+  commandMobileInventory,
   copyMobileScheduleTeam,
   getMobileSchedule,
   remindAllMobileScheduleAssignments,
@@ -47,7 +46,6 @@ import {
   removeMobileScheduleService,
   respondToMobileAssignment,
   saveMobileScheduleProvider,
-  setMobileShowInventoryArchived,
   updateMobileScheduleAssignment,
   updateMobileScheduleService,
   type MobileSchedule,
@@ -76,6 +74,7 @@ export default function ScheduleScreen() {
   const styles = useStyles();
   const params = useLocalSearchParams<{ date?: string; assignment?: string }>();
   const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
+  const { data: session, isPending: sessionPending } = authClient.useSession();
   const queryClient = useQueryClient();
   const [editor, setEditor] = useState<EditorState>(null);
   const [decliningId, setDecliningId] = useState<string | null>(null);
@@ -104,8 +103,8 @@ export default function ScheduleScreen() {
     return [...rows].sort((left, right) => Number(right.id === focusedShowId) - Number(left.id === focusedShowId));
   }, [focusedShowId, schedule?.services]);
 
-  if (organizationPending) return <LoadingView label="Opening schedule…" />;
-  if (!organization) return <Redirect href="/organizations" />;
+  if (organizationPending || sessionPending) return <LoadingView label="Opening schedule…" />;
+  if (!organization || !session) return <Redirect href="/organizations" />;
   const orgId = organization.id;
 
   async function refreshSchedule() {
@@ -177,21 +176,6 @@ export default function ScheduleScreen() {
     await saved();
     const missed = results.filter((result) => !result.delivered).length;
     if (missed) Alert.alert("Team created", `${missed} invitation${missed === 1 ? " was" : "s were"} not delivered. Check those roster emails, then resend.`);
-  }
-
-  async function createInventoryItem(draft: ScheduleInventoryDraft) {
-    await createMobileShowInventoryItem({ orgId, ...draft });
-    await saved();
-  }
-
-  async function archiveInventoryItem(item: MobileSchedule["inventory"][number], archived: boolean) {
-    await setMobileShowInventoryArchived({
-      orgId,
-      inventoryId: item.id,
-      expectedUpdatedAt: item.updatedAt,
-      archived,
-    });
-    await saved();
   }
 
   function copyTeam(service: Service, source: Service) {
@@ -273,7 +257,7 @@ export default function ScheduleScreen() {
   const pageAction = (
     <View style={styles.pageActions}>
       {schedule?.canViewFull ? (
-        <Pressable accessibilityLabel="Show inventory" onPress={() => setEditor({ kind: "inventory" })} style={styles.secondaryAction}><Boxes color={colors.textMuted} size={18} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Show inventory" onPress={() => setEditor({ kind: "inventory" })} style={styles.secondaryAction}><Boxes color={colors.textMuted} size={18} /></Pressable>
       ) : null}
       {canManage ? (
         <Pressable accessibilityLabel="Schedule settings" onPress={() => setEditor({ kind: "provider" })} style={styles.secondaryAction}><Settings2 color={colors.textMuted} size={18} /></Pressable>
@@ -412,8 +396,11 @@ export default function ScheduleScreen() {
           }}
         />
       ) : null}
-      {editor?.kind === "inventory" && schedule ? (
-        <ScheduleInventorySheet archivedInventory={schedule.archivedInventory} canManage={schedule.canManage} inventory={schedule.inventory} onArchive={archiveInventoryItem} onClose={() => setEditor(null)} onCreate={createInventoryItem} onUse={(inventoryId) => setEditor({ kind: "service", service: null, initialInventoryId: inventoryId })} savedTemplates={schedule.savedTemplates} />
+      {editor?.kind === "inventory" && schedule && session?.user.id ? (
+        <ScheduleInventorySheet key={`${session.user.id}:${orgId}`} orgId={orgId} userId={session.user.id} active={pollingInterval !== false} onCommand={commandMobileInventory} onRefresh={async (signal) => {
+          await queryClient.invalidateQueries({ queryKey: ["mobile-schedule", orgId] }, { throwOnError: true });
+          if (signal.aborted) throw new Error("Inventory refresh cancelled.");
+        }} archivedInventory={schedule.archivedInventory} canManage={schedule.canManage} inventory={schedule.inventory} onClose={() => setEditor(null)} onUse={(inventoryId) => setEditor({ kind: "service", service: null, initialInventoryId: inventoryId })} savedTemplates={schedule.savedTemplates} />
       ) : null}
     </Page>
   );
@@ -526,7 +513,7 @@ function ActionText({ disabled, label, onPress, tone }: {
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
   pageActions: { flexDirection: "row", gap: 8 },
   addButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.amber },
-  secondaryAction: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
+  secondaryAction: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
   list: { gap: 13, paddingBottom: spacing.large },
   listHeader: { gap: spacing.medium },
   dateBrowser: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 5, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: 5 },

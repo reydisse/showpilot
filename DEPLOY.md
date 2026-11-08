@@ -6700,3 +6700,78 @@ loading, terminology and viewport audits, the owner-provided Founding Member
 closing date and broad gates remain open. No deployment, release, remote
 migration or real-org writes. Twenty necessary tracked Markdown files remain;
 none were added.
+
+
+### Native inventory recovery, Phase 2 partial evidence (2026-11-08)
+
+Three rendered native-sheet baseline failures reproduced draft loss on close,
+archive sending immediately without confirmation, and editable fields while a
+save was unresolved. The actual native component is transpiled for these tests;
+native rendering boundaries are replaced without replacing its state logic.
+
+The native sheet now retains drafts and exact commands per account/workspace in
+Query, locks edits until a request is confirmed or reviewed, and separates write
+recovery from refresh recovery. Commands/reviews expire after 15 seconds and
+refresh after 12 seconds. Native schedule reads also have a 10-second transport
+and response-body deadline. Closing or unfocusing a screen retains late outcomes
+without refreshing that screen; cleared caches and changed accounts cannot be
+repopulated by old results. Archive requires explicit native confirmation with a
+scope note and the reviewed item version. Abandoned confirmation sends nothing.
+Unavailable sources remain selected until explicitly replaced. Buttons wrap,
+mini-buttons and the close control have 44-pixel targets, fields have labels, and
+the Inventory opener has a button role. Disabled archive/restore controls dim.
+
+New `/api/mobile/v1/schedule/inventory/command` and `/review` endpoints return the
+full receipt and current item through the shared 0086 writer. They check the
+selected workspace and actor as well as current membership. Native receipt parsing
+preserves applied/conflict/superseded/cancelled/removed outcomes. The application
+uses these endpoints; old server routes remain for already-installed builds.
+Unused native client wrappers were removed. Both new endpoints are registered
+in the native parity contract list. No new migration; this depends on 0086.
+
+Validation:
+- Twenty native hook/form tests pass for retention, synchronous duplicate-click
+  claims, exact retry, cancellation, separate refresh, timeout/abort, scope/cache
+  isolation, unavailable sources, native confirmation and abandoned confirmation,
+  and late results while unfocused. An initial test run mixed web/native React
+  dispatchers; the fixture now runs the unchanged hook with one React/Query pair.
+- All 22 real-auth/D1 inventory Worker cases pass, including actual native
+  command/review routes, cancellation before delivery, preservation of a later
+  restore, stale versions, actor/workspace mismatch and revoked membership.
+- Full web suite: 2,550 unit / 1,376 Worker tests. Web and native typecheck pass;
+  web production build passes at 549,525 raw / 173,749 gzip main-entry bytes.
+- Native verification passes typecheck, lint with warnings only, Expo doctor,
+  iOS/Android Hermes exports, web export and polling checks. The final native
+  bundles are 5,481,631 bytes for iOS and 5,480,735 for Android, below the
+  unchanged 6,500,000-byte budget.
+- Compiled endpoint rehearsal uses real auth/D1 and the native receipt parser.
+  Create/archive replay, current-state review, late archive after restore,
+  stale-version conflict, cancellation before delivery, a fresh reviewed command,
+  account/workspace checks, anonymous denial and the schedule read pass. The first
+  run lost a local socket on its final schedule read; the identical isolated
+  rerun passed without an application or probe change.
+- Exported Expo web renders the actual native sheet, hook and API client against
+  disposable local data. Draft close/reopen, held-success retry, locked fields,
+  one item, review before delivery and a new request after review pass. A confirmed
+  write followed by an injected schedule-read failure offers Refresh inventory;
+  recovery sends no second write. Final actual hit/text/44px checks cover Retry,
+  Review and Close at 320/768/1440 pixels. Final phone/tablet screenshots were
+  inspected, and there were no browser runtime errors. The first run found
+  the missing Inventory button role; screenshot review also caught the 42-pixel
+  close target. Both were fixed. This is Expo web rendering and native bundle
+  verification, not an iOS/Android device UI rehearsal.
+
+Evidence: `/tmp/showpilot-native-inventory-{before,ui1,ui2,ui3,mobile-tsc1,
+web-tsc1,worker1,full1,build1,verify1,verify2,verify3,verify4,endpoints1,endpoints2,
+browser1,browser2,browser3,browser4}.log`. After building, rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-inventory-recovery.mjs`
+and, after `pnpm --filter @showpilot/mobile verify`,
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-inventory-form.mjs`.
+The browser redirects all API traffic to local fixtures and blocks other external
+requests. Screenshots are `/tmp/showpilot-native-inventory-{320,768,1440}.png`.
+
+Preceding PR #249 is green: CI 42496644950, web 13m9s / native Rust 3m55s.
+Phase 2 remains 67/79. Other native schedule/profile/reminder recovery, remaining
+product-wide control and loading audits, the owner-provided Founding Member
+closing date and broad gates remain open. No production deploy, release, remote
+migration or real-org writes. Twenty necessary tracked Markdown files remain.
