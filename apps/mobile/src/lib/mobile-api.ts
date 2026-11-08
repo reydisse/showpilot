@@ -1,3 +1,4 @@
+import { inventoryResultSchema, type InventoryCommand } from "./inventory-recovery";
 import { preferenceReceiptSchema, type PreferenceCommand } from "./notification-preference-recovery";
 import { accessNoticeSchema, accessReceiptSchema, type AccessCommand } from "./access-recovery";
 import { crewReceiptSchema, type CrewCommand } from "./crew-recovery";
@@ -299,12 +300,6 @@ const scheduleTeamCopyResultSchema = z.object({
   created: z.boolean(),
   delivered: z.number().int().nonnegative(),
   total: z.number().int().nonnegative(),
-});
-
-const showInventoryWriteResultSchema = z.object({
-  ok: z.literal(true),
-  id: z.string(),
-  created: z.boolean(),
 });
 
 const incidentSchema = z.object({
@@ -1502,8 +1497,10 @@ export async function getMobileSchedule(
   const query = new URLSearchParams({ orgId });
   if (selection.serviceDate) query.set("date", selection.serviceDate);
   if (selection.assignmentId) query.set("assignment", selection.assignmentId);
-  const response = await authenticatedFetch(`/api/mobile/v1/schedule?${query}`);
-  return scheduleSchema.parse(await response.json());
+  return withMobileRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/schedule?${query}`, { signal });
+    return scheduleSchema.parse(await response.json());
+  });
 }
 
 export async function respondToMobileAssignment(input: {
@@ -1652,37 +1649,21 @@ export async function saveMobileScheduleProvider(input: {
   return okSchema.parse(await response.json());
 }
 
-export async function createMobileShowInventoryItem(input: {
-  orgId: string;
-  requestId: string;
-  name: string;
-  description: string;
-  location: string;
-  defaultStartTime: string;
-  sourceTemplateId: string | null;
-}) {
+export async function commandMobileInventory(
+  input: InventoryCommand,
+  review: boolean,
+  signal: AbortSignal,
+) {
+  const action = review ? "review" : "command";
   const response = await authenticatedFetch(
-    `/api/mobile/v1/schedule/inventory?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify(input) },
-  );
-  return showInventoryWriteResultSchema.parse(await response.json());
-}
-
-export async function setMobileShowInventoryArchived(input: {
-  orgId: string;
-  inventoryId: string;
-  expectedUpdatedAt: string;
-  archived: boolean;
-}) {
-  const action = input.archived ? "archive" : "restore";
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/schedule/inventory/${encodeURIComponent(input.inventoryId)}/${action}?orgId=${encodeURIComponent(input.orgId)}`,
+    `/api/mobile/v1/schedule/inventory/${action}?orgId=${encodeURIComponent(input.orgId)}`,
     {
       method: "POST",
-      body: JSON.stringify({ expectedUpdatedAt: input.expectedUpdatedAt }),
+      signal,
+      body: JSON.stringify(input),
     },
   );
-  return okSchema.parse(await response.json());
+  return inventoryResultSchema.parse(await response.json());
 }
 
 export async function getMobileIncidents(

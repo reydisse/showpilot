@@ -495,3 +495,87 @@ it("native create/archive/restore retries share the guarded receipts without cha
   await response.body?.cancel();
   expect((await f.row(f.create.requestId))?.archivedAt).toBeNull();
 });
+
+async function nativeCommand(
+  f: Awaited<ReturnType<typeof fixture>>,
+  data: InventoryCommand,
+  review = false,
+) {
+  const response = await handleMobileApi(
+    new Request(
+      `https://app.showpilot.tech/api/mobile/v1/schedule/inventory/${review ? "review" : "command"}?orgId=${f.orgId}`,
+      {
+        method: "POST",
+        headers: {
+          Cookie: f.headers.get("cookie")!,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      },
+    ),
+    { DB: env.DB },
+  );
+  if (!response) throw new Error("Missing native inventory response");
+  return { status: response.status, body: await response.json() };
+}
+it("native review cancels an undelivered creation and late delivery cannot create it", async () => {
+  const f = await fixture(),
+    data = command(f);
+  expect(await nativeCommand(f, data, true)).toMatchObject({
+    status: 200,
+    body: { requestId: data.requestId, outcome: "cancelled" },
+  });
+  expect(await nativeCommand(f, data)).toMatchObject({
+    status: 200,
+    body: { outcome: "cancelled" },
+  });
+  expect(await f.row(data.requestId)).toBeNull();
+  const next = { ...data, requestId: crypto.randomUUID() };
+  expect(await nativeCommand(f, next)).toMatchObject({
+    status: 200,
+    body: { outcome: "applied", item: { name: "Weekly show" } },
+  });
+});
+it("native receipts report current state and preserve restoration on late archive retry", async () => {
+  const f = await fixture(),
+    data = command(f);
+  const created = await nativeCommand(f, data);
+  expect(await nativeCommand(f, data, true)).toEqual(created);
+  const archive = await archiveCommand(f, true);
+  expect(await nativeCommand(f, archive)).toMatchObject({
+    status: 200,
+    body: { outcome: "applied" },
+  });
+  expect(await nativeCommand(f, await archiveCommand(f, false))).toMatchObject({
+    status: 200,
+    body: { outcome: "applied" },
+  });
+  expect(await nativeCommand(f, archive)).toMatchObject({
+    status: 200,
+    body: { outcome: "superseded", item: { archivedAt: null } },
+  });
+  const stale = { ...archive, requestId: crypto.randomUUID() };
+  expect(await nativeCommand(f, stale)).toMatchObject({
+    status: 200,
+    body: { outcome: "conflict", item: { archivedAt: null } },
+  });
+});
+it("native command/review enforce workspace, actor and live membership", async () => {
+  const f = await fixture(),
+    other = await fixture(),
+    data = command(f);
+  expect(await nativeCommand(f, { ...data, orgId: other.orgId })).toMatchObject(
+    { status: 400 },
+  );
+  expect(
+    (await nativeCommand(f, { ...data, userId: other.userId })).status,
+  ).toBeGreaterThanOrEqual(400);
+  expect(await f.row(data.requestId)).toBeNull();
+  expect(await nativeCommand(f, data)).toMatchObject({ status: 200 });
+  await env.DB.prepare("DELETE FROM member WHERE organizationId=? AND userId=?")
+    .bind(f.orgId, f.userId)
+    .run();
+  expect((await nativeCommand(f, data, true)).status).toBeGreaterThanOrEqual(
+    400,
+  );
+});
