@@ -9,9 +9,9 @@ import {
 
 type Environment = {
   BETTER_AUTH_SECRET?: string;
-  RUNDOWN_RELAY?: DurableObjectNamespace<
-    import("@/durable-objects/RundownRelay").RundownRelay
-  >;
+  RUNDOWN_RELAY?: {
+    getByName(name: string): { fetch(request: Request): Promise<Response> };
+  };
 };
 /** Bind retained browser requests to the currently authenticated account. The
  * relay checks session/permission again when its serialized mutation executes. */
