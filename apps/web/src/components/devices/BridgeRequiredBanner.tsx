@@ -1,13 +1,13 @@
 import { AlertTriangle, Cable } from "lucide-react";
 import type { ModuleDefinition } from "@/lib/device-modules/types";
-import { isDesktopRuntime } from "@/lib/desktop-runtime";
+import { useDesktopRuntime } from "@/hooks/useDesktopRuntime";
 
 interface BridgeRequiredBannerProps {
   definition: ModuleDefinition;
 }
 
 export function BridgeRequiredBanner({ definition }: BridgeRequiredBannerProps) {
-  const desktop = isDesktopRuntime();
+  const desktop = useDesktopRuntime();
   return (
     <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-6">
       <div className="flex items-start gap-4">

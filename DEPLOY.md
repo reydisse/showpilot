@@ -5094,3 +5094,46 @@ this record does not claim a clean native hydration pass.
 Phase 2 is 59/79 verified, with 20 remaining. The full local mode satisfies the
 conditional queue-only fallback requirement; no queue-only substitute is claimed.
 The overall Phase 2 gate remains open. No production deployment or release.
+
+
+## Desktop hydration preserves the operator page (2026-11-07, not deployed)
+
+The local-show rehearsal found recoverable React #418 errors whenever Desktop
+opened the rundown page. The server could not see Tauri and rendered web markup;
+the first client render immediately selected native markup. Sidebar QuickActions,
+the Desktop status bar and the rundown local-show section differed, causing React
+to replace the operator tree. Device connection guidance had the same pattern.
+
+`useDesktopRuntime` now supplies a stable false server snapshot through
+`useSyncExternalStore`. Hydration first matches the server HTML, then renders
+native controls from the actual runtime. The relevant render branches and
+local-show polling use that hook. Imperative actions continue to check the real
+runtime directly. No error is suppressed, and runtime reporting remains enabled.
+
+A renderToString/hydrateRoot regression failed before the fix. It now reports no
+recoverable error, preserves the original operator button DOM node, reveals the
+native controls and successfully invokes Check-in. Thirty targeted native/UI
+tests pass. The strengthened `smoke-local-show-handoff.mjs` rejects browser
+runtime errors and completes the actual compiled-app/native-engine offline and
+cloud handoff with zero runtime or hydration errors, one device command and zero
+external emails. Both lost-response retry and conflicting-revision preservation
+still pass.
+
+The first stricter run also exposed a test-transport lifecycle issue: a native
+status reply could arrive after navigation destroyed its requesting Chrome
+context. The fixture now tracks actual context creation/destruction and drops
+replies only for retired contexts, never delivering them into the next page.
+The final browser run passes both IPC and runtime-error assertions.
+
+Full validation passed: 2,350 unit tests, 1,172 Worker tests, typecheck and the
+production build. The client entry is 551,735 raw / 174,479 gzip bytes, within
+budget. Logs: /tmp/showpilot-desktop-hydration-before.log,
+/tmp/showpilot-desktop-hydration-after.log,
+/tmp/showpilot-desktop-hydration-browser2.log,
+/tmp/showpilot-desktop-hydration-full.log,
+/tmp/showpilot-desktop-hydration-tsc2.log and
+/tmp/showpilot-desktop-hydration-build.log.
+
+This resolves the native hydration finding recorded with #216. Phase 2 remains
+59/79 verified: the broader product-wide UX gate still needs its other checks.
+No production deployment, native release or real-organization changes.

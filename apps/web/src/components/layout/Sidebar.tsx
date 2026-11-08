@@ -49,7 +49,7 @@ import {
 } from "@/lib/app-permissions";
 import { SidebarIdentity } from "./SidebarIdentity";
 import { ROLE_COLOURS } from "./account-role";
-import { isDesktopRuntime } from "@/lib/desktop-runtime";
+import { useDesktopRuntime } from "@/hooks/useDesktopRuntime";
 
 interface NavItem {
   module: ModuleId;
@@ -261,7 +261,7 @@ function NavLink({
 function QuickActions({ collapsed }: { collapsed: boolean }) {
   const { toggle, fullscreen, toggleFullscreen } = useSidebar();
   const { theme, toggleTheme } = useTheme();
-  const desktop = isDesktopRuntime();
+  const desktop = useDesktopRuntime();
 
   return (
     <div

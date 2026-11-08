@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isDesktopRuntime } from "@/lib/desktop-runtime";
+import { useDesktopRuntime } from "./useDesktopRuntime";
 import {
   readDesktopLocalShow,
   type DesktopLocalShowStatus,
@@ -11,7 +11,7 @@ export function useDesktopLocalShow(paused = false) {
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const pending = useRef(false);
-  const desktop = isDesktopRuntime();
+  const desktop = useDesktopRuntime();
   const refresh = useCallback(() => setRefreshKey((key) => key + 1), []);
   useEffect(() => {
     if (!desktop || paused) return;
