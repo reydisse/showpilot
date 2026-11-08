@@ -10,6 +10,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   const waitCue = (id, predicate) => browser("wait", "--fn", `fetch('${api}/events?showId=smoke-show').then(response => response.json()).then(events => {const cue=events.find(cue => cue.id==='${id}'); return cue && (${predicate});})`);
   const press = note => browser("eval", `midi.pads.send([0x90, ${note}, 127]); midi.pads.send([0x80, ${note}, 127])`);
   const cc = (number, value) => browser("eval", `midi.pads.send([0xb0, ${number}, ${value}])`);
+  const led = (note, status, value) => browser("wait", "--fn", `(()=>{const message=midi.output.messages.findLast(message=>message[1]===${note});return message?.[0]===${status}&&message[2]===${value};})()`);
   const save = async () => { await click("Save mappings"); await browser("wait", "--fn", "[...document.querySelectorAll('button')].find(button => button.textContent === 'Save mappings')?.disabled"); await browser("wait", "--fn", "![...document.querySelectorAll('button')].some(button => button.textContent === 'Saving mappings…')"); };
   await browser("open", `${origin}/login`); await browser("fill", "#email", operatorEmail); await browser("fill", "#password", operatorPassword); await click("Sign in"); await browser("wait", "--url", `**/${orgId}/**`);
   const installMidi = () => browser("eval", `(() => {
@@ -52,9 +53,11 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await learn("reset", 108); await learn("seek", 109, { value: 45 });
   await learn("scrub", 48, { value: 90, fader: true }); await learn("jog", 49, { value: 1, fader: true }); await learn("offset", 50, { value: 30, fader: true });
   assert.ok((await read("events")).every(cue => !cue.fired), "Learning must never fire a cue");
-  await click("Arm controller"); await press(0); await waitCue("cue-0", "cue.fired");
+  await click("Arm controller");
+  await led(0, 0x96, 13); await led(1, 0x96, 45); // Next yellow, armed blue.
+  await press(0); await waitCue("cue-0", "cue.fired");
   assert.equal((await read("state")).lyrics.lyrics, "Cue 1");
-  await browser("wait", "--fn", "midi.output.messages.some(message=>message[0]===0x96&&message[1]===0&&message[2]===21)");
+  await led(0, 0x96, 21); await led(1, 0x96, 13); // Fired green, next advances.
   await press(106); await browser("wait", "text=Bank 2 of 2"); await press(0); await waitCue("cue-64", "cue.fired");
   assert.equal((await read("state")).lyrics.lyrics, "Cue 65");
   await press(107); await browser("wait", "text=Bank 1 of 2");
@@ -66,11 +69,14 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await press(108); await click("Reset clock"); await waitState("state.totalFrames===0");
   await click("Review and resume automation"); await click("Resume automation");
   await press(100); await waitState("state.running && state.totalFrames>0");
+  await led(100, 0x90, 2); // Transport button reports the running clock.
   await press(101); await waitState("state.signal.status==='paused'"); const held = (await read("state")).totalFrames;
+  await led(100, 0x90, 1);
   await browser("wait", "text=Clock paused. Position and source ownership are held.");
   assert.equal((await read("state")).totalFrames,held);
   await press(100); await waitState(`state.running && state.totalFrames>${held}`);
   await press(102); await waitState("!state.running && state.signal.status==='idle'");
+  await led(100, 0x90, 1);
   await press(109); await waitState("state.totalFrames===45");
   await cc(49,64); await new Promise(resolve=>setTimeout(resolve,100)); await cc(49,65); await waitState("state.totalFrames===46");
   await cc(50,64); await new Promise(resolve=>setTimeout(resolve,100)); await cc(50,127); await waitState("state.totalFrames===76");
@@ -103,5 +109,5 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await press(100); await waitState("state.signal.status==='waiting'");
   await mtc(3); await waitState("state.totalFrames===3 && state.source==='mtc'");
   await press(102); await waitState("!state.running && state.signal.status==='idle'");
-  console.log(JSON.stringify({ builtLogin:"passed", mappingsLearnAndPersist:"passed", learnNeverFires:"passed", explicitArming:"passed", cueBanks65:"passed", actualLyrics:"passed", ledFeedback:"passed", rearmConfirmation:"passed", pauseResume:"passed", seekScrubJogOffset:"passed", hotplugPreservesMappings:"passed", unplugCancelsPendingFader:"passed", simultaneousMtcAndController:"passed", mtcPauseKeepsSource:"passed", responsiveController:"320/768/2560 passed", physicalMidi:"not exercised" },null,2));
+  console.log(JSON.stringify({ builtLogin:"passed", mappingsLearnAndPersist:"passed", learnNeverFires:"passed", explicitArming:"passed", cueBanks65:"passed", actualLyrics:"passed", ledFeedback:"armed/next/fired/running/paused/stopped passed", rearmConfirmation:"passed", pauseResume:"passed", seekScrubJogOffset:"passed", hotplugPreservesMappings:"passed", unplugCancelsPendingFader:"passed", simultaneousMtcAndController:"passed", mtcPauseKeepsSource:"passed", responsiveController:"320/768/2560 passed", physicalMidi:"not exercised" },null,2));
 });
