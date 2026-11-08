@@ -2,6 +2,7 @@
 // No clock acceleration, production data, or physical equipment. Build first;
 // keep this checkout and its dist unchanged for the entire rehearsal.
 import assert from "node:assert/strict";
+import { loadavg } from "node:os";
 import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
 import { poll, withRealBrowser } from "./real-browser-fixture.mjs";
 
@@ -89,6 +90,28 @@ await withLocalSmokeFixture(
             ),
           "timecode control claimed",
         );
+        await evaluate(`(() => {
+          window.longRunProbe = { feeds: 0, lastFeedAt: 0, lastFrame: 0, maxGapMs: 0, visibility: [] };
+          const send = WebSocket.prototype.send;
+          WebSocket.prototype.send = function(data) {
+            if (typeof data === 'string') {
+              try {
+                const command = JSON.parse(data);
+                if (command.action === 'feed-tc') {
+                  const probe = window.longRunProbe, now = Date.now();
+                  if (probe.lastFeedAt) probe.maxGapMs = Math.max(probe.maxGapMs, now - probe.lastFeedAt);
+                  probe.feeds++; probe.lastFeedAt = now; probe.lastFrame = command.payload.totalFrames;
+                }
+              } catch {}
+            }
+            return send.call(this, data);
+          };
+          document.addEventListener('visibilitychange', () => {
+            const entries = window.longRunProbe.visibility;
+            entries.push({ at: Date.now(), state: document.visibilityState });
+            if (entries.length > 20) entries.shift();
+          });
+        })()`);
         const initial = await read("timecode");
         assert.equal(initial.totalFrames, 0);
         assert.equal(initial.format.frameRate, 30);
@@ -137,6 +160,10 @@ await withLocalSmokeFixture(
           const clockSeconds = state.totalFrames / 30;
           const drift = Math.abs(clockSeconds - elapsedSeconds);
           maxDriftSeconds = Math.max(maxDriftSeconds, drift);
+          if (!state.running || drift >= 5) {
+            const browserProbe = await evaluate("({ ...window.longRunProbe, at: Date.now(), visibilityState: document.visibilityState })").catch(error => ({ unavailable: error.message }));
+            console.log(JSON.stringify({ stage: "clock-failure", at: new Date().toISOString(), load: loadavg(), elapsedSeconds, wallElapsedSeconds: (Date.now() - startWall) / 1000, clockSeconds, signal: state.signal, browserProbe }));
+          }
           assert.equal(state.running, true, JSON.stringify(state.signal));
           assert.equal(state.signal.status, "live");
           assert.equal(state.triggersEnabled, true);
@@ -212,6 +239,7 @@ await withLocalSmokeFixture(
             console.log(
               JSON.stringify({
                 stage: "progress",
+                load: loadavg(),
                 minute,
                 clockSeconds,
                 elapsedSeconds,
