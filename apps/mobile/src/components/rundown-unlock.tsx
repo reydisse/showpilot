@@ -7,7 +7,8 @@ import { clearStoredRundownPin, setStoredRundownPin } from "@/lib/rundown-pin";
 import { getMobileRundown, type MobileRundown } from "@/lib/mobile-api";
 import { createThemedStyles, fontFamily, radii, useAppTheme } from "@/theme/tokens";
 
-export function RundownUnlock({ orgId, showId, pinAccess }: {
+export function RundownUnlock({ orgId, showId, userId, pinAccess }: {
+  userId: string;
   orgId: string;
   showId: string;
   pinAccess: MobileRundown["pinAccess"];
@@ -35,7 +36,7 @@ export function RundownUnlock({ orgId, showId, pinAccess }: {
           setError("Incorrect PIN. Please try again.");
           return;
         }
-        queryClient.setQueryData(["mobile-rundown", orgId, showId], detail);
+        queryClient.setQueryData(["mobile-rundown", orgId, showId, userId], detail);
       } else {
         await clearStoredRundownPin(orgId);
         // Drop write controls and the old socket before waiting on the network.

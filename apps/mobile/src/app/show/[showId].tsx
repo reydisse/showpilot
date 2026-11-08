@@ -30,6 +30,7 @@ import { ShowCreationSheet } from "@/components/show-creation-sheet";
 import { useShowCreationDrafts } from "@/hooks/use-show-creation";
 import { nextShowStartTime, type ShowCreationDraft } from "@/lib/show-creation-recovery";
 import { RundownTemplateSheet } from "@/components/rundown-template-sheet";
+import { useRundownDetailsDraft } from "@/hooks/use-rundown-details";
 import { RundownShowSheet } from "@/components/rundown-show-sheet";
 import { useRundownRelay } from "@/hooks/use-rundown-relay";
 import { authClient } from "@/lib/auth-client";
@@ -42,7 +43,6 @@ import {
   loadMobilePreviousRundown,
   loadMobileRundownTemplate,
   saveMobileRundownTemplate,
-  updateMobileRundownMeta,
   updateMobileProPresenterStageDisplay,
   type MobileRundown,
   type RundownItem,
@@ -150,7 +150,7 @@ function TimerPanel({
   );
 }
 
-function RundownContent({ detail, orgId, orgSlug, userId }: { detail: MobileRundown; orgId: string; orgSlug: string; userId: string }) {
+function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshing, onRefresh }: { detail: MobileRundown; orgId: string; orgSlug: string; userId: string; refreshError?: string; refreshing: boolean; onRefresh: () => void }) {
   const { colors } = useAppTheme();
   const styles = useStyles();
   const relay = useRundownRelay(orgId, detail.show.serviceDate, detail.show.id);
@@ -173,6 +173,7 @@ function RundownContent({ detail, orgId, orgSlug, userId }: { detail: MobileRund
     setNewShow(showDrafts[0] ?? initial);
   }
   const [showDetailsOpen, setShowDetailsOpen] = useState(false);
+  const detailsDraft = useRundownDetailsDraft({ orgId, userId, showId: detail.show.id });
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [messagePriority, setMessagePriority] = useState(false);
@@ -347,6 +348,8 @@ function RundownContent({ detail, orgId, orgSlug, userId }: { detail: MobileRund
         ListEmptyComponent={<Text style={styles.empty}>This show has no rundown items yet.</Text>}
         ListHeaderComponent={(
           <View style={styles.listHeader}>
+            {refreshError ? <View><Text accessibilityRole="alert" style={styles.syncError}>{refreshError} The last loaded show is still displayed.</Text><AppButton label="Refresh show" loading={refreshing} onPress={onRefresh} /></View> : null}
+            {detailsDraft ? <AppButton label="Resume rundown details" variant="secondary" onPress={() => setShowDetailsOpen(true)} /> : null}
             <View style={styles.connectionRow}>
               {relay.status === "connected" ? <Wifi size={15} color={colors.green} /> : <WifiOff size={15} color={colors.amberText} />}
               <Text style={[styles.connectionText, relay.status === "connected" && styles.connected]}>{connectionText}</Text>
@@ -356,7 +359,7 @@ function RundownContent({ detail, orgId, orgSlug, userId }: { detail: MobileRund
               <Pressable accessibilityLabel="Share stage display link" accessibilityRole="button" onPress={shareKioskLink} style={styles.connectionAction}><ScreenShare color={colors.textMuted} size={15} /></Pressable>
               {canAuthor ? <Pressable accessibilityLabel="Edit show details" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setShowDetailsOpen(true)} style={[styles.connectionAction, !editControlsEnabled && styles.disabled]}><Pencil color={colors.textMuted} size={15} /></Pressable> : null}
             </View>
-            <RundownUnlock orgId={orgId} showId={detail.show.id} pinAccess={detail.pinAccess} />
+            <RundownUnlock userId={userId} orgId={orgId} showId={detail.show.id} pinAccess={detail.pinAccess} />
             <TimerPanel
               canEdit={canAuthor}
               canControl={detail.canControl}
@@ -465,27 +468,7 @@ function RundownContent({ detail, orgId, orgSlug, userId }: { detail: MobileRund
         previousShows={templatesQuery.data?.previousShows ?? []}
         templates={templatesQuery.data?.templates ?? []}
       /> : null}
-      {showDetailsOpen ? <RundownShowSheet
-        location={relay.location ?? detail.show.location}
-        name={showTitle}
-        onClose={() => setShowDetailsOpen(false)}
-        onSave={async (draft) => {
-          if (!editControlsEnabled) throw new Error("Reconnect live sync before changing show details.");
-          await updateMobileRundownMeta({
-            orgId,
-            showId: detail.show.id,
-            expectedRevision: relay.revision,
-            ...draft,
-          });
-        }}
-        scheduledStartTime={relay.scheduledStartTime === undefined
-          ? detail.show.scheduledStartTime
-          : relay.scheduledStartTime}
-        scheduledCallTime={relay.scheduledCallTime === undefined
-          ? detail.show.scheduledCallTime
-          : relay.scheduledCallTime}
-        timeZone={detail.timeZone}
-      /> : null}
+      {showDetailsOpen ? <RundownShowSheet key={`${userId}:${orgId}:${detail.show.id}`} orgId={orgId} userId={userId} showId={detail.show.id} onClose={() => setShowDetailsOpen(false)} /> : null}
       {newShow ? <ShowCreationSheet key={`${userId}:${orgId}`} orgId={orgId} userId={userId} initial={newShow} shows={[{ ...detail.show, name: showTitle, scheduledStartTime: showStart, scheduledCallTime: showCall, location: showLocation ?? "" }]} onClose={() => setNewShow(null)} /> : null}
     </Page>
   );
@@ -517,17 +500,20 @@ export default function ShowDetailScreen() {
   const { data: session, isPending: sessionPending } = authClient.useSession();
   const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
   const query = useQuery({
-    queryKey: ["mobile-rundown", organization?.id, showId],
+    queryKey: ["mobile-rundown", organization?.id, showId, session?.user.id],
+    networkMode: "always",
+    retry: false,
     queryFn: () => getMobileRundown(organization!.id, showId),
-    enabled: Boolean(organization?.id && showId),
+    enabled: Boolean(session?.user.id && organization?.id && showId),
   });
 
-  if (sessionPending || organizationPending || query.isPending) {
+  if (sessionPending || organizationPending) {
     return <Page backTo="/(app)/shows" backLabel="Back to shows"><ActivityIndicator style={styles.loading} color={colors.amber} size="large" /></Page>;
   }
   if (!session) return <Redirect href="/sign-in" />;
   if (!organization) return <Redirect href="/organizations" />;
-  if (query.error || !query.data) {
+  if (query.isPending) return <Page backTo="/(app)/shows" backLabel="Back to shows"><ActivityIndicator style={styles.loading} color={colors.amber} size="large" /></Page>;
+  if (!query.data) {
     return (
       <Page backTo="/(app)/shows" backLabel="Back to shows" eyebrow="RUNDOWN" title="Could not open show">
         <Text style={styles.syncError}>{query.error?.message ?? "The show is unavailable."}</Text>
@@ -535,17 +521,17 @@ export default function ShowDetailScreen() {
       </Page>
     );
   }
-  return <RundownContent key={`${session.user.id}:${organization.id}:${query.data.show.id}:${query.data.pinAccess}`} userId={session.user.id} detail={query.data} orgId={organization.id} orgSlug={organization.slug} />;
+  return <RundownContent key={`${session.user.id}:${organization.id}:${query.data.show.id}:${query.data.pinAccess}`} userId={session.user.id} refreshError={query.error?.message} refreshing={query.isFetching} onRefresh={() => void query.refetch()} detail={query.data} orgId={organization.id} orgSlug={organization.slug} />;
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
   loading: { flex: 1 },
-  connectionRow: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 8 },
-  connectionText: { flex: 1, color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "700" },
+  connectionRow: { minHeight: 44, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
+  connectionText: { flexGrow: 1, minWidth: 80, color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "700" },
   connected: { color: colors.green },
   permissionBadge: { borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, paddingHorizontal: 9, paddingVertical: 5 },
   permissionText: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1 },
-  connectionAction: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
+  connectionAction: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 17, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
   newShowButton: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: radii.pill, backgroundColor: colors.amber, paddingHorizontal: 12 },
   newShowText: { color: colors.black, fontFamily, fontSize: 12, fontWeight: "900" },
   timerCard: { alignItems: "center", gap: 10, borderRadius: radii.large, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: spacing.large },

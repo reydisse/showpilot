@@ -7526,3 +7526,80 @@ revision reviewed in the draft. Preserve the separate rundown:edit/PIN authority
 when reproducing and fixing that path. The Founding Member closing date/timezone
 still awaits the owner's answer. No production deployment, release, remote
 migration, real-org write or external mail. Twenty necessary Markdown files remain.
+
+### Phase 2 follow-up: native Rundown details recovery
+
+Two tests of the original native sheet reproduced lost drafts after close/remount
+and fields remaining editable after an uncertain save. Its parent also supplied
+the latest relay revision on each save rather than the revision the operator
+reviewed, and the sheet reused one request ID for later edited contents. A failed
+background show read removed the entire Rundown screen and any open editor.
+The main show read also had no deadline.
+
+The replacement retains actor/org/show drafts and frozen save commands in the
+query cache while the signed-in session remains alive. An authoritative read
+captures the metadata version, relay revision, service date and timezone together.
+Retry sends exactly that command. Review recovers its receipt or cancels it before
+late delivery. Current details replace a draft only after explicit confirmation;
+failed reads preserve the draft. Conflicts require loading the current revision,
+and cancelled commands require explicit editing before creating another request
+ID. Confirmed outcomes have a separate refresh-only action. The main show read is
+bounded at ten seconds, attempts while offline rather than pausing indefinitely,
+and shows Retry. A failed background refresh keeps the loaded screen/editor with
+an error. Show cache keys include the actor; PIN unlock writes that exact key.
+
+The new native entry point uses the existing serialized relay writer, atomic
+`show_details_request` receipts and durable D1-to-relay recovery intent. It
+preserves `rundown:edit` and technical-manager PIN access through a separate
+internal authorization entry point. Session, role, operational grants, the PIN
+setting and organization deletion are checked at commit. The reviewed relay
+revision must still match for a fresh save; exact replay does not apply an older
+payload again. Schedule callers retain `schedule:manage` and their existing
+fingerprint/receipt format. No migration is added. The obsolete native metadata
+client wrapper is removed; the existing server endpoint remains available to
+installed clients.
+
+Final verification: both full-suite runs pass 2,753 unit and 1,481 Worker tests, including 22 actual
+native-hook cases, three actual-sheet cases and fourteen new real auth/D1/relay
+cases. The existing 23 shared show-details Worker cases also pass. Tests cover
+exact retries, cancellation, revision conflicts, superseded results, account/show
+isolation, late completions, grant revocation, PIN rotation/configuration at
+commit, actor mismatch and relay eviction. The first PIN case exceeded Vitest's
+5s default because it performs several full-strength derivations; its bound is
+30s, matching the existing PIN authority tests. No cryptographic work factor was
+changed. Web typecheck and build pass; main remains 549,593 raw / 173,783 gzip
+bytes, under the unchanged 175,000-byte budget.
+
+Native verify passes typecheck, lint with 17 existing warnings, all three exports,
+Expo doctor 18/18, contracts and polling. Hermes iOS 5,662,254 / Android 5,661,339
+bytes, under the unchanged 6,500,000-byte limit. Current-details reads have an 8s
+deadline, save/review 15s and refresh 12s. Header action targets are 44px and wrap
+on narrow screens. Authentication redirects precede a disabled query's pending
+state, so signed-out navigation cannot be trapped by that query.
+
+Evidence: `/tmp/showpilot-native-rundown-{details-before,form1,hooks1,worker1,
+worker2,web-tsc1,web-tsc2,web-tsc3,web-tsc4,web-tsc5,tsc1,tsc2,full1,full2,
+build1,verify1,verify2,verify3,browser1,browser2}.log`. The first compiled-browser
+attempt reached the real relay and recovered the initial details read, then
+stopped because its selector expected the raw label instead of the workspace's
+rendered “Service title.” The selector is corrected in the rerun.
+
+The second compiled Expo web rehearsal passes against isolated real auth, D1
+and the Rundown relay. It verifies a stalled initial show read reaches Retry,
+details-read recovery, draft retention through navigation, exact retry after a
+lost response, refresh failure preserving the editor, cancellation before late
+delivery, a second operator causing a revision conflict, explicit adoption of
+current details, failed adoption preserving the draft, and confirmed discard.
+Widths 320, 768 and 1440 have no horizontal overflow, with 44px header/recovery
+actions and zero runtime errors. Inspected the 320px header and refresh-failure
+screenshots and the 768px conflict screenshot. Artifacts are
+`/tmp/showpilot-native-rundown-{header,unknown,refresh,conflict}-{320,768,1440}.png`.
+Expo web does not establish physical-device behavior. Re-run after web build and
+mobile verify with
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-rundown-details.mjs`.
+
+Preceding draft #260 is green (CI 42522683978, web 13m57s / Rust 4m30s).
+Phase 2 remains 67/79. Broader UX and physical-device gates remain open, and the
+Founding Member closing date/timezone still awaits the owner's answer. No
+production deployment, release, remote migration, real-org write or external
+mail. Twenty necessary tracked Markdown files remain.

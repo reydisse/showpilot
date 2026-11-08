@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { memberPermissionGuard } from "./member-permission-guard.server";
+import { rundownDetailsAuthority } from "./rundown-details-authority.server";
+import {
+  rundownDetailsCommandSchema,
+  type RundownDetailsCommand,
+} from "./rundown-details-contract";
 import { editServiceTimeToIso } from "./utils";
 import {
   showDetailsCommandSchema,
@@ -60,15 +65,69 @@ export async function writeShowDetails(
   beforeCommit: () => Promise<void>,
 ): Promise<ShowDetailsResult> {
   const command = showDetailsCommandSchema.parse(input);
-  const { orgId, showId, requestId, userId } = command;
-  const access = await memberPermissionGuard(db, orgId, { userId, sessionId }, [
-    "schedule:manage",
-  ]).catch(() => {
+  const access = await memberPermissionGuard(
+    db,
+    command.orgId,
+    { userId: command.userId, sessionId },
+    ["schedule:manage"],
+  ).catch(() => {
     throw new ShowDetailsRequestError(
       "Your session or required permission is no longer active.",
     );
   });
-  const fingerprint = showDetailsFingerprint(command);
+  return writeDetails(
+    db,
+    command,
+    mode,
+    beforeCommit,
+    access,
+    showDetailsFingerprint(command),
+    true,
+  );
+}
+
+/** A separate entry point preserves rundown:edit and PIN access. Schedule callers
+ * cannot select a weaker permission through their command payload. */
+export async function writeRundownDetails(
+  db: Database,
+  input: RundownDetailsCommand,
+  actor: { sessionId: string; pin: string | null },
+  mode: "save" | "review",
+  liveRevision: number,
+  beforeCommit: () => Promise<void>,
+): Promise<ShowDetailsResult> {
+  const command = rundownDetailsCommandSchema.parse(input);
+  const access = await rundownDetailsAuthority(
+    db,
+    command.orgId,
+    { userId: command.userId, sessionId: actor.sessionId },
+    actor.pin,
+  );
+  return writeDetails(
+    db,
+    command,
+    mode,
+    beforeCommit,
+    access,
+    JSON.stringify([
+      "rundown",
+      command.expectedRevision,
+      showDetailsFingerprint(command),
+    ]),
+    command.expectedRevision === liveRevision,
+  );
+}
+
+async function writeDetails(
+  db: Database,
+  command: ShowDetailsCommand,
+  mode: "save" | "review",
+  beforeCommit: () => Promise<void>,
+  access: Awaited<ReturnType<typeof memberPermissionGuard>>,
+  fingerprint: string,
+  revisionMatches: boolean,
+): Promise<ShowDetailsResult> {
+  const { orgId, showId, requestId, userId } = command;
   const read = `SELECT actorId,showId,fingerprint,outcome,metadata FROM show_details_request WHERE orgId=? AND requestId=? AND ${access.guard}`;
   const readArgs = [orgId, requestId, ...access.guardArgs];
   let row: unknown = await db
@@ -118,6 +177,7 @@ export async function writeShowDetails(
     };
     const candidate =
       mode === "save" &&
+      revisionMatches &&
       current?.snapshot.updatedAt ===
         new Date(command.expectedUpdatedAt).toISOString();
     const nonce = crypto.randomUUID();
