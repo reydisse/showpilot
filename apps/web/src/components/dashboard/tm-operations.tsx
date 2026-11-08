@@ -1,9 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Clock3, ExternalLink, MonitorOff, MonitorUp, Play, RadioTower, Wifi, WifiOff } from "lucide-react";
+import { Activity, Clock3, ExternalLink, MonitorUp, Play, RadioTower, Wifi, WifiOff } from "lucide-react";
 import { useLiveInputHealth } from "@/hooks/useLiveInputHealth";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { getTmControlState, runTmControl, type TmControlAction, type TmControlState } from "@/lib/tm-operations";
+import { KioskDisplayControl } from "@/components/settings/KioskDisplayControl";
 import { TmRundownControls } from "./TmRundownControls";
 
 type Input = { id: string; name: string; status: string };
@@ -22,7 +23,7 @@ export function TmOperations(props: { orgId: string; userId: string; slug: strin
       }
     >
       <StreamHealthPanel {...props} compact={compactSignalPath} />
-      <div className="min-w-0 space-y-4"><TmRundownControls key={`${props.orgId}:${props.userId}`} orgId={props.orgId} userId={props.userId} slug={props.slug} /><ControlPad orgId={props.orgId} wide={compactSignalPath} /></div>
+      <div className="min-w-0 space-y-4"><TmRundownControls key={`${props.orgId}:${props.userId}`} orgId={props.orgId} userId={props.userId} slug={props.slug} /><KioskDisplayControl orgId={props.orgId} userId={props.userId} surface="technical" /><ControlPad orgId={props.orgId} wide={compactSignalPath} /></div>
     </div>
   );
 }
@@ -57,8 +58,6 @@ function HealthRow({ name, detail, status }: { name: string; detail: string; sta
 
 const CONTROLS: Array<{ action: TmControlAction; label: string; detail: string; icon: typeof Play; dangerous?: boolean; active?: (state: ControlState) => boolean }> = [
   { action: "lower-third-clear", label: "Clear lower third", detail: "Clear active graphic", icon: MonitorUp },
-  { action: "displays-blank", label: "Blank displays", detail: "Confirmation required", icon: MonitorOff, dangerous: true, active: (s) => Boolean(s.kioskBlanked) },
-  { action: "displays-restore", label: "Restore displays", detail: "Return output", icon: MonitorUp, active: (s) => s.kioskBlanked === false },
   { action: "stream-live", label: "Go live", detail: "Connect destinations", icon: Wifi, dangerous: true, active: (s) => (s.stream?.connected ?? 0) > 0 },
   { action: "stream-stop", label: "Stop stream", detail: "Confirmation required", icon: WifiOff, dangerous: true },
 ];
