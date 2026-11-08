@@ -11,15 +11,35 @@ const details = {
 };
 
 describe("assignment response version", () => {
-  it.each(["showId", "serviceDate", "role", "callTime", "effectiveCallTime", "scheduledStartTime"] as const)(
-    "changes when %s changes",
-    (field) => {
-      expect(assignmentResponseVersion({ ...details, [field]: `${details[field]}-changed` }))
-        .not.toBe(assignmentResponseVersion(details));
-    },
-  );
+  it.each([
+    "showId",
+    "serviceDate",
+    "role",
+    "callTime",
+    "effectiveCallTime",
+    "scheduledStartTime",
+  ] as const)("changes when %s changes", (field) => {
+    expect(
+      assignmentResponseVersion({
+        ...details,
+        [field]: `${details[field]}-changed`,
+      }),
+    ).not.toBe(assignmentResponseVersion(details));
+  });
 
   it("is stable for the same reviewed duties", () => {
-    expect(assignmentResponseVersion({ ...details })).toBe(assignmentResponseVersion(details));
+    expect(assignmentResponseVersion({ ...details })).toBe(
+      assignmentResponseVersion(details),
+    );
   });
+});
+
+it("uses the same reviewed version for D1 numeric, SQL text and ISO timestamps", () => {
+  expect(
+    assignmentResponseVersion({
+      ...details,
+      effectiveCallTime: Date.parse(details.effectiveCallTime),
+      scheduledStartTime: "2026-09-27 09:00:00",
+    }),
+  ).toBe(assignmentResponseVersion(details));
 });

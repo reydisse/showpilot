@@ -1,3 +1,6 @@
+import { usePersonalResponses } from "@/hooks/use-personal-responses";
+import { PersonalResponseProgress } from "@/components/personal-response-progress";
+import type { ResponseSelection } from "@/lib/personal-response-recovery";
 import { ShowManagementSheet } from "@/components/show-management-sheet";
 import { useShowManagementDrafts } from "@/hooks/use-show-management";
 import { showDraftFromSnapshot, type ShowManagementDraft } from "@/lib/show-management-recovery";
@@ -15,8 +18,6 @@ import type { CopyTeamSelection } from "@/lib/copy-recovery";
 import { useMobileReminders, reminderSlot } from "@/hooks/use-mobile-reminders";
 import { ScheduleReminderProgress } from "@/components/schedule-reminder-progress";
 import type { ReminderTarget } from "@/lib/reminder-recovery";
-import { workspaceCopy } from "@showpilot/shared";
-import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Bell from "lucide-react-native/icons/bell";
@@ -99,9 +100,6 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
   const teamDrafts = useTeamDrafts({ orgId, userId });
   const [editor, setEditor] = useState<EditorState>(null);
   const [copyConfirmation, setCopyConfirmation] = useState<{ selection: CopyTeamSelection; label: string; count: number; again: boolean } | null>(null);
-  const [decliningId, setDecliningId] = useState<string | null>(null);
-  const [reason, setReason] = useState("");
-  const [respondingId, setRespondingId] = useState<string | null>(null);
   const requestedDate = isServiceDate(params.date) ? params.date : undefined;
   const requestedAssignmentId = typeof params.assignment === "string" && params.assignment.length > 0 && params.assignment.length <= 64 ? params.assignment : undefined;
   const [selectedDate, setSelectedDate] = useState<string | undefined>(requestedDate);
@@ -219,24 +217,28 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
     list.current?.scrollToOffset({ offset: 0, animated: false });
   }
 
-  async function respond(assignment: Assignment, response: "confirmed" | "declined") {
-    setRespondingId(assignment.id);
-    try {
-      await respondToMobileAssignment({
-        orgId,
-        assignmentId: assignment.id,
-        reviewedVersion: assignment.responseVersion,
-        response,
-        reason: response === "declined" ? reason.trim() : "",
-      });
-      setDecliningId(null);
-      setReason("");
-      await saved();
-    } catch (error) {
-      Alert.alert("Response not saved", error instanceof Error ? error.message : "Try again.");
-    } finally {
-      setRespondingId(null);
-    }
+  const responses = usePersonalResponses({ orgId, userId }, {
+    enabled: pollingInterval !== false,
+    send: respondToMobileAssignment,
+    refresh: async signal => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["mobile-schedule", orgId] }, { throwOnError: true }),
+        queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap", userId, orgId] }, { throwOnError: true }),
+      ]);
+      if (signal.aborted) throw new Error("Response refresh cancelled.");
+    },
+  });
+  function responseSelection(assignment: Assignment): ResponseSelection | null {
+    if (!assignment.canRespond || !assignment.revision) return null;
+    const showName = schedule?.services.find(show => show.id === assignment.showId)?.name;
+    return { assignmentId: assignment.id, expectedRevision: assignment.revision, reviewedVersion: assignment.responseVersion,
+      label: `${assignment.role} · ${showName || "Show"} (${assignment.serviceDate})${assignment.callTime ? ` · Call ${assignment.callTime}` : ""}` };
+  }
+  function respond(assignment: Assignment, response: "confirmed" | "declined") {
+    const selection = responseSelection(assignment);
+    if (!selection) return;
+    if (response === "confirmed") responses.accept(selection); else responses.decline(selection);
+    list.current?.scrollToOffset({ offset: 0, animated: false });
   }
 
   const canManage = Boolean(schedule?.canManage);
@@ -293,6 +295,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
             </View> : null}
             <ScheduleCopyProgress copies={copies} canCopyAgain={canCopyAgain} onCopyAgain={copyAgain} />
             <ScheduleReminderProgress reminders={reminders} canSendNew={canSendReminder} />
+            <PersonalResponseProgress responses={responses} latest={id => { const row = schedule?.assignments.find(assignment => assignment.id === id); return row ? responseSelection(row) : null; }} />
             {showManagementDrafts.map(draft => <AppButton key={draft.showId} variant="secondary" label={`Resume ${draft.mode === "delete" ? "show deletion" : "show edit"}: ${draft.base.name || "Untitled show"} (${draft.base.serviceDate})`} onPress={() => setEditor({ kind: "showManagement", initial: draft })} />)}
             {showDrafts[0] ? <AppButton variant="secondary" label={`Resume show: ${showDrafts[0].name || "Untitled show"} (${showDrafts[0].serviceDate})`} onPress={() => openShowCreation()} /> : null}
             {teamDrafts.map(draft => <AppButton key={draft.showId} variant="secondary" label={`Resume team: ${draft.department || "New team"} · ${draft.showName} (${draft.serviceDate})`} onPress={() => setEditor({ kind: "team", initial: draft })} />)}
@@ -373,7 +376,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
               {assignments.length ? (
                 <View style={styles.assignments}>
                   {assignments.map((assignment) => (
-                    <AssignmentRow assignment={assignment} canManage={canManageAssignments} declining={decliningId === assignment.id} focused={assignment.id === requestedAssignmentId} key={assignment.id} onCancel={() => { setDecliningId(null); setReason(""); }} onDecline={() => { setDecliningId(assignment.id); setReason(""); }} onEdit={() => openAssignment(service, assignment)} onReason={setReason} reminderStarted={!!reminders.work[reminderSlot({ kind: "assignment", id: assignment.id })]} onRemind={() => startReminder({ kind: "assignment", id: assignment.id }, `${assignment.role} · ${assignment.crewName ?? "Crew"}`)} onRemove={() => openAssignment(service, assignment, true)} onRespond={(response) => void respond(assignment, response)} pending={respondingId === assignment.id} reason={reason} />
+                    <AssignmentRow assignment={assignment} canManage={canManageAssignments} focused={assignment.id === requestedAssignmentId} key={assignment.id} onDecline={() => respond(assignment, "declined")} onEdit={() => openAssignment(service, assignment)} reminderStarted={!!reminders.work[reminderSlot({ kind: "assignment", id: assignment.id })]} onRemind={() => startReminder({ kind: "assignment", id: assignment.id }, `${assignment.role} · ${assignment.crewName ?? "Crew"}`)} onRemove={() => openAssignment(service, assignment, true)} onRespond={(response) => void respond(assignment, response)} pending={pollingInterval === false || responses.blocked(assignment.id) || !assignment.revision} />
                   ))}
                 </View>
               ) : (
@@ -449,23 +452,18 @@ function SmallAction({ danger = false, disabled = false, icon, label, onPress }:
   );
 }
 
-function AssignmentRow({ assignment, canManage, focused, declining, reason, pending, onReason, onDecline, onCancel, onRespond, onEdit, onRemove, onRemind, reminderStarted }: {
+function AssignmentRow({ assignment, canManage, focused, pending, onDecline, onRespond, onEdit, onRemove, onRemind, reminderStarted }: {
   assignment: Assignment;
   canManage: boolean;
   focused: boolean;
-  declining: boolean;
-  reason: string;
   pending: boolean;
-  onReason: (value: string) => void;
   onDecline: () => void;
-  onCancel: () => void;
   onRespond: (response: "confirmed" | "declined") => void;
   onEdit: () => void;
   onRemove: () => void;
   onRemind: () => void;
   reminderStarted: boolean;
 }) {
-  const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
   const styles = useStyles();
   const responseClosed = assignment.status === "assigned" && assignment.responseWindow.status === "closed";
@@ -489,26 +487,8 @@ function AssignmentRow({ assignment, canManage, focused, declining, reason, pend
       {responseClosed ? (
         <Text style={styles.closedNote}>The response window closed when this show ended.</Text>
       ) : null}
-      {assignment.canRespond && assignment.status === "assigned" && !declining ? (
+      {assignment.canRespond && assignment.status === "assigned" ? (
         <View style={styles.responseActions}><ActionText disabled={pending} label="Accept" onPress={() => onRespond("confirmed")} tone="confirm" /><ActionText disabled={pending} label="Decline" onPress={onDecline} tone="decline" /></View>
-      ) : null}
-      {declining ? (
-        <View style={styles.declineForm}>
-          <TextInput
-            accessibilityLabel={`Reason for declining ${assignment.role}`}
-            maxLength={500}
-            multiline
-            onChangeText={onReason}
-            placeholder={workspaceCopy(
-              "Tell the team why you cannot serve (optional)",
-              workspaceTerms,
-            )}
-            placeholderTextColor={colors.textFaint}
-            style={styles.reasonInput}
-            value={reason}
-          />
-          <View style={styles.responseActions}><ActionText disabled={pending} label="Cancel" onPress={onCancel} tone="neutral" /><ActionText disabled={pending} label={pending ? "Saving…" : "Confirm decline"} onPress={() => onRespond("declined")} tone="decline" /></View>
-        </View>
       ) : null}
       {canManage ? (
         <View style={styles.assignmentActions}>
@@ -597,15 +577,13 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   responseDate: { color: colors.textFaint, fontFamily, fontSize: 11 },
   closedNote: { color: colors.red, fontFamily, fontSize: 11, lineHeight: 16 },
   responseActions: { flexDirection: "row", justifyContent: "flex-end", gap: 7 },
-  responseButton: { minHeight: 42, alignItems: "center", justifyContent: "center", borderRadius: radii.small, borderWidth: 1, paddingHorizontal: 13 },
+  responseButton: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center", borderRadius: radii.small, borderWidth: 1, paddingHorizontal: 13 },
   confirmButton: { borderColor: colors.greenBorder, backgroundColor: colors.greenSoft },
-  confirmText: { color: colors.green, fontFamily, fontSize: 11, fontWeight: "900" },
+  confirmText: { color: colors.green, fontFamily, fontSize: 12, fontWeight: "900" },
   declineButton: { borderColor: colors.redBorder, backgroundColor: colors.redSoft },
-  declineText: { color: colors.red, fontFamily, fontSize: 11, fontWeight: "900" },
+  declineText: { color: colors.red, fontFamily, fontSize: 12, fontWeight: "900" },
   neutralButton: { borderColor: colors.border, backgroundColor: colors.panelStrong },
   neutralText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "900" },
-  declineForm: { gap: 8 },
-  reasonInput: { minHeight: 76, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, color: colors.text, fontFamily, fontSize: 12, lineHeight: 18, padding: 10, textAlignVertical: "top" },
   assignmentActions: { flexDirection: "row", justifyContent: "flex-end", flexWrap: "wrap", gap: 5, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSoft, paddingTop: 7 },
   error: { color: colors.red, fontFamily, fontSize: 13 },
   emptyState: { alignItems: "center", gap: 10, paddingVertical: 34 },
