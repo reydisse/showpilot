@@ -141,11 +141,11 @@ const requiredLaunchContracts = [
   },
 ];
 
-// Crew authorization moved into the shared command boundary used by web and native.
+// Crew writes, review cancellation and profile reads share current authority checks.
 requiredLaunchContracts.push(
-  { path: "src/lib/crew-roster.server.ts", pattern: /readTeamAuthority\(db, actor, \{\s*orgId: command\.orgId,\s*kind: "crew"/, message: "Crew writes must check current session and organization authority." },
+  { path: "src/lib/crew-roster.server.ts", pattern: /readTeamAuthority\(db, actor, \{\s*orgId,\s*kind: "crew"/, message: "Crew writes must check current session and organization authority." },
   { path: "src/lib/team-command.server.ts", pattern: /command\.kind === "report" \|\| command\.kind === "crew"\)[\s\S]+hasPermission\(member\.role, "settings:members"\)/, message: "Crew authorization must retain member-management permission." },
-  { path: "src/lib/crew-roster.server.ts", pattern: /teamAuthorityGuard\(actor, command\.orgId, access\)/, message: "Crew writes must retain commit-time authority guards." },
+  { path: "src/lib/crew-roster.server.ts", pattern: /teamAuthorityGuard\(actor, orgId, access\)/, message: "Crew writes must retain commit-time authority guards." },
   { path: "src/lib/crew-roster.server.ts", pattern: /WHERE orgId=\? AND id=\? AND profileRevision=\?/, message: "Crew writes must retain tenant and profile revision guards." },
 );
 

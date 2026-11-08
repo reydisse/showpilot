@@ -1,6 +1,7 @@
 import { z } from "zod";
-const identity = { orgId: z.string().min(1), requestId: z.uuid() };
-const profile = {
+const id = z.string().min(1).max(64);
+const identity = { orgId: id, userId: id, requestId: z.uuid() };
+export const crewFieldsSchema = z.object({
   memberId: z
     .string()
     .trim()
@@ -9,58 +10,108 @@ const profile = {
     .transform((value) => value.toUpperCase()),
   name: z.string().trim().min(1).max(200),
   role: z.string().trim().min(1).max(100),
-  email: z.union([z.literal(""), z.email().max(254)]),
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(z.union([z.literal(""), z.email().max(254)])),
   photoUrl: z.string().max(2_100_000),
-};
+});
 export const crewCommandSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("create"), ...identity, ...profile }),
-  z.object({
-    kind: z.literal("update"),
-    ...identity,
-    ...profile,
-    id: z.string(),
-    expectedRevision: z.number().int().nonnegative(),
-  }),
-  z.object({
-    kind: z.literal("delete"),
-    ...identity,
-    id: z.string(),
-    expectedRevision: z.number().int().nonnegative(),
-  }),
+  crewFieldsSchema.extend({ kind: z.literal("create"), ...identity }).strict(),
+  crewFieldsSchema
+    .extend({
+      kind: z.literal("update"),
+      ...identity,
+      id,
+      expectedRevision: z.number().int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("delete"),
+      ...identity,
+      id,
+      expectedRevision: z.number().int().nonnegative(),
+    })
+    .strict(),
 ]);
 export type CrewCommand = z.infer<typeof crewCommandSchema>;
-export const crewReceiptSchema = z.object({
-  ok: z.literal(true),
-  id: z.string(),
-  requestId: z.uuid(),
-  kind: z.enum(["create", "update", "delete"]),
-});
+export const crewReceiptSchema = z
+  .object({
+    ...identity,
+    kind: z.enum(["create", "update", "delete"]),
+    outcome: z.enum(["applied", "cancelled"]),
+    id: id.nullable(),
+  })
+  .refine(
+    (value) =>
+      value.id !== null ||
+      (value.kind === "create" && value.outcome === "cancelled"),
+  );
 export type CrewReceipt = z.infer<typeof crewReceiptSchema>;
-
-/** Failed requests survive screen navigation in the signed-in session cache. */
-export function crewMutationOptions(input: {
-  key: readonly unknown[];
-  client: import("@tanstack/react-query").QueryClient;
-  execute: (command: CrewCommand) => Promise<CrewReceipt>;
-  confirmed: (result: CrewReceipt) => void;
-}) {
+export const crewSnapshotSchema = z.object({
+  id,
+  memberId: z.string(),
+  name: z.string(),
+  role: z.string(),
+  email: z.string(),
+  photoUrl: z.string(),
+  profileRevision: z.number().int().nonnegative(),
+});
+export const crewReadSchema = z.object({
+  orgId: id,
+  userId: id,
+  id,
+  snapshot: crewSnapshotSchema.nullable(),
+});
+export type CrewRead = z.infer<typeof crewReadSchema>;
+export type CrewSnapshot = z.infer<typeof crewSnapshotSchema>;
+export type CrewDraft = {
+  slot: string;
+  fields: z.infer<typeof crewFieldsSchema>;
+} & (
+  | { kind: "create"; base: null }
+  | { kind: "update" | "delete"; base: CrewSnapshot }
+);
+export function newCrewDraft(): CrewDraft {
   return {
-    mutationKey: input.key,
-    gcTime: Infinity,
-    networkMode: "always" as const,
-    mutationFn: input.execute,
-    onSuccess: input.confirmed,
-    onSettled: () => {
-      const cache = input.client.getMutationCache();
-      for (const old of cache.findAll({
-        mutationKey: input.key,
-        exact: true,
-      })) {
-        if (old.state.status !== "pending") cache.remove(old);
-      }
-    },
+    slot: "new",
+    kind: "create",
+    base: null,
+    fields: { memberId: "", name: "", role: "", email: "", photoUrl: "" },
   };
 }
+export function crewDraftFromSnapshot(
+  kind: "update" | "delete",
+  base: CrewSnapshot,
+): CrewDraft {
+  const { memberId, name, role, email, photoUrl } = base;
+  return {
+    slot: base.id,
+    kind,
+    base,
+    fields: { memberId, name, role, email, photoUrl },
+  };
+}
+export const crewRoles = [
+  "Production Director",
+  "Production Manager",
+  "Stage Manager",
+  "Technical Director",
+  "Audio Engineer",
+  "Broadcast Mixer",
+  "FOH Engineer",
+  "Monitor Engineer",
+  "Camera Director",
+  "Camera Operator",
+  "Graphics Operator",
+  "Lighting Director",
+  "Lighting Operator",
+  "Streaming Director",
+  "Stream Operator",
+  "ProPresenter Operator",
+];
 
 export async function prepareCrewPhoto(
   work: () => Promise<string>,
