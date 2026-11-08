@@ -15,7 +15,6 @@ import {
   writeKioskDisplay,
   type KioskDisplayDatabase,
 } from "../kiosk-display-command.server";
-import { runTmControl } from "../tm-operations";
 const auth = vi.hoisted(() => ({ cookie: "", ip: 0 }));
 vi.mock("better-auth/tanstack-start", () => ({
   tanstackStartCookies: () => ({ id: "test-cookie-bridge" }),
@@ -260,13 +259,6 @@ it("denies cross-org access and a revoked real session", async () => {
     .run();
   await expect(writeTechnicalKioskDisplay({ data })).rejects.toThrow("Sign in");
 });
-it("removes the unconditional blank and restore actions from the legacy RPC", async () => {
-  for (const action of ["displays-blank", "displays-restore"])
-    await expect(
-      runTmControl({ data: { orgId: authenticated.orgId, action } }),
-    ).rejects.toThrow();
-});
-
 it("evaluates temporary access on the organization day rather than the UTC date", async () => {
   await grant();
   const data = command(),

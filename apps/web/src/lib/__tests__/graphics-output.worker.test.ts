@@ -14,6 +14,8 @@ vi.mock("@tanstack/react-start", () => {
 });
 import { clearActiveGraphics, getActiveGraphics } from "../graphics";
 import { withDatabaseRequest } from "../request-database.server";
+import { issueDisplayPass } from "../display-access.server";
+import { handleOverlayGet } from "../../routes/api/overlay/$orgSlug";
 async function fixture() {
   const member = await seedRelayMember(`graphics-output-${crypto.randomUUID()}`);
   await env.DB.prepare("UPDATE organization SET cloud_enabled=1 WHERE id=?").bind(member.orgId).run();
@@ -49,5 +51,32 @@ it("reads live output from primary even without a recent-write cookie", async ()
   const response = await withDatabaseRequest(new Request("https://graphics.test/_serverFn/output"), database,
     async () => Response.json(await getActiveGraphics({ data: { orgId: f.orgId } })));
   expect((await response.json<{ id: string }[]>()).map(row => row.id)).toEqual([f.old]);
+  expect(sessions).toEqual([]);
+});
+
+it("reads overlay publication, clear, and replacement from primary on a separate display client", async () => {
+  const f = await fixture();
+  const pass = await issueDisplayPass(f.orgId, "overlay", env.KIOSK_SECRET);
+  const sessions: D1SessionConstraint[] = [];
+  const database = new Proxy(env.DB, { get(target, property) {
+    if (property === "withSession") return (constraint: D1SessionConstraint) => { sessions.push(constraint); return target.withSession(constraint); };
+    const value: unknown = Reflect.get(target, property, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
+  const read = async () => {
+    const request = new Request(`https://graphics.test/api/overlay/${f.orgId}`, {
+      headers: { "x-showpilot-display-pass": pass.token },
+    });
+    const response = await withDatabaseRequest(request, database, () =>
+      handleOverlayGet({ params: { orgSlug: f.orgId }, request }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    return (await response.json<{ id: string }[]>()).map(row => row.id);
+  };
+  expect(await read()).toEqual([f.old]);
+  await env.DB.prepare("DELETE FROM app_setting WHERE orgId=? AND key='active-graphics'").bind(f.orgId).run();
+  expect(await read()).toEqual([]);
+  await env.DB.prepare("INSERT INTO app_setting (id,orgId,key,value) VALUES (?,?,'active-graphics',?)").bind(crypto.randomUUID(), f.orgId, JSON.stringify([f.later])).run();
+  expect(await read()).toEqual([f.later]);
   expect(sessions).toEqual([]);
 });
