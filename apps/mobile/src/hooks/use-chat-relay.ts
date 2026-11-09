@@ -8,7 +8,7 @@ import { compareChatMessages, mergeChatMessage, parseChatHistoryPage, parseChatM
 import { SHOWPILOT_URL } from "@/lib/env";
 import { runMobileOperation, MobileOperationTimeoutError } from "../lib/request-deadline";
 import { notifyMobileChat } from "../lib/mobile-api";
-import { chatNotificationResultSchema, type ChatNotificationCommand } from "../lib/chat-notification";
+import { chatNotificationResultSchema, type ChatNotificationCommand } from "@showpilot/shared/chat-notification";
 import { createLocalRequestUuid } from "../lib/request-id";
 export type { MobileChatMessage } from "@/lib/chat-history";
 type Status = "connecting" | "connected" | "reconnecting" | "offline";

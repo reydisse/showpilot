@@ -210,3 +210,139 @@ it("reports a revoked guest pass without reconnecting or flushing its queued mes
   expect(FakeWebSocket.instances).toHaveLength(1);
   await adapter.disconnect(); vi.useRealTimers(); vi.unstubAllGlobals();
 });
+
+
+describe("web chat message and notification confirmation", () => {
+  const adapters: NativeChatAdapter[] = [];
+  let orgId = "";
+  let fetcher = vi.fn();
+  beforeEach(() => {
+    vi.useFakeTimers(); localStorage.clear(); orgId = crypto.randomUUID();
+    FakeWebSocket.instances = []; vi.stubGlobal("WebSocket", FakeWebSocket);
+    fetcher = vi.fn(async (_url: string, init: RequestInit) => {
+      const command = JSON.parse(String(init.body));
+      return Response.json({ ...command, userId: command.expectedUserId, notified: 1 });
+    });
+    vi.stubGlobal("fetch", fetcher);
+  });
+  afterEach(() => { adapters.forEach(adapter => adapter.disconnect()); adapters.length = 0; vi.unstubAllGlobals(); vi.useRealTimers(); });
+  async function open(userId = "actor", room = "production") {
+    const adapter = new NativeChatAdapter(orgId, undefined, room, `user-${userId}`, userId); adapters.push(adapter);
+    const connected = adapter.connect(); const socket = FakeWebSocket.instances.at(-1)!;
+    socket.open(); await connected; socket.receive({ type: "hydrate", messages: [], readReceipts: {} });
+    return { adapter, socket };
+  }
+  const confirmed = (id: string, more = {}) => ({ id, orgId, senderId: "actor", senderName: "Ada", text: "Fixture message", type: "text", timestamp: Date.now(), ...more });
+  it("notifies only after the original message is acknowledged and keeps mention choices", async () => {
+    const { adapter, socket } = await open(); const id = crypto.randomUUID();
+    await adapter.sendMessage("Ready @Crew", "text", "Ada", "PM", { clientMessageId: id, mentionedUserIds: ["crew"] });
+    expect(fetcher).not.toHaveBeenCalled();
+    socket.receive({ type: "message", message: confirmed(id) });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(JSON.parse(String(fetcher.mock.calls[0][1].body))).toMatchObject({ requestId: expect.any(String), messageId: id, expectedUserId: "actor", mentionedUserIds: ["crew"] });
+    socket.receive({ type: "message", message: confirmed(id) });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+  it("preserves the existing outbox when capacity rejects another draft", async () => {
+    const { adapter } = await open();
+    let outbox: Array<{ id: string }> = [];
+    adapter.onOutboxChange(value => { outbox = value; });
+    for (let index = 0; index < 50; index++) await adapter.sendMessage(`Queued ${index}`, "text", "Ada", "PM", { clientMessageId: `queued-${index}` });
+    const original = outbox.map(item => item.id);
+    await expect(adapter.sendMessage("Keep in composer", "text", "Ada", "PM", { clientMessageId: "new-draft" })).rejects.toThrow("queue is full");
+    expect(outbox.map(item => item.id)).toEqual(original);
+    adapter.cancelOutbox("queued-0");
+    await adapter.sendMessage("Keep in composer", "text", "Ada", "PM", { clientMessageId: "new-draft" });
+    expect(outbox.map(item => item.id)).toEqual([...original.slice(1), "new-draft"]);
+  });
+  it("settles a missing message acknowledgement and retries the same message ID", async () => {
+    const { adapter, socket } = await open(); const id = crypto.randomUUID();
+    let outbox: Array<{ id: string; delivery?: string }> = [];
+    adapter.onOutboxChange(value => { outbox = value; });
+    await adapter.sendMessage("Late acknowledgement", "text", "Ada", "PM", { clientMessageId: id });
+    await vi.advanceTimersByTimeAsync(8_001);
+    expect(outbox).toMatchObject([{ id, delivery: "failed" }]);
+    expect(fetcher).not.toHaveBeenCalled();
+    adapter.retryOutbox(id);
+    const messages = socket.sent.map(frame => JSON.parse(frame)).filter(frame => frame.type === "message");
+    expect(messages).toHaveLength(2); expect(messages[0]).toEqual(messages[1]);
+    socket.receive({ type: "message", message: confirmed(id) });
+    await vi.advanceTimersByTimeAsync(1); expect(outbox).toEqual([]); expect(fetcher).toHaveBeenCalledOnce();
+  });
+  it("notifies for a legacy non-UUID message ID and bounds the text to the saved relay limit", async () => {
+    const { adapter, socket } = await open();
+    const id = "old-lan-message";
+    await adapter.sendMessage("a".repeat(5000), "text", "Ada", "PM", { clientMessageId: id });
+    socket.receive({ type: "message", message: confirmed(id, { text: "a".repeat(4000) }) });
+    await vi.advanceTimersByTimeAsync(1);
+    const command = JSON.parse(String(fetcher.mock.calls[0][1].body));
+    expect(command.messageId).toBe(id);
+    expect(command.requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(command.text).toBe("a".repeat(4000));
+  });
+  it.each(["senderId", "orgId"])("does not acknowledge a message with a different %s", async field => {
+    const { adapter, socket } = await open(); const id = crypto.randomUUID();
+    let outbox: Array<{ id: string }> = []; adapter.onOutboxChange(value => { outbox = value; });
+    await adapter.sendMessage("Same ID, wrong identity", "text", "Ada", "PM", { clientMessageId: id });
+    socket.receive({ type: "message", message: confirmed(id, { [field]: "other" }) });
+    expect(outbox).toMatchObject([{ id }]); expect(fetcher).not.toHaveBeenCalled();
+  });
+  it("retains a notification failure across adapter replacement and retries no message", async () => {
+    fetcher.mockResolvedValueOnce(new Response("Unavailable", { status: 503 }));
+    const first = await open(); const id = crypto.randomUUID();
+    await first.adapter.sendMessage("Accepted message", "text", "Ada", "PM", { clientMessageId: id });
+    first.socket.receive({ type: "message", message: confirmed(id) });
+    await vi.advanceTimersByTimeAsync(1); first.adapter.disconnect();
+    const second = await open();
+    let work: import("../chat-notifications").ChatNotificationWork[] = [];
+    second.adapter.onNotifications(value => { work = value; });
+    expect(work).toMatchObject([{ status: "failed", command: { messageId: id } }]);
+    const firstBody = fetcher.mock.calls[0][1].body;
+    const requestId = work[0].command.requestId;
+    second.adapter.retryNotifications(requestId); second.adapter.retryNotifications(requestId);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetcher).toHaveBeenCalledTimes(2); expect(fetcher.mock.calls[1][1].body).toBe(firstBody);
+    expect(second.socket.sent).toEqual([]); expect(work).toEqual([]);
+  });
+  it("bounds a stalled notification and ignores its late reply during a retry", async () => {
+    let finish!: (response: Response) => void;
+    fetcher.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const { adapter, socket } = await open(); const id = crypto.randomUUID();
+    let work: import("../chat-notifications").ChatNotificationWork[] = []; adapter.onNotifications(value => { work = value; });
+    await adapter.sendMessage("Bounded notification", "text", "Ada", "PM", { clientMessageId: id });
+    socket.receive({ type: "message", message: confirmed(id) }); await vi.advanceTimersByTimeAsync(15_001);
+    expect(work[0].status).toBe("failed"); expect(fetcher.mock.calls[0][1].signal?.aborted).toBe(true);
+    fetcher.mockResolvedValueOnce(new Response("Unavailable", { status: 503 }));
+    adapter.retryNotifications(work[0].command.requestId); await vi.advanceTimersByTimeAsync(1);
+    const latest = work[0];
+    finish(Response.json({ orgId, userId: "actor", roomId: "production", messageId: id, requestId: id, notified: 1 }));
+    await vi.advanceTimersByTimeAsync(1); expect(work[0]).toBe(latest);
+  });
+  it.each(["userId", "orgId", "roomId", "requestId", "messageId"])("does not accept a notification acknowledgement for another %s", async field => {
+    fetcher.mockImplementationOnce(async (_url, init) => {
+      const command = JSON.parse(String(init.body));
+      return Response.json({ ...command, userId: "actor", notified: 1, [field]: field === "requestId" ? crypto.randomUUID() : "other" });
+    });
+    const { adapter, socket } = await open(); const id = crypto.randomUUID();
+    let work: import("../chat-notifications").ChatNotificationWork[] = []; adapter.onNotifications(value => { work = value; });
+    await adapter.sendMessage("Identity check", "text", "Ada", "PM", { clientMessageId: id });
+    socket.receive({ type: "message", message: confirmed(id) }); await vi.advanceTimersByTimeAsync(1);
+    expect(work[0].status).toBe("failed");
+  });
+  it("retries an added reaction's notification without toggling the reaction again", async () => {
+    fetcher.mockResolvedValueOnce(new Response("Unavailable", { status: 503 }));
+    const { adapter, socket } = await open(); const id = crypto.randomUUID();
+    socket.receive({ type: "message", message: confirmed(id, { senderId: "crew", senderName: "Crew" }) });
+    const changing = adapter.toggleReaction(id, "👍");
+    const mutation = JSON.parse(socket.sent.at(-1)!);
+    socket.receive({ type: "message-edited", message: confirmed(id, { senderId: "crew", senderName: "Crew", reactions: [{ emoji: "👍", userIds: ["actor"] }] }) });
+    socket.receive({ type: "mutation-result", requestId: mutation.requestId, ok: true });
+    await changing; await vi.advanceTimersByTimeAsync(1);
+    let work: import("../chat-notifications").ChatNotificationWork[] = []; adapter.onNotifications(value => { work = value; });
+    expect(work).toMatchObject([{ status: "failed", command: { kind: "reaction", requestId: mutation.requestId } }]);
+    adapter.retryNotifications(mutation.requestId); await vi.advanceTimersByTimeAsync(1);
+    expect(socket.sent).toHaveLength(1); expect(fetcher).toHaveBeenCalledTimes(2); expect(work).toEqual([]);
+  });
+});

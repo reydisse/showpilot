@@ -1,3 +1,4 @@
+import type { ChatNotificationWork } from "../chat-notifications";
 /**
  * Chat Adapter Interface
  *
@@ -104,6 +105,8 @@ export interface ChatAdapter {
   votePoll?(messageId: string, optionId: string): Promise<void>;
   toggleReaction?(messageId: string, emoji: string): Promise<void>;
   loadOlder?(limit?: number): Promise<{ messages: ChatMessage[]; nextCursor: { timestamp: number; id: string } | null }>;
+  onNotifications?(callback: (work: ChatNotificationWork[]) => void): () => void;
+  retryNotifications?(requestId: string): void;
   onOutboxChange?(callback: (messages: ChatMessage[]) => void): () => void;
   retryOutbox?(messageId: string): void;
   cancelOutbox?(messageId: string): void;

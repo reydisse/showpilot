@@ -1,3 +1,4 @@
+import type { ChatNotificationWork } from "@/lib/chat-notifications";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createBrowserId } from "@/lib/browser-id";
 import type { ChatAdapter, ChatAttachment, ChatGatewayStatus, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
@@ -18,9 +19,11 @@ interface UseChatOptions {
 }
 
 interface UseChatReturn {
+  notifications: ChatNotificationWork[];
+  retryNotifications: (requestId: string) => void;
   guestAccessRevoked: boolean;
   messages: ChatMessage[];
-  sendMessage: (text: string, type?: MessageType, options?: ChatMessageOptions) => void;
+  sendMessage: (text: string, type?: MessageType, options?: ChatMessageOptions) => Promise<void>;
   uploadAttachment: (file: File) => Promise<ChatAttachment>;
   discardAttachment: (attachment: ChatAttachment) => Promise<void>;
   editMessage: (messageId: string, text: string) => Promise<void>;
@@ -52,13 +55,13 @@ function createAdapter(orgId: string, guest: ConstructorParameters<typeof Native
 }
 
 type ChatView = Pick<UseChatReturn,
-  "guestAccessRevoked" | "messages" | "connectionStatus" | "connectionUpdatedAt" | "unreadCount" |
+  "notifications" | "guestAccessRevoked" | "messages" | "connectionStatus" | "connectionUpdatedAt" | "unreadCount" |
   "typingUsers" | "readReceipts" | "hydrated" | "openingReadThrough" |
   "gatewayStatus" | "hasOlderMessages" | "loadingOlderMessages" | "olderMessagesError">;
 
 function emptyView(enabled: boolean): ChatView {
   return {
-    guestAccessRevoked: false, messages: [], connectionStatus: enabled ? "connecting" : "disabled", connectionUpdatedAt: 0,
+    notifications: [], guestAccessRevoked: false, messages: [], connectionStatus: enabled ? "connecting" : "disabled", connectionUpdatedAt: 0,
     unreadCount: 0, typingUsers: [], readReceipts: {}, hydrated: false, openingReadThrough: null,
     gatewayStatus: { platform: null, status: enabled ? "connecting" : "disabled" },
     hasOlderMessages: false, loadingOlderMessages: false, olderMessagesError: null,
@@ -72,7 +75,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
   const [stored, setStored] = useState(() => ({ owner, view: emptyView(Boolean(orgId)) }));
   // A room change must not render even one frame of the previous conversation.
   const view = stored.owner === owner ? stored.view : emptyView(Boolean(orgId));
-  const { messages, hasOlderMessages, loadingOlderMessages } = view;
+  const { hasOlderMessages, loadingOlderMessages } = view;
   const adapterRef = useRef<{ owner: typeof owner; adapter: ChatAdapter } | null>(null);
   const historyGeneration = useRef(0);
   const isVisibleRef = useRef(isVisible);
@@ -133,11 +136,12 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
       ...current, messages: [...current.messages.filter(message => !message.delivery), ...pending]
         .sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id)),
     })));
+    const unsubNotifications = adapter.onNotifications?.(notifications => update(adapter, current => ({ ...current, notifications })));
     void adapter.connect().catch(() => { /* Adapter reports errors and manages reconnects. */ });
     return () => {
       adapterRef.current = null;
       unsubMessage(); unsubStatus?.(); unsubTyping?.(); unsubReadReceipt?.();
-      unsubHydrated?.(); unsubGatewayStatus?.(); unsubOutbox?.();
+      unsubHydrated?.(); unsubGatewayStatus?.(); unsubOutbox?.(); unsubNotifications?.();
       for (const timer of typingTimers.values()) clearTimeout(timer);
       adapter.disconnect();
     };
@@ -149,46 +153,43 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
   }, [getAdapter, isVisible, update]);
 
   const sendMessage = useCallback(
-    (text: string, type: MessageType = "text", options?: ChatMessageOptions) => {
+    async (text: string, type: MessageType = "text", options?: ChatMessageOptions) => {
       const adapter = getAdapter();
-      if (!adapter || (!text.trim() && !options?.attachments?.length && !options?.poll)) return;
+      if (!adapter) throw new Error("Chat is not ready. Reconnect before sending this message.");
+      if (!text.trim() && !options?.attachments?.length && !options?.poll) throw new Error("Write a message or choose an attachment first.");
 
       const name = userName || "Operator";
       const role = userRole || "Operator";
       const clientMessageId = createBrowserId();
       const messageOptions = { ...options, clientMessageId };
-      void adapter.sendMessage(text.trim(), type, name, role, messageOptions);
-      if (!guestToken) {
-        void import("@/lib/chat-collaboration").then(({ notifyChatMessage }) => notifyChatMessage({
-          data: { orgId, roomId, text: text.trim() || messageOptions?.poll?.question || "", mentionedUserIds: messageOptions?.mentionedUserIds, messageId: clientMessageId },
-        })).catch(() => undefined);
-      }
+      await adapter.sendMessage(text.trim(), type, name, role, messageOptions);
     },
     [getAdapter, guestToken, orgId, roomId, userName, userRole],
   );
 
   const editMessage = useCallback(async (messageId: string, text: string) => {
-    await getAdapter()?.editMessage?.(messageId, text);
+    const adapter = getAdapter();
+    if (!adapter?.editMessage) throw new Error("Chat is not ready to edit this message. Reconnect and retry.");
+    await adapter.editMessage(messageId, text);
   }, [getAdapter]);
 
   const deleteMessage = useCallback(async (messageId: string) => {
-    await getAdapter()?.deleteMessage?.(messageId);
+    const adapter = getAdapter();
+    if (!adapter?.deleteMessage) throw new Error("Chat is not ready to delete this message. Reconnect and retry.");
+    await adapter.deleteMessage(messageId);
   }, [getAdapter]);
 
   const votePoll = useCallback(async (messageId: string, optionId: string) => {
-    await getAdapter()?.votePoll?.(messageId, optionId);
+    const adapter = getAdapter();
+    if (!adapter?.votePoll) throw new Error("Chat is not ready to record this vote. Reconnect and retry.");
+    await adapter.votePoll(messageId, optionId);
   }, [getAdapter]);
 
   const toggleReaction = useCallback(async (messageId: string, emoji: string) => {
     const adapter = getAdapter();
     if (!adapter?.toggleReaction) throw new Error("Reactions are available in ShowPilot chat");
     await adapter.toggleReaction(messageId, emoji);
-    const target = messages.find((message) => message.id === messageId);
-    if (target?.senderId) {
-      const { notifyChatReaction } = await import("@/lib/chat-collaboration");
-      await notifyChatReaction({ data: { orgId, roomId, messageId, targetUserId: target.senderId, emoji } });
-    }
-  }, [getAdapter, messages, orgId, roomId]);
+  }, [getAdapter]);
 
   const uploadAttachment = useCallback(async (file: File): Promise<ChatAttachment> => {
     const formData = new FormData();
@@ -245,6 +246,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
       if(generation === historyGeneration.current) update(adapter, current => ({ ...current, loadingOlderMessages: false }));
     }
   }, [getAdapter, hasOlderMessages, loadingOlderMessages, update]);
+  const retryNotifications = useCallback((requestId: string) => getAdapter()?.retryNotifications?.(requestId), [getAdapter]);
   const retryQueuedMessage = useCallback((messageId: string) => getAdapter()?.retryOutbox?.(messageId), [getAdapter]);
   const cancelQueuedMessage = useCallback((messageId: string) => getAdapter()?.cancelOutbox?.(messageId), [getAdapter]);
   const retryConnection = useCallback(() => {
@@ -255,7 +257,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
   }, [getAdapter, view.guestAccessRevoked]);
 
   return {
-    ...view, retryConnection, sendMessage, uploadAttachment, discardAttachment, editMessage, deleteMessage, votePoll,
+    ...view, retryNotifications, retryConnection, sendMessage, uploadAttachment, discardAttachment, editMessage, deleteMessage, votePoll,
     toggleReaction, resetUnread, setTyping, markRead, loadOlderMessages, retryQueuedMessage, cancelQueuedMessage,
   };
 }

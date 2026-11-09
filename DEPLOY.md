@@ -9486,3 +9486,56 @@ No production code, PIN work factor, command expiry or test timeout was relaxed.
 All 21 output Worker integration tests pass under Istanbul coverage after this
 change (`/tmp/showpilot-weboutput-ci-split2.log`). The CI rerun remains the
 required check before a successor PR is opened.
+
+### Web Chat message acknowledgement and notification recovery (2026-11-09)
+
+Web chat previously started crew notifications before the relay acknowledged the
+message. Reaction notification failures also rejected the completed reaction,
+encouraging another toggle. The web adapter now starts notifications only after
+matching message/reaction acknowledgement and tracks notification work separately.
+Message acknowledgement stops waiting after eight seconds; Retry send retains the
+original message identity. Notification requests stop after fifteen seconds and
+retry the original command without sending a message or toggling a reaction again.
+The inbox endpoints already deduplicate partial/lost-reply retries without
+resetting read or dismissed state. Both clients now import one shared notification
+contract; the old web notification RPCs and native-local duplicate were removed.
+
+Notification work is scoped to actor, workspace and room and survives SPA
+navigation in the current browser session, including pending replies. It is not
+persisted across a full reload or browser termination. Errors, timestamps and
+notification-only retries appear above the composer in a bounded scroll region.
+The composer retains its draft or poll if enqueue fails, and a full outbox no
+longer silently evicts an earlier message. Removing a local queued copy requires
+confirmation that explains it cannot retract an already accepted server message.
+Send and recovery buttons meet 44px. Receipt request IDs remain valid UUIDs on
+HTTP/LAN origins and for older queued message IDs; notification text respects the
+relay's 4,000-character storage limit.
+
+Validation: full web suite passed 3,354 unit + 1,743 Worker = 5,097 tests. After
+adding the queue-capacity regression, all 100 focused chat/identity tests passed.
+Web/shared typechecks and production build passed; main bundle 542,252 raw /
+171,024 gzip bytes under unchanged budgets. Native verification exported iOS,
+Android and web, passed Expo Doctor 18/18 and the polling boundary; Hermes bundles
+were 6,050,266 / 6,049,386 bytes. These exports are not physical-device proof.
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-web-chat-delivery.mjs`
+passed against a compiled Worker, real local auth, ChatRelay and disposable D1.
+It loses the actual message acknowledgement, verifies one saved message after
+same-ID retry, injects a partial inbox failure, navigates between rooms, retries
+only notifications and preserves existing read/dismissed state. A second case
+loses a successful inbox reply and recovers without duplicate messages or inbox
+rows. No external email is sent. At 320x568, 768x1024 and 1440x900, recovery targets
+are reachable and at least 44px, with no horizontal overflow. Screenshots were
+inspected after waiting for responsive sidebar transitions. The first browser
+run caught a 36px Send button; it was corrected and the component tests and build
+rerun before the successful rehearsal.
+
+Remaining chat work includes acknowledgement recovery for edit/delete/vote/reaction
+mutations themselves, attachment uploads/discards and native media preparation.
+This change handles message and notification delivery, not all chat operations.
+Phase 2 remains 67/79. Twenty necessary Markdown files remain. No deployment,
+release, remote migration or real organization data change.
+Parent #288 repair: 8f2a31c191287f5ee725f655240bd436aa31c416, CI run 42595830192;
+its exact-head CI must pass before opening this successor PR.
+Logs: /tmp/showpilot-webchat-{full4,unit5,ui6,tsc1,shared1,build2,native1,browser3}.log.
+Screenshots: /tmp/showpilot-webchat-{message,notification}-{320,768,1440}.png.
