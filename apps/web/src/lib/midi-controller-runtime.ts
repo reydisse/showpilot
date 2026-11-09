@@ -7,10 +7,11 @@ function selectedPort<T extends MidiPortIdentity & { state: MIDIPortDeviceState 
   const matches = selected.name ? ports.filter(port => port.name === selected.name && port.manufacturer === selected.manufacturer) : [];
   return matches.length === 1 ? matches[0] : null;
 }
-interface ControllerCallbacks {
+export interface ControllerCallbacks {
   message: (input: MidiBinding["input"], value: number, previous: number | undefined) => void;
-  ports: (inputs: MIDIInput[], outputs: MIDIOutput[], connected: boolean, feedbackConnected: boolean) => void;
+  ports: (inputs: MidiPortIdentity[], outputs: MidiPortIdentity[], connected: boolean, feedbackConnected: boolean) => void;
   error: (message: string) => void;
+  closed?: () => void;
 }
 
 /** Owns one controller listener. MTC and other consumers retain their listeners. */
@@ -19,21 +20,14 @@ export class MidiControllerRuntime {
   private output: MIDIOutput | null = null;
   private selectedInput: MidiPortIdentity | null = null;
   private selectedOutput: MidiPortIdentity | null = null;
-  private values = new Map<string, number>();
+  private inputState: ControllerInputState;
   private desired = new Map<number, number[]>();
   private sent = new Map<number, string>();
   private timer: ReturnType<typeof setInterval>;
   private portsKey = "";
-  private readonly onMessage = (event: MIDIMessageEvent) => {
-    const parsed = parseControllerMessage(event.data);
-    if (!parsed) return;
-    const key = midiInputKey(parsed.input);
-    const previous = this.values.get(key);
-    this.values.set(key, parsed.value);
-    // Releases reach the caller to establish edges, but repeated held notes do not fire.
-    if (previous !== parsed.value || parsed.input.kind === "note" && parsed.value === 0) this.callbacks.message(parsed.input, parsed.value, previous);
-  };
+  private readonly onMessage = (event: MIDIMessageEvent) => this.inputState.receive(event.data);
   constructor(private readonly access: MIDIAccess, private readonly callbacks: ControllerCallbacks) {
+    this.inputState = new ControllerInputState(callbacks.message);
     access.addEventListener("statechange", this.scan);
     this.timer = setInterval(this.scan, 2_000);
     this.scan();
@@ -42,7 +36,7 @@ export class MidiControllerRuntime {
     this.selectedInput = input; this.selectedOutput = output;
     this.scan();
   }
-  resetInput(): void { this.values.clear(); }
+  resetInput(): void { this.inputState.clear(); }
   private readonly scan = () => {
     const inputs = [...this.access.inputs.values()].filter(port => port.state === "connected");
     const outputs = [...this.access.outputs.values()].filter(port => port.state === "connected");
@@ -51,7 +45,7 @@ export class MidiControllerRuntime {
     const changed = input !== this.input || output !== this.output;
     if (input !== this.input) {
       this.input?.removeEventListener("midimessage", this.onMessage);
-      this.input = input; this.values.clear();
+      this.input = input; this.inputState.clear();
       input?.addEventListener("midimessage", this.onMessage);
     }
     if (output !== this.output) {
@@ -88,6 +82,23 @@ export class MidiControllerRuntime {
   stop(): void {
     clearInterval(this.timer); this.access.removeEventListener("statechange", this.scan);
     this.input?.removeEventListener("midimessage", this.onMessage);
-    this.clearOutput(); this.input = null; this.output = null; this.values.clear();
+    this.clearOutput(); this.input = null; this.output = null; this.inputState.clear();
+  }
+}
+
+export type ControllerRuntime = Pick<MidiControllerRuntime, "select" | "resetInput" | "feedback" | "stop">;
+
+/** The browser and native paths share note edges and CC deduplication. */
+export class ControllerInputState {
+  private values = new Map<string, number>();
+  constructor(private readonly message: ControllerCallbacks["message"]) {}
+  clear(): void { this.values.clear(); }
+  receive(data: Uint8Array | null): void {
+    const parsed = parseControllerMessage(data);
+    if (!parsed) return;
+    const key = midiInputKey(parsed.input);
+    const previous = this.values.get(key);
+    this.values.set(key, parsed.value);
+    if (previous !== parsed.value || parsed.input.kind === "note" && parsed.value === 0) this.message(parsed.input, parsed.value, previous);
   }
 }

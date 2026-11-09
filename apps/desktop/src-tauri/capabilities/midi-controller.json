@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "midi-controller",
+  "description": "Only the trusted main workspace may own a MIDI controller session.",
+  "windows": ["main"],
+  "remote": { "urls": ["https://showpilot.tech/*", "https://app.showpilot.tech/*"] },
+  "permissions": ["allow-midi-controller"]
+}

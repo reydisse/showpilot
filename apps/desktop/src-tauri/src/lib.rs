@@ -13,6 +13,7 @@ use confidence_output::{
     stop_confidence_output, OutputRuntime,
 };
 mod bridge_runtime;
+mod midi_controller;
 use bridge_runtime::{
     bridge_status, start_bridge, start_saved_bridge, start_supervisor, stop_bridge, BridgeRuntime,
 };
@@ -307,6 +308,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(BridgeRuntime::new())
+        .manage(midi_controller::MidiControllerRuntime::new())
         .manage(OutputRuntime::default())
         .setup(|app| {
             let open =
@@ -362,7 +364,12 @@ pub fn run() {
             toggle_display_fullscreen,
             bridge_status,
             start_bridge,
-            stop_bridge
+            stop_bridge,
+            midi_controller::midi_controller_open,
+            midi_controller::midi_controller_select,
+            midi_controller::midi_controller_refresh,
+            midi_controller::midi_controller_feedback,
+            midi_controller::midi_controller_close
         ])
         .build(tauri::generate_context!())
         .expect("error while building ShowPilot Desktop");
@@ -370,6 +377,8 @@ pub fn run() {
     app.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
             confidence_output::shutdown();
+            app.state::<midi_controller::MidiControllerRuntime>()
+                .shutdown();
         }
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen {
