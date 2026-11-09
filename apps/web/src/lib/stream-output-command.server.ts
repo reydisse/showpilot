@@ -6,6 +6,8 @@ import { markDatabaseWrite } from "./request-database.server";
 
 export type OutputResult = { id: string; success: boolean; error?: string };
 export type OutputCommandOptions = {
+  /** Internal transaction guard for reviewed native requests; never accepted as client SQL. */
+  commitGuard?: { sql: string; values: (string | number | null)[] };
   actorId?: string;
   requestId?: string;
   /** A confirmed client snapshot. Omit only for callers without a preview UI. */
@@ -395,7 +397,7 @@ async function prepare(command: Command): Promise<Receipt> {
   statements.unshift(
     db
       .prepare(
-        "INSERT INTO stream_output_command(id,orgId,actorId,requestId,fingerprint,targets,configurations,createdAt,precondition) VALUES(?,?,?,?,?,?,?,?,1)",
+        `INSERT INTO stream_output_command(id,orgId,actorId,requestId,fingerprint,targets,configurations,createdAt,precondition) VALUES(?,?,?,?,?,?,?,?,CASE WHEN ${command.commitGuard?.sql ?? "1"} THEN 1 ELSE 0 END)`,
       )
       .bind(
         id,
@@ -406,6 +408,7 @@ async function prepare(command: Command): Promise<Receipt> {
         JSON.stringify(ids),
         JSON.stringify(configurations),
         now,
+        ...(command.commitGuard?.values ?? []),
       ),
   );
   markDatabaseWrite();

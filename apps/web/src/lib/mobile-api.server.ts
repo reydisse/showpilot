@@ -7293,6 +7293,20 @@ export async function handleMobileApi(
   if (contentLengthExceeds(request, 3_250_000)) {
     return json({ error: "Request payload is too large." }, 413);
   }
+  if ((url.pathname === "/api/mobile/v1/destinations/control" && ["GET", "POST"].includes(request.method)) ||
+      (url.pathname === "/api/mobile/v1/destinations/review" && request.method === "POST")) {
+    const { destinationControlScopeSchema, destinationControlCommandSchema } = await import("@showpilot/shared/destination-control");
+    const { readDestinationControl, writeDestinationControl, DestinationControlAccessError } = await import("./destination-control.server");
+    const read = request.method === "GET";
+    const parsed = read ? destinationControlScopeSchema.safeParse({ orgId: url.searchParams.get("orgId"), userId: url.searchParams.get("userId") }) : destinationControlCommandSchema.safeParse(await readJson(request));
+    if (!parsed.success) return json({ error: "Check the destination change and account." }, 400);
+    try {
+      if (read) return json(await readDestinationControl(request.headers, parsed.data));
+      return json(await writeDestinationControl(request.headers, destinationControlCommandSchema.parse(parsed.data), url.pathname.endsWith("/review") ? "review" : "save"));
+    } catch (error) {
+      return json({ error: error instanceof DestinationControlAccessError ? error.message : "The destination change was not confirmed. Retry or review the original request." }, error instanceof DestinationControlAccessError ? 403 : 503);
+    }
+  }
   if ((url.pathname === "/api/mobile/v1/graphics/control" && ["GET", "POST"].includes(request.method)) ||
       (url.pathname === "/api/mobile/v1/graphics/review" && request.method === "POST")) {
     const { graphicControlScopeSchema, graphicControlCommandSchema } = await import("@showpilot/shared/graphic-control");
