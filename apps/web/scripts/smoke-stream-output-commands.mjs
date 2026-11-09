@@ -52,12 +52,12 @@ await withLocalSmokeFixture(async({origin,orgId,operatorCookie,configureStreamOu
     await check(`${button("Retry change")}!=null`,"Go Live deadline");
     await click("Songs");await check("document.body.innerText.includes('Leave Multi-Platform?')","pending command navigation guard");await click("Stay");await check("!document.querySelector('[role=dialog]')","stay on output controls");
     await retry("connectDestinationsToInput");assert.equal((await streamOutputRequests()).filter(request=>request.method==="POST").length,2);
-    await hold("disconnectAllDestinations");await confirmAction("Stop All");await check("window.cmdReplies.some(r=>r.kind==='disconnectAllDestinations')","Stop committed but reply lost");await retry("disconnectAllDestinations");assert.deepEqual(await streamOutputSnapshot(),[]);
+    await hold("disconnectAllDestinations");await confirmAction("Disconnect all destinations");await check("window.cmdReplies.some(r=>r.kind==='disconnectAllDestinations')","Stop committed but reply lost");await retry("disconnectAllDestinations");assert.deepEqual(await streamOutputSnapshot(),[]);
     await configureStreamOutputs("lose-create");await confirmAction("Go Live");await check(`${button("Retry change")}!=null`,"provider creation result unconfirmed");
     assert.equal((await streamOutputSnapshot()).length,2);assert.ok((await streamOutputSnapshot()).every(output=>!output.enabled));
     await configureStreamOutputs("success");await retry("connectDestinationsToInput");
     assert.equal((await streamOutputRequests()).filter(request=>request.method==="POST").length,4,"unknown provider creation cannot create duplicates");
-    await configureStreamOutputs("fail-delete");await confirmAction("Stop All");await check("document.querySelector('[aria-label=\"Output change\"]')?.innerText.includes('Fixture beta')","partial Stop result names failed destination");
+    await configureStreamOutputs("fail-delete");await confirmAction("Disconnect all destinations");await check("document.querySelector('[aria-label=\"Output change\"]')?.innerText.includes('Fixture beta')","partial Stop result names failed destination");
     assert.equal((await streamOutputSnapshot()).length,1);await configureStreamOutputs("success");await retry("disconnectAllDestinations");assert.deepEqual(await streamOutputSnapshot(),[]);
     await hold("toggleStreamDestination");await click("Disable Fixture alpha");await retry("toggleStreamDestination");
     await click("Enable Fixture alpha");await ready();assert.deepEqual(await streamOutputSnapshot(),[],"selection never creates outputs");
@@ -65,7 +65,7 @@ await withLocalSmokeFixture(async({origin,orgId,operatorCookie,configureStreamOu
     assert.equal(await evaluate("document.body.innerText.includes('Fixture alpha')"),false);
     await configureStreamOutputs("slow-create");await confirmAction("Go Live");
     await poll(async()=> (await streamOutputRequests()).some(request=>request.mode==="slow-create"&&request.method==="POST"),"held disabled provider creation");
-    const started=Date.now();await confirmAction("Stop All");await check(`${button("Retry change")}!=null`,"Stop waiting on prior provider call");
+    const started=Date.now();await confirmAction("Disconnect all destinations");await check(`${button("Retry change")}!=null`,"Stop waiting on prior provider call");
     await poll(()=>Date.now()-started>5_500,"bounded prior provider call");await configureStreamOutputs("success");await retry("disconnectAllDestinations");
     await poll(()=>Date.now()-started>12_500,"late provider reply cannot restart broadcast");
     assert.deepEqual(await streamOutputSnapshot(),[]);

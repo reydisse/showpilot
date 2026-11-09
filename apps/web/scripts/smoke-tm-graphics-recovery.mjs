@@ -162,7 +162,7 @@ await withLocalSmokeFixture(
           "window.ltMessages.some(m=>m.action==='show')",
           "live lower-third socket",
         );
-        await click("Clear graphics");
+        await click("Clear all graphics");
         await check(
           `document.querySelector('[role=dialog]')?.innerText.includes('Reviewed Program, Reviewed lower third')`,
           "named clear confirmation",
@@ -190,8 +190,8 @@ await withLocalSmokeFixture(
         await click("Cancel", { dialog: true });
         await check(`!document.querySelector('[role=dialog]')`, "cancel");
         assert.equal((await evaluate("window.tmCalls")).length, 0);
-        await click("Clear graphics");
-        await click("Clear graphics now", { dialog: true });
+        await click("Clear all graphics");
+        await click("Clear all graphics", { dialog: true });
         await poll(async () => {
           const state = await output();
           return !state.program.length && state.legacy.current === null;
@@ -255,14 +255,14 @@ await withLocalSmokeFixture(
         await evaluate(
           "window.tmReplies.splice(0).forEach(release=>release())",
         );
-        await click("Clear graphics");
+        await click("Clear all graphics");
         await publish("After review Program");
         await lowerThird("After review lower third");
         await check(
           `${root}?.innerText.includes('After review Program')`,
           "new publication after review",
         );
-        await click("Clear graphics now", { dialog: true });
+        await click("Clear all graphics", { dialog: true });
         await check(
           `${root}?.innerText.includes('Graphics changed after confirmation.')`,
           "stale clear rejected",
@@ -297,8 +297,8 @@ await withLocalSmokeFixture(
               ),
             );
         }
-        await click("Clear graphics");
-        await click("Clear graphics now", { dialog: true });
+        await click("Clear all graphics");
+        await click("Clear all graphics", { dialog: true });
         await poll(async () => {
           const state = await output();
           return !state.program.length && state.legacy.current === null;

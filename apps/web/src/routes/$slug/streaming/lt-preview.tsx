@@ -498,7 +498,7 @@ function TemplatePreviewPage() {
   };
   const handleClearLive = async () => {
     if (!canTriggerGraphics) return;
-    if (!await confirm({ title: "Clear Program?", description: "Remove all live graphics from connected outputs? Preview and saved scenes stay unchanged.", confirmLabel: "Clear Program" })) return;
+    if (!await confirm({ title: "Clear program graphics?", description: "Remove all live graphics from connected outputs? Preview and saved scenes stay unchanged.", confirmLabel: "Clear program graphics" })) return;
     await output.run({ kind: "clear" });
   };
 
@@ -524,7 +524,7 @@ function TemplatePreviewPage() {
             </PageBreadcrumb>
             <div className="flex items-center gap-2">
               <h1 className="font-display text-lg font-semibold text-board-text">Template Studio</h1>
-              <ContextHelp title="Template Studio" description="Build the next composition in Preview. Save graphic stores only the selected lower third, Save scene stores every preview layer, Take Live atomically replaces Program, and Clear removes Program from connected outputs." className="size-11" />
+              <ContextHelp title="Template Studio" description="Build the next composition in Preview. Save graphic stores only the selected lower third, Save scene stores every preview layer, Take Live atomically replaces Program, and Clear program graphics removes Program from connected outputs." className="size-11" />
             </div>
           </div>
           <button
@@ -546,6 +546,7 @@ function TemplatePreviewPage() {
       </div>
 
       <div className="mx-auto max-w-[1700px] p-3 lg:p-4">
+        <p className="mb-3 text-sm text-board-muted">Save graphic stores the selected lower third. Save scene stores the complete Preview composition. Take Live replaces Program with Preview; Clear program graphics removes Program from connected outputs.</p>
         <div className="flex items-start gap-3 lg:gap-4">
           <aside className="sticky top-[76px] hidden w-60 shrink-0 overflow-hidden rounded-xl border border-board-border bg-board-card/80 xl:block">
             <div className="flex items-center justify-between border-b border-board-border px-3 py-3">
@@ -681,7 +682,7 @@ function TemplatePreviewPage() {
                 className="min-h-11 flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fire-500/30 text-fire-500 text-xs font-medium hover:bg-fire-500/10 disabled:opacity-40 transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" />
-                Add LT
+                Add lower third
               </button>
               {canTriggerGraphics && (
                 <button
@@ -691,9 +692,9 @@ function TemplatePreviewPage() {
                 >
                   <Play className="w-3.5 h-3.5" />
                   {pushing
-                    ? "Pushing..."
+                    ? "Taking live…"
                     : composedCount > 1
-                      ? `Push Scene (${composedCount})`
+                      ? `Take Live (${composedCount})`
                     : "Take Live"}
                 </button>
               )}
@@ -704,7 +705,7 @@ function TemplatePreviewPage() {
                   className="min-h-11 flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
                 >
                   <Square className="w-3.5 h-3.5" />
-                  Clear Program
+                  Clear program graphics
                 </button>
               )}
               {canConfigureGraphics && (
@@ -742,7 +743,7 @@ function TemplatePreviewPage() {
                 <div className="flex items-center gap-1.5 mb-2 px-0.5">
                   <Layers className="w-3 h-3 text-board-muted" />
                   <span className="text-[10px] font-semibold uppercase tracking-widest text-board-muted">
-                    Scene · {scene.length + (draftHasText ? 1 : 0)} LTs
+                    Scene · {scene.length + (draftHasText ? 1 : 0)} lower thirds
                   </span>
                   <span className="text-[10px] text-board-muted/50">
                     (these push together)

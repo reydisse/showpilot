@@ -128,7 +128,7 @@ export default function OperationsScreen() {
         {canManageMembers ? (
           <FeatureLink
             icon={UserCog}
-            title="Organization members"
+            title="Workspace members"
             module="team"
             description="Invite sign-in users, assign roles, cancel invitations, or revoke workspace membership."
             onPress={() => router.push("/team-members")}
@@ -146,7 +146,7 @@ export default function OperationsScreen() {
         {canManageAccess ? (
           <FeatureLink
             icon={UsersRound}
-            title="Team access"
+            title="Access grants"
             module="team"
             description="Grant or revoke weekly and ongoing operational capabilities."
             onPress={() => router.push("/team")}
@@ -157,7 +157,7 @@ export default function OperationsScreen() {
             icon={AlertTriangle}
             title="Incidents"
             module="production"
-            description="Report faults and follow ownership through resolution."
+            description="Report incidents and follow ownership through resolution."
             onPress={() => router.push("/incidents")}
           />
         ) : null}
@@ -222,7 +222,7 @@ export default function OperationsScreen() {
             icon={Wrench}
             title="Tech Manager"
             module="dashboards"
-            description="Fault, equipment, stream, device, and systems readiness with live drill-downs."
+            description="Incident, equipment, stream, device, and systems readiness with live drill-downs."
             onPress={() => router.push("/tech-manager")}
           />
         ) : null}

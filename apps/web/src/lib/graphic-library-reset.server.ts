@@ -37,7 +37,7 @@ export async function resetSavedGraphics({ command, authority, database = getD1(
   if (!receipt) {
     if (command.confirmName !== member.name) throw new Error("Type the organization's exact name to reset its saved graphics.");
     const idle = await database.prepare(`SELECT 1 AS idle WHERE ${programIdle}`).bind(command.orgId).first();
-    if (!idle) throw new Error("Graphics are on air or their output state is unknown. Clear Program in Graphics before resetting saved graphics.");
+    if (!idle) throw new Error("Graphics are on air or their output state is unknown. Use Clear program graphics in Lower Thirds before resetting saved graphics.");
     const claimId = crypto.randomUUID();
     await database.batch([
       database.prepare(`INSERT OR IGNORE INTO graphic_library_reset_receipt(orgId,actorId,requestId,confirmName,claimId,deletedCount)

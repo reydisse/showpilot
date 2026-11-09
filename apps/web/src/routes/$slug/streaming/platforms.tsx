@@ -110,7 +110,7 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
   const writes = useConfirmedWrite(orgId);
   const outputWrites = useConfirmedWrite(orgId);
   const outputLocked = outputWrites.state.status !== "idle";
-  const stopping = outputWrites.state.status !== "idle" && outputWrites.state.label === "Stop All";
+  const stopping = outputWrites.state.status !== "idle" && outputWrites.state.label === "Disconnect all destinations";
   const locked = writes.state.status !== "idle", busy = writes.state.status === "saving";
   const controlsDisabled = locked || outputLocked || read.refreshing || !!read.error;
   const [editor, setEditor] = useState<{ key: string; existing: Destination | null; open: boolean } | null>(null);
@@ -187,7 +187,7 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
   };
   const reviewOutputs = async () => {
     if (reviewingOutputs || outputWrites.state.status !== "failed") return;
-    if (!await confirm({ title: "Review stored outputs?", description: "The previous command may still complete. Reviewing does not stop it. Use Stop All to cancel an unconfirmed Go Live request.", confirmLabel: "Review outputs", variant: "warning" })) return;
+    if (!await confirm({ title: "Review stored outputs?", description: "The previous command may still complete. Reviewing does not stop it. Use Disconnect all destinations to cancel an unconfirmed Go Live request.", confirmLabel: "Review outputs", variant: "warning" })) return;
     setReviewingOutputs(true);
     if (await read.refresh()) outputWrites.discard();
     setReviewingOutputs(false);
@@ -226,9 +226,9 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
     if (stopping) return;
     const selected = destinations.filter(destination => destination.enabled || destination.cfOutputId);
     const targets = selected.map(destination => ({ id: destination.id, version: destination.outputVersion }));
-    if (!targets.length || !await confirm({ title: "Stop all destination outputs?", description: `Stop forwarding to ${selected.map(destination => destination.name).join(", ")} and cancel pending Go Live requests for them. Your encoder and live input stay running.`, confirmLabel: "Stop All", variant: "warning" })) return;
+    if (!targets.length || !await confirm({ title: "Disconnect all destinations?", description: `Stop forwarding to ${selected.map(destination => destination.name).join(", ")} and cancel pending Go Live requests for them. Your encoder and live input stay running.`, confirmLabel: "Disconnect all destinations", variant: "warning" })) return;
     void outputWrites.replace({
-      label: "Stop All",
+      label: "Disconnect all destinations",
       write: async (requestId, signal) => requireSuccess(await disconnectAllDestinations({ data: { orgId, requestId, targets }, signal })),
       apply: () => read.invalidate(), finish: finishOutput,
     });
@@ -256,7 +256,7 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
               </button>
               <button onClick={handleStopAll} disabled={stopping || (activeCount === 0 && connectedCount === 0)}
                 className="flex min-h-11 items-center gap-1.5 rounded-lg bg-red-500/20 px-4 py-2 text-sm font-medium text-red-400 outline-none hover:bg-red-500/30 focus-visible:ring-2 focus-visible:ring-fire-500 disabled:opacity-50">
-                {stopping && outputWrites.state.status === "saving" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ZapOff className="h-4 w-4" />}Stop All
+                {stopping && outputWrites.state.status === "saving" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ZapOff className="h-4 w-4" />}Disconnect all destinations
               </button>
               <button
                 onClick={() => openEditor(null)} disabled={controlsDisabled}
@@ -412,7 +412,7 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
 
         {editor && <DestinationFormModal key={editor.key} existing={editor.existing} open={editor.open} locked={locked} busy={busy} controlsDisabled={controlsDisabled} onClose={() => void closeEditor()} onSave={saveDraft} onDirty={setFormDirty} notice={notice} />}
         <Dialog open={blocker.status === "blocked"} onOpenChange={open => { if (!open && blocker.status === "blocked") blocker.reset(); }}>
-          <DialogContent aria-modal="true" showCloseButton={false} className="border-board-border bg-board-card text-board-text"><DialogTitle>Leave Multi-Platform?</DialogTitle><DialogDescription>Unsaved drafts and retry controls will be discarded. An unconfirmed save or output command may still complete. Use Stop All to cancel Go Live before leaving. Review stored destinations when you return.</DialogDescription><div className="flex flex-wrap gap-2"><button className={controlClass} onClick={() => blocker.status === "blocked" && blocker.reset()}>Stay</button><button className={controlClass} onClick={() => blocker.status === "blocked" && blocker.proceed()}>Leave Multi-Platform</button></div></DialogContent>
+          <DialogContent aria-modal="true" showCloseButton={false} className="border-board-border bg-board-card text-board-text"><DialogTitle>Leave Multi-Platform?</DialogTitle><DialogDescription>Unsaved drafts and retry controls will be discarded. An unconfirmed save or output command may still complete. Use Disconnect all destinations to cancel Go Live before leaving. Review stored destinations when you return.</DialogDescription><div className="flex flex-wrap gap-2"><button className={controlClass} onClick={() => blocker.status === "blocked" && blocker.reset()}>Stay</button><button className={controlClass} onClick={() => blocker.status === "blocked" && blocker.proceed()}>Leave Multi-Platform</button></div></DialogContent>
         </Dialog>
       </div>
     </div>

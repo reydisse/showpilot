@@ -189,7 +189,7 @@ export default function TeamMembersScreen() {
       backTo="/(app)/operations"
       backLabel="Back to operations"
       eyebrow="TEAM CONTROL"
-      title="Members"
+      title="Workspace members"
       scroll={false}
       action={(
         <Pressable accessibilityRole="button" onPress={() => setInviteOpen(true)} style={styles.inviteButton}>

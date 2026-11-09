@@ -67,7 +67,7 @@ await withLocalSmokeFixture(async({origin,orgId,operatorCookie,stopServer,queryF
     }
     await click('Cancel');assert.equal(await evaluate('window.resetCalls.length'),0);
     await click('Reset saved graphics');await fill('Display fixture');await click('Permanently delete saved graphics');
-    await check(`document.querySelector('[role="alert"]')?.textContent.includes('Clear Program')`,'live output blocks reset');
+    await check(`document.querySelector('[role="alert"]')?.textContent.includes('Clear program graphics')`,'live output blocks reset');
     assert.deepEqual(await rpc('getActiveGraphics'),liveBefore);assert.equal((await rpc('getGraphicTemplates')).length,2);
     await rpc('clearActiveGraphics');
     await evaluate('window.holdReset=true');await click('Retry graphics reset');

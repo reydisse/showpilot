@@ -223,28 +223,28 @@ export function TeamWorkspace({ initial }: { initial: TeamInitial }) {
   if (canManageMembers)
     tabs.push({
       id: "members",
-      label: "Members",
+      label: "Workspace members",
       count: orgMembers.length,
       icon: <Shield className="size-4" />,
     });
   if (accessManagement.authority.canManage)
     tabs.push({
       id: "access",
-      label: "Access",
+      label: "Access grants",
       count: accessManagement.grants.length,
       icon: <KeyRound className="size-4" />,
     });
   if (canViewCrew)
     tabs.push({
       id: "crew",
-      label: "Crew",
+      label: "Crew roster",
       count: crewMembers.length,
       icon: <Users className="size-4" />,
     });
   if (canManageMembers)
     tabs.push({
       id: "moderation",
-      label: "Reports",
+      label: "Content reports",
       count: contentReports.length,
       icon: <Flag className="size-4" />,
     });
@@ -340,6 +340,7 @@ export function TeamWorkspace({ initial }: { initial: TeamInitial }) {
   return (
     <div className="mx-auto min-h-0 w-full max-w-4xl space-y-4 p-4 sm:p-6">
       <h1 className="text-2xl font-bold text-board-text">Team</h1>
+      <p className="text-sm text-board-muted">Manage workspace access and crew profiles. Assignments and attendance are in Schedule and Crew Check-in.</p>
       {ConfirmDialogEl}
       <ConfirmedWriteNotice
         collectionLabel="team"
@@ -419,6 +420,13 @@ export function TeamWorkspace({ initial }: { initial: TeamInitial }) {
           tabIndex={0}
           className="rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
         >
+          <p className="mb-4 text-sm text-board-muted">{tab.id === "members"
+            ? "People who can sign in to this workspace. Invitations and roles control their access."
+            : tab.id === "access"
+              ? "Extra permissions for workspace members, limited by date or ongoing."
+              : tab.id === "crew"
+                ? "Production profiles for assignments, badges and check-in. A crew profile does not grant workspace sign-in access."
+                : "Reports about chat messages and other member content. Show reports and handoff notes are in Reports & Notes."}</p>
           {tab.id === "members" ? (
             <MembersTab
               members={orgMembers}

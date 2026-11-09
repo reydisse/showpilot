@@ -228,7 +228,7 @@ it("keeps a grant draft across closing and tabs and retries the exact reviewed w
   await open();
   await fillGrant();
   await click("Close grant form");
-  fireEvent.click(screen.getByRole("tab", { name: /Members/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Workspace members/ }));
   fireEvent.click(screen.getByRole("tab", { name: /Access/ }));
   await click("Resume access draft");
   expect(screen.getByLabelText(/Reason/)).toHaveProperty(
@@ -245,7 +245,7 @@ it("keeps a grant draft across closing and tabs and retries the exact reviewed w
   expect(
     screen.getByRole("alert", { name: "Team change" }).textContent,
   ).toContain("Grant reply lost");
-  fireEvent.click(screen.getByRole("tab", { name: /Members/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Workspace members/ }));
   await click("Retry change");
   expect(api.grant.mock.calls[1][0].data).toEqual(original);
   fireEvent.click(screen.getByRole("tab", { name: /Access/ }));

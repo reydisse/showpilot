@@ -54,7 +54,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
     await check("window.teamReplies.some(r=>r.kind==='updateMemberRole'&&r.status===200)", "role committed with reply withheld");
     const newer = await evaluate(`fetch('/api/auth/organization/update-member-role',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':crypto.randomUUID()},body:JSON.stringify({organizationId:${JSON.stringify(orgId)},memberId:'smoke-second-member',role:'pm'})}).then(async r=>({status:r.status,body:await r.json()}))`);
     assert.equal(newer.status, 200);
-    await tab("Reports"); await retry("updateMemberRole"); await tab("Members");
+    await tab("Content reports"); await retry("updateMemberRole"); await tab("Workspace members");
     await check("document.querySelector('select[aria-label=\"Role for Second fixture operator\"]')?.value==='pm'", "old retry preserves newer role");
     await evaluate("window.teamReplies.forEach(r=>r.release())"); await ready();
     await hold("getOrgMembers"); await selectRole("tm");
@@ -68,7 +68,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
     await check(`${button("Retry change")}!=null`, "cancel reply deadline");
     await click("Songs"); await check("document.body.innerText.includes('Leave Team?')", "unconfirmed change blocks navigation"); await click("Stay");
     await retry("cancelInvitation"); await check("!document.body.innerText.includes('invited@display-smoke.invalid')", "cancelled invitation removed");
-    await tab("Members"); await key("End", "End", 35);
+    await tab("Workspace members"); await key("End", "End", 35);
     await check("document.activeElement?.getAttribute('role')==='tab'&&document.activeElement.textContent.includes('Reports')&&document.activeElement.getAttribute('aria-selected')==='true'", "End selects and focuses Reports");
     await key("Home", "Home", 36); await check("document.activeElement.textContent.includes('Members')", "Home returns to Members");
     await key("ArrowLeft", "ArrowLeft", 37); await check("document.activeElement.textContent.includes('Reports')", "Left wraps to Reports");
@@ -77,7 +77,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
     await key("Escape", "Escape", 27); await ready(); assert.equal(await evaluate("window.teamRequests.filter(r=>r.kind==='closeContentReport').length"), 0);
     await click("Mark resolved"); await click("Resolve report"); await retry("closeContentReport");
     await check("document.body.innerText.includes('No open content reports')", "report closes after confirmation");
-    await tab("Members"); await hold("removeMember"); await click("Remove Second fixture operator"); await click("Remove member"); await retry("removeMember");
+    await tab("Workspace members"); await hold("removeMember"); await click("Remove Second fixture operator"); await click("Remove member"); await retry("removeMember");
     await check("!document.body.innerText.includes('Second fixture operator')", "removed membership stays removed");
     assert.deepEqual(await evaluate("window.teamErrors"), []);
   });

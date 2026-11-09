@@ -23,7 +23,7 @@ await withLocalSmokeFixture(async ({origin,orgId,browser,operatorEmail,operatorP
   })()`);
   const beforeCancel=(await evaluate("window.__studioPosts")).length;
   await click("Take Live"); await confirm("Cancel");
-  await click("Clear Program"); await confirm("Cancel");
+  await click("Clear program graphics"); await confirm("Cancel");
   assert.equal((await evaluate("window.__studioPosts")).length,beforeCancel);
   const initialProgram=await active();
   await click("Custom"); await browser("fill",'input[aria-label="Primary text"]',"Studio original");
@@ -50,7 +50,7 @@ await withLocalSmokeFixture(async ({origin,orgId,browser,operatorEmail,operatorP
   await click("Retry scene change"); await browser("wait","--fn","!document.querySelector('button[aria-label=\"Load scene Recovery scene\"]')");
   assert.deepEqual(await active(),initialProgram,"Saving/deleting scenes must not change Program");
   // Preview layer deletion has its own confirmation and never changes Program.
-  await browser("fill",'input[aria-label="Primary text"]',"Removable layer"); await click("Add LT");
+  await browser("fill",'input[aria-label="Primary text"]',"Removable layer"); await click("Add lower third");
   await browser("fill",'input[aria-label="Primary text"]',"New Program title");
   await click("Remove layer Removable layer"); await confirm("Cancel");
   assert.equal(await evaluate("!!document.querySelector('button[aria-label=\"Remove layer Removable layer\"]')"),true);
@@ -69,8 +69,8 @@ await withLocalSmokeFixture(async ({origin,orgId,browser,operatorEmail,operatorP
   assert.equal(await evaluate("document.body.textContent.includes('Last confirmed Program: 1 layer')"),true);
   for(const [width,height] of [[320,480],[768,900],[1440,900]]) {
     await browser("set","viewport",String(width),String(height));
-    await browser("scrollintoview",'button:text-is("Clear Program")');
-    const bounds=await evaluate(`(() => { const el=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Clear Program'); const r=el.getBoundingClientRect(); return {left:r.left,right:r.right,height:r.height,top:r.top,bottom:r.bottom,hitElement:document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.outerHTML.slice(0,250),disabled:el.disabled,hit:document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('button')===el}; })()`);
+    await browser("scrollintoview",'button:text-is("Clear program graphics")');
+    const bounds=await evaluate(`(() => { const el=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Clear program graphics'); const r=el.getBoundingClientRect(); return {left:r.left,right:r.right,height:r.height,top:r.top,bottom:r.bottom,hitElement:document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.outerHTML.slice(0,250),disabled:el.disabled,hit:document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('button')===el}; })()`);
     if(width===320) await browser("screenshot","/tmp/showpilot-studio-outage-diagnostic.png");
     assert.ok(bounds.left>=0 && bounds.right<=width && bounds.height>=44 && !bounds.disabled && bounds.hit,JSON.stringify(bounds));
     assert.equal(await evaluate("document.documentElement.scrollWidth<=innerWidth"),true);
@@ -85,10 +85,10 @@ await withLocalSmokeFixture(async ({origin,orgId,browser,operatorEmail,operatorP
   }
   await startServer(); await evaluate("document.querySelector('button[aria-label=\"Refresh Program\"]')?.click()");
   await browser("wait",'button:text-is("Take Live"):not(:disabled)');
-  await click("Clear Program"); await evaluate("window.__loseStudioReply=true"); await confirm("Clear Program");
+  await click("Clear program graphics"); await evaluate("window.__loseStudioReply=true"); await confirm("Clear program graphics");
   await browser("wait",'[aria-label="Program confirmation"] time');
   await poll(async ()=>(await active()).length===0,"Program cleared");
   await browser("wait","--fn","document.body.textContent.includes('Program: 0 layers')");
-  assert.equal(await evaluate("[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Clear Program'&&!b.disabled)"),true);
+  assert.equal(await evaluate("[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Clear program graphics'&&!b.disabled)"),true);
   console.log(JSON.stringify({passed:true,sceneCreateUpdateDeleteRetry:true,originalPayloadRetained:true,previewAndSceneChangesKeepProgram:true,cancelDoesNotWrite:true,lostPublicationReconcilesWithoutReplay:true,realOutageRecovery:true,clearRemainsReachable:true,fits320x480:true,inspectorTargetsAndLabels:true}));
 });
