@@ -86,6 +86,7 @@ beforeEach(() => {
 
 afterEach(() => {
   window.__TAURI__ = originalTauri;
+  vi.useRealTimers();
 });
 
 describe("desktop runtime boundary", () => {
@@ -336,6 +337,43 @@ describe("desktop runtime boundary", () => {
     await expect(installDesktopUpdate()).rejects.toThrow("Signature verification failed");
     expect(nativeUpdater.close).toHaveBeenCalledOnce();
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("does not let resource cleanup conceal the original installation failure", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      window.__TAURI__ = { core: { invoke: vi.fn() } };
+      nativeUpdater.available = { version: "0.2.0" };
+      nativeUpdater.install.mockRejectedValueOnce(new Error("Signature verification failed"));
+      nativeUpdater.close.mockRejectedValueOnce(new Error("Resource close failed"));
+      await expect(installDesktopUpdate()).rejects.toThrow("Signature verification failed");
+      expect(window.__TAURI__.core!.invoke).not.toHaveBeenCalled();
+      expect(warning).toHaveBeenCalledOnce();
+    } finally { warning.mockRestore(); }
+  });
+
+  it("reports manual restart after a confirmed installation whose restart never replies", async () => {
+    vi.useFakeTimers();
+    window.__TAURI__ = { core: { invoke: vi.fn(() => new Promise<never>(() => {})) } };
+    nativeUpdater.available = { version: "0.2.0" };
+    const result = installDesktopUpdate();
+    await vi.advanceTimersByTimeAsync(12000);
+    await expect(result).resolves.toMatchObject({ version: "0.2.0", restartRequired: true });
+    expect(nativeUpdater.install).toHaveBeenCalledExactlyOnceWith(undefined, { timeout: 120000 });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("returns a known update after its resource close deadline instead of hanging the check", async () => {
+    vi.useFakeTimers(); const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      window.__TAURI__ = { core: { invoke: vi.fn() } };
+      nativeUpdater.available = { version: "0.2.0" };
+      nativeUpdater.close.mockImplementationOnce(() => new Promise(() => {}));
+      const result = checkDesktopUpdate();
+      await vi.advanceTimersByTimeAsync(5000);
+      await expect(result).resolves.toMatchObject({ version: "0.2.0" });
+      expect(nativeUpdater.install).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
+    } finally { warning.mockRestore(); }
   });
 
 });
