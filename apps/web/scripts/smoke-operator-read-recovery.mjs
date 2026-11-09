@@ -5,6 +5,17 @@ import { poll } from "./real-browser-fixture.mjs";
 
 await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCookie, operatorEmail, operatorPassword, stopServer, startServer }) => {
   const evaluate = async expression => (await browser("eval", expression)).result;
+  const trackDocument = () => evaluate(`(() => {
+    window.readRecoveryDocument = crypto.randomUUID();
+    window.readRecoveryErrors = [];
+    addEventListener('error', event => { if (event.message) window.readRecoveryErrors.push(event.message); });
+    addEventListener('unhandledrejection', event => window.readRecoveryErrors.push(String(event.reason)));
+    return window.readRecoveryDocument;
+  })()`);
+  const assertSameDocument = async (documentId, surface) => {
+    assert.equal(await evaluate('window.readRecoveryDocument'), documentId, `${surface} recovers without a reload`);
+    assert.deepEqual(await evaluate('window.readRecoveryErrors'), [], `${surface} has no uncaught runtime errors`);
+  };
   const click = name => browser("find", "role", "button", "click", "--name", name, "--exact");
   const command = async (action, payload) => {
     const response = await fetch(`${origin}/api/rundown/${orgId}/command?showId=smoke-show&serviceDate=${date}`, { method: "POST", headers: { Cookie: operatorCookie, Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ action, payload }) });
@@ -16,6 +27,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
   await click("Sign in"); await browser("wait", "--url", `**/${orgId}/**`);
   await browser("open", `${origin}/${orgId}/show`);
   await browser("wait", "--fn", "document.querySelector('.show-page-header')?.innerText.includes('Live') && document.querySelector('[aria-label=\"Show timer\"]')?.textContent.includes(':')");
+  const showDocument = await trackDocument();
   const timer = () => evaluate("document.querySelector('[aria-label=\"Show timer\"]')?.textContent");
   const initial = await timer();
   await poll(async () => (await timer()) !== initial, "confirmed timer advances");
@@ -48,6 +60,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
   await browser("wait", "--fn", "document.querySelector('.show-page-header')?.innerText.includes('Live') && !document.querySelector('[role=\"alert\"][aria-label=\"Retry crew status\"]') && !document.querySelector('[role=\"alert\"][aria-label=\"Retry show selection\"]')");
   const recovered = await timer();
   await poll(async () => (await timer()) !== recovered, "timer resumes after confirmed recovery");
+  await assertSameDocument(showDocument, 'Show Flow');
   for (const [width, height] of [[320,480], [768,900], [1440,900]]) {
     await browser("set", "viewport", String(width), String(height));
     await evaluate("document.querySelector('[aria-label=\"Show timer\"]').scrollIntoView({block:'center'})");
@@ -57,6 +70,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
   await browser("open", `${origin}/${orgId}/rundown?show=smoke-show&date=${date}`);
   await browser("wait", '[data-rundown-item-id="read-recovery-item"]');
   await browser("wait", "--fn", "[...document.querySelectorAll('button')].some(el => el.textContent.trim() === 'Pause' && !el.disabled)");
+  const rundownDocument = await trackDocument();
   await stopServer();
   // Returning to the tab refreshes the one-shot PP configuration, including when
   // there is no configured host and its normal controls therefore are absent.
@@ -68,5 +82,6 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
   assert.ok(ppBounds.left >= 0 && ppBounds.right <= 320 && ppBounds.height >= 44, JSON.stringify(ppBounds));
   await startServer(); await click("Retry ProPresenter configuration");
   await browser("wait", "--fn", "!document.querySelector('[role=\"alert\"][aria-label=\"Retry ProPresenter configuration\"]')");
+  await assertSameDocument(rundownDocument, 'Rundown');
   console.log(JSON.stringify({ passed: true, realWorkerOutage: true, retainedShow: true, timerHoldsDuringDisconnect: true, timerResumesAfterConfirmation: true, timestampedCrewAndSelectionFailures: true, recoveryWithoutReload: true, configurationRetryWithoutHost: true, retryControlsFit320: true }));
 });
