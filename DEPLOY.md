@@ -700,10 +700,14 @@ from a backup as an automatic rollback step.
 
 ### Current state
 
-The production manifest records every migration through `0048_bridge_installation_credentials.sql`.
+The production manifest records every migration through `0051_device_latency.sql`.
 Migration 0048 was applied on 2026-11-05 after a clean preflight and a saved
 Time Travel bookmark. Its postcondition verified three empty tables, five
 named indexes, an unchanged legacy key count, and no foreign key violations.
+Migration 0051 (`device.latencyMs`) was applied on 2026-11-09 after a clean
+preflight and a saved Time Travel bookmark. Its postcondition verified the
+NOT NULL integer column with default 0 and range check, all existing devices
+at zero latency, and no foreign key violations.
 Migrations 0030 through 0035 were applied in order on 2026-08-28. Migrations
 0036 and 0037 were applied in order on 2026-09-10. Migrations 0038 and 0039
 were applied in order on 2026-09-18. Before each rollout, every

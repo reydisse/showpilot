@@ -55,3 +55,4 @@
 0048_bridge_installation_credentials.sql
 0049_bridge_target_allowlist.sql
 0050_credential_backfill_cursor.sql
+0051_device_latency.sql
