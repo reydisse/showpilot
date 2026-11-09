@@ -8127,3 +8127,76 @@ release or remote migration. Twenty necessary tracked Markdown files remain.
 Stack gate: #266 at 8e941d36 is green in run 42536611342, web 17m36s and Rust
 4m43s. Draft #267 is open at 03ecdeaf, based on fix/native-template-delete-recovery,
 and run 42538227541 is pending. Later PRs remain held until that head is green.
+
+
+### Phase 2 follow-up: native connection deadlines and last-known state
+
+Seven native-hook regressions reproduced indefinite authentication, a socket
+that never opens, an open socket that never hydrates, wrong-show and malformed
+hydration, an error without a close event, and stale hydration on backgrounding.
+A connection attempt now has a 12-second deadline through its first valid state.
+Native cookie/PIN reads have a separate 10-second deadline and retain the normal
+headers. Cancelled or late credential reads cannot create a socket. Every attempt
+has a generation; late authentication and old socket callbacks cannot replace
+its successor. Retirement detaches the socket before closing it, clears deadlines
+and immediately disables live controls even if the platform never emits close.
+Automatic backoff remains, with an explicit Retry live connection control.
+
+Socket open alone no longer means connected. A valid same-show/date snapshot
+completes the handshake. Malformed and wrong-room state reconnects without
+replacing the previous valid snapshot. Existing transport expiry, reviewed
+revision, command deduplication, unconfirmed counts and persistent notices stay
+in place. Backgrounding invalidates hydration immediately; foregrounding starts
+a fresh attempt. This change does not add a post-hydration heartbeat deadline.
+
+Rundown, Live Show and Chat distinguish cached state from live state. Reconnecting
+keeps the last relay snapshot instead of falling back to older HTTP data. The
+rundown and Live Show clocks stop advancing while disconnected; their status is
+LAST KNOWN rather than NOW LIVE/LIVE. Stage messages also lose their live label.
+Chat separates its own connected room from an unavailable live-show status.
+Connection errors and Retry appear together. Operational status labels are at
+least 12px, and the Live Show connection row wraps the date below its status on
+narrow screens.
+
+The first compiled browser run also reproduced a cold /live-show navigation
+redirecting to organization selection before the saved organization finished
+loading. useMobileBootstrap now exposes that pending state and Live Show waits
+for it before deciding to redirect. Initial workspace-access failures expose an
+error and retry; cached workspace data is not discarded for a background error.
+
+Twenty-one native relay-hook tests and seven native auth-transport tests pass.
+The full suite passes 350 unit files / 2,846 tests and 141 Worker files / 1,579
+tests, 4,425 total, including final semantic run 3. Web typecheck 2 passes. Final
+native verify 3 passes typecheck, lint with 17 existing warnings, all three exports,
+Expo Doctor 18/18, API/release contracts and polling boundaries. Hermes is
+5,746,794 bytes on iOS / 5,745,953 on Android. Web production source did not
+change; the Reset follow-up's compiled Worker is reused by the rehearsal.
+
+Compiled Expo web run 1 passed the rundown deadline/retry path then exposed the
+cold Live Show redirect. Runs 2 and 3 pass real disposable auth, D1 and relay
+traffic at 320/768/1440px. Final run 3 withholds hydration, checks the deadline,
+blocked controls, a frozen last-known clock and absence of NOW LIVE, then proves
+explicit retry hydrates real state and a fresh Pause reaches the relay. Direct
+Live Show and Chat navigation show honest cached state while their rundown
+socket is silent, and restore live labels only after retry receives valid state.
+Status labels meet 12px, Retry meets 44px, viewport bounds pass, and there are zero
+runtime errors. Inspected final 320px Live Show/Chat screenshots and the rundown
+failure screenshot. This is not a physical-device rehearsal.
+
+Rehearsal after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-live-connection.mjs`.
+Evidence: /tmp/showpilot-native-connection-{before,unit1,unit2,unit3,full1,full2,full3,tsc1,tsc2,mobile-tsc1,verify1,verify2,verify3,browser1,browser2,browser3}.log.
+Screenshots: /tmp/showpilot-native-connection-{timeout,live-stale,chat-stale}-{320,768,1440}.png.
+Phase 2 remains 67/79. Remaining connection work includes detecting a silent
+socket after successful hydration: the existing relay ping does not return a
+liveness reply. Native editor acknowledgement/draft recovery, ProPresenter
+command recovery and the broader product checks remain open. No deployment,
+release, migration or new Markdown file; twenty necessary tracked Markdown files
+remain.
+
+Stack gate: #267 at 03ecdeaf is green in run 42538227541, web 17m42s and Rust
+4m39s. Draft transport-expiry PR #268 is open at 1f3139e4, based on
+fix/native-rundown-command-recovery. Run 42539873974 is pending; Rust passed
+4m55s. Reset is committed and pushed at 126e3e65. Its PR waits for #268's green
+head; later PRs remain held. Prepared bodies are /tmp/showpilot-native-reset-pr.txt
+and /tmp/showpilot-native-transport-pr.txt.

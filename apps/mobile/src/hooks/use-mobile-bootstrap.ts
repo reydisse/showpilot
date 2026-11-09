@@ -8,7 +8,7 @@ type MobileBootstrapOptions = {
 };
 
 export function useMobileBootstrap({ enabled = true, poll = false }: MobileBootstrapOptions = {}) {
-  const { data: organization } = authClient.useActiveOrganization();
+  const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
   const { data: session } = authClient.useSession();
   const query = useQuery({
     queryKey: ["mobile-bootstrap", session?.user.id, organization?.id],
@@ -19,5 +19,5 @@ export function useMobileBootstrap({ enabled = true, poll = false }: MobileBoots
     // request loop on every authenticated screen.
     refetchInterval: poll ? 30_000 : false,
   });
-  return { organization, ...query };
+  return { organization, organizationPending, ...query };
 }

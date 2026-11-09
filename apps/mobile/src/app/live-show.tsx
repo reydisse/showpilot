@@ -73,15 +73,16 @@ function formatOntimeClock(value: number, clockFormat: MobileShowWorkspace["cloc
   return `${hours24 % 12 || 12}:${String(minutes).padStart(2, "0")} ${suffix}`;
 }
 
-function NativeLivePanel({ items, timer }: {
+function NativeLivePanel({ items, timer, connected }: {
   items: RundownItem[];
   timer: RundownTimer;
+  connected: boolean;
 }) {
   const [state, setState] = useState<LivePanelState>({
     playback: "stop",
     timerText: "--:--",
     currentTitle: "Waiting for the first cue",
-    currentMeta: "The live state is ready",
+    currentMeta: "Waiting for live state",
     nextTitle: null,
     overtime: false,
     progress: 0,
@@ -99,7 +100,7 @@ function NativeLivePanel({ items, timer }: {
           ? new Date(elapsed).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
           : current ? formatTimer(remaining) : "--:--",
         currentTitle: current?.title || "Waiting for the first cue",
-        currentMeta: current ? `${formatTimer(current.duration)}${current.assignee ? ` · ${current.assignee}` : ""}` : "The live state is ready",
+        currentMeta: current ? `${formatTimer(current.duration)}${current.assignee ? ` · ${current.assignee}` : ""}` : connected ? "The live state is ready" : "Waiting for live state",
         nextTitle: next?.title ?? null,
         overtime: Boolean(current && timer.mode === "count-down" && remaining < 0),
         progress:
@@ -109,18 +110,19 @@ function NativeLivePanel({ items, timer }: {
       });
     };
     update();
+    if (!connected) return;
     const interval = setInterval(update, 100);
     return () => clearInterval(interval);
-  }, [items, timer]);
-  return <LivePanel state={state} />;
+  }, [items, timer, connected]);
+  return <LivePanel state={state} connected={connected} />;
 }
 
-function LivePanel({ state }: { state: LivePanelState }) {
+function LivePanel({ state, connected = true }: { state: LivePanelState; connected?: boolean }) {
   const { colors } = useAppTheme();
   const styles = useStyles();
-  const playing = state.playback === "play" || state.playback === "roll";
-  const paused = state.playback === "pause" || state.playback === "armed";
-  const label = playing ? "LIVE" : paused ? state.playback.toUpperCase() : "STANDBY";
+  const playing = connected && (state.playback === "play" || state.playback === "roll");
+  const paused = connected && (state.playback === "pause" || state.playback === "armed");
+  const label = !connected ? "LAST KNOWN" : playing ? "LIVE" : paused ? state.playback.toUpperCase() : "STANDBY";
   return (
     <View style={[styles.livePanel, state.overtime && styles.livePanelOvertime]}>
       <View style={styles.liveStatusRow}>
@@ -137,7 +139,7 @@ function LivePanel({ state }: { state: LivePanelState }) {
           <Text numberOfLines={1} style={styles.nextTitle}>Next  ·  <Text style={styles.nextName}>{state.nextTitle}</Text></Text>
         ) : null}
       </View>
-      <View style={styles.liveSource}><RadioTower color={playing ? colors.green : colors.textFaint} size={14} /><Text style={styles.liveSourceText}>{playing ? "Synchronized across operators" : "Following authoritative live state"}</Text></View>
+      <View style={styles.liveSource}><RadioTower color={playing ? colors.green : colors.textFaint} size={14} /><Text style={styles.liveSourceText}>{!connected ? "Timing is not live. Reconnect to confirm." : playing ? "Synchronized across operators" : "Following authoritative live state"}</Text></View>
     </View>
   );
 }
@@ -219,9 +221,10 @@ function SequenceRow({ item }: { item: SequenceItem }) {
   );
 }
 
-function WorkspaceList({ workspace, livePanel, items, showId, title, subtitle, onRefresh, refreshing }: {
+function WorkspaceList({ workspace, livePanel, items, showId, title, subtitle, onRefresh, refreshing, liveConnection }: {
   workspace: MobileShowWorkspace;
   livePanel: React.ReactNode;
+  liveConnection?: { ready: boolean; label: string; error: string | null; retry: () => void };
   items: SequenceItem[];
   showId: string | null;
   title: string;
@@ -241,14 +244,18 @@ function WorkspaceList({ workspace, livePanel, items, showId, title, subtitle, o
         ListHeaderComponent={
           <View style={styles.headerContent}>
             <View style={styles.workspaceStatus}>
-              {workspace.adapterStatus === "fallback" ? (
+              {(liveConnection ? !liveConnection.ready : workspace.adapterStatus === "fallback") ? (
                 <WifiOff color={colors.red} size={15} />
               ) : (
                 <Wifi color={colors.green} size={15} />
               )}
-              <Text style={[styles.workspaceStatusText, workspace.adapterStatus === "fallback" && styles.workspaceStatusFallback]}>{workspace.adapterStatus === "fallback" ? "OnTime unavailable · Native fallback" : `${workspace.runtime.kind === "ontime" ? "OnTime" : "Native"} live source`}</Text>
+              <Text accessibilityLiveRegion="polite" style={[styles.workspaceStatusText, (liveConnection ? !liveConnection.ready : workspace.adapterStatus === "fallback") && styles.workspaceStatusFallback]}>{liveConnection?.label ?? (workspace.adapterStatus === "fallback" ? "OnTime unavailable · Native fallback" : `${workspace.runtime.kind === "ontime" ? "OnTime" : "Native"} live source`)}</Text>
               <Text style={styles.workspaceClock}>{subtitle}</Text>
             </View>
+            {liveConnection && !liveConnection.ready ? <View style={{ gap: 8 }}>
+              {liveConnection.error ? <Text accessibilityRole="alert" style={{ color: colors.red }}>{liveConnection.error}</Text> : null}
+              <AppButton label="Retry live connection" variant="secondary" onPress={liveConnection.retry} />
+            </View> : null}
             {livePanel}
             <QuickActions workspace={workspace} showId={showId} />
             <CrewStrip crew={workspace.crew} />
@@ -282,15 +289,16 @@ function NativeWorkspace({ workspace, runtime, orgId, onRefresh, refreshing }: {
   const workspaceTerms = useWorkspaceTerms();
   const relay = useRundownRelay(orgId, runtime.show?.serviceDate ?? "", runtime.show?.id ?? "");
   const sameRoom = Boolean(runtime.show && relay.showId === runtime.show.id && relay.serviceDate === runtime.show.serviceDate);
-  const authoritative = relay.hydrated && relay.initialized && sameRoom;
-  const items = authoritative ? relay.items : runtime.items;
-  const timer = authoritative ? relay.timer : runtime.timer;
+  const hasRelayState = relay.initialized && sameRoom;
+  const authoritative = relay.status === "connected" && relay.hydrated && hasRelayState;
+  const items = hasRelayState ? relay.items : runtime.items;
+  const timer = hasRelayState ? relay.timer : runtime.timer;
   const sequence = items.map((item) => ({ id: item.id, title: item.title || "Untitled", duration: item.duration, meta: item.assignee || item.notes, active: item.id === timer.currentItemId, complete: item.status === "complete", header: item.type === "header" }));
   const subtitle = runtime.show
     ? `${runtime.show.serviceDate} · ${formatServiceTime(runtime.show.scheduledStartTime, workspace.timeZone)}`
     : workspaceCopy("No upcoming service", workspaceTerms);
   return (
-    <WorkspaceList workspace={workspace} livePanel={<NativeLivePanel items={items} timer={timer} />} items={sequence} showId={runtime.show?.id ?? null} title={runtime.show?.name || "Live Show"} subtitle={subtitle} onRefresh={onRefresh} refreshing={refreshing} />
+    <WorkspaceList workspace={workspace} liveConnection={runtime.show ? { ready: authoritative, label: authoritative ? "Live sync" : relay.status === "connecting" ? "Connecting, showing last known state" : "Reconnecting, showing last known state", error: relay.lastError, retry: relay.retryConnection } : undefined} livePanel={<NativeLivePanel items={items} timer={timer} connected={authoritative} />} items={sequence} showId={runtime.show?.id ?? null} title={runtime.show?.name || "Live Show"} subtitle={subtitle} onRefresh={onRefresh} refreshing={refreshing} />
   );
 }
 
@@ -324,7 +332,7 @@ export default function LiveShowScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
   const [manualRefreshing, setManualRefreshing] = useState(false);
-  const { organization, data: bootstrap, isPending: bootstrapPending } = useMobileBootstrap();
+  const { organization, organizationPending, data: bootstrap, isPending: bootstrapPending, error: bootstrapError, refetch: refreshBootstrap } = useMobileBootstrap();
   const canView = bootstrap?.identity.permissions.includes("show:view") === true;
   const isScreenFocused = useScreenFocus();
   const query = useQuery({
@@ -335,7 +343,9 @@ export default function LiveShowScreen() {
       ? (current) => current.state.data?.runtime.kind === "ontime" ? 1_500 : 5_000
       : false,
   });
+  if (organizationPending) return <Page backTo="/(app)/shows" backLabel="Back to shows"><ActivityIndicator accessibilityLabel="Loading workspace" color={colors.amber} size="large" style={styles.loading} /></Page>;
   if (!organization) return <Redirect href="/organizations" />;
+  if (bootstrapError && !bootstrap) return <Page backTo="/(app)/shows" backLabel="Back to shows" title="Could not open Show"><Text accessibilityRole="alert" style={styles.error}>{bootstrapError.message}</Text><AppButton label="Retry workspace access" onPress={() => void refreshBootstrap()} /></Page>;
   if (bootstrapPending || (canView && query.isPending))
     return (
       <Page backTo="/(app)/shows" backLabel="Back to shows"><ActivityIndicator color={colors.amber} size="large" style={styles.loading} /></Page>
@@ -365,17 +375,17 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   error: { color: colors.red, fontFamily, fontSize: 14, lineHeight: 21 },
   list: { gap: 8, paddingBottom: spacing.large },
   headerContent: { gap: spacing.medium, marginBottom: 8 },
-  workspaceStatus: { minHeight: 28, flexDirection: "row", alignItems: "center", gap: 7 },
-  workspaceStatusText: { flex: 1, color: colors.green, fontFamily, fontSize: 11, fontWeight: "800" },
+  workspaceStatus: { minHeight: 28, flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 7 },
+  workspaceStatusText: { flexGrow: 1, flexShrink: 1, minWidth: 180, color: colors.green, fontFamily, fontSize: 12, fontWeight: "800" },
   workspaceStatusFallback: { color: colors.red },
-  workspaceClock: { color: colors.textMuted, fontFamily, fontSize: 11 },
+  workspaceClock: { color: colors.textMuted, fontFamily, fontSize: 12 },
   livePanel: { gap: 12, borderRadius: radii.large, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: spacing.large },
   livePanelOvertime: { borderColor: colors.redStrongBorder, backgroundColor: colors.redSoft },
   liveStatusRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.textFaint },
   liveDotPlaying: { backgroundColor: colors.green },
   liveDotPaused: { backgroundColor: colors.amber },
-  liveStatus: { flex: 1, color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.5 },
+  liveStatus: { flex: 1, color: colors.textFaint, fontFamily, fontSize: 12, fontWeight: "900", letterSpacing: 1.5 },
   liveStatusPlaying: { color: colors.green },
   overtime: { color: colors.red, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.2 },
   timer: { width: "100%", color: colors.text, fontFamily: "monospace", fontSize: 64, lineHeight: 72, fontWeight: "800", letterSpacing: -3, textAlign: "center" },
@@ -389,7 +399,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   nextTitle: { color: colors.textFaint, fontFamily, fontSize: 12, marginTop: 3 },
   nextName: { color: colors.textMuted, fontWeight: "700" },
   liveSource: { flexDirection: "row", alignItems: "center", gap: 7 },
-  liveSourceText: { color: colors.textFaint, fontFamily, fontSize: 11 },
+  liveSourceText: { color: colors.textFaint, fontFamily, fontSize: 12 },
   actionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   action: { minHeight: 44, flexGrow: 1, flexBasis: 130, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, paddingHorizontal: 12 },
   actionLabel: { flex: 1, color: colors.text, fontFamily, fontSize: 12, fontWeight: "800" },
