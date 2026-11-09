@@ -597,6 +597,31 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Operator read recovery
+
+Show Flow crew presence, active-show selection and external timer reads share an
+eight-second request deadline, cancellation on navigation/workspace changes,
+hidden-tab suspension and capped retry backoff. Failures retain confirmed data,
+show a timestamp and offer a read-only retry. A disconnected external timer
+response cannot replace the last confirmed timer with an empty default state.
+Rundown ProPresenter configuration uses the same bounded read, with its error
+visible even when no host was loaded and the normal controls are absent.
+
+Show Flow holds its displayed rundown clock when the live connection or selected
+show cannot be confirmed. It labels retained playback and resumes only after
+confirmation. On narrow/short screens, the page scrolls so stacked recovery
+notices cannot clip the timer out of reach. This does not stop the authoritative
+show timer or replay any operator action.
+
+After building, run `node apps/web/scripts/smoke-operator-read-recovery.mjs`.
+It stops/restarts a disposable Worker, verifies retained data, clock hold and
+recovery without reload, timestamped failures, configuration retry without a
+configured host, and reachable controls/timer at 320px. It also checks 320x480,
+768x900 and 1440x900 layouts. Run the show-day safety rehearsal as a regression
+check. Hook tests cover non-overlap, deadlines, backoff, hidden tabs, stale
+results and workspace changes. No migration is required. An actual external
+OnTime feed and physical hardware were not used in this browser rehearsal.
+
 ### Rundown connection recovery
 
 The rundown page and live rundown bar show timestamped connection failures and
