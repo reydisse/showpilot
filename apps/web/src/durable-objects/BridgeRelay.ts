@@ -1,5 +1,5 @@
 import { ProPresenterCommandRecovery, type ProPresenterCommandContext } from "@/lib/propresenter-command-recovery.server";
-import { proPresenterCommandSchema, type ProPresenterCommand } from "../../../mobile/src/lib/propresenter-command";
+import { proPresenterCommandSchema, type ProPresenterCommand } from "@showpilot/shared/propresenter-command";
 import { reportRelayError } from "@/lib/operational-errors.server";
 import { proPresenterViewerMessage } from "@/lib/propresenter-viewer-message";
 import { TIMECODE_FEED_STALL_MS } from "@/types/timecode";
