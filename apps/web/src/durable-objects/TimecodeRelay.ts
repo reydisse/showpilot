@@ -123,6 +123,7 @@ interface ClockSnapshot {
   masterSessionId: string | null;
   expectedFeedSince: number | null;
   bridgeFeed: BridgeFeed | null;
+  bridgeTransport?: "stopped" | "waiting" | null;
   formatCandidate?: FormatCandidate | null;
 }
 
@@ -137,6 +138,7 @@ function recoverInterruptedEvents(events: AutomationEvent[]): AutomationEvent[] 
 }
 
 export class TimecodeRelay extends DurableObject {
+  private bridgeTransport: "stopped" | "waiting" | null = null;
   private state: TimecodeState = {
     timecode: { hours: 0, minutes: 0, seconds: 0, frames: 0 },
     display: "00:00:00:00",
@@ -201,6 +203,7 @@ export class TimecodeRelay extends DurableObject {
         }
         this.expectedFeedSince = clock.expectedFeedSince;
         this.bridgeFeed = clock.bridgeFeed;
+        this.bridgeTransport = clock.bridgeTransport ?? null;
         this.formatCandidate = clock.formatCandidate ?? null;
         if (this.updateSignalHealth()) {
           await this.persistClock();
@@ -225,7 +228,7 @@ export class TimecodeRelay extends DurableObject {
     const { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automationHold, incomingFormat } = this.state;
     return { state: { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automationHold, incomingFormat },
       previousFeedFrame: this.previousFeedFrame, masterSessionId: this.masterSessionId,
-      expectedFeedSince: this.expectedFeedSince, bridgeFeed: this.bridgeFeed, formatCandidate: this.formatCandidate };
+      expectedFeedSince: this.expectedFeedSince, bridgeFeed: this.bridgeFeed, bridgeTransport: this.bridgeTransport, formatCandidate: this.formatCandidate };
   }
 
   private async persistClock(): Promise<void> {
@@ -237,7 +240,7 @@ export class TimecodeRelay extends DurableObject {
   private feedDeadline(): number | null {
     const signal = this.state.signal;
     const last = signal?.lastFeedAt ?? this.expectedFeedSince;
-    if (!signal || last === null || signal.status === "idle" || signal.status === "timecode-lost") return null;
+    if (!signal || last === null || signal.status === "idle" || signal.status === "timecode-lost" || signal.status === "midi-stopped" || signal.status === "midi-waiting") return null;
     return last + (signal.status === "timecode-stalled" ? FEED_LOST_MS : FEED_STALL_MS);
   }
 
@@ -248,7 +251,7 @@ export class TimecodeRelay extends DurableObject {
   private updateSignalHealth(): boolean {
     const signal = this.state.signal;
     const last = signal?.lastFeedAt ?? this.expectedFeedSince;
-    if (!signal || signal.status === "idle" || last === null) return false;
+    if (!signal || signal.status === "idle" || signal.status === "midi-stopped" || signal.status === "midi-waiting" || last === null) return false;
     const age = Date.now() - last;
     if (age < FEED_STALL_MS) return false;
     const status = age >= FEED_LOST_MS ? "timecode-lost" : "timecode-stalled";
@@ -475,15 +478,28 @@ export class TimecodeRelay extends DurableObject {
     }
     this.orgId = this.target?.orgId ?? url.searchParams.get("orgId") ?? this.orgId;
 
-    if (url.pathname === "/internal/bridge-feed" || url.pathname === "/internal/bridge-disconnected") {
+    if (url.pathname === "/internal/bridge-feed" || url.pathname === "/internal/bridge-disconnected" || url.pathname === "/internal/bridge-transport") {
       if (request.method !== "POST" || !this.target || !this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) {
         return new Response("Unauthorized", { status: 401 });
       }
       if (url.pathname === "/internal/bridge-disconnected") {
         this.bridgeFeed = null;
+        this.bridgeTransport = null;
         await this.persistClock();
         if (!this.masterSessionId) await this.handleCommand("bridge-disconnected");
+      } else if (url.pathname === "/internal/bridge-transport") {
+        const body = await request.json<{ payload?: Record<string, unknown> }>();
+        if (body.payload?.state !== "stopped" && body.payload?.state !== "waiting") return this.targetJson({ error: "Invalid MIDI transport state" }, { status: 400 });
+        // A paused standby must never be promoted using its previous live frame.
+        this.bridgeFeed = null;
+        this.bridgeTransport = body.payload.state;
+        if (this.masterSessionId) await this.persistClock();
+        else {
+          this.state.source = "mtc";
+          await this.handleCommand("mtc-transport", body.payload);
+        }
       } else {
+        if (this.bridgeTransport === "stopped") return this.targetJson({ ok: true, held: true });
         const body = await request.json<{ payload?: Record<string, unknown> }>();
         const format = body.payload?.format;
         const tc = eventUpdateSchema.shape.triggerTimecode.safeParse(body.payload?.timecode);
@@ -677,8 +693,23 @@ export class TimecodeRelay extends DurableObject {
         this.broadcastState();
         break;
 
+      case "mtc-transport": {
+        if (sessionId && this.masterSessionId !== sessionId) throw new TimecodeCommandRejection("Start the local MTC source before changing MIDI transport.");
+        if (this.state.source !== "mtc" || (payload?.state !== "stopped" && payload?.state !== "waiting")) throw new TimecodeCommandRejection("Invalid MIDI transport state.");
+        this.automationGeneration++;
+        this.state.running = false;
+        this.state.serverTime = Date.now();
+        this.state.signal = { status: payload.state === "stopped" ? "midi-stopped" : "midi-waiting", lastFeedAt: this.state.signal?.lastFeedAt ?? null };
+        this.expectedFeedSince = null;
+        this.formatCandidate = null;
+        await this.persistClock();
+        this.broadcastState();
+        break;
+      }
+
       case "feed-tc": {
         if (sessionId && this.masterSessionId !== sessionId) throw new TimecodeCommandRejection("Start the local timecode source before sending a feed.");
+        if (this.state.signal?.status === "midi-stopped") break;
         if (!payload) break;
         const tc = payload.timecode as TimecodeValue;
         const format = (payload.format as TimecodeFormat) ?? this.state.format;
@@ -719,7 +750,7 @@ export class TimecodeRelay extends DurableObject {
         this.holdForJump(previousPosition, totalFrames);
 
         const resuming = this.state.signal?.status === "timecode-stalled" || this.state.signal?.status === "timecode-lost"
-          || this.state.signal?.status === "format-mismatch";
+          || this.state.signal?.status === "format-mismatch" || this.state.signal?.status === "midi-waiting";
         this.state.timecode = tc;
         this.state.totalFrames = totalFrames;
         this.state.display = timecodeToString(tc, format.dropFrame === "df");

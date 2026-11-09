@@ -12,7 +12,10 @@ const requirements = [
   ["src/routes/$slug/songs.$songId.tsx", ["Tap-to-mark", "Native display", "ProPresenter", "Show now"]],
   ["src/routes/timer/$orgSlug.tsx", ["LyricsKiosk", "lyrics-update", "{lyrics.lyrics}", "observer.observe(area)"]],
   ["../bridge/src/protocols/propresenter.ts", ["queryPresentations", "/v1/libraries", "trigger-slide"]],
-  ["../bridge-desktop/src-tauri/src/lib.rs", ["MtcQuarterFrameDecoder", "list_midi_inputs", "start_mtc_input", "Duration::from_millis(100)"]],
+  // Changed-frame dedup replaces the old 100ms throttle, which could discard
+  // the final locate timestamp. Decoder/transport behavior has Rust tests.
+  ["../bridge-desktop/src-tauri/src/lib.rs", ["MtcTransportDecoder", "list_midi_inputs", "start_mtc_input", "timecode-transport"]],
+  ["../bridge-desktop/src-tauri/src/mtc.rs", ["MtcQuarterFrameDecoder", "last_frame", "Transport::Stopped"]],
 ];
 
 const missing = [];

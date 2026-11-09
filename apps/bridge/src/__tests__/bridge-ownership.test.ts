@@ -79,6 +79,18 @@ async function udp() {
 }
 
 describe("Bridge active and standby transport", () => {
+  it("forwards native MIDI transport and timecode over the real Bridge socket", async () => {
+    const { bridge, socket } = await fixture();
+    await role(socket, "active");
+    for (const state of ["stopped", "waiting"] as const) {
+      const received = next(socket, "timecode-transport");
+      bridge.transportTimecode(state);
+      expect(await received).toEqual({ type: "timecode-transport", state });
+    }
+    const received = next(socket, "timecode-feed");
+    bridge.feedTimecode({ timecode: { hours: 0, minutes: 0, seconds: 0, frames: 1 }, format: { frameRate: 30, dropFrame: "ndf" }, totalFrames: 1 });
+    expect(await received).toMatchObject({ type: "timecode-feed", totalFrames: 1 });
+  });
   it("blocks device traffic until selected, stops repeating lighting output before acknowledging standby, and can be activated again", async () => {
     const { packets, target } = await udp();
     const { bridge, socket } = await fixture();

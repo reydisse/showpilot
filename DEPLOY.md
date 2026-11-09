@@ -833,3 +833,39 @@ the announcement: landing → `https://showpilot.tech/login?signup=1` with
 
 After launch, run the full [post-deploy smoke tests](#post-deploy-smoke-tests)
 once more — billing step now in live mode.
+
+### MIDI transport synchronization
+
+Deploy this Worker with the updated browser and Bridge before relying on DAW
+transport controls. Older Bridges report only timecode frames and do not send
+MIDI Stop or resynchronization messages. Native transport messages use the same
+selected-installation authorization, bound-show routing and credential audit as
+native timecode feeds.
+
+MIDI Stop holds the clock and cue evaluation while keeping the input and source
+ownership. Continue waits for a fresh full-frame position or Song Position
+Pointer, followed by valid MTC. Start implies song position zero and still waits
+for absolute MTC. A full-frame locate during Stop does not fire cues. Fired cues
+stay fired; the first resumed frame does not catch up intervening cues, and the
+existing large-jump confirmation still applies.
+
+Song Position Pointer and MIDI Clock describe musical beats, not SMPTE time.
+ShowPilot tracks them for transport synchronization but requires MTC on that
+input for an absolute timestamp. It does not guess a tempo to convert a
+clock-only stream. See the [MIDI Association message summary](https://midi.org/summary-of-midi-1-0-messages).
+Browsers require the operator to select “Receive full-frame MIDI sync” and grant
+SysEx permission for full-frame messages. Quarter-frame input uses ordinary MIDI
+permission. Repeated stationary timestamps do not count as fresh clock feeds.
+
+Run these after building the web application and native sidecar:
+
+```sh
+node apps/web/scripts/smoke-midi-reconnect.mjs
+node apps/bridge/scripts/check-midi-transport.mjs
+cargo test --locked --manifest-path apps/bridge-desktop/src-tauri/Cargo.toml --lib
+```
+
+The browser rehearsal uses simulated MIDI ports with real login, local D1 and
+relay state. The sidecar probe uses its compiled stdin parser and a real local
+WebSocket. The unsigned platform workflow runs that probe after bundling.
+Physical DAW/USB and browser permission behavior still require a venue rehearsal.

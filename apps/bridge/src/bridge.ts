@@ -259,6 +259,10 @@ export class Bridge {
     this.send({ type: "timecode-feed", ...payload });
   }
 
+  transportTimecode(state: "stopped" | "waiting"): void {
+    this.send({ type: "timecode-transport", state });
+  }
+
   stop(): void {
     this.connectionAttempt++;
     this.settingsRecipient = null;

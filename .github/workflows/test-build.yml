@@ -112,6 +112,10 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_preserve_bun_rpath.py'
           python3 scripts/check-linux-bundled-sidecars.py
 
+      - name: Verify compiled MIDI transport
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: node apps/bridge/scripts/check-midi-transport.mjs
+
       - name: Upload test bundles
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4

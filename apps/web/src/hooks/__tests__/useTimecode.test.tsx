@@ -283,6 +283,29 @@ describe("timecode connection honesty", () => {
     expect(feeds()[1].payload.timecode.frames).toBe(2);
   });
 
+  it("flushes buffered frames on DAW Stop, retains the listener, and waits for located Continue", async () => {
+    const input = new MidiInputFixture("mtc");
+    vi.stubGlobal("navigator", { requestMIDIAccess: async () => new MidiAccessFixture(input) });
+    const { result } = hook(); const socket = Socket.instances[0];
+    act(() => hydrate(socket));
+    await act(async () => { await result.current.startMtc(input.id); });
+    act(() => {
+      socket.receive({ type: "master-status", granted: true });
+      socket.receive({ type: "tc-update", state: { ...state, source: "mtc", running: true } });
+    });
+    const cycle = (frame: number) => [frame, 0, 0, 0, 0, 0, 0, 6].forEach((value, index) => input.send([0xf1, (index << 4) | value]));
+    const commands = () => socket.sent.map(message => JSON.parse(message));
+    act(() => { cycle(1); input.send([0xfc]); vi.advanceTimersByTime(100); });
+    expect(commands().filter(message => message.action === "feed-tc")).toHaveLength(0);
+    expect(commands().at(-1)).toMatchObject({ action: "mtc-transport", payload: { state: "stopped" } });
+    act(() => socket.receive({ type: "tc-update", state: { ...state, source: "mtc", signal: { status: "midi-stopped", lastFeedAt: null } } }));
+    expect(result.current.isMaster).toBe(true);
+    act(() => { input.send([0xfb]); cycle(2); vi.advanceTimersByTime(100); });
+    expect(commands().filter(message => message.action === "feed-tc")).toHaveLength(0);
+    act(() => { input.send([0xf2, 0, 0]); cycle(3); vi.advanceTimersByTime(100); });
+    expect(commands().filter(message => message.action === "feed-tc")).toEqual([expect.objectContaining({ payload: expect.objectContaining({ timecode: expect.objectContaining({ frames: 3 }) }) })]);
+  });
+
   it("shows MTC signal loss with a stop control while holding the last frame", () => {
     const lost: TimecodeState = { ...state, source: "mtc", signal: { status: "timecode-stalled", lastFeedAt: 1 } };
     render(<>

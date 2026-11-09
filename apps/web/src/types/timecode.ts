@@ -51,7 +51,7 @@ export interface TimecodeState {
   automationHold?: { id: string; reason: "timecode-jump"; from: string; to: string; detectedAt: number } | null;
   /** Absent only on snapshots/clients predating the feed watchdog. */
   signal?: {
-    status: "idle" | "waiting" | "live" | "timecode-stalled" | "timecode-lost" | "format-mismatch";
+    status: "idle" | "waiting" | "live" | "timecode-stalled" | "timecode-lost" | "format-mismatch" | "midi-stopped" | "midi-waiting";
     lastFeedAt: number | null;
   };
   /** Present on a show-bound room; absent only in pre-migration snapshots. */
@@ -196,6 +196,7 @@ export const TIMECODE_COMMANDS = [
   "start",
   "stop",
   "feed-tc",
+  "mtc-transport",
   "set-source",
   "set-format",
   "set-timecode",

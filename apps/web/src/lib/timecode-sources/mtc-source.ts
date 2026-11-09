@@ -31,6 +31,8 @@ export interface MtcSourceCallback {
   (tc: TimecodeValue, format: TimecodeFormat): void;
 }
 
+export type MtcTransportState = "stopped" | "waiting";
+
 export class MtcSource {
   private input: MIDIInput | null = null;
   private releaseInputs: (() => void) | null = null;
@@ -38,13 +40,21 @@ export class MtcSource {
   private readonly receive = (event: MIDIMessageEvent) => this.handleMidiMessage(event);
   private accumulator = this.emptyAccumulator();
   private onTimecode: MtcSourceCallback;
+  private transport: "free" | "stopped" | "waiting" | "running" = "free";
+  private positionKnown = false;
+  private songPositionClocks: number | null = null;
+  private lastFrame: string | null = null;
 
-  constructor(callback: MtcSourceCallback) {
+  constructor(callback: MtcSourceCallback, private readonly onTransport: (state: MtcTransportState) => void = () => {}) {
     this.onTimecode = callback;
   }
 
   static isSupported(): boolean {
     return typeof navigator !== "undefined" && "requestMIDIAccess" in navigator;
+  }
+
+  get transportState(): MtcTransportState | null {
+    return this.transport === "stopped" || this.transport === "waiting" ? this.transport : null;
   }
 
   static async getInputs(): Promise<MIDIInput[]> {
@@ -56,14 +66,14 @@ export class MtcSource {
     return [...access.inputs.values()].filter(input => input.state === "connected");
   }
 
-  async start(inputId: string): Promise<void> {
+  async start(inputId: string, options?: { sysex: boolean }): Promise<void> {
     this.stop();
     const generation = this.startGeneration;
     if (!MtcSource.isSupported()) {
       throw new Error("Web MIDI API not supported in this browser");
     }
 
-    const access = await navigator.requestMIDIAccess();
+    const access = await (options?.sysex ? navigator.requestMIDIAccess({ sysex: true }) : navigator.requestMIDIAccess());
     if (generation !== this.startGeneration) return;
     const selected = access.inputs.get(inputId);
     if (!selected || selected.state !== "connected") {
@@ -85,17 +95,52 @@ export class MtcSource {
     this.releaseInputs?.();
     this.releaseInputs = null;
     this.detachInput();
+    this.transport = "free";
+    this.positionKnown = false;
+    this.songPositionClocks = null;
+    this.lastFrame = null;
   }
 
   private detachInput(): void {
     this.input?.removeEventListener("midimessage", this.receive);
     this.input = null;
     this.accumulator = this.emptyAccumulator();
+    this.lastFrame = null;
   }
 
   private handleMidiMessage(event: MIDIMessageEvent): void {
     const data = event.data;
     if (!data || data.length === 0) return;
+
+    if (data.length === 1 && [0xfa, 0xfb, 0xfc].includes(data[0])) {
+      this.accumulator = this.emptyAccumulator();
+      this.lastFrame = null;
+      if (data[0] === 0xfc) {
+        this.transport = "stopped";
+        this.positionKnown = false;
+        this.onTransport("stopped");
+      } else {
+        // Start implies SPP zero. Continue requires a fresh position since Stop.
+        if (data[0] === 0xfa) { this.songPositionClocks = 0; this.positionKnown = true; }
+        this.transport = "waiting";
+        this.onTransport("waiting");
+      }
+      return;
+    }
+    if (data[0] === 0xf2 && data.length === 3 && data[1] <= 0x7f && data[2] <= 0x7f) {
+      this.songPositionClocks = (data[1] | (data[2] << 7)) * 6;
+      this.positionKnown = true;
+      this.accumulator = this.emptyAccumulator();
+      this.lastFrame = null;
+      if (this.transport !== "stopped") { this.transport = "waiting"; this.onTransport("waiting"); }
+      return;
+    }
+    if (data[0] === 0xf8 && data.length === 1) {
+      if (this.transport !== "stopped" && this.songPositionClocks !== null) this.songPositionClocks++;
+      // Clock/SPP are beat positions, not SMPTE. Never fabricate an absolute
+      // timestamp from a tempo guess; acquire it from MTC on this same port.
+      return;
+    }
 
     // Quarter-frame: status byte 0xF1
     if (data[0] === 0xf1 && data.length === 2 && data[1] <= 0x7f) {
@@ -105,8 +150,8 @@ export class MtcSource {
 
     // Full-frame broadcast: F0 7F 7F 01 01 hr mn sc fr F7. ShowPilot has no
     // assigned SysEx device ID, so directed messages belong to other devices.
-    // Normal browser access above does not grant SysEx; this decoder is not
-    // evidence that browser full-frame jam sync is available.
+    // Browsers deliver SysEx only after the operator opts into that permission.
+    // Synthetic parser tests alone do not prove browser permission was granted.
     if (
       data[0] === 0xf0 &&
       data.length === 10 &&
@@ -166,7 +211,7 @@ export class MtcSource {
       const format = this.decodeFormat(rateCode);
 
       const timecode = { hours, minutes, seconds, frames };
-      if (isValidTimecode(timecode, format)) this.onTimecode(timecode, format);
+      if (isValidTimecode(timecode, format)) this.publish(timecode, format);
       this.accumulator = this.emptyAccumulator();
     }
   }
@@ -183,7 +228,19 @@ export class MtcSource {
     const frames = data[8];
     const format = this.decodeFormat(rateCode);
     const timecode = { hours, minutes, seconds, frames };
-    if (isValidTimecode(timecode, format)) this.onTimecode(timecode, format);
+    if (isValidTimecode(timecode, format)) {
+      this.positionKnown = true;
+      this.publish(timecode, format);
+    }
+  }
+
+  private publish(timecode: TimecodeValue, format: TimecodeFormat): void {
+    if (this.transport === "stopped" || (this.transport === "waiting" && !this.positionKnown)) return;
+    const frame = `${format.frameRate}/${format.dropFrame}/${timecode.hours}/${timecode.minutes}/${timecode.seconds}/${timecode.frames}`;
+    if (frame === this.lastFrame) return;
+    if (this.transport === "waiting") this.transport = "running";
+    this.lastFrame = frame;
+    this.onTimecode(timecode, format);
   }
 
   private emptyAccumulator(): MtcAccumulator {
