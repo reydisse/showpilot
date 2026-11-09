@@ -1065,8 +1065,13 @@
       "phase": "2",
       "section": "2.1 MIDI controller layer, separate from MTC (audit Phase 2 item 13; TC/M2, TC/M5)",
       "line": 185,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "Manual cue prerequisite: show-bound fire-next/fire-event/skip-event/rearm-event commands and timeline controls share a canonical Next selection. They honor controller ownership, automation disable and per-cue disable; Skip persists without claiming acknowledgement; confirmed single-cue Re-arm compares the reviewed attempt and never fires immediately.",
+        "pnpm --filter @showpilot/web test passed: 1417 unit and 392 real Worker tests. Web tsc --noEmit and production build passed. Worker tests exercise actual lyrics/lower-third output, restart persistence, no duplicate in-flight dispatch, stale confirmations, failed-cue exclusion and server-owned skip state. UI tests cover confirmation, cancellation and offline/disabled/dispatching guards.",
+        "node apps/web/scripts/smoke-manual-cues.mjs passed against the built app with real login/D1/relay: Fire Next excludes disabled/skipped cues, output follows manual Fire, clock stays fixed, Re-arm cancellation/confirmation preserves output, stale reviews are blocked, automation switch disables firing, another show stays unchanged, timeline controls fit 320/768/2560px with 44px targets.",
+        "Still incomplete: per-show MIDI learn/mapping persistence, controller input listener, complete transport mappings, feedback, banks and faders. These commands are the shared manual action contract for that controller implementation; this requirement is not marked verified."
+      ]
     },
     {
       "id": "c012be63e0ade5f0",

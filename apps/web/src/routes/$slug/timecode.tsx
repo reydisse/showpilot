@@ -49,6 +49,10 @@ function TimecodePage() {
     removeEvent,
     resetEvents,
     retryEvent,
+    fireEvent,
+    fireNext,
+    skipEvent,
+    rearmEvent,
     setEventEnabled,
     setTriggersEnabled,
     mtcSupported,
@@ -130,8 +134,12 @@ function TimecodePage() {
           onRemoveEvent={removeEvent}
           onResetEvents={resetEvents}
           onRetryEvent={retryEvent}
+          onFireEvent={fireEvent}
+          onFireNext={fireNext}
+          onSkipEvent={skipEvent}
+          onRearmEvent={rearmEvent}
           onSetEventEnabled={setEventEnabled}
-          connected={connected}
+          connected={connected && control !== "other"}
         />
 
         {events.length === 0 && !demoLoaded && !state?.running && connected && (
