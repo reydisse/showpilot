@@ -65,6 +65,8 @@ export interface TimecodeState {
   showId?: string;
   serviceDate?: string;
   triggersEnabled: TimecodeSettings["triggersEnabled"];
+  /** Changes on gate decisions, including another Stop while already stopped. */
+  automationRevision?: string;
   /** Cue-controlled automatic firing; manual Fire remains available. Legacy snapshots default to true. */
   automaticCuesEnabled?: boolean;
   timecode: TimecodeValue;
@@ -243,6 +245,7 @@ export const TIMECODE_COMMANDS = [
   "set-format",
   "set-timecode",
   "edit-clock",
+  "edit-automation-gate",
   "add-event",
   "replace-event-group",
   "update-event",

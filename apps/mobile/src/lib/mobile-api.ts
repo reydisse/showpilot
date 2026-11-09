@@ -1,3 +1,4 @@
+import { mobileGateReplySchema, type MobileGateCommand } from "./timecode-automation-recovery";
 import { timecodeClockReplySchema, type TimecodeClockCommand } from "./timecode-clock-recovery";
 import { cueCreateReplySchema, type CueCreateCommand } from "./timecode-cue-recovery";
 import { timecodeShowsSchema, timecodeStateSchema, timecodeEventSchema, type MobileTimecodeState, type MobileTimecodeEvent, type MobileTimecodeTarget } from "./timecode-contract";
@@ -2222,6 +2223,14 @@ export async function editMobileTimecodeClock(input: TimecodeClockCommand, signa
   const response = await authenticatedFetch(`/api/timecode/${encodeURIComponent(input.orgId)}/command?showId=${encodeURIComponent(input.expected.showId)}`,
     { method: "POST", signal, body: JSON.stringify({ action: "edit-clock", payload }) }, [400, 409]);
   return timecodeClockReplySchema.parse(await response.json());
+}
+
+export async function editMobileTimecodeAutomation(input: MobileGateCommand, signal: AbortSignal) {
+  const payload = { requestId: input.requestId, showId: input.showId, serviceDate: input.serviceDate, operation: input.operation,
+    ...(input.operation === "stop" ? {} : { confirmed: input.confirmed, expected: input.expected }) };
+  const response = await authenticatedFetch(`/api/timecode/${encodeURIComponent(input.orgId)}/command?showId=${encodeURIComponent(input.showId)}`,
+    { method: "POST", signal, body: JSON.stringify({ action: "edit-automation-gate", payload }) }, [400, 409]);
+  return mobileGateReplySchema.parse(await response.json());
 }
 
 export async function commandMobileTimecode(input: MobileTimecodeTarget & {
