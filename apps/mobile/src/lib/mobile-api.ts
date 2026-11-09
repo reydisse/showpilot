@@ -2396,7 +2396,7 @@ export async function commandMobileRundownChange(
   signal: AbortSignal,
 ) {
   const response = await authenticatedFetch(
-    `/api/mobile/v1/rundowns/${encodeURIComponent(command.showId)}/change?orgId=${encodeURIComponent(command.orgId)}`,
+    `/api/mobile/v1/rundowns/${encodeURIComponent(command.showId)}/${command.action === "reset" ? "reset" : "change"}?orgId=${encodeURIComponent(command.orgId)}`,
     { method: "POST", signal, body: JSON.stringify(command) },
   );
   return rundownChangeReplySchema.parse(await response.json());

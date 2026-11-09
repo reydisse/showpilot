@@ -31,11 +31,13 @@ export function RundownChangeStatus({
   if (!attempt) return null;
   const text = { color: colors.text, fontSize: 14, lineHeight: 20 };
   const action =
-    attempt.command.action === "clear-all"
-      ? "Clear rundown"
-      : attempt.command.action === "restore-item"
-        ? "Restore"
-        : "Remove";
+    attempt.command.action === "reset"
+      ? "Reset timing"
+      : attempt.command.action === "clear-all"
+        ? "Clear rundown"
+        : attempt.command.action === "restore-item"
+          ? "Restore"
+          : "Remove";
   return (
     <View
       style={{
@@ -51,7 +53,7 @@ export function RundownChangeStatus({
       </Text>
       {!active ? (
         <Text style={text}>
-          Reconnect with editing access to continue this request.
+          Reconnect with rundown access to continue this request.
         </Text>
       ) : null}
       {attempt.kind === "pending" ? (

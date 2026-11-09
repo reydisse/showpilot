@@ -9,7 +9,7 @@ import {
 type TrackedCommand = RundownChangeCommand & { initiatedAt: number };
 type Selection =
   | { action: "remove-item" | "restore-item"; itemId: string }
-  | { action: "clear-all" };
+  | { action: "clear-all" | "reset" };
 
 export function useRundownChange(
   scope: { orgId: string; userId: string; showId: string; serviceDate: string },

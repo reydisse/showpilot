@@ -1,3 +1,4 @@
+import { RundownResetConfirmation } from "@/components/rundown-reset-confirmation";
 import { useRundownChange } from "@/hooks/use-rundown-change";
 import { RundownChangeStatus } from "@/components/rundown-change-status";
 import { RundownClearConfirmation } from "@/components/rundown-clear-confirmation";
@@ -66,6 +67,8 @@ function TimerPanel({
   canControl,
   controlsEnabled,
   editControlsEnabled,
+  resetEnabled,
+  onReset,
   items,
   onCommand,
   timer,
@@ -74,6 +77,8 @@ function TimerPanel({
   canControl: boolean;
   controlsEnabled: boolean;
   editControlsEnabled: boolean;
+  resetEnabled: boolean;
+  onReset: () => void;
   items: RundownItem[];
   onCommand: (action: string, payload?: Record<string, unknown>) => void;
   timer: MobileRundown["timer"];
@@ -141,7 +146,7 @@ function TimerPanel({
             </View>
             <View style={styles.adjustPair}>
             <MiniButton label="Stop" disabled={!controlsEnabled || !currentItem} onPress={() => onCommand("timer-stop")}><CircleStop size={16} color={colors.red} /></MiniButton>
-            <MiniButton label="Reset" disabled={!controlsEnabled} onPress={() => onCommand("reset")}><RotateCcw size={16} color={colors.textMuted} /></MiniButton>
+            <MiniButton label="Reset" disabled={!resetEnabled || timer.playback === "play"} onPress={onReset}><RotateCcw size={16} color={colors.textMuted} /></MiniButton>
             </View>
           </View>
           <View style={styles.customAdjustRow}>
@@ -229,7 +234,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
   const liveWriteEnabled = canUseLiveRelay && liveReady;
   const client = useQueryClient();
   const changes = useRundownChange({ orgId, userId, showId: detail.show.id, serviceDate: detail.show.serviceDate }, {
-    active: editControlsEnabled,
+    active: liveWriteEnabled,
     send: commandMobileRundownChange,
     refresh: async signal => {
       await client.invalidateQueries({ queryKey: ["mobile-rundown", orgId, detail.show.id, userId] }, { throwOnError: true });
@@ -237,6 +242,8 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
     },
   });
   const [clearOpen, setClearOpen] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const canReset = controlsEnabled && !changes.attempt;
   const canRemove = editControlsEnabled && !changes.attempt;
 
 
@@ -368,7 +375,12 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
         ListEmptyComponent={<Text style={styles.empty}>This show has no rundown items yet.</Text>}
         ListHeaderComponent={(
           <View style={styles.listHeader}>
-            <RundownChangeStatus state={changes} active={editControlsEnabled} revision={relay.revision} itemIds={items.map(item => item.id)}/>
+            <RundownChangeStatus state={changes} active={changes.attempt?.command.action === "reset" ? detail.canControl && liveReady : editControlsEnabled} revision={relay.revision} itemIds={items.map(item => item.id)}/>
+            {resetOpen ? <RundownResetConfirmation title={showTitle} count={items.length} revision={relay.revision} playing={timer.playback === "play"} active={canReset} onClose={() => setResetOpen(false)} onConfirm={revision => {
+              if (!canReset || revision !== relay.revision || timer.playback === "play") return;
+              changes.confirm({action:"reset"}, revision, showTitle);
+              setResetOpen(false);
+            }}/> : null}
             {clearOpen ? <RundownClearConfirmation title={showTitle} count={items.length} revision={relay.revision} playing={timer.playback !== "stop"} active={canRemove} onClose={() => setClearOpen(false)} onConfirm={revision => { if (!canRemove || revision !== relay.revision) return; changes.confirm({action:"clear-all"}, revision, showTitle); setClearOpen(false); }}/> : null}
             {refreshError ? <View><Text accessibilityRole="alert" style={styles.syncError}>{refreshError} The last loaded show is still displayed.</Text><AppButton label="Refresh show" loading={refreshing} onPress={onRefresh} /></View> : null}
             {templateDeletions.length ? <AppButton label="Resume template deletion" variant="secondary" onPress={()=>setTemplatesOpen(true)}/>:null}
@@ -386,6 +398,8 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
             </View>
             <RundownUnlock userId={userId} orgId={orgId} showId={detail.show.id} pinAccess={detail.pinAccess} />
             <TimerPanel
+              resetEnabled={canReset}
+              onReset={() => setResetOpen(true)}
               canEdit={canAuthor}
               canControl={detail.canControl}
               controlsEnabled={controlsEnabled}

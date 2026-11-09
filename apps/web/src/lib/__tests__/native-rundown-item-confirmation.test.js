@@ -75,6 +75,7 @@ function load(name) {
 }
 const Sheet = load("rundown-item-sheet").RundownItemSheet;
 const Clear = load("rundown-clear-confirmation").RundownClearConfirmation;
+const Reset = load("rundown-reset-confirmation").RundownResetConfirmation;
 afterEach(cleanup);
 const item = {
   id: "cue",
@@ -204,4 +205,77 @@ it("keep and lost access cannot clear a rundown", () => {
   expect(p.onConfirm).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Keep rundown" }));
   expect(p.onClose).toHaveBeenCalledTimes(1);
+});
+
+it("reset names its consequences and Keep preserves timing", () => {
+  const p = {
+    title: "Sunday",
+    count: 2,
+    revision: 4,
+    playing: false,
+    active: true,
+    onClose: vi.fn(),
+    onConfirm: vi.fn(),
+  };
+  render(React.createElement(Reset, p));
+  expect(screen.getByText(/actual start and end times/)).toBeTruthy();
+  expect(screen.getByText(/cannot be undone/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Keep timing" }));
+  expect(p.onClose).toHaveBeenCalledTimes(1);
+  expect(p.onConfirm).not.toHaveBeenCalled();
+});
+it("reset confirms the exact reviewed revision", () => {
+  const p = {
+    title: "Sunday",
+    count: 2,
+    revision: 4,
+    playing: false,
+    active: true,
+    onClose: vi.fn(),
+    onConfirm: vi.fn(),
+  };
+  render(React.createElement(Reset, p));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm timing reset" }));
+  expect(p.onConfirm).toHaveBeenCalledExactlyOnceWith(4);
+});
+it("reset blocks live playback and requires review again after a pause", () => {
+  const p = {
+    title: "Sunday",
+    count: 2,
+    revision: 4,
+    playing: false,
+    active: true,
+    onClose: vi.fn(),
+    onConfirm: vi.fn(),
+  };
+  const view = render(React.createElement(Reset, p));
+  view.rerender(
+    React.createElement(Reset, { ...p, playing: true, revision: 5 }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Confirm timing reset" }));
+  expect(p.onConfirm).not.toHaveBeenCalled();
+  view.rerender(
+    React.createElement(Reset, { ...p, playing: false, revision: 6 }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Confirm timing reset" }));
+  expect(p.onConfirm).not.toHaveBeenCalled();
+  fireEvent.click(
+    screen.getByRole("button", { name: "Review current timing" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Confirm timing reset" }));
+  expect(p.onConfirm).toHaveBeenCalledExactlyOnceWith(6);
+});
+it("reset remains blocked after control access is lost", () => {
+  const p = {
+    title: "Sunday",
+    count: 2,
+    revision: 4,
+    playing: false,
+    active: false,
+    onClose: vi.fn(),
+    onConfirm: vi.fn(),
+  };
+  render(React.createElement(Reset, p));
+  fireEvent.click(screen.getByRole("button", { name: "Confirm timing reset" }));
+  expect(p.onConfirm).not.toHaveBeenCalled();
 });

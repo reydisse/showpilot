@@ -8068,3 +8068,62 @@ handshake deadlines, stale read-only native status, and native editor draft/
 acknowledgement handling remain separate open work. No product-wide gate closure,
 deployment, migration or release. #266 CI 42536611342 is pending; Rust passed
 4m43s. Later PRs remain held.
+
+
+### Phase 2 follow-up: native timing reset confirmation
+
+The compiled baseline reset a paused show immediately and failed the visible
+confirmation assertion. Native Reset now opens a compact modal at the operator's
+current position. It names the show, counts the items and explains that actual
+start/end times and elapsed timing will be cleared, items will become upcoming,
+and the items/show details will remain. Keep timing does nothing. Reset is
+blocked while playing; a changed revision requires another explicit review.
+The final screenshot review removed a stretching scroll container and fade so
+the complete warning and both 44px buttons appear immediately at 320px.
+
+Reset uses the retained rundown request lane, with a 15-second mutation deadline,
+a 12-second refresh deadline, and the original request ID/revision across route
+navigation and retry. The existing relay remains the revision-checked single
+writer. An acknowledged retry checks the original outcome without resetting a
+later run. Refresh recovery does not repeat the command. Confirmation copy
+reports acceptance without claiming that later operator changes were undone.
+
+The new /reset native endpoint requires rundown:control, preserving Production
+Manager access. The /change endpoint still requires rundown:edit. Each endpoint
+rejects actions belonging to the other, checks current membership, session,
+identity and show scope, and uses the normal relay authority/PIN path. No internal
+credential, schema migration or new reset semantics were introduced.
+
+Full suite passes 349 unit files / 2,828 tests and 141 Worker files / 1,579 tests,
+4,407 total. Four new sheet cases cover confirmation/Keep, revision review,
+playing and lost access. Four new real-relay cases cover timing-only reset,
+playing/stale rejection, deduplication after eviction with a later run, and
+control-only Production Manager authority. Four real-auth route cases verify
+Production Manager reset, edit-command rejection, scope validation and revoked
+permission. The route fixture initially assumed revision zero; reading the real
+initialized relay revision fixed that fixture assumption. Web typecheck 2 and
+production build 1 pass. Main client remains 549,593 raw / 173,783 gzip bytes,
+within the unchanged budgets.
+
+Final native verify 3 passes typecheck, lint with 17 existing warnings, all three
+exports, Expo Doctor 18/18, API/release contracts and polling boundaries. Hermes
+is 5,740,624 bytes on iOS / 5,739,744 on Android. Focused sheet rerun 2 passes all
+11 cases after the modal layout adjustment. Compiled Expo web rehearsals 1 and 2
+pass with real disposable auth, D1 and relay traffic. Final run 2 covers Keep,
+playing rejection, revision review, preserved item titles/notes/assignees, reset
+timing, lost reply, navigation retention, exact retry after a later paused run,
+and refresh-only recovery at 320/768/1440px, with zero runtime errors. Inspected
+the final 320px confirmation and refresh screenshots. This is not a physical
+phone or tablet run.
+
+Rehearsal after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-rundown-reset.mjs`.
+Evidence: /tmp/showpilot-native-reset-{before,unit1,unit2,worker1,worker2,full1,tsc2,build1,verify1,verify2,verify3,browser1,browser2}.log.
+Screenshots: /tmp/showpilot-native-reset-{confirm,unknown,refresh}-{320,768,1440}.png.
+Phase 2 remains 67/79. Authentication/socket handshake deadlines, stale read-only
+native status and editor draft/acknowledgement recovery remain open. No deployment,
+release or remote migration. Twenty necessary tracked Markdown files remain.
+
+Stack gate: #266 at 8e941d36 is green in run 42536611342, web 17m36s and Rust
+4m43s. Draft #267 is open at 03ecdeaf, based on fix/native-template-delete-recovery,
+and run 42538227541 is pending. Later PRs remain held until that head is green.
