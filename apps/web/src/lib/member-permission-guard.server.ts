@@ -3,24 +3,25 @@ import { isGrantablePermission } from "./access-capabilities";
 import type { AccessDatabase } from "./effective-access";
 const activeSession = `(CASE WHEN typeof(s.expiresAt) IN ('integer','real') THEN s.expiresAt ELSE (julianday(s.expiresAt)-2440587.5)*86400000 END)>(julianday('now')-2440587.5)*86400000`;
 const notDeleting = `NOT EXISTS(SELECT 1 FROM app_setting WHERE orgId=m.organizationId AND key='organization-deleting')`;
-export async function memberPermissionGuard(
+/** Membership capability only, for assignment recipients. Callers still authorize their own session. */
+export async function memberCapabilityGuard(
   database: AccessDatabase,
   orgId: string,
-  actor: { userId: string; sessionId: string },
+  actor: { userId: string },
   required: readonly Permission[],
   allowGrants = true,
 ) {
   const member = await database
     .prepare(
-      `SELECT m.id,m.role,m.managementRevision FROM member m JOIN session s ON s.userId=m.userId
-    WHERE m.organizationId=? AND m.userId=? AND s.id=? AND ${activeSession} AND ${notDeleting}`,
+      `SELECT m.id,m.role,m.managementRevision FROM member m
+    WHERE m.organizationId=? AND m.userId=? AND ${notDeleting}`,
     )
-    .bind(orgId, actor.userId, actor.sessionId)
+    .bind(orgId, actor.userId)
     .first<{ id: string; role: string; managementRevision: number }>();
   if (!member)
     throw new Error("Your session or required permission is no longer active.");
   const guard = [
-    `EXISTS(SELECT 1 FROM member m JOIN session s ON s.userId=m.userId WHERE m.organizationId=? AND m.id=? AND m.userId=? AND m.role=? AND m.managementRevision=? AND s.id=? AND ${activeSession} AND ${notDeleting})`,
+    `EXISTS(SELECT 1 FROM member m WHERE m.organizationId=? AND m.id=? AND m.userId=? AND m.role=? AND m.managementRevision=? AND ${notDeleting})`,
   ];
   const guardArgs: (string | number | null)[] = [
     orgId,
@@ -28,7 +29,6 @@ export async function memberPermissionGuard(
     actor.userId,
     member.role,
     member.managementRevision,
-    actor.sessionId,
   ];
   const missing = required.filter(
     (permission) => !hasPermission(member.role, permission),
@@ -89,5 +89,32 @@ export async function memberPermissionGuard(
     );
     guardArgs.push(orgId, timezone, new Date(high).toISOString());
   }
-  return { guard: guard.join(" AND "), guardArgs };
+  return { guard: guard.join(" AND "), guardArgs, role: member.role };
+}
+
+/** Authorize an active session and retain both session and capability checks for commit. */
+export async function memberPermissionGuard(
+  database: AccessDatabase,
+  orgId: string,
+  actor: { userId: string; sessionId: string },
+  required: readonly Permission[],
+  allowGrants = true,
+) {
+  const capability = await memberCapabilityGuard(
+    database,
+    orgId,
+    actor,
+    required,
+    allowGrants,
+  );
+  const guard = `${capability.guard} AND EXISTS(SELECT 1 FROM session s WHERE s.userId=? AND s.id=? AND ${activeSession})`;
+  const guardArgs = [...capability.guardArgs, actor.userId, actor.sessionId];
+  if (
+    !(await database
+      .prepare(`SELECT 1 WHERE ${guard}`)
+      .bind(...guardArgs)
+      .first())
+  )
+    throw new Error("Your session or required permission is no longer active.");
+  return { guard, guardArgs, role: capability.role };
 }

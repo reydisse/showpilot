@@ -50,12 +50,15 @@ import {
 import { TmOperations } from "@/components/dashboard/tm-operations";
 import { selectWidgets, widgetsInRegion } from "@/components/dashboard/widget";
 import {
-  saveTmDashboardLayout,
   TM_LAYOUT_SECTION_IDS,
   TM_LAYOUT_WIDGET_IDS,
   type TmDashboardLayout,
-} from "@/lib/dashboard-layout";
-import { hasPermission } from "@/lib/app-permissions";
+  type TmManagementState,
+  type TmManagementCommand,
+} from "@/lib/tm-management-contract";
+import { getTmManagementState } from "@/lib/tm-management";
+import { useTmManagement } from "@/hooks/useTmManagement";
+import { TmManagementRecovery } from "@/components/dashboard/TmManagementRecovery";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { useNow } from "@/components/dashboard/widget";
@@ -86,14 +89,13 @@ export const Route = createFileRoute("/$slug/dashboard/tech-manager")({
       context.slug,
       context.orgId,
     );
-    const { getTmDashboardLayout } = await import("@/lib/dashboard-layout");
-    const [dashboard, dashboardLayout] = await Promise.all([
+    const [dashboard, management] = await Promise.all([
       getTmDashboard({
         data: { orgId: context.orgId, serviceDate: deps.date, showId: deps.show }, signal: abortController.signal,
       }),
-      getTmDashboardLayout({ data: { orgId: context.orgId }, signal: abortController.signal }),
+      getTmManagementState({ data: { orgId: context.orgId, userId: context.user.id }, signal: abortController.signal }),
     ]);
-    return { ...dashboard, dashboardLayout };
+    return { ...dashboard, management };
   },
   component: TechManagerPage,
 });
@@ -103,9 +105,9 @@ function TechManagerPage() {
   const { user } = Route.useRouteContext();
   return <TechManagerWorkspace key={`${user.id}:${initial.orgId}:${initial.showId}`} initial={initial} />;
 }
-function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof getTmDashboard>> & { dashboardLayout: TmDashboardLayout } }) {
+function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof getTmDashboard>> & { management: TmManagementState } }) {
   const search = Route.useSearch();
-  const { dashboardLayout, ...snapshot } = initial;
+  const { management, ...snapshot } = initial;
   const load = useCallback((signal: AbortSignal) => getTmDashboard({ data: { orgId: initial.orgId, serviceDate: search.date, showId: search.show }, signal }), [initial.orgId, search.date, search.show]);
   const read = useOperatorRead({ key: JSON.stringify(snapshot), initialValue: snapshot, read: load, intervalMs: 10_000, errorMessage: "Technical dashboard could not refresh. Last confirmed values are shown. Retry before changing incidents." });
   const now = useNow(1_000);
@@ -116,23 +118,17 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
     shows,
     orgTimezone,
     viewerId,
-    viewerRole,
-    canAssignPeople,
     members,
     liveInputs,
     streamDestinations,
   } = read.value;
   const { slug } = Route.useParams();
   const navigate = useNavigate({ from: Route.fullPath });
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [faultView, setFaultView] = useState<
     "all" | "unowned" | "mine" | "critical"
   >("all");
   const [editingLayout, setEditingLayout] = useState(false);
-  const [layout, setLayout] = useState<TmDashboardLayout>(dashboardLayout);
-  const [layoutSaving, setLayoutSaving] = useState(false);
   const { publish: publishIncident, syncError, syncErrorAt, status: syncStatus, retrySync } = useCueSheetSync({
     orgId,
     scope: showId ?? "",
@@ -141,29 +137,21 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
     onIncident: read.invalidate,
   });
 
-  const act = useCallback(
-    async (faultId: string, run: () => Promise<unknown>) => {
-      if (read.refreshing || read.error || editingLayout) return;
-      setBusyId(faultId);
-      setError(null);
-      try {
-        await run();
-        publishIncident({
-          type: "incident",
-          showId,
-          incidentId: faultId,
-          action: "updated",
-          at: Date.now(),
-        });
-        read.invalidate();
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "That did not save");
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [publishIncident, read.refreshing, read.error, read.invalidate, editingLayout, showId],
-  );
+  const control = useTmManagement(management, (incidentId) => {
+    publishIncident({ type: "incident", showId, incidentId, action: "updated", at: Date.now() });
+    read.invalidate();
+  });
+  const layout = control.layout;
+  const layoutLocked = control.unresolved("layout") || control.unavailable;
+  const act = (faultId: string, action: "assign" | "acknowledge" | "resolve", assignedTo: string | null = null) => {
+    if (read.refreshing || read.error || editingLayout || !control.read.data.canManageIncidents) return;
+    const fault = model.faults.find(item => item.id === faultId);
+    if (!fault) return;
+    const operation: TmManagementCommand["operation"] = action === "assign"
+      ? { kind: "assign", id: faultId, assignedTo, expectedRevision: fault.revision }
+      : { kind: action, id: faultId, expectedRevision: fault.revision };
+    control.send(operation, `${action === "assign" ? assignedTo ? "Assign" : "Release" : action === "resolve" ? "Resolve" : "Acknowledge"} incident: ${fault.description}`);
+  };
 
   const filteredModel = useMemo(
     () => ({
@@ -191,42 +179,16 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
     slug,
     orgId,
     viewerId,
-    canAssignPeople,
-    canClaimFaults: hasPermission(viewerRole, "incidents:access"),
+    canAssignPeople: control.read.data.canAssignPeople,
+    canClaimFaults: control.read.data.canManageIncidents,
     members,
-    busyId,
-    readUnavailable: read.refreshing || !!read.error || editingLayout,
-    onClaim: (faultId) =>
-      void act(faultId, async () => {
-        const { assignFault } = await import("@/lib/tm-dashboard");
-        return assignFault({
-          data: { orgId, id: faultId, assignedTo: viewerId },
-        });
-      }),
-    onAssign: (faultId, userId, name) =>
-      void act(faultId, async () => {
-        const { assignFault } = await import("@/lib/tm-dashboard");
-        return assignFault({
-          data: { orgId, id: faultId, assignedTo: userId, assignedName: name },
-        });
-      }),
-    onResolve: (faultId) =>
-      void act(faultId, async () => {
-        const { resolveFault } = await import("@/lib/tm-dashboard");
-        return resolveFault({ data: { orgId, id: faultId } });
-      }),
-    onAcknowledge: (faultId) =>
-      void act(faultId, async () => {
-        const { acknowledgeFault } = await import("@/lib/tm-dashboard");
-        return acknowledgeFault({ data: { orgId, id: faultId } });
-      }),
-    onRelease: (faultId) =>
-      void act(faultId, async () => {
-        const { assignFault } = await import("@/lib/tm-dashboard");
-        return assignFault({
-          data: { orgId, id: faultId, assignedTo: null, assignedName: "" },
-        });
-      }),
+    busyId: null,
+    readUnavailable: read.refreshing || !!read.error || editingLayout || control.unavailable || control.unresolved("incident"),
+    onClaim: (id) => act(id, "assign", viewerId),
+    onAssign: (id, userId) => act(id, "assign", userId),
+    onResolve: (id) => act(id, "resolve"),
+    onAcknowledge: (id) => act(id, "acknowledge"),
+    onRelease: (id) => act(id, "assign", null),
   };
 
   const widgets = selectWidgets(TM_WIDGETS, model.phase, widgetModel);
@@ -235,27 +197,7 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
   const rail = widgetsInRegion(widgets, "rail");
   const orderedMain = orderMainWidgets(main, layout.main);
 
-  const persistLayout = useCallback(
-    async (next: TmDashboardLayout) => {
-      setLayout(next);
-      setLayoutSaving(true);
-      setError(null);
-      try {
-        setLayout(
-          await saveTmDashboardLayout({ data: { orgId, layout: next } }),
-        );
-      } catch (cause) {
-        setError(
-          cause instanceof Error
-            ? cause.message
-            : "Could not save dashboard layout",
-        );
-      } finally {
-        setLayoutSaving(false);
-      }
-    },
-    [orgId],
-  );
+  const persistLayout = (next: TmDashboardLayout) => control.send({ kind: "layout", layout: next, expectedRevision: control.read.data.layoutRevision }, "Arrange dashboard");
 
   const workspaceContent = (
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start">
@@ -278,7 +220,7 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
           widgets={orderedMain}
           widgetModel={widgetModel}
           editing={editingLayout}
-          saving={layoutSaving}
+          locked={layoutLocked}
           onReorder={(mainOrder) =>
             void persistLayout({
               ...layout,
@@ -382,19 +324,12 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
 
       <ReadFailureNotice error={read.error} refreshing={read.refreshing} retry={read.retry} label="Retry dashboard" />
       {read.refreshing && !read.error ? <p role="status" className="px-3 sm:px-6 py-2 text-sm text-board-muted">Refreshing dashboard… Last confirmed values remain visible.</p> : null}
-      {error && (
-        <div
-          role="alert"
-          className="px-6 py-2 bg-red-500/15 border-b border-red-500/30 text-[12px] text-red-300"
-        >
-          {error}
-        </div>
-      )}
+      <TmManagementRecovery control={control} />
 
       <div className="px-3 sm:px-6 py-5 w-full max-w-[1500px] space-y-4">
         <ReorderableSections
           editing={editingLayout}
-          saving={layoutSaving}
+          locked={layoutLocked}
           order={layout.sections}
           onReorder={(sections) =>
             void persistLayout({
@@ -519,13 +454,13 @@ function ReorderableSections({
   order,
   sections,
   editing,
-  saving,
+  locked,
   onReorder,
 }: {
   order: readonly string[];
   sections: Record<string, { title: string; content: ReactNode }>;
   editing: boolean;
-  saving: boolean;
+  locked: boolean;
   onReorder(order: string[]): void;
 }) {
   const [dragging, setDragging] = useState<string | null>(null);
@@ -554,8 +489,8 @@ function ReorderableSections({
             Arrange the major dashboard zones. Operational controls are locked
             while arranging.
           </span>
-          {saving ? (
-            <span className="ml-auto text-fire-400">Saving…</span>
+          {locked ? (
+            <span className="ml-auto text-fire-400">Changes paused</span>
           ) : (
             <button
               type="button"
@@ -573,11 +508,11 @@ function ReorderableSections({
         return (
           <div
             key={id}
-            draggable={editing && !saving}
+            draggable={editing && !locked}
             onDragStart={() => setDragging(id)}
             onDragEnd={() => setDragging(null)}
             onDragOver={(event) => {
-              if (editing && !saving) event.preventDefault();
+              if (editing && !locked) event.preventDefault();
             }}
             onDrop={() => dropOn(id)}
             className={`relative transition-all ${editing ? "rounded-xl ring-1 ring-board-border hover:ring-fire-500/40 cursor-grab active:cursor-grabbing" : ""} ${dragging === id ? "opacity-45 scale-[.99]" : ""}`}
@@ -590,7 +525,7 @@ function ReorderableSections({
                 <button
                   type="button"
                   aria-label={`Move ${section.title} up`}
-                  disabled={index === 0 || saving}
+                  disabled={index === 0 || locked}
                   onClick={() => move(id, -1)}
                   className="min-w-11 min-h-11 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"
                 >
@@ -599,7 +534,7 @@ function ReorderableSections({
                 <button
                   type="button"
                   aria-label={`Move ${section.title} down`}
-                  disabled={index === visible.length - 1 || saving}
+                  disabled={index === visible.length - 1 || locked}
                   onClick={() => move(id, 1)}
                   className="min-w-11 min-h-11 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"
                 >
@@ -622,13 +557,13 @@ function ReorderableMainWidgets({
   widgets,
   widgetModel,
   editing,
-  saving,
+  locked,
   onReorder,
 }: {
   widgets: TmWidget[];
   widgetModel: TmWidgetModel;
   editing: boolean;
-  saving: boolean;
+  locked: boolean;
   onReorder(order: string[]): void;
 }) {
   const [dragging, setDragging] = useState<string | null>(null);
@@ -657,8 +592,8 @@ function ReorderableMainWidgets({
           <span>
             Drag widgets or use the arrow buttons. Changes save to your account.
           </span>
-          {saving ? (
-            <span className="ml-auto text-fire-400">Saving…</span>
+          {locked ? (
+            <span className="ml-auto text-fire-400">Changes paused</span>
           ) : (
             <button
               type="button"
@@ -674,11 +609,11 @@ function ReorderableMainWidgets({
       {widgets.map((widget, index) => (
         <div
           key={widget.id}
-          draggable={editing && !saving}
+          draggable={editing && !locked}
           onDragStart={(event) => { event.stopPropagation(); setDragging(widget.id); }}
           onDragEnd={() => setDragging(null)}
           onDragOver={(event) => {
-            if (editing && !saving) event.preventDefault();
+            if (editing && !locked) event.preventDefault();
           }}
           onDrop={(event) => { event.stopPropagation(); dropOn(widget.id); }}
           className={`relative transition-all ${editing ? "rounded-xl ring-1 ring-board-border hover:ring-fire-500/40 cursor-grab active:cursor-grabbing" : ""} ${dragging === widget.id ? "opacity-45 scale-[.99]" : ""}`}
@@ -691,7 +626,7 @@ function ReorderableMainWidgets({
               <button
                 type="button"
                 aria-label={`Move ${workspaceCopy(widget.title, widgetModel.terms)} up`}
-                disabled={index === 0 || saving}
+                disabled={index === 0 || locked}
                 onClick={() => move(widget.id, -1)}
                 className="min-w-11 min-h-11 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"
               >
@@ -700,7 +635,7 @@ function ReorderableMainWidgets({
               <button
                 type="button"
                 aria-label={`Move ${workspaceCopy(widget.title, widgetModel.terms)} down`}
-                disabled={index === widgets.length - 1 || saving}
+                disabled={index === widgets.length - 1 || locked}
                 onClick={() => move(widget.id, 1)}
                 className="min-w-11 min-h-11 flex items-center justify-center text-board-muted hover:text-board-text disabled:opacity-25"
               >

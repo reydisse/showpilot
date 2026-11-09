@@ -26,6 +26,7 @@ const VIEWER = "user-ama";
 
 function incident(overrides: Partial<TmIncident> & { id: string }): TmIncident {
   return {
+    revision: 1,
     category: "audio",
     severity: "medium",
     description: "Something is wrong",
