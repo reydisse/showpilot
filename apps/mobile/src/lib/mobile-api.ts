@@ -1,3 +1,4 @@
+import { mobileCueControlReplySchema, type MobileCueControl } from "./timecode-cue-control-recovery";
 import { mobileGateReplySchema, type MobileGateCommand } from "./timecode-automation-recovery";
 import { timecodeClockReplySchema, type TimecodeClockCommand } from "./timecode-clock-recovery";
 import { cueCreateReplySchema, type CueCreateCommand } from "./timecode-cue-recovery";
@@ -2233,29 +2234,14 @@ export async function editMobileTimecodeAutomation(input: MobileGateCommand, sig
   return mobileGateReplySchema.parse(await response.json());
 }
 
-export async function commandMobileTimecode(input: MobileTimecodeTarget & {
-  orgId: string;
-  action:
-    | "start"
-    | "stop"
-    | "set-source"
-    | "update-event"
-    | "remove-event"
-    | "reset-events"
-    | "set-lyrics"
-    | "clear-lyrics";
-  payload?: Record<string, unknown>;
-}) {
-  return withMobileRequestDeadline(async signal => {
-    const response = await authenticatedFetch(
-      `/api/timecode/${encodeURIComponent(input.orgId)}/command?showId=${encodeURIComponent(input.showId)}`,
-      { method: "POST", signal, body: JSON.stringify({ action: input.action, payload: input.payload }) },
-    );
-    const receipt = okSchema.extend({ showId: z.string(), serviceDate: z.string() }).parse(await response.json());
-    if (receipt.showId !== input.showId || receipt.serviceDate !== input.serviceDate)
-      throw new Error("The command result belongs to a different show. Review the selected show's state.");
-    return receipt;
-  });
+export async function controlMobileTimecodeCues(input: MobileCueControl, signal: AbortSignal) {
+  const payload = { requestId: input.requestId, showId: input.showId, serviceDate: input.serviceDate, operation: input.operation, expected: input.expected,
+    ...("confirmed" in input ? { confirmed: input.confirmed } : {}),
+    ...("gateRevision" in input ? { gateRevision: input.gateRevision } : {}),
+    ...(input.operation === "reset" ? { clock: input.clock } : {}) };
+  const response = await authenticatedFetch(`/api/timecode/${encodeURIComponent(input.orgId)}/command?showId=${encodeURIComponent(input.showId)}`,
+    { method: "POST", signal, body: JSON.stringify({ action: "control-cues", payload }) }, [400, 409]);
+  return mobileCueControlReplySchema.parse(await response.json());
 }
 
 export async function markNotificationRead(

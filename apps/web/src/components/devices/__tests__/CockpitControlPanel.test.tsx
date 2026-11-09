@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { CockpitControlPanel } from "../CockpitControlPanel";
 import { MIXER_ACTIONS } from "@/lib/device-modules/osc-mixer/osc-mixer-module";
@@ -27,11 +27,20 @@ describe("device cockpit controls", () => {
       { id: "mute_video", label: "Video mute", category: "mute", params: [{ id: "state", label: "Mute", type: "boolean" }] },
       { id: "mute_audio", label: "Audio mute", category: "mute", params: [{ id: "state", label: "Mute", type: "boolean" }] },
     ], "video");
+    let acknowledge: () => void = () => { throw new Error("Unblank was not dispatched"); };
+    props.executeAction.mockImplementationOnce(() => new Promise<void>(resolve => { acknowledge = resolve; }));
     render(<CockpitControlPanel {...props} status="connected" feedbacks={new Map()} />);
     fireEvent.click(screen.getByRole("button", { name: "UNBLANK" }));
     await waitFor(() => expect(props.executeAction).toHaveBeenCalledWith("mute_video", { state: false }));
-    fireEvent.click(screen.getByRole("button", { name: "UNMUTE" }));
+    const unmute = screen.getByRole("button", { name: "UNMUTE" });
+    expect(unmute.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(unmute);
+    expect(props.executeAction).toHaveBeenCalledTimes(1);
+    await act(async () => acknowledge());
+    await waitFor(() => expect(unmute.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(unmute);
     await waitFor(() => expect(props.executeAction).toHaveBeenCalledWith("mute_audio", { state: false }));
+    await waitFor(() => expect(unmute.hasAttribute("disabled")).toBe(false));
   });
 
   it("switches channel banks and sends the selected channel's mute command", async () => {

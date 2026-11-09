@@ -17,3 +17,4 @@ export * from "./timecode-validation";
 
 export * from "./timecode-clock-edit";
 export * from "./timecode-automation-gate";
+export * from "./timecode-cue-control";
