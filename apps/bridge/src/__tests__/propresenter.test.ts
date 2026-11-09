@@ -160,6 +160,34 @@ describe("ProPresenter connection readiness", () => {
 });
 
 describe("ProPresenter commands", () => {
+  it("does not acknowledge REST output by writing an unacknowledged Stage Display message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response(null, { status: 404 })));
+    const stage = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+    await once(stage, "listening");
+    const address = stage.address();
+    if (typeof address === "string") throw new Error("Missing Stage socket address");
+    const connected = once(stage, "connection");
+    const bridge = new ProPresenterBridge({ host: "127.0.0.1", port: address.port, apiPort: 1025, password: "fixture", onStatusChange: () => {}, onSlideChange: () => {} });
+    try {
+      bridge.connect();
+      const [socket] = await connected;
+      await once(socket, "message");
+      const received: string[] = [];
+      socket.on("message", data => received.push(String(data)));
+      socket.send(JSON.stringify({ acn: "ath", ath: true }));
+      await bridge.waitUntilReady(1000);
+      for (const command of ["next", "previous", "clear-props"]) {
+        await expect(bridge.sendCommand(command)).rejects.toThrow("No ProPresenter command endpoint worked");
+      }
+      const pong = once(socket, "pong"); socket.ping(); await pong;
+      expect(received).toEqual([]);
+    } finally {
+      bridge.disconnect();
+      for (const socket of stage.clients) socket.terminate();
+      await new Promise<void>(resolve => stage.close(() => resolve()));
+    }
+  });
+
   it.each([
     ["next", "/v1/presentation/active/next/trigger"],
     ["previous", "/v1/presentation/active/previous/trigger"],
