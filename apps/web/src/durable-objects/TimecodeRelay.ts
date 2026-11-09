@@ -32,6 +32,7 @@ import { z } from "zod";
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMECODE_COMMANDS } from "@/types/timecode";
 import { AutomationExecutor, automationOutput } from "@/lib/automation-execution";
 import { cueReviewMatches, nextAutomationEvent } from "@/lib/automation-cues";
+import { emptyMidiController, midiControllerSchema, type MidiControllerSnapshot } from "@/lib/midi-controller";
 
 interface Env {
   CREDENTIAL_ENCRYPTION_KEYS?: string;
@@ -170,6 +171,7 @@ export class TimecodeRelay extends DurableObject {
     signal: { status: "idle", lastFeedAt: null },
   };
   private events: AutomationEvent[] = [];
+  private controller = emptyMidiController();
   private orgId = "";
   private target: TimecodeTarget | null = null;
   private legacyExport: LegacyTimecodeExport | null = null;
@@ -190,6 +192,7 @@ export class TimecodeRelay extends DurableObject {
     super(ctx, env);
     this.revisions = new RelaySequenceStore(ctx.storage.sql);
     ctx.blockConcurrencyWhile(async () => {
+      this.controller = await ctx.storage.get<MidiControllerSnapshot>("midi-controller") ?? emptyMidiController();
       const stored = await ctx.storage.get<TimecodeSnapshot>("timecode");
       this.retired = await ctx.storage.get<boolean>("retired") ?? false;
       this.legacyExport = await ctx.storage.get<LegacyTimecodeExport>("legacy-export") ?? null;
@@ -258,7 +261,7 @@ export class TimecodeRelay extends DurableObject {
   private feedDeadline(): number | null {
     const signal = this.state.signal;
     const last = signal?.lastFeedAt ?? this.expectedFeedSince;
-    if (!signal || last === null || signal.status === "idle" || signal.status === "timecode-lost" || signal.status === "midi-stopped" || signal.status === "midi-waiting") return null;
+    if (!signal || last === null || signal.status === "paused" || signal.status === "idle" || signal.status === "timecode-lost" || signal.status === "midi-stopped" || signal.status === "midi-waiting") return null;
     return last + (signal.status === "timecode-stalled" ? FEED_LOST_MS : FEED_STALL_MS);
   }
 
@@ -269,7 +272,7 @@ export class TimecodeRelay extends DurableObject {
   private updateSignalHealth(): boolean {
     const signal = this.state.signal;
     const last = signal?.lastFeedAt ?? this.expectedFeedSince;
-    if (!signal || signal.status === "idle" || signal.status === "midi-stopped" || signal.status === "midi-waiting" || last === null) return false;
+    if (!signal || signal.status === "paused" || signal.status === "idle" || signal.status === "midi-stopped" || signal.status === "midi-waiting" || last === null) return false;
     const age = Date.now() - last;
     if (age < FEED_STALL_MS) return false;
     const status = age >= FEED_LOST_MS ? "timecode-lost" : "timecode-stalled";
@@ -646,6 +649,10 @@ export class TimecodeRelay extends DurableObject {
     if (attachment?.sessionId && attachment.sessionId === this.masterSessionId) {
       this.automationGeneration++;
       this.masterSessionId = null;
+      if (this.state.signal?.status === "paused") {
+        this.previousFeedFrame = null; this.expectedFeedSince = null;
+        await this.persist(); this.broadcastState(); return;
+      }
       const previousFrame = this.previousFeedFrame;
       this.previousFeedFrame = null;
       const standby = this.bridgeFeed;
@@ -688,6 +695,19 @@ export class TimecodeRelay extends DurableObject {
     feedReceivedAt = Date.now(),
   ): Promise<void> {
     switch (action) {
+      case "save-controller": {
+        const parsed = midiControllerSchema.safeParse(payload?.config);
+        if (!parsed.success) throw new TimecodeCommandRejection("Invalid MIDI mappings. Check the inputs and action values.");
+        if (payload?.revision !== this.controller.revision) {
+          this.broadcastToWriters({ type: "controller-update", controller: this.controller });
+          throw new TimecodeCommandRejection("MIDI mappings changed. Reload the saved mappings before editing again.");
+        }
+        // Reserve the revision before persistence yields so two saves cannot win.
+        this.controller = { revision: this.controller.revision + 1, config: parsed.data };
+        await this.ctx.storage.put("midi-controller", this.controller);
+        this.broadcastToWriters({ type: "controller-update", controller: this.controller });
+        break;
+      }
       case "start":
         if (sessionId && this.masterSessionId && this.masterSessionId !== sessionId) {
           this.sendMasterStatus(sessionId, false);
@@ -702,6 +722,13 @@ export class TimecodeRelay extends DurableObject {
         this.broadcastState();
         break;
 
+      case "pause":
+        if (!sessionId || this.masterSessionId !== sessionId) throw new TimecodeCommandRejection("Pause requires this browser's active clock source.");
+        this.holdClock();
+        this.state.signal = { status: "paused", lastFeedAt: this.state.signal?.lastFeedAt ?? null };
+        await this.persist(); this.broadcastState();
+        break;
+
       case "stop":
         if (sessionId && this.masterSessionId && this.masterSessionId !== sessionId) break;
         this.masterSessionId = null;
@@ -714,6 +741,7 @@ export class TimecodeRelay extends DurableObject {
       case "mtc-transport": {
         if (sessionId && this.masterSessionId !== sessionId) throw new TimecodeCommandRejection("Start the local MTC source before changing MIDI transport.");
         if (this.state.source !== "mtc" || (payload?.state !== "stopped" && payload?.state !== "waiting")) throw new TimecodeCommandRejection("Invalid MIDI transport state.");
+        if (this.state.signal?.status === "paused") break;
         this.automationGeneration++;
         this.state.running = false;
         this.state.serverTime = Date.now();
@@ -727,7 +755,7 @@ export class TimecodeRelay extends DurableObject {
 
       case "feed-tc": {
         if (sessionId && this.masterSessionId !== sessionId) throw new TimecodeCommandRejection("Start the local timecode source before sending a feed.");
-        if (this.state.signal?.status === "midi-stopped") break;
+        if (this.state.signal?.status === "midi-stopped" || this.state.signal?.status === "paused") break;
         if (!payload) break;
         const tc = payload.timecode as TimecodeValue;
         const format = (payload.format as TimecodeFormat) ?? this.state.format;
@@ -1438,7 +1466,7 @@ export class TimecodeRelay extends DurableObject {
   private hydrate(ws: WebSocket): void {
     const attachment = ws.deserializeAttachment() as { canWrite?: boolean } | null;
     this.send(ws, attachment?.canWrite
-      ? { type: "hydrate", state: this.state, events: this.events, control: this.controlStatus(ws) }
+      ? { type: "hydrate", state: this.state, events: this.events, control: this.controlStatus(ws), controller: this.controller }
       : { type: "hydrate", state: this.getDisplayState() }, this.revisions.current());
   }
 

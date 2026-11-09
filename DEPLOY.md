@@ -869,3 +869,44 @@ The browser rehearsal uses simulated MIDI ports with real login, local D1 and
 relay state. The sidecar probe uses its compiled stdin parser and a real local
 WebSocket. The unsigned platform workflow runs that probe after bundling.
 Physical DAW/USB and browser permission behavior still require a venue rehearsal.
+
+### Per-show MIDI controllers
+
+Deploy the browser and Worker together for controller mappings and Pause. In
+Timecode, take control of the show, connect the controller, choose its input and
+optional output, and save the mappings. Use **Map APC cue grid** for the 64-pad
+layout or choose an action and **Learn MIDI input**. Save after learning. Arming
+is explicit for this browser and show; reload, control loss, a show switch, or a
+new mapping revision disarms it. Opening another show never adopts its mappings
+as an armed controller.
+
+Start resumes a paused local source or starts the internal clock. Pause retains
+source ownership and ignores late frames; Stop releases it. Reset asks for
+confirmation and resets the clock only, preserving fired cues. Re-arm asks for
+confirmation of the selected cue's exact attempt and does not fire it. Seeking,
+scrub, offset trim, and jog operate on the internal clock. Large seeks retain the
+existing automation hold. Offset and jog take their first fader position as the
+starting point after arming or reconnecting; movement then changes the clock.
+
+Banks contain 64 cues in timecode order. APC mini mk2 feedback uses blue for
+armed, yellow for next, green for fired, white for running/dispatching, and red
+for failed. Its LED bytes follow the [Akai protocol](https://cdn.inmusicbrands.com/akai/attachments/APC%20mini%20mk2%20-%20Communication%20Protocol%20-%20v1.0.pdf).
+Other controllers can learn notes and CCs; their LED protocols are not assumed
+to match the mk2. Original APC mini LED hardware still requires verification.
+
+The show-bound TimecodeRelay owns mappings and their revision, separate from the
+clock journal. Mapping saves use the existing controller claim and compare the
+expected revision before persisting. Operator hydration includes the mappings;
+display clients and regular clock updates do not. Keeping this data in the show
+relay avoids a second D1 ownership and concurrency path. The session provider
+owns arming, banks, confirmation and the separate MIDI listener; it stays mounted
+across route changes. Reconnect uses statechange plus a two-second rescan, with
+name/manufacturer fallback only when exactly one port matches.
+
+After a web build, run `node apps/web/scripts/smoke-midi-controller.mjs`. It uses
+real login, local D1, relay commands and lyrics output with simulated MIDI ports.
+Complete the physical APC/DAW/USB rehearsal before claiming hardware acceptance.
+
+This controller listener currently uses Web MIDI. Native Bridge supplies MTC;
+controller-note forwarding through Bridge is not implemented yet. Desktop
+webviews without Web MIDI therefore still need that native controller path.

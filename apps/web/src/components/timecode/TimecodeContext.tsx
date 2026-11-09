@@ -3,6 +3,7 @@ import { useTimecode, type UseTimecodeReturn } from "@/hooks/useTimecode";
 import { getTimecodeShows } from "@/lib/timecode-shows";
 import type { TimecodeShow } from "@/types/timecode";
 import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
+import { MidiControllerProvider } from "@/components/timecode/MidiController";
 
 interface ShowTimecode extends UseTimecodeReturn {
   shows: TimecodeShow[];
@@ -53,7 +54,7 @@ function TimecodeSession({ children, enabled, orgId }: ProviderProps) {
     showLoading: enabled && showList.status === "loading",
     showError: showList.status === "error" ? "Could not load shows. Retry to select a timecode show." : null,
     refreshShows: () => setRefresh(value => value + 1),
-  }}>{children}</TimecodeContext.Provider>;
+  }}><MidiControllerProvider showId={showId} timecode={timecode}>{children}</MidiControllerProvider></TimecodeContext.Provider>;
 }
 
 export function useShowTimecode() {

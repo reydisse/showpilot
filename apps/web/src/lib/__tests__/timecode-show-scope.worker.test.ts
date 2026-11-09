@@ -255,6 +255,8 @@ describe("show-scoped timecode rooms", () => {
     expect(await morning.events()).toEqual([expect.objectContaining({fired:true,executionStatus:"acknowledged"})]);
     await morning.command("feed-tc",{timecode:cue.triggerTimecode,format:{frameRate:30,dropFrame:"ndf"}});
     expect(await morning.events()).toEqual([expect.objectContaining({fired:true,executionAttempts:1})]);
+    // End the fixture feed before eviction so its alarm cannot race the restart assertion.
+    await morning.command("stop");
     await evictDurableObject(morning.stub);
     expect(await morning.state()).toMatchObject({showId:a.showId});
     const wrong = timecodeTargetUrl(b,"/command"); wrong.searchParams.set("access","write");

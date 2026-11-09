@@ -31,6 +31,7 @@ export class InternalTimecodeSource {
 
   /** Resume the relay's exact held frame, including drop-frame boundaries. */
   startAtFrame(frame: number): void {
+    this.stop();
     this.offsetFrames = Math.max(0, Math.floor(frame));
     this.startTime = performance.now();
     this.running = true;
@@ -48,6 +49,10 @@ export class InternalTimecodeSource {
 
   isRunning(): boolean {
     return this.running;
+  }
+
+  currentFrame(): number {
+    return this.offsetFrames + (this.running ? Math.floor((performance.now() - this.startTime) * this.format.frameRate / 1000) : 0);
   }
 
   setFormat(format: TimecodeFormat): void {
