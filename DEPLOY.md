@@ -263,6 +263,30 @@ the real native relay connection, proves an HTTP token is absent from wire
 messages while the device receives the correct Authorization header, and
 checks that replaying the settings envelope is rejected.
 
+### Editable organization settings boundary
+
+Generic Settings reads and writes accept only the 36 fields in
+`apps/web/src/lib/editable-settings.ts`. Internal `app_setting` records, including
+live rundown state, graphics selection, webhook history and operation receipts,
+are excluded. Workspace and schedule-provider configuration continue through
+their dedicated commands. Existing field permissions, credential encryption and
+masked responses still apply.
+
+This closes a reproduced bypass where a technical manager could overwrite
+internal records through `updateOrgSetting`. The batch and credential variants
+now reject those keys before any write. No data migration or new secret is
+required. Existing internal rows remain available to their owning server code.
+Future Settings fields must be added to the registry with an explicit permission.
+
+Run `node apps/web/scripts/smoke-settings-boundary.mjs` after building to exercise
+the compiled RPCs with real authentication and disposable D1 data. Deployment
+and production verification are still pending.
+
+Local verification passed 1,393 unit tests, 390 Worker tests, typecheck, the
+production build and the compiled-RPC smoke check. The smoke check rejects 21
+internal-key writes, then inspects D1 to confirm unchanged internal records,
+no partial invalid batch, and encrypted credentials.
+
 ### Organization credential encryption
 
 Credential-valued organization settings now encrypt on write. The Settings
@@ -575,8 +599,23 @@ profiles only. It requires local Chrome or `SHOWPILOT_CHROME_EXECUTABLE`.
 
 No migration or native build is required. Deploy the browser build and reload open
 displays to apply this client-side expiry behavior. Existing server-side token
-checks remain unchanged; the old unauthenticated graphics RPC is closed separately
-by #153. Neither fix is deployed by pushing its feature branch.
+checks remain unchanged. The unauthenticated graphics RPC removal is included
+below. Pushing this branch does not deploy either fix.
+
+### Legacy graphics read removal
+
+The unused `getActiveGraphicBySlug` server function bypassed display authorization.
+It is removed from the source and built RPC registry. Public graphics reads use
+`/api/overlay/:orgSlug`, which requires a display pass; signed-in operator reads
+retain their organization permission checks. No migration or native build is
+required. Deploy the Worker to remove the old endpoint; a PR alone does not close
+it in a running deployment.
+
+After building, run `node apps/web/scripts/smoke-legacy-display-read.mjs`. The
+disposable fixture verifies that the old RPC is unavailable, unsigned, expired,
+wrong-surface and wrong-organization display reads are denied, and a valid overlay
+pass still renders the fixture's active graphic. The build boundary check also
+rejects reintroducing the removed function.
 
 ### Phase 0 Bridge credential rollout
 
