@@ -12,9 +12,9 @@ function setup() {
 }
 it.each(["user", "org", "room"])("retains the whole composer independently across %s changes", async field => {
   const f = setup(), message = { id: "parent", text: "Question", type: "text", senderName: "Crew", timestamp: 1 };
-  await act(async () => { f.result.current.setText("My draft"); f.result.current.setMessageType("cue"); f.result.current.setReplyingTo(message); f.result.current.setEditing(message); f.result.current.setAttachment({ id: "file", name: "Notes", url: "/file", mimeType: "text/plain", size: 10 }); f.result.current.setPollQuestion("Ready?"); f.result.current.setPollOptions(["Yes", "No"]); });
+  await act(async () => { f.result.current.setText("My draft"); f.result.current.setMessageType("cue"); f.result.current.setReplyingTo(message); f.result.current.setEditing(message); f.result.current.setPollQuestion("Ready?"); f.result.current.setPollOptions(["Yes", "No"]); });
   const old = f.result.current.capture(), oldSetter = f.result.current.setText;
-  f.rerender({ ...scope, [field]: "other" }); expect(f.result.current.draft.text).toBe(""); expect(f.result.current.draft.attachment).toBeNull();
+  f.rerender({ ...scope, [field]: "other" }); expect(f.result.current.draft.text).toBe("");
   await act(async () => oldSetter("Late wrong room")); expect(f.result.current.draft.text).toBe("");
   await act(async () => f.result.current.setText("Other room")); f.rerender(scope); expect(f.result.current.draft).toEqual(old);
 });

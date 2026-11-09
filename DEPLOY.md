@@ -9603,3 +9603,81 @@ Parent #289: a24ebe86b130b3802d581bd6a53a5dd35b8bca0e, both CI checks green.
 Logs: /tmp/showpilot-chat-mutations-{full2,worker5,unit2,ui3,tsc5,shared2,build2,native3,native-unit3,native-tsc4,browser2,native-browser6}.log.
 Screenshots: /tmp/showpilot-web-mutation-{edit,delete}-{320,768,1440}.png and
 /tmp/showpilot-native-mutation-{edit,reaction}-{320,768,1440}.png.
+
+## 2026-11-09 — Chat attachment recovery (not deployed)
+
+Branch `fix/chat-attachment-recovery` follows #290. The web UI previously removed
+an attachment before its DELETE succeeded and silently discarded files on
+unmount or when starting an edit. Two UI regressions reproduced those failures.
+Uploads had no stable identity, so retrying a lost response could create another
+file. The Worker checked message references separately from storage deletion,
+allowing a new message to reference a file during removal. Native upload HTTP
+already had a 60-second deadline; preparation, selection and file removal still
+needed recovery and correct conversation ownership.
+
+Web and native now share a retained attachment state machine keyed by account,
+organization and room. It reserves capacity before preparation, retains each
+file's identity and prepared source for retry, and shows timestamped upload and
+removal failures. Preparation/upload is bounded to 60 seconds; cancellation to
+15 seconds. Removing a file before preparation finishes prevents publication
+from its late result. Outbox handoff protects selected files and consumes only
+that captured selection after enqueue succeeds. Navigation does not discard
+attachments, and starting a web message edit preserves unsent files. Native
+text/poll/reply drafts retain their existing separate conversation ownership.
+
+New uploads carry a UUID, canonical filename and SHA-256 checksum. R2 conditional
+claims bind immutable metadata to the original actor/room, and R2 verifies the
+checksum against uploaded bytes. Stable names are carried separately from
+multipart filenames, including native multipart encoding. The room authority
+checks live references and reserves cancellation without an intervening await.
+Zero-byte deletion markers prevent late conditional uploads from recreating
+removed content; cancellation works even before the original upload arrives.
+File reads check logical deletion as well as storage state. Account erasure still
+physically removes owned files, claims and markers through the existing prefix
+purge. Legacy uploads remain accepted; new native clients need this server
+update before rollout.
+
+Native selection and HEIC preparation are bounded and ignore late results after
+navigation. Retries reuse the prepared JPEG and checksum. File opening/sharing
+has a bounded failure path; image previews time out with an explicit Retry.
+Web recovery cards share one scrollable area above the composer. This fixes a
+320px heading clip discovered in screenshot review; a shorter placeholder and
+an explicit room label keep the composer compact and accessible. Native image
+error text uses the appropriate foreground for its always-dark viewer; the
+browser check verifies contrast and a 44px retry target.
+
+Validation on the final frozen dependency set: full web suite passed 3,400 unit
++ 1,774 Worker = 5,174 tests. The dependency addition is only mobile's pinned
+`@noble/hashes` 2.3.0; incidental lockfile resolution changes were removed and a
+forced frozen install restored the original auth dependency graph before the
+final suite and rebuild. Web/shared typechecks passed. Final native verification
+includes typecheck, iOS/Android/web exports, Expo Doctor 18/18 and polling checks;
+Hermes bundles are 6,130,778 / 6,129,895 bytes. Final web build is 542,252 raw /
+171,028 gzip bytes under unchanged budgets. The final native change after the
+full suite adjusts only image-viewer colors and retry sizing; verification and
+the image recovery rehearsal were repeated for it.
+
+`smoke-web-chat-attachments.mjs` and `smoke-native-chat-attachments.mjs` pass
+against compiled clients with real disposable auth, ChatRelay and R2. They lose
+actual upload/removal responses after storage completes, navigate rooms, retry
+the original identity, verify stored bytes/deleted availability, and send an
+attachment. Web also cancels a request before it reaches storage. Native also
+stalls a real image read, waits for the preview deadline and successfully retries.
+320x568, 768x1024 and 1440x900 checks verify reachable 44px recovery controls,
+visible composer and no horizontal overflow; final web checks also require the
+heading and filename to remain visible. Screenshots were inspected. The existing
+web mutation rehearsal still passes edit/reaction/delete acknowledgement recovery
+with the shared recovery area. Harness fixes wait for hydrated file inputs and
+target the message's Open attachment control rather than duplicate filename text
+in the delivery status.
+
+Recovery is in memory for the app session; reload/process termination and physical
+native device behavior are not proven by these exports/browser checks. The native
+fixture still reports its live-rundown state as unavailable. Web text/poll draft
+retention across room navigation and the remaining product-wide UX audit are
+still open. Phase 2 remains 67/79. Twenty necessary Markdown files remain. No
+production deployment, release, remote migration or real-organization writes.
+Parent #290 head 15ff6dd2e9d7c5fed0221ab00b3a3d90770ad70a has both CI checks green.
+Logs: /tmp/showpilot-chat-attachments-{before1,full3,worker3,unit3,ui5,tsc8,shared3,build4,native3,browser6,native-browser4,mutation-browser1,frozen-force}.log.
+Screenshots: /tmp/showpilot-{web,native}-attachment-{upload,removal}-{320,768,1440}.png
+and /tmp/showpilot-native-attachment-preview-timeout.png.

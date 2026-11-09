@@ -1,4 +1,6 @@
 import { handleAccountProfileRequest } from "./lib/account-profile-api.server";
+import { chatAttachmentName, chatUploadSpecSchema } from "@showpilot/shared/chat-attachment";
+import { ChatAttachmentStorageError, chatFileIsDeleted, storeChatAttachment } from "./lib/chat-attachment-storage.server";
 import { handleOperationalErrorRequest } from "./lib/operational-error-api.server";
 import { pruneOperationalErrors } from "./lib/operational-errors.server";
 import { backfillDeviceCredentials } from "./lib/device-settings.server";
@@ -454,6 +456,7 @@ const appServer = {
     const chatFileMatch = url.pathname.match(/^\/api\/chat-file\/([^/]+)\/([^/]+)\/(.+)$/);
     if (chatFileMatch && (request.method === "GET" || request.method === "DELETE")) {
       const [, slugOrId, fileId, encodedName] = chatFileMatch;
+      if (fileId === "_uploads") return new Response("Not Found", { status: 404 });
       const orgId = await resolveOrgId(slugOrId, e.DB, request);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
@@ -465,30 +468,33 @@ const appServer = {
       const fileName = decodeURIComponent(encodedName);
       const object = await e.STORAGE.get(`orgs/${orgId}/chat/${fileId}/${fileName}`);
       if (!object) return new Response("Not Found", { status: 404 });
+      if (object.customMetadata?.kind === "chat-upload-claim") return new Response("Not Found", { status: 404 });
       const objectRoom = object.customMetadata?.roomId ?? "production";
       if (!await canAccessChatRoom(objectRoom, access, orgId, e.DB, guestPass?.orgId === orgId)) {
         return new Response("Forbidden", { status: 403 });
       }
+      const expectedUserId = url.searchParams.get("expectedUserId");
+      if (expectedUserId && expectedUserId !== access.identity?.userId) return new Response("The signed-in account changed. Return to the original account.", { status: 409 });
+      if (!e.BETTER_AUTH_SECRET) return new Response("Chat authority is not configured", { status: 503 });
+      const attachmentUrl = `/api/chat-file/${encodeURIComponent(orgId)}/${encodeURIComponent(fileId)}/${encodeURIComponent(fileName)}`;
+      const relay = e.CHAT_RELAY.get(e.CHAT_RELAY.idFromName(chatRelayKey(orgId, objectRoom)));
+      const relayUrl = new URL(`https://chat.internal/internal/${request.method === "DELETE" ? "discard-attachment" : "attachment-state"}`);
+      relayUrl.search = new URLSearchParams({ orgId, room: objectRoom, url: attachmentUrl }).toString();
       if (request.method === "DELETE") {
-        const expectedOwner = access.identity?.userId
-          ?? (guestToken && guestPass?.orgId === orgId ? await guestAttachmentOwnerId(guestToken) : null);
-        if (!expectedOwner || object.customMetadata?.uploadedBy !== expectedOwner) {
+        const guestOwner = guestToken && guestPass?.orgId === orgId ? await guestAttachmentOwnerId(guestToken) : null;
+        const expectedOwner = object.customMetadata?.uploadedBy;
+        if (!expectedOwner || (expectedOwner !== access.identity?.userId && expectedOwner !== guestOwner)) {
           return new Response("Only the uploader can remove this file", { status: 403 });
         }
-        const attachmentUrl = `/api/chat-file/${encodeURIComponent(orgId)}/${encodeURIComponent(fileId)}/${encodeURIComponent(fileName)}`;
-        const relay = e.CHAT_RELAY.get(e.CHAT_RELAY.idFromName(chatRelayKey(orgId, objectRoom)));
-        const referenceUrl = new URL("https://chat.internal/attachment-reference");
-        referenceUrl.searchParams.set("orgId", orgId);
-        referenceUrl.searchParams.set("room", objectRoom);
-        referenceUrl.searchParams.set("access", "write");
-        referenceUrl.searchParams.set("url", attachmentUrl);
-        const referenceResponse = await relay.fetch(referenceUrl);
-        if (!referenceResponse.ok) return new Response("File reference check failed", { status: 503 });
-        const reference = await referenceResponse.json<{ referenced?: boolean }>();
-        if (reference.referenced) return new Response("This file is attached to a message", { status: 409 });
-        await e.STORAGE.delete(`orgs/${orgId}/chat/${fileId}/${fileName}`);
-        return new Response(null, { status: 204 });
+        return relay.fetch(relayUrl, { method: "POST", headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": e.BETTER_AUTH_SECRET },
+          body: JSON.stringify({ url: attachmentUrl, ownerId: expectedOwner }) });
       }
+      if (chatFileIsDeleted(object)) return new Response("Not Found", { status: 404 });
+      const stateResponse = await relay.fetch(relayUrl, { headers: { "x-showpilot-internal-secret": e.BETTER_AUTH_SECRET } });
+      if (!stateResponse.ok) return new Response("Attachment availability could not be confirmed", { status: 503 });
+      const state: unknown = await stateResponse.json();
+      if (!state || typeof state !== "object" || !("deleted" in state) || typeof state.deleted !== "boolean") return new Response("Attachment availability could not be confirmed", { status: 503 });
+      if (state.deleted) return new Response("Not Found", { status: 404 });
       const headers = new Headers();
       object.writeHttpMetadata(headers);
       headers.set("Cache-Control", "private, no-store");
@@ -499,13 +505,13 @@ const appServer = {
     const chatMatch = url.pathname.match(/^\/api\/chat\/([^/]+)\/(.+)$/);
     if (chatMatch) {
       const [, slugOrId, subpath] = chatMatch;
-      if (!["ws", "send", "history", "unread", "upload"].includes(subpath)) return new Response("Not found", { status: 404 });
+      if (!["ws", "send", "history", "unread", "upload", "cancel-upload"].includes(subpath)) return new Response("Not found", { status: 404 });
       const orgId = await resolveOrgId(slugOrId, e.DB, request);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const access = await getRelayAccess(request, orgId, e.DB);
       const guestToken = url.searchParams.get("guestToken");
       const guestPass = guestToken && e.KIOSK_SECRET ? await verifyCrewChatPass(guestToken, e.KIOSK_SECRET, e.DB) : null;
-      const guestAllowed = Boolean(guestPass && guestPass.orgId === orgId && (subpath === "ws" || subpath === "upload"));
+      const guestAllowed = Boolean(guestPass && guestPass.orgId === orgId && (subpath === "ws" || subpath === "upload" || subpath === "cancel-upload"));
       if (!canUse(access, "chat:access") && !guestAllowed) {
         return new Response("Unauthorized", { status: 401 });
       }
@@ -542,7 +548,27 @@ const appServer = {
            ON CONFLICT(userId, orgId, roomId) DO UPDATE SET updatedAt = excluded.updatedAt`,
         ).bind(access.identity.userId, orgId, roomId, new Date().toISOString()).run();
       }
+      if (subpath === "cancel-upload") {
+        if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
+        if (!e.BETTER_AUTH_SECRET) return new Response("Chat authority is not configured", { status: 503 });
+        const expectedUserId = url.searchParams.get("expectedUserId");
+        const validGuest = guestToken && guestPass?.orgId === orgId;
+        if (!validGuest && (!expectedUserId || expectedUserId !== access.identity?.userId)) return new Response("The signed-in account changed. Return to the original account.", { status: 409 });
+        const ownerId = validGuest ? await guestAttachmentOwnerId(guestToken) : access.identity?.userId;
+        if (!ownerId) return new Response("Unable to establish file ownership", { status: 403 });
+        const input = await readRequestJsonWithinLimit(request, 4096);
+        if (!input.ok) return new Response("Invalid upload identity", { status: input.status });
+        const spec = chatUploadSpecSchema.safeParse(input.value);
+        if (!spec.success) return new Response("Invalid upload identity", { status: 400 });
+        const relay = e.CHAT_RELAY.get(e.CHAT_RELAY.idFromName(chatRelayKey(orgId, roomId)));
+        const relayUrl = new URL("https://chat.internal/internal/cancel-upload");
+        relayUrl.search = new URLSearchParams({ orgId, room: roomId }).toString();
+        return relay.fetch(relayUrl, { method: "POST", headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": e.BETTER_AUTH_SECRET },
+          body: JSON.stringify({ spec: spec.data, ownerId }) });
+      }
       if (subpath === "upload" && request.method === "POST") {
+        const expectedUserId = url.searchParams.get("expectedUserId");
+        if (expectedUserId && expectedUserId !== access.identity?.userId) return new Response("The signed-in account changed. Return to the original account.", { status: 409 });
         const validGuest = Boolean(guestPass && guestPass.orgId === orgId);
         if (!canUse(access, "chat:access") && !validGuest) {
           return new Response("Unauthorized", { status: 401 });
@@ -568,10 +594,21 @@ const appServer = {
         if (!allowedTypes.has(file.type)) return new Response("This file type is not supported", { status: 415 });
         if (file.size > 15 * 1024 * 1024) return new Response("Files must be 15 MB or smaller", { status: 413 });
         const fileId = crypto.randomUUID();
-        const safeName = file.name.replace(/[\\/\u0000-\u001f]/g, "-").trim().slice(0, 180) || "attachment";
-        const attachmentOwner = access.identity?.userId
-          ?? (guestToken && validGuest ? await guestAttachmentOwnerId(guestToken) : null);
+        const safeName = chatAttachmentName(file.name);
+        const attachmentOwner = guestToken && validGuest ? await guestAttachmentOwnerId(guestToken) : access.identity?.userId;
         if (!attachmentOwner) return new Response("Unable to establish file ownership", { status: 403 });
+        if (url.searchParams.has("uploadId") || url.searchParams.has("sha256")) {
+          if (!validGuest && !expectedUserId) return new Response("Upload requires the original account identity", { status: 400 });
+          const spec = chatUploadSpecSchema.safeParse({ uploadId: url.searchParams.get("uploadId"), sha256: url.searchParams.get("sha256"),
+            name: url.searchParams.get("name") ?? safeName, mimeType: file.type, size: file.size });
+          if (!spec.success) return new Response("Invalid upload identity. Choose the file again.", { status: 400 });
+          try {
+            return Response.json(await storeChatAttachment(e.STORAGE, { orgId, roomId, ownerId: attachmentOwner }, spec.data, file.stream()));
+          } catch (error) {
+            return new Response(error instanceof ChatAttachmentStorageError ? error.message : "Upload was not confirmed. Retry the original file.",
+              { status: error instanceof ChatAttachmentStorageError ? error.status : 503 });
+          }
+        }
         await e.STORAGE.put(`orgs/${orgId}/chat/${fileId}/${safeName}`, file.stream(), {
           httpMetadata: { contentType: file.type },
           customMetadata: { uploadedBy: attachmentOwner, roomId },

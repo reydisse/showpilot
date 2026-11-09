@@ -1,3 +1,6 @@
+import { attachmentDeadline } from "@showpilot/shared/chat-attachment-draft";
+import { useChatAttachments } from "@/hooks/use-chat-attachments";
+import { ChatAttachmentStatus } from "@/components/chat-attachment-status";
 import { chatEditTime } from "@showpilot/shared/chat-mutation";
 import { ChatMutationTrackedError } from "@showpilot/shared/chat-mutation-tracker";
 import { ChatMutationStatus } from "@/components/chat-mutation-status";
@@ -21,7 +24,6 @@ import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import * as ImageManipulator from "expo-image-manipulator";
 import * as Sharing from "expo-sharing";
 import {
   ActivityIndicator,
@@ -64,7 +66,6 @@ import {
   getMobileContentSafety,
   getMobileRundown,
   reportMobileContent,
-  uploadMobileChatAttachment,
   type MobileChatAttachment,
   type MobileChatMember,
   type MobileRundown,
@@ -345,13 +346,29 @@ export default function ChatScreen() {
     staleTime: 60_000,
   });
   const composer = useChatComposer(session?.user.id, organization?.id, roomId);
-  const { text, messageType, replyingTo, editing, attachment, pollQuestion, pollOptions } = composer.draft;
-  const { setText, setMessageType, setReplyingTo, setEditing, setAttachment, setPollQuestion, setPollOptions } = composer;
+  const { text, messageType, replyingTo, editing, pollQuestion, pollOptions } = composer.draft;
+  const { setText, setMessageType, setReplyingTo, setEditing, setPollQuestion, setPollOptions } = composer;
   const [previewAttachment, setPreviewAttachment] = useState<MobileChatAttachment | null>(null);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const attachmentBusyRef = useRef(false);
+  const [previewError, setPreviewError] = useState<{ message: string; at: number } | null>(null);
+  const [previewAttempt, setPreviewAttempt] = useState(0);
+  const previewGeneration = useRef(0);
+  useEffect(() => {
+    if (!previewAttachment || !previewLoading) return;
+    const generation = previewGeneration.current;
+    const timer = setTimeout(() => {
+      if (previewGeneration.current !== generation) return;
+      setPreviewLoading(false);
+      setPreviewError({ message: "Opening the image timed out. Retry loading this image.", at: Date.now() });
+    }, 20_000);
+    return () => clearTimeout(timer);
+  }, [previewAttachment, previewAttempt, previewLoading]);
+  const attachments = useChatAttachments(session?.user.id, organization?.id, roomId);
+  const attachment = attachments.ready[0];
+  const [picker, setPicker] = useState<{ scope: string; kind: "photo" | "document"; busy: boolean; error?: string; at: number } | null>(null);
+  const pickerController = useRef<AbortController | null>(null);
+  const uploading = Boolean(picker?.scope === mutationScope && picker.busy) || attachments.work.length > 0;
   const pendingToolRef = useRef<"photo" | "document" | "poll" | null>(null);
   const attachmentContextRef = useRef(0);
   const [pollOpen, setPollOpen] = useState(false);
@@ -372,6 +389,9 @@ export default function ChatScreen() {
   useEffect(() => {
     return () => {
       attachmentContextRef.current += 1;
+      previewGeneration.current += 1;
+      pickerController.current?.abort();
+      pickerController.current = null;
       pendingToolRef.current = null;
     };
   }, [session?.user.id, organization?.id, roomId]);
@@ -478,70 +498,49 @@ export default function ChatScreen() {
     const mentionedUserIds = members
       .filter((member) => new RegExp(`(^|\\s)@${member.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$|[.,!?])`, "i").test(text))
       .map((member) => member.userId);
-    const messageId = relay.send(text, messageType, {
-      mentionedUserIds,
-      ...(replyTarget ? { replyTo: { messageId: replyTarget.id, senderName: replyTarget.senderName, text: replyTarget.text } } : {}),
-      ...(attachment ? { attachments: [attachment] } : {}),
-    });
-    if (!messageId) return;
-    clearComposer(submitted);
-    await Haptics.selectionAsync();
-  }
-
-  async function chooseAttachment() {
-    if (!organization || attachmentBusyRef.current) return;
-    attachmentBusyRef.current = true;
-    const context = attachmentContextRef.current;
+    if (!attachments.draft || attachments.blocked || picker?.scope === mutationScope && picker.busy) return;
     try {
-      const selection = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.85 });
-      if (selection.canceled || context !== attachmentContextRef.current) return;
-      setUploading(true);
-      const asset = selection.assets[0];
-      // iPhone libraries can return HEIC originals, which the chat server does
-      // not accept. Preserve other formats (including animated GIFs).
-      const isHeic = /image\/hei[cf]/i.test(asset.mimeType ?? "") || /\.hei[cf]$/i.test(asset.fileName ?? asset.uri);
-      const prepared = isHeic
-        ? await ImageManipulator.manipulateAsync(asset.uri, [], { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG })
-        : asset;
-      const name = isHeic ? `${(asset.fileName ?? "photo").replace(/\.[^.]+$/, "")}.jpg` : asset.fileName;
-      const uploaded = await uploadMobileChatAttachment({ orgId: organization.id, roomId, uri: prepared.uri, name });
-      if (context === attachmentContextRef.current) setAttachment(uploaded);
-    } catch (error) {
-      Alert.alert("Attachment not added", error instanceof Error ? error.message : "Choose another image.");
-    } finally {
-      attachmentBusyRef.current = false;
-      setUploading(false);
-    }
-  }
-
-  async function chooseDocument() {
-    if (!organization || attachmentBusyRef.current) return;
-    attachmentBusyRef.current = true;
-    const context = attachmentContextRef.current;
-    try {
-      const selection = await DocumentPicker.getDocumentAsync({
-        type: [
-          "application/pdf", "text/plain", "text/csv",
-          "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-          "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        ],
-        copyToCacheDirectory: true,
-        multiple: false,
-        base64: false,
+      await attachments.draft.handoff(files => {
+        const messageId = relay.send(text, messageType, {
+          mentionedUserIds,
+          ...(replyTarget ? { replyTo: { messageId: replyTarget.id, senderName: replyTarget.senderName, text: replyTarget.text } } : {}),
+          ...(files.length ? { attachments: files } : {}),
+        });
+        if (!messageId) throw new Error("Message could not be queued. Keep this draft and retry sending.");
       });
-      if (selection.canceled || context !== attachmentContextRef.current) return;
-      setUploading(true);
-      const file = selection.assets[0];
-      const uploaded = await uploadMobileChatAttachment({ orgId: organization.id, roomId, uri: file.uri, name: file.name });
-      if (context === attachmentContextRef.current) setAttachment(uploaded);
+      clearComposer(submitted);
+      if (currentMutationScope.current === mutationScope) await Haptics.selectionAsync();
+    } catch (error) { mutationFailure(error); }
+  }
+
+  async function chooseFile(kind: "photo" | "document") {
+    if (!attachments.draft || uploading || pickerController.current) return;
+    const controller = new AbortController(); pickerController.current = controller;
+    const context = attachmentContextRef.current;
+    const current = () => !controller.signal.aborted && context === attachmentContextRef.current && currentMutationScope.current === mutationScope;
+    setPicker({ scope: mutationScope, kind, busy: true, at: Date.now() });
+    try {
+      const source = await attachmentDeadline(async () => {
+        if (kind === "photo") {
+          const selected = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 0.85 });
+          if (selected.canceled) return null;
+          const asset = selected.assets[0];
+          return { uri: asset.uri, name: asset.fileName, mimeType: asset.mimeType, image: true };
+        }
+        const selected = await DocumentPicker.getDocumentAsync({ type: ["application/pdf", "text/plain", "text/csv", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"], copyToCacheDirectory: true, multiple: false, base64: false });
+        if (selected.canceled) return null;
+        const file = selected.assets[0]; return { uri: file.uri, name: file.name, mimeType: file.mimeType };
+      }, controller, 60_000, "File selection timed out. Close the picker and choose the attachment again.");
+      if (current() && source) attachments.draft.add(source, source.name ?? "Attachment");
     } catch (error) {
-      Alert.alert("Attachment not added", error instanceof Error ? error.message : "Choose another file.");
+      if (context === attachmentContextRef.current && currentMutationScope.current === mutationScope) setPicker({ scope: mutationScope, kind, busy: false, error: error instanceof Error ? error.message : "The attachment could not be selected. Retry choosing it.", at: Date.now() });
     } finally {
-      attachmentBusyRef.current = false;
-      setUploading(false);
+      if (pickerController.current === controller) pickerController.current = null;
+      if (context === attachmentContextRef.current && currentMutationScope.current === mutationScope) setPicker(previous => previous?.scope === mutationScope ? { ...previous, busy: false } : previous);
     }
   }
+  const chooseAttachment = () => chooseFile("photo");
+  const chooseDocument = () => chooseFile("document");
 
   function runPendingTool() {
     const tool = pendingToolRef.current;
@@ -552,7 +551,7 @@ export default function ChatScreen() {
   }
 
   function chooseTool(tool: "photo" | "document" | "poll") {
-    if (attachmentBusyRef.current || pendingToolRef.current) return;
+    if (pickerController.current || pendingToolRef.current || (tool !== "poll" && uploading)) return;
     pendingToolRef.current = tool;
     setToolsOpen(false);
     // iOS must finish dismissing the native modal before presenting a picker.
@@ -561,21 +560,28 @@ export default function ChatScreen() {
   }
 
   const shareAttachment = useCallback(async (file: MobileChatAttachment) => {
+    const context = attachmentContextRef.current;
+    const controller = new AbortController();
     try {
-      if (Platform.OS === "web") {
-        await Linking.openURL(absoluteChatFileUrl(file.url));
-        return;
-      }
-      if (!await Sharing.isAvailableAsync()) throw new Error("File opening is not available on this device.");
-      const localUri = await downloadMobileChatAttachment(file);
-      await Sharing.shareAsync(localUri, { mimeType: file.mimeType, dialogTitle: file.name });
+      await attachmentDeadline(async () => {
+        if (Platform.OS === "web") { await Linking.openURL(absoluteChatFileUrl(file.url)); return; }
+        if (!await Sharing.isAvailableAsync()) throw new Error("File opening is not available on this device.");
+        if (controller.signal.aborted || (currentMutationScope.current !== mutationScope || context !== attachmentContextRef.current)) return;
+        const localUri = await downloadMobileChatAttachment(file, controller.signal);
+        if (controller.signal.aborted || (currentMutationScope.current !== mutationScope || context !== attachmentContextRef.current)) return;
+        await Sharing.shareAsync(localUri, { mimeType: file.mimeType, dialogTitle: file.name });
+      }, controller, 60_000, "Opening the attachment timed out. Retry opening this file.");
     } catch (error) {
-      Alert.alert("Attachment not opened", error instanceof Error ? error.message : "Try opening it from the web app.");
+      if ((currentMutationScope.current === mutationScope && context === attachmentContextRef.current)) Alert.alert("Attachment not opened", error instanceof Error ? error.message : "Try opening it again.", [
+        { text: "Close", style: "cancel" }, { text: "Retry", onPress: () => { if ((currentMutationScope.current === mutationScope && context === attachmentContextRef.current)) void shareAttachment(file); } },
+      ]);
     }
-  }, []);
+  }, [mutationScope]);
 
   const openAttachment = useCallback((file: MobileChatAttachment) => {
     if (file.mimeType.startsWith("image/")) {
+      setPreviewAttempt(++previewGeneration.current);
+      setPreviewError(null);
       setPreviewAttachment(file);
       setPreviewUri(absoluteChatFileUrl(file.url));
       setPreviewLoading(true);
@@ -795,13 +801,14 @@ export default function ChatScreen() {
             <Pressable accessibilityRole="button" style={styles.composerToolButton} accessibilityLabel="Cancel message action" onPress={() => { setEditing(null); setReplyingTo(null); if (editing) setText(""); }}><X color={colors.textMuted} size={18} /></Pressable>
           </View>
         ) : null}
-        {attachment ? <View style={styles.pendingAttachment}><ImageIcon color={colors.amberText} size={17} /><Text numberOfLines={1} style={styles.pendingAttachmentName}>{attachment.name}</Text><Pressable accessibilityLabel="Remove attachment" onPress={() => setAttachment(null)}><X color={colors.textMuted} size={17} /></Pressable></View> : null}
+        {picker?.scope === mutationScope && picker.error ? <View><Text accessibilityRole="alert" style={styles.error}>{picker.error}</Text><Text style={styles.error}>Updated {new Date(picker.at).toLocaleTimeString()}</Text><Pressable accessibilityRole="button" accessibilityLabel="Retry choosing attachment" style={styles.toolRow} onPress={() => void chooseFile(picker.kind)}><Text style={styles.toolTitle}>Choose attachment again</Text></Pressable></View> : null}
+        {!editing && <ChatAttachmentStatus items={attachments.work} retry={id => attachments.draft?.retry(id)} remove={id => attachments.draft?.remove(id)} />}
         {mentionResults.length ? <View style={styles.mentions}>{mentionResults.map((member) => <Pressable key={member.userId} onPress={() => selectMention(member)} style={styles.mention}><Text style={styles.mentionName}>@{member.name}</Text><Text style={styles.mentionRole}>{member.role}</Text></Pressable>)}</View> : null}
         <View style={styles.composer}>
-          {!editing ? <Pressable accessibilityRole="button" accessibilityLabel="Open message tools" onPress={() => setToolsOpen(true)} style={styles.composerToolButton}>{uploading ? <ActivityIndicator color={colors.textMuted} size="small" /> : <Paperclip color={colors.textMuted} size={20} />}</Pressable> : null}
+          {!editing ? <Pressable accessibilityRole="button" accessibilityLabel="Open message tools" onPress={() => setToolsOpen(true)} style={styles.composerToolButton}>{picker?.scope === mutationScope && picker.busy ? <ActivityIndicator color={colors.textMuted} size="small" /> : <Paperclip color={colors.textMuted} size={20} />}</Pressable> : null}
           {messageType !== "text" && !editing ? <View style={[styles.composerTypeBadge, messageType === "alert" && styles.composerTypeBadgeAlert]}><Text style={[styles.composerTypeBadgeText, messageType === "alert" && styles.composerTypeBadgeTextAlert]}>{messageType}</Text></View> : null}
           <TextInput accessibilityLabel={`Message ${roomTitle}`} multiline maxLength={4000} value={text} onChangeText={updateText} placeholder={relay.status !== "connected" ? "Message will send when reconnected…" : `Message ${roomTitle}…`} placeholderTextColor={colors.textFaint} style={styles.input} />
-          <Pressable accessibilityRole="button" accessibilityLabel={editing ? "Save edited message" : "Send message"} accessibilityState={{ disabled: (!text.trim() && !attachment) || Boolean(editing && blockedMessages.has(editing.id)) }} disabled={(!text.trim() && !attachment) || Boolean(editing && blockedMessages.has(editing.id))} onPress={() => void submit()} style={({ pressed }) => [styles.send, !text.trim() && !attachment && styles.disabled, pressed && styles.pressed]}><Send color={colors.black} size={19} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={editing ? "Save edited message" : "Send message"} accessibilityState={{ disabled: (!text.trim() && !attachment) || (!editing && (attachments.blocked || Boolean(picker?.scope === mutationScope && picker.busy))) || Boolean(editing && blockedMessages.has(editing.id)) }} disabled={(!text.trim() && !attachment) || (!editing && (attachments.blocked || Boolean(picker?.scope === mutationScope && picker.busy))) || Boolean(editing && blockedMessages.has(editing.id))} onPress={() => void submit()} style={({ pressed }) => [styles.send, !text.trim() && !attachment && styles.disabled, pressed && styles.pressed]}><Send color={colors.black} size={19} /></Pressable>
         </View>
       </Page>
 
@@ -813,7 +820,8 @@ export default function ChatScreen() {
             <Pressable accessibilityRole="button" accessibilityLabel="Share image" disabled={!previewAttachment || previewLoading} onPress={() => previewAttachment && void shareAttachment(previewAttachment)} style={styles.imageViewerButton}><Share2 color={colors.text} size={21} /></Pressable>
           </View>
           {previewLoading ? <View style={styles.imageViewerLoading}><ActivityIndicator color={colors.amber} size="large" /><Text style={styles.imageViewerLoadingText}>Opening image…</Text></View> : null}
-          {previewUri ? (
+          {previewError ? <View style={styles.imageViewerLoading}><Text accessibilityRole="alert" style={styles.imageViewerLoadingText}>{previewError.message}</Text><Text style={styles.imageViewerLoadingText}>Updated {new Date(previewError.at).toLocaleTimeString()}</Text><Pressable accessibilityRole="button" accessibilityLabel="Retry loading image" style={styles.imageViewerRetry} onPress={() => { setPreviewAttempt(++previewGeneration.current); setPreviewError(null); setPreviewLoading(true); }}><Text style={styles.imageViewerRetryText}>Retry loading image</Text></Pressable></View> : null}
+          {previewUri && !previewError ? (
             <ScrollView
               bouncesZoom
               centerContent
@@ -825,13 +833,13 @@ export default function ChatScreen() {
               style={styles.imageViewerScroll}
             >
               <Image
+                key={previewAttempt}
                 onError={() => {
+                  if (previewAttempt !== previewGeneration.current) return;
                   setPreviewLoading(false);
-                  setPreviewAttachment(null);
-                  setPreviewUri(null);
-                  Alert.alert("Image not opened", "The image could not be loaded. Check your connection and try again.");
+                  setPreviewError({ message: "The image could not be loaded. Check your connection and retry.", at: Date.now() });
                 }}
-                onLoadEnd={() => setPreviewLoading(false)}
+                onLoadEnd={() => { if (previewAttempt === previewGeneration.current) setPreviewLoading(false); }}
                 resizeMode="contain"
                 source={{ uri: previewUri, headers: attachmentHeaders }}
                 style={{ width: viewport.width, height: Math.max(300, viewport.height - 92) }}
@@ -1026,8 +1034,6 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   composerContextCopy: { flex: 1, gap: 2 },
   composerContextTitle: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
   composerContextText: { color: colors.textMuted, fontFamily, fontSize: 11 },
-  pendingAttachment: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: radii.small, backgroundColor: colors.amberSoft, padding: 8 },
-  pendingAttachmentName: { flex: 1, color: colors.text, fontFamily, fontSize: 11, fontWeight: "700" },
   mentions: { maxHeight: 180, gap: 2, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: 5 },
   mention: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: radii.small, paddingHorizontal: 9 },
   mentionName: { flex: 1, color: colors.text, fontFamily, fontSize: 11, fontWeight: "800" },
@@ -1051,8 +1057,10 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   imageViewerHeaderSpacer: { flex: 1 },
   imageViewerScroll: { flex: 1 },
   imageViewerCanvas: { flexGrow: 1, alignItems: "center", justifyContent: "center" },
-  imageViewerLoading: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
-  imageViewerLoadingText: { color: colors.textMuted, fontFamily, fontSize: 13 },
+  imageViewerLoading: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 20 },
+  imageViewerLoadingText: { color: colors.white, fontFamily, fontSize: 13, textAlign: "center" },
+  imageViewerRetry: { minHeight: 44, minWidth: 44, justifyContent: "center", paddingHorizontal: 16, borderRadius: 10, backgroundColor: colors.panelStrong },
+  imageViewerRetryText: { color: colors.text, fontFamily, fontSize: 14, fontWeight: "700" },
   disabled: { opacity: 0.38 },
   pressed: { opacity: 0.72 },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: colors.overlay },
