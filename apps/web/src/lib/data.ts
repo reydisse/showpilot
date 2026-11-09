@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { maskDeviceSettings, writeDeviceSettings } from "./device-settings.server";
+import { MAX_DEVICE_LATENCY_MS } from "./automation-timing";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
@@ -987,6 +988,7 @@ export const addDevice = createServerFn({ method: "POST" })
         adapterType: z.string().max(100).optional(),
         settings: z.string().max(20_000).optional(),
         enabled: z.boolean().optional(),
+        latencyMs: z.number().int().min(0).max(MAX_DEVICE_LATENCY_MS).optional(),
       }),
       data,
     ),
@@ -1012,6 +1014,7 @@ export const addDevice = createServerFn({ method: "POST" })
         adapterType: data.adapterType ?? "",
         settings,
         enabled: data.enabled ?? true,
+        latencyMs: data.latencyMs ?? 0,
       },
     });
     return { ...device, settings: maskDeviceSettings(device) };
@@ -1031,6 +1034,7 @@ export const updateDevice = createServerFn({ method: "POST" })
             adapterType: z.string().max(100),
             settings: z.string().max(20_000),
             enabled: z.boolean(),
+            latencyMs: z.number().int().min(0).max(MAX_DEVICE_LATENCY_MS),
           })
           .partial(),
       }),

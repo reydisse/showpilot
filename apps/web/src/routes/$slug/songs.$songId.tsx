@@ -4,7 +4,8 @@ import {
   useBlocker,
   useRouter,
 } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { TimecodeText } from "@/components/timecode/TimecodeDisplay";
 import {
   ArrowLeft,
   ChevronDown,
@@ -545,7 +546,7 @@ function SongStudioPage() {
                 <span
                   className={`h-2 w-2 rounded-full ${timecode.connected ? "bg-green-400" : "bg-red-400"}`}
                 />
-                {timecode.connected ? timecode.display : "Timecode offline"}
+                {timecode.connected ? <TimecodeText state={timecode.state} connected={timecode.connected} /> : "Timecode offline"}
               </div>
             ) : (
               <span className="rounded-full border border-board-border px-3 py-1.5 text-xs text-board-muted">
@@ -926,7 +927,7 @@ function SongStudioPage() {
               next={
                 timecode.state?.lyrics?.nextLabel ?? sections[1]?.label ?? ""
               }
-              timecode={timecode.display}
+              timecode={<TimecodeText state={timecode.state} connected={timecode.connected} />}
               onClear={canManage ? timecode.clearLyrics : undefined}
             />
             {canManage ? (
@@ -1294,7 +1295,7 @@ function LyricsPreview({
   section: string;
   lyrics: string;
   next: string;
-  timecode: string;
+  timecode: ReactNode;
   onClear?: () => void;
 }) {
   return (

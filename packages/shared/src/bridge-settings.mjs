@@ -2,7 +2,7 @@
 // native process's ephemeral public key; its private key never leaves memory.
 const VERSION = 1;
 const LIFETIME = 30_000;
-const MAX_BYTES = 200_000;
+export const MAX_BRIDGE_SETTINGS_BYTES = 200_000;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const failure = () => new Error("Protected Bridge settings are invalid, expired or unavailable.");
@@ -46,7 +46,7 @@ export async function sealBridgeSettings(recipient, context, settings) {
   try {
     if (!record(settings)) throw failure();
     plaintext = encoder.encode(JSON.stringify(settings));
-    if (plaintext.byteLength > MAX_BYTES) throw failure();
+    if (plaintext.byteLength > MAX_BRIDGE_SETTINGS_BYTES) throw failure();
     const { key, keyId } = await importBridgeSettingsKey(recipient);
     const envelope = { version: VERSION, keyId, nonce: crypto.randomUUID(), expiresAt: Date.now() + LIFETIME };
     rawKey = crypto.getRandomValues(new Uint8Array(32));
@@ -79,7 +79,7 @@ export async function createBridgeSettingsRecipient() {
         if (consumed.has(value.nonce) || consumed.size >= 256) throw failure();
         const iv = bytes(value.iv, 12, 12);
         const wrappedKey = bytes(value.wrappedKey, 256, 256);
-        const ciphertext = bytes(value.ciphertext, MAX_BYTES + 16);
+        const ciphertext = bytes(value.ciphertext, MAX_BRIDGE_SETTINGS_BYTES + 16);
         const additionalData = aad(context, value);
         rawKey = new Uint8Array(await crypto.subtle.decrypt({ name: "RSA-OAEP" }, pair.privateKey, wrappedKey));
         if (rawKey.length !== 32) throw failure();

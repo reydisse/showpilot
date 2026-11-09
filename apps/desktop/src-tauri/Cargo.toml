@@ -17,6 +17,9 @@ tauri-build = { version = "2", features = [] }
 showpilot-native-credentials = { path = "../../../packages/native-credentials" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 midir = "0.10"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-notification = "2"

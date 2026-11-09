@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "local-show",
+  "description": "Prepared local show controls are available only in the main operator window.",
+  "windows": ["main"],
+  "remote": { "urls": ["https://showpilot.tech/*", "https://app.showpilot.tech/*"] },
+  "permissions": ["allow-local-show-control"]
+}

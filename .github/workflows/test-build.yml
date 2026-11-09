@@ -116,6 +116,22 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: node apps/bridge/scripts/check-midi-transport.mjs
 
+      - name: Verify native LTC through the compiled Bridge
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: node apps/bridge/scripts/check-native-timecode.mjs
+
+      - name: Verify compiled local show and OS vault
+        if: runner.os != 'Linux'
+        run: node apps/bridge/scripts/check-local-show.mjs
+
+      - name: Verify compiled Linux local show in an unlocked Secret Service session
+        if: runner.os == 'Linux'
+        run: |
+          dbus-run-session -- bash -euo pipefail -c '
+            printf "%s" "showpilot-disposable-ci-keyring" | gnome-keyring-daemon --unlock --components=secrets
+            node apps/bridge/scripts/check-local-show.mjs
+          '
+
       - name: Verify native controller with real CoreMIDI ports
         if: runner.os == 'macOS'
         run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml coremidi_controller_input_feedback_replug_and_session_cleanup -- --ignored --nocapture

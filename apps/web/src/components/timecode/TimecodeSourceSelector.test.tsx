@@ -7,7 +7,7 @@ afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 const fmt30 = { frameRate: 30, dropFrame: "ndf" } as const;
 const fmt25 = { frameRate: 25, dropFrame: "ndf" } as const;
 function props() {
-  return { isMaster: false, connected: true, pending: null, running: false, format: fmt30, mtcSupported: false,
+  return { showId: "show", isMaster: false, connected: true, pending: null, running: false, format: fmt30, mtcSupported: false,
     onStartFreerun: vi.fn(), onStopGenerator: vi.fn(), onStartMtc: vi.fn(async () => {}), onSetFormat: vi.fn() };
 }
 
@@ -99,4 +99,16 @@ it("keeps the age of the last MTC frame visible after the signal stalls", () => 
   expect(screen.getByText("Last MTC frame received 4s ago")).toBeTruthy();
   view.unmount();
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it("identifies lost LTC audio and keeps its last-frame age advancing", () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-11-06T00:00:00Z"));
+  render(<TimecodeSourceSelector {...props()} source="ltc-bridge" signal={{ status: "timecode-lost", lastFeedAt: Date.now() - 2000 }} />);
+  expect(screen.getByRole("alert").textContent).toContain("LTC signal lost");
+  expect(screen.getByText("Last LTC frame received 2s ago")).toBeTruthy();
+  expect(screen.getByRole("status").textContent).toContain("ShowPilot Bridge");
+  act(() => vi.advanceTimersByTime(3000));
+  expect(screen.getByText("Last LTC frame received 5s ago")).toBeTruthy();
+  expect(screen.queryByText(/Last MTC frame/)).toBeNull();
 });

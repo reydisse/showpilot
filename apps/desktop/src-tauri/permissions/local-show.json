@@ -1,0 +1,9 @@
+{
+  "permission": [
+    {
+      "identifier": "allow-local-show-control",
+      "description": "Allow the main operator window to control its prepared local show through the supervised engine.",
+      "commands": { "allow": ["local_show_command", "open_local_show"] }
+    }
+  ]
+}

@@ -1,11 +1,14 @@
 import { useState, useEffect } from "react";
-import { Play, Square, Radio, Usb, AlertTriangle } from "lucide-react";
+import { Square, Radio, Usb, AlertTriangle } from "lucide-react";
+import { InternalGeneratorStart } from "./InternalGeneratorStart";
+import type { TimecodeStartPosition } from "@/lib/timecode-start";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { sameTimecodeFormat, timecodeFormatLabel } from "@/lib/timecode";
 import { findMidiInput, observeMidiInputs } from "@/lib/timecode-sources/midi-inputs";
 import type { TimecodeFormat, FrameRate, DropFrameMode, TimecodeState } from "@/types/timecode";
 
 interface TimecodeSourceSelectorProps {
+  showId: string | null;
   isMaster: boolean;
   connected: boolean;
   pending: "starting" | "stopping" | null;
@@ -16,7 +19,7 @@ interface TimecodeSourceSelectorProps {
   format: TimecodeFormat;
   incomingFormat?: TimecodeState["incomingFormat"];
   mtcSupported: boolean;
-  onStartFreerun: (offsetMs?: number) => void;
+  onStartFreerun: (position?: TimecodeStartPosition) => void;
   onStopGenerator: () => void;
   onPauseGenerator?: () => void;
   onStartMtc: (inputId: string, options?: { sysex: boolean }) => Promise<void>;
@@ -24,6 +27,7 @@ interface TimecodeSourceSelectorProps {
 }
 
 export function TimecodeSourceSelector({
+  showId,
   isMaster,
   connected,
   pending,
@@ -72,14 +76,15 @@ export function TimecodeSourceSelector({
       <h3 className="text-xs font-medium text-board-muted uppercase tracking-wider">
         Timecode Source
       </h3>
-      {source === "mtc" && <MtcFrameAge lastFeedAt={signal?.lastFeedAt ?? null} />}
+      {(source === "mtc" || source === "ltc-bridge") && <InputFrameAge label={source === "mtc" ? "MTC" : "LTC"} lastFeedAt={signal?.lastFeedAt ?? null} />}
+      {source === "ltc-bridge" && <p role="status" className="text-sm text-board-muted">LTC audio input. Change the audio device, channel, and input frame rate in ShowPilot Bridge.</p>}
       {signal?.status === "paused" && <p role="status" className="text-sm text-board-muted">Clock paused. Position and source ownership are held.</p>}
       {signal?.status === "midi-stopped" && <p role="status" className="text-sm text-board-muted">MIDI transport stopped. Clock held; listening for Start or Continue.</p>}
       {signal?.status === "midi-waiting" && <p role="status" className="text-sm text-amber-200">Waiting for MIDI position and timecode. Send a full-frame sync or Song Position Pointer with MTC before continuing.</p>}
       {(signal?.status === "timecode-stalled" || signal?.status === "timecode-lost") && (
         <p role="alert" className="flex items-center gap-2 text-sm text-amber-400">
           <AlertTriangle className="h-4 w-4 shrink-0" />
-          {source === "mtc" ? "MTC signal lost" : "Timecode signal lost"}. Clock held; automation paused.
+          {source === "mtc" ? "MTC signal lost" : source === "ltc-bridge" ? "LTC signal lost" : "Timecode signal lost"}. Clock held; automation paused.
         </p>
       )}
 
@@ -121,13 +126,8 @@ export function TimecodeSourceSelector({
       <div className="flex flex-col gap-2">
         {/* Internal freerun */}
         {!isMaster ? (
-          <button
-            onClick={() => onStartFreerun()}
-            className="flex items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2.5 text-sm font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
-          >
-            <Play className="w-4 h-4" />
-            {pending === "starting" ? "Starting…" : pending === "stopping" ? "Stopping…" : totalFrames > 0 ? "Resume Internal Generator" : "Start Internal Generator"}
-          </button>
+          <InternalGeneratorStart key={showId} clock={{ showId: showId ?? undefined, format, totalFrames, running, signal, incomingFormat }}
+            connected={connected} pending={pending} onStart={onStartFreerun} />
         ) : (
           <button
             onClick={onStopGenerator}
@@ -224,12 +224,12 @@ export function TimecodeSourceSelector({
   );
 }
 
-function MtcFrameAge({ lastFeedAt }: { lastFeedAt: number | null }) {
+function InputFrameAge({ lastFeedAt, label }: { lastFeedAt: number | null; label: "MTC" | "LTC" }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(timer);
   }, []);
   const seconds = lastFeedAt === null ? null : Math.max(0, Math.floor((now - lastFeedAt) / 1_000));
-  return <p className="text-xs text-board-muted">{seconds === null ? "Waiting for an MTC frame" : `Last MTC frame received ${seconds}s ago`}</p>;
+  return <p className="text-xs text-board-muted">{seconds === null ? `Waiting for an ${label} frame` : `Last ${label} frame received ${seconds}s ago`}</p>;
 }

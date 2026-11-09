@@ -9,8 +9,10 @@ import type {
   TimecodeCommand,
   TimecodeControlStatus,
 } from "@/types/timecode";
-import { framesToTimecode, timecodeToFrames } from "@/lib/timecode";
+import { framesToTimecode, sameTimecodeFormat, timecodeToFrames } from "@/lib/timecode";
+import { startPositionProblem, timecodeStartPositionSchema, type TimecodeStartPosition } from "@/lib/timecode-start";
 import { InternalTimecodeSource } from "@/lib/timecode-sources/internal-source";
+import { startTimecodeTicker } from "@/lib/timecode-sources/timecode-ticker";
 import { createBrowserId } from "@/lib/browser-id";
 import { MtcSource } from "@/lib/timecode-sources/mtc-source";
 import type { cueReviewState } from "@/lib/automation-cues";
@@ -25,7 +27,7 @@ interface UseTimecodeOptions {
   relayBaseUrl?: string;
 }
 
-export type NewAutomationEvent = Omit<AutomationEvent, "id" | "fired" | "triggerFrame"> & { id?: string };
+export type NewAutomationEvent = Omit<AutomationEvent, "id" | "fired" | "triggerFrame" | "deviceLatencyMs" | "timingDeviceId" | "dispatchFrame"> & { id?: string };
 export type TimecodeSendResult = { status: "sent" } | { status: "failed"; error: string };
 
 export interface UseTimecodeReturn {
@@ -43,7 +45,7 @@ export interface UseTimecodeReturn {
   lastError: string | null;
 
   // Master controls
-  startFreerun: (offsetMs?: number) => TimecodeSendResult;
+  startFreerun: (position?: TimecodeStartPosition) => TimecodeSendResult;
   stopGenerator: () => void;
   pauseGenerator: () => void;
   startMtc: (inputId: string, options?: { sysex: boolean }) => Promise<void>;
@@ -72,10 +74,9 @@ export interface UseTimecodeReturn {
   mtcSupported: boolean;
 }
 
-const FEED_INTERVAL_MS = 100;
 const CONFIRM_TIMEOUT_MS = 5_000;
 type PendingSource =
-  | { kind: "internal"; offsetMs: number | undefined }
+  | { kind: "internal"; position?: TimecodeStartPosition }
   | { kind: "mtc"; source: MtcSource };
 type PendingEdit = {
   matches: (events: AutomationEvent[]) => boolean;
@@ -109,7 +110,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const pendingSourceRef = useRef<PendingSource | null>(null);
   const masterGrantedRef = useRef(false);
   const generatorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const feedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const feedTimerRef = useRef<(() => void) | null>(null);
   const pendingEditsRef = useRef(new Set<PendingEdit>());
   const latestTcRef = useRef<{ tc: TimecodeValue; totalFrames: number; format: TimecodeFormat } | null>(null);
   const formatRef = useRef<TimecodeFormat>({ frameRate: 30, dropFrame: "ndf" });
@@ -127,7 +128,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     pendingSourceRef.current = null;
     masterGrantedRef.current = false;
     latestTcRef.current = null;
-    if (feedTimerRef.current !== null) clearInterval(feedTimerRef.current);
+    feedTimerRef.current?.();
     feedTimerRef.current = null;
     clearGeneratorTimeout();
     setIsMaster(false);
@@ -161,7 +162,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
 
   const startFeedTimer = useCallback(() => {
     if (feedTimerRef.current !== null) return;
-    feedTimerRef.current = setInterval(() => {
+    feedTimerRef.current = startTimecodeTicker(() => {
       const latest = latestTcRef.current;
       if (latest && masterGrantedRef.current && stateRef.current?.signal?.status !== "paused") sendCommand("feed-tc", {
         timecode: latest.tc, totalFrames: latest.totalFrames, format: latest.format,
@@ -169,32 +170,40 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
       // A feed is proof of a new source callback, not proof that this timer is
       // still running. Repeating a stale MTC frame hides cable/DAW signal loss.
       latestTcRef.current = null;
-    }, FEED_INTERVAL_MS);
+    });
   }, [sendCommand]);
 
   const startConfirmedSource = useCallback((relayState: TimecodeState) => {
     const pending = pendingSourceRef.current;
     if (!pending || !masterGrantedRef.current || !relayState.running) return;
+    if (pending.kind === "internal" && pending.position &&
+      (!sameTimecodeFormat(relayState.format, pending.position.expectedFormat)
+        || relayState.totalFrames !== timecodeToFrames(pending.position.timecode, pending.position.expectedFormat))) {
+      setLastError("The relay did not confirm the requested start position. The generator was not started.");
+      stopLocalSources(); sendCommand("stop"); return;
+    }
     const result = sendCommand("set-source", { source: pending.kind === "internal" ? "internal-freerun" : "mtc" });
     if (result.status === "failed") { stopLocalSources(); return; }
     formatRef.current = relayState.format;
     if (pending.kind === "internal") {
       const source = new InternalTimecodeSource(relayState.format, (tc, totalFrames) => {
-        latestTcRef.current = { tc, totalFrames, format: formatRef.current };
+        if (masterGrantedRef.current && stateRef.current?.signal?.status !== "paused") {
+          if (sendCommand("feed-tc", { timecode: tc, totalFrames, format: formatRef.current }).status === "failed") stopLocalSources();
+        }
       });
       internalSourceRef.current = source;
-      if (pending.offsetMs === undefined) source.startAtFrame(relayState.totalFrames);
-      else source.start(pending.offsetMs);
+      source.startAtFrame(relayState.totalFrames);
+      if (internalSourceRef.current !== source) return;
     } else {
       mtcSourceRef.current = pending.source;
       const transport = pending.source.transportState;
       if (transport && sendCommand("mtc-transport", { state: transport }).status === "failed") { stopLocalSources(); return; }
+      startFeedTimer();
     }
     pendingSourceRef.current = null;
     clearGeneratorTimeout();
     setIsMaster(true);
     setGeneratorPending(null);
-    startFeedTimer();
   }, [clearGeneratorTimeout, sendCommand, startFeedTimer, stopLocalSources]);
 
   useEffect(() => {
@@ -353,7 +362,14 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     }, CONFIRM_TIMEOUT_MS);
   }, [clearGeneratorTimeout, stopLocalSources]);
 
-  const startFreerun = useCallback((offsetMs?: number): TimecodeSendResult => {
+  const startFreerun = useCallback((position?: TimecodeStartPosition): TimecodeSendResult => {
+    if (position !== undefined) {
+      const parsed = timecodeStartPositionSchema.safeParse(position);
+      const clock = stateRef.current;
+      const error = !parsed.success || !clock ? "Review a valid start position before starting the generator."
+        : startPositionProblem(parsed.data, clock, masterGrantedRef.current);
+      if (error) { setLastError(error); return { status: "failed", error }; }
+    }
     if (stateRef.current?.signal?.status === "paused" && masterGrantedRef.current) {
       latestTcRef.current = null;
       const result = sendCommand("start");
@@ -363,9 +379,9 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     if (pendingSourceRef.current) return { status: "failed", error: "A generator start is already pending." };
     if (!readyRef.current || wsRef.current?.readyState !== 1) return sendCommand("start");
     stopLocalSources(); setLastError(null);
-    pendingSourceRef.current = { kind: "internal", offsetMs };
+    pendingSourceRef.current = { kind: "internal", ...(position ? { position } : {}) };
     setGeneratorPending("starting");
-    const result = sendCommand("start");
+    const result = sendCommand("start", position ? { startPosition: position } : undefined);
     if (result.status === "failed") stopLocalSources(); else awaitGenerator();
     return result;
   }, [awaitGenerator, sendCommand, stopLocalSources]);

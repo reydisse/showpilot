@@ -1,7 +1,9 @@
 import { proPresenterViewerMessage } from "@/lib/propresenter-viewer-message";
+import { TIMECODE_FEED_STALL_MS } from "@/types/timecode";
 import { readProPresenterSettings, proPresenterConnection } from "@/lib/propresenter-settings.server";
 import { redactCredentialText } from "@/lib/credential-fields";
-import { importBridgeSettingsKey, sealBridgeSettings, type ProtectedBridgeSettings } from "@showpilot/shared/bridge-settings";
+import { importBridgeSettingsKey, sealBridgeSettings, MAX_BRIDGE_SETTINGS_BYTES, type ProtectedBridgeSettings } from "@showpilot/shared/bridge-settings";
+import { assertLocalShowAuthority, buildLocalShowPreparation, localShowPreparationInput, type LocalShowPreparationInput } from "@/lib/local-show-preparation.server";
 import { approveBridgeTarget, removeBridgeTarget, listBridgeTargets, authorizeBridgeTarget, type BridgeTargetActor } from "@/lib/bridge-targets.server";
 import { BridgeTargetError, type BridgeEndpoint } from "@showpilot/shared/bridge-target";
 import { SerialCommandExecutor } from "@/lib/serial-command-executor";
@@ -16,6 +18,7 @@ import type { BridgeDeviceProtocol } from "@/lib/device-modules/types";
 import {
   hasLivePermissionAuthority,
   type LiveSessionAuthorityClaim,
+  type LiveRundownAuthorityClaim,
 } from "@/lib/live-rundown-authority.server";
 
 /**
@@ -210,6 +213,7 @@ function bridgeAuditAction(type: string): BridgeAuditAction | null {
     case "configured-propresenter-requested": case "automatic-connection-requested": case "command-connection-requested": return "connect-device";
     case "bridge-status": case "command-response": case "device-event":
     case "device-status": case "pong": case "timecode-feed": case "timecode-transport": return type;
+    case "local-show-prepared": return type;
     default: return null;
   }
 }
@@ -229,6 +233,16 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   private orgId = "";
   private pendingCommands = new Map<string, PendingDispatch>();
   private pendingConnections = new Map<string, PendingDispatch>();
+  private pendingLocalPreparations = new Map<
+    string,
+    {
+      socket: WebSocket;
+      sessionId: string;
+      resolve: () => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
   private pendingClientCommands = new Map<string, PendingClientCommand>();
   private timecodeTarget: TimecodeTarget | null = null;
 
@@ -520,6 +534,114 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     return this.ownership.run(async () => { await this.refreshConnections(); return this.statusSnapshot(); });
   }
 
+  /** Permission-checked Worker RPC. Private settings are delivered exclusively
+   * to the currently selected installation's ephemeral encryption key. */
+  async prepareLocalShow(raw: LocalShowPreparationInput, claim: LiveRundownAuthorityClaim) {
+    const input = localShowPreparationInput.parse(raw);
+    if (this.orgId !== input.orgId) throw new Error("Bridge workspace does not match the requested show.");
+    // Device and rundown reads happen outside the Bridge writer. Timecode can
+    // continue dispatching while preparation resolves its saved cue definitions.
+    const prepared = await buildLocalShowPreparation(this.env, input, claim);
+    const delivery = await this.ownership.run(async () => {
+      const socket = this.bridgeWs;
+      const installation = socket ? this.bridges.get(socket) : undefined;
+      const attachment = socket ? parseSocketAttachment(socket.deserializeAttachment()) : null;
+      if (
+        !socket ||
+        socket.readyState !== WebSocket.OPEN ||
+        !this.bridgeOnline ||
+        !installation ||
+        installation.installationId !== input.installationId
+      )
+        throw new Error(
+          "The selected venue computer changed or is offline. Refresh its connection before preparing the show.",
+        );
+      if (!attachment?.settingsPublicKey)
+        throw new Error("Update the venue Bridge before preparing local control.");
+      if (this.pendingLocalPreparations.size >= 8)
+        throw new Error(
+          "Local preparations are still waiting for the venue computer. Check its status before retrying.",
+        );
+      const authority = await getBridgeCredentialAuthority(
+        this.env.DB,
+        this.orgId,
+        installation.credentialId,
+      );
+      if (!authority) throw new Error("The venue Bridge credential expired or was revoked.");
+      const approved = new Set(
+        (await listBridgeTargets(this.env.DB, this.orgId)).map((endpoint) =>
+          JSON.stringify([endpoint.protocol, endpoint.host, endpoint.port]),
+        ),
+      );
+      if (
+        !prepared.approvedTargets.every((endpoint) =>
+          approved.has(JSON.stringify([endpoint.protocol, endpoint.host, endpoint.port])),
+        )
+      )
+        throw new Error("Device approvals changed while preparing this show. Review them and try again.");
+      prepared.expiresAt = Math.min(prepared.expiresAt, authority.expiresAt ?? Infinity);
+      if (prepared.expiresAt <= Date.now())
+        throw new Error(
+          "The venue Bridge credential is expiring. Refresh it before preparing local control.",
+        );
+      if (new TextEncoder().encode(JSON.stringify(prepared)).length > MAX_BRIDGE_SETTINGS_BYTES)
+        throw new Error(
+          "This local preparation exceeds the 200 KB transfer limit. Reduce rundown notes or split the show before preparing it.",
+        );
+      const protectedSettings = await sealBridgeSettings(
+        attachment.settingsPublicKey,
+        {
+          orgId: this.orgId,
+          installationId: installation.installationId,
+          protocol: "local-show",
+          target: input.showId,
+        },
+        prepared,
+      );
+      await assertLocalShowAuthority(this.env.DB, claim, input.orgId);
+      if (
+        !(await recordBridgeWrite(this.env.DB, authority, {
+          action: "prepare-local-show",
+          direction: "to-bridge",
+          actorUserId: claim.userId,
+        }))
+      )
+        throw new Error("The venue Bridge credential changed during preparation.");
+      if (this.bridgeWs !== socket || socket.readyState !== WebSocket.OPEN)
+        throw new Error("The venue computer disconnected during preparation.");
+      const id = crypto.randomUUID();
+      const received = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.pendingLocalPreparations.delete(id);
+          reject(
+            new Error(
+              "The venue computer did not confirm saving the local show. Check its local status before retrying.",
+            ),
+          );
+        }, 10000);
+        this.pendingLocalPreparations.set(id, { socket, sessionId: input.sessionId, resolve, reject, timer });
+        try {
+          socket.send(
+            JSON.stringify({ type: "prepare-local-show", id, showId: input.showId, protectedSettings }),
+          );
+        } catch {
+          clearTimeout(timer);
+          this.pendingLocalPreparations.delete(id);
+          reject(new Error("The venue computer disconnected before saving the local show."));
+        }
+      });
+      return { received };
+    });
+    await delivery.received;
+    return {
+      sessionId: prepared.sessionId,
+      baseRevision: prepared.baseRevision,
+      preparedAt: prepared.preparedAt,
+      expiresAt: prepared.expiresAt,
+      actionCount: prepared.actions.length,
+    };
+  }
+
   /** Worker-only RPC, after settings permission checks. Serializes policy
    * publication with takeover and dispatch, including native output shutdown. */
   async changeTargetApproval(input: { orgId: string; actorUserId: string } & (
@@ -738,6 +860,23 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
 
   private async handleBridgeMessage(msg: BridgeMessage): Promise<void> {
     switch (msg.type) {
+      case "local-show-prepared": {
+        if (typeof msg.id !== "string") return;
+        const pending = this.pendingLocalPreparations.get(msg.id);
+        if (!pending || pending.socket !== this.bridgeWs) return;
+        if (msg.success !== true && msg.success !== false) return;
+        if (msg.success === true && msg.sessionId !== pending.sessionId) return;
+        clearTimeout(pending.timer);
+        this.pendingLocalPreparations.delete(msg.id);
+        if (msg.success === true) pending.resolve();
+        else
+          pending.reject(
+            new Error(
+              "The venue computer could not save this local show. Check its local status and finish any previous local session before retrying.",
+            ),
+          );
+        return;
+      }
       case "configured-propresenter-requested": {
         if (!this.bridgeWs || !this.activeInstallation) break;
         const socket = this.bridgeWs;
@@ -992,6 +1131,11 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   // ─── Helpers ────────────────────────────────────────────
 
   private failPendingDispatches(error: string): void {
+    for (const pending of this.pendingLocalPreparations.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error(error));
+    }
+    this.pendingLocalPreparations.clear();
     for (const pending of [...this.pendingCommands.values(), ...this.pendingConnections.values()]) {
       clearTimeout(pending.timer);
       pending.resolve({ success: false, error });
@@ -1162,6 +1306,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   }
 
   private async pushTimecode(message: BridgeMessage): Promise<void> {
+    const receivedAt = Date.now();
     const target = this.timecodeTarget;
     const socket = this.bridgeWs;
     const transport = message.type === "timecode-transport";
@@ -1171,11 +1316,15 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     const binding = await relay.bindShow(target);
     if (!binding.ok) return;
     if (socket !== this.bridgeWs || target !== this.timecodeTarget) return;
+    // Room preparation must not turn a delayed native sample into fresh input.
+    // Transport Stop/Continue still reaches the relay even when binding is slow.
+    if (!transport && Date.now() - receivedAt >= TIMECODE_FEED_STALL_MS) return;
     const response = await relay.fetch(new Request(timecodeTargetUrl(target, transport ? "/internal/bridge-transport" : "/internal/bridge-feed"), {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": this.env.BETTER_AUTH_SECRET },
       body: JSON.stringify({
         payload: transport ? { state: message.state } : {
+          source: message.source ?? "mtc",
           timecode: message.timecode,
           format: message.format,
           totalFrames: message.totalFrames,

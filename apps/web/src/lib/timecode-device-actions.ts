@@ -2,6 +2,7 @@ import { readDeviceSettingsForUse } from "./device-settings.server";
 import { resolveRemoteDeviceControl } from "./mobile-device-controls";
 import type { BridgeDeviceProtocol } from "./device-modules/types";
 import type { AutomationEvent } from "@/types/timecode";
+import { automationDeviceId } from "./automation-timing";
 
 interface TimecodeDeviceRow {
   id: string;
@@ -52,14 +53,10 @@ async function resolveLightingDevice(db: D1Database, orgId: string): Promise<Tim
 export async function resolveTimecodeDeviceAction(
   db: D1Database,
   orgId: string,
-  event: AutomationEvent,
+  event: Pick<AutomationEvent, "action" | "payload" | "targetDeviceId" | "targetActionId">,
   encryptionKeys?: string,
 ): Promise<ResolvedTimecodeDeviceAction> {
-  const deviceId = optionalString(
-    event.targetDeviceId,
-    event.payload.deviceId,
-    event.payload.targetDeviceId,
-  );
+  const deviceId = automationDeviceId(event);
   let device: TimecodeDeviceRow | null;
   if (deviceId) {
     device = await db.prepare(

@@ -4,6 +4,7 @@ export interface BridgeSettingsBinding {
   protocol: string;
   target: string;
 }
+export declare const MAX_BRIDGE_SETTINGS_BYTES: number;
 export interface ProtectedBridgeSettings {
   version: 1;
   keyId: string;

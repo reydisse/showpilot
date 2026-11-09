@@ -109,6 +109,7 @@ export async function getBridgeCredentialAuthority(db: D1Database, orgId: string
 }
 
 export type BridgeAuditAction = "selection-requested" | "connected" | "command" | "connect-device" | "disconnect-device"
+  | "prepare-local-show" | "local-show-prepared"
   | "bridge-status" | "command-response" | "device-event" | "device-status" | "timecode-feed" | "timecode-transport" | "ping" | "pong";
 
 /** Revalidate and record before forwarding a write. No device payload reaches the audit table. */

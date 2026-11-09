@@ -187,6 +187,45 @@ blocks.
 artifacts; the numbered files are the convention. After editing
 `schema.prisma`, run `pnpm db:generate`.)
 
+### Device timing
+
+Apply `0051_device_latency.sql` before deploying the Worker that reads
+`device.latencyMs`, then regenerate the Prisma client during the build. Existing
+devices default to zero latency. The column accepts whole milliseconds from
+0 through 60000; the server and device editor enforce the same range.
+
+Timecode captures enabled devices' latency when a source starts or automation
+is enabled. Native MTC/LTC initially uses the snapshot captured when the show
+room is prepared, before accepting any feeds.
+The snapshot survives relay eviction, and feed evaluation makes no D1 timing
+queries during playback. Device edits apply at the next start/enable boundary.
+Cue lead and captured latency add together; dispatch cannot precede frame zero.
+The timeline keeps the nominal cue time and shows the compensated dispatch time.
+Use `node apps/web/scripts/smoke-timecode-latency.mjs` after building to check the
+device editor, D1 value, relay timing, and narrow layouts with disposable data.
+
+Operator, song-preview, and confidence clocks interpolate only between frames
+already reported by the relay, with at most 100 ms of display buffering. Cue
+capture and automation continue to use the authoritative frame. Disconnects,
+stops, seeks, and format changes snap to that frame; an expired feed cannot keep
+the display advancing. Public clock snapshots include frame count and format,
+but no cue payloads or control fields. `signal.lastFeedAt` identifies the sample;
+later lyrics/status broadcasts must not refresh it.
+Run `node apps/web/scripts/smoke-timecode-presentation.mjs` to verify operator and
+confidence rendering against a real 10 Hz local relay. Its foreground-emulation
+mode isolates rendering from OS focus changes; `smoke-timecode-clock.mjs` checks
+the source in a genuinely hidden tab separately.
+
+The internal generator resumes its held frame by default. To choose an offset,
+stop the source, select **Start at a specific timecode**, enter the SMPTE position,
+and confirm. The relay validates the reviewed show, frame rate, and held position
+again after device preparation. A late Stop, seek, or reformat cancels that start.
+The browser waits for the exact confirmed frame before feeding, including at
+drop-frame boundaries. Large moves retain automation's jump-review hold, and
+fired cues stay fired. The old browser-only millisecond start path is removed.
+`node apps/web/scripts/smoke-timecode-start-position.mjs` checks this flow in the
+built app, including exact first frames and Pause/Stop resume behavior.
+
 ### Kiosk and Companion token storage
 
 The token digest release keeps the existing `token` columns and stores a

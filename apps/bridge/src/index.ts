@@ -8,6 +8,11 @@ import { Bridge } from "./bridge.js";
 import { startParentProcessMonitor } from "./parent-process.js";
 import { loadConfigFile, resolveBridgeUrl, startSetupServer, type BridgeConfig } from "./setup-server.js";
 import { BRIDGE_VERSION } from "./version.js";
+import { createHash } from "node:crypto";
+import path from "node:path";
+import { LocalShowStore } from "./local-show-store.js";
+import { startLocalShowControl } from "./local-show-control.js";
+import { acquireLocalShowOwnership } from "./local-show-ownership.js";
 
 const args = process.argv.slice(2);
 
@@ -42,7 +47,18 @@ const propresenterApiPort = Number.parseInt(
 const propresenterPassword =
   getArg("propresenter-password") ?? process.env.SHOWPILOT_PROPRESENTER_PASSWORD ?? config?.propresenterPassword;
 
+const localToken = process.env.SHOWPILOT_LOCAL_CONTROL_TOKEN;
+const localDirectory = process.env.SHOWPILOT_LOCAL_SHOW_DIRECTORY;
+if (desktopMode && (localToken || localDirectory)) {
+  if (!localToken || !localDirectory || !path.isAbsolute(localDirectory) || !key)
+    throw new Error("Native local show configuration is incomplete.");
+  // The GUI lock alone disappears on a parent crash, before the old engine can
+  // notice. Acquire in the actual journal/device owner, before opening the journal or connecting devices.
+  await acquireLocalShowOwnership(localDirectory);
+}
+
 let bridge: Bridge | null = null;
+let localControl:Awaited<ReturnType<typeof startLocalShowControl>>|null=null;
 let currentConfig: BridgeConfig | null = config ?? null;
 const parentMonitor = startParentProcessMonitor(
   process.env.SHOWPILOT_PARENT_PID,
@@ -70,7 +86,8 @@ function openBrowser(targetUrl: string): void {
   child.unref();
 }
 
-function startBridge(nextConfig: BridgeConfig) {
+async function startBridge(nextConfig: BridgeConfig) {
+  if(localControl){await localControl.close();localControl=null;}
   bridge?.stop();
   bridge = new Bridge({
     url: nextConfig.url ?? "",
@@ -85,6 +102,16 @@ function startBridge(nextConfig: BridgeConfig) {
         }
       : undefined,
   });
+  if (desktopMode && localToken && localDirectory) {
+    // Changing the org endpoint or credential never opens another installation's cache.
+    const cacheId=createHash('sha256').update(JSON.stringify([nextConfig.site,nextConfig.org,nextConfig.key])).digest('hex');
+    bridge.configureLocalShow(new LocalShowStore(path.join(localDirectory,`${cacheId}.json`)));
+    const owner=bridge;
+    localControl=await startLocalShowControl(localToken,request=>owner.handleLocalShow(request));
+    // Only the ephemeral port is announced. The authorization token remains in
+    // the parent/child environment and must never enter a log or webview.
+    console.log(`[bridge-local-control] ${localControl.port}`);
+  }
   bridge.start();
 }
 
@@ -114,7 +141,7 @@ if (!desktopMode) {
   }), async (nextConfig) => {
     nextConfig.url = nextConfig.url ?? await resolveBridgeUrl(nextConfig.site, nextConfig.org);
     currentConfig = nextConfig;
-    startBridge(nextConfig);
+    await startBridge(nextConfig);
   });
 }
 
@@ -149,7 +176,7 @@ if (!directUrl && !site && !org) {
   │   Local Device Proxy Agent      │
   └─────────────────────────────────┘
   `);
-  startBridge(currentConfig);
+  await startBridge(currentConfig);
 }
 
 process.on("SIGINT", () => {
