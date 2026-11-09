@@ -9873,3 +9873,16 @@ Existing manager refresh/layout/report recovery (`managers1`) and Tech Manager c
 The final navigation audit (`navigation1`) passes all 21 sidebar routes and 13 Settings sections without reload at desktop, tablet and phone widths.
 
 Parent draft #302 is green at exact head d61ea0cba61610e639ac253235d8bc058fb39767, run 42654368746. Phase 2 remains 67/79. This is readiness/error evidence, not completion of the product-wide gate. Next are the remaining shared dialog close targets and final reconciliation of the broad UX requirements. The owner-supplied founding-window date/timezone remains pending.
+
+
+### Phase 2 follow-up: shared dialog touch targets
+
+The actual compiled baseline measured default modal close buttons at 16×16px, checklist leave-dialog buttons at 36px high and the Settings Help trigger at 32×32px across phone, tablet and desktop (`/tmp/showpilot-dialog-targets-before4.log`). The shared Dialog close button and footer buttons now have 44px minimum targets. Headers reserve space beside an enabled close button, and ContextHelp defaults to a 44px trigger. Dialogs that supply their own close controls keep their existing header spacing.
+
+Validation: full web suite passed 3,493 unit plus 1,850 Worker tests (5,343 total), `/tmp/showpilot-dialog-targets-full1.log`. Typecheck (`tsc1`) and production build (`build1`) pass at 554,049 raw / 174,883 gzip main bytes against unchanged limits. No application logic or persistence contract changed.
+
+New compiled `smoke-dialog-targets.mjs` passes against disposable real auth/D1 (`browser1`). It measures five actual dialogs and their triggers/footer actions at 320×480, 768×1024 and 1440×1000, checks title separation, pointer reachability, touch closing, Escape, keyboard focus containment, Help-trigger focus restoration and preservation of an unsaved checklist draft after Stay. Phone and desktop screenshots were inspected. Zero browser exceptions and captured emails. The existing navigation audit (`navigation1`) passes 21 sidebar routes and 13 Settings sections without reload, including narrow navigation.
+
+The existing Tech Manager graphics rehearsal (`graphics1`) also passes named confirmation, both display clears, exact retry, newer-output preservation and saved-template retention on this build.
+
+Phase 2 remains 67/79 pending final requirement reconciliation and its gate. The explicit Super Admin control target requirement still needs a fixture audit; the founding-window end date/timezone remains owner-dependent. No deployment, release, migration, external messaging or real-organization write occurred. Necessary Markdown remains twenty files. This change is prepared behind readiness draft #303; no successor PR is opened before that exact head passes CI.

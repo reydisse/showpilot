@@ -29,7 +29,7 @@ export function ContextHelp({
           aria-label={`Help: ${title}`}
           title={`About ${title}`}
           className={cn(
-            "inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-board-border bg-board-card text-board-muted transition hover:border-fire-500/40 hover:text-fire-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500/50",
+            "inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-board-border bg-board-card text-board-muted transition hover:border-fire-500/40 hover:text-fire-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500/50",
             className,
           )}
         >
