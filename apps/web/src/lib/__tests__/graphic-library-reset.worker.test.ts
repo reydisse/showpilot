@@ -123,7 +123,7 @@ it("refuses active or unknown output pointers before touching the library",async
   const item=await template("Live");
   for(const [key,value] of [["active-graphics",JSON.stringify([item.id])],["active-graphic",item.id],["active-graphics","broken-json"]]){
     await setting(key,value);
-    await expect(resetLowerThirdLibrary({data:command()})).rejects.toThrow("Clear Program");
+    await expect(resetLowerThirdLibrary({data:command()})).rejects.toThrow("Clear program graphics");
     expect(await templates()).toHaveLength(1);
     await getPrisma().appSetting.deleteMany({where:{orgId:authenticated.orgId,key}});
   }

@@ -194,7 +194,7 @@ it("retains a creation draft after closing and switching tabs, then retries the 
   await open();
   await fillNew();
   await submit("Close editor");
-  fireEvent.click(screen.getByRole("tab", { name: /Members/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Workspace members/ }));
   fireEvent.click(screen.getByRole("tab", { name: /Crew/ }));
   fireEvent.click(screen.getByRole("button", { name: "Resume draft" }));
   expect(screen.getByLabelText("Full Name")).toHaveProperty(
@@ -210,7 +210,7 @@ it("retains a creation draft after closing and switching tabs, then retries the 
     memberId: "CAM99",
     requestId: expect.any(String),
   });
-  fireEvent.click(screen.getByRole("tab", { name: /Members/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Workspace members/ }));
   fireEvent.click(screen.getByRole("button", { name: "Retry change" }));
   await act(async () => {});
   expect(api.createCrew.mock.calls[1][0].data).toEqual(original);

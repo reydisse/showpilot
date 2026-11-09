@@ -174,7 +174,7 @@ function GraphicsPage() {
     if (currentScope.current === orgId) await output.run(operation);
   };
   const handleClearAll = async () => {
-    if (!await confirm({ title: "Clear all graphics?", description: "This removes every graphic currently on air. The library is kept.", confirmLabel: "Clear all graphics" })) return;
+    if (!await confirm({ title: "Clear program graphics?", description: "This removes every graphic currently on air. The library is kept.", confirmLabel: "Clear program graphics" })) return;
     if (currentScope.current === orgId) await output.run({ kind: "clear" });
   };
   const handleDelete = async (id: string) => {
@@ -237,7 +237,7 @@ function GraphicsPage() {
               Lower Thirds
             </h1>
             <p className="text-xs text-board-muted mt-0.5">
-              Create and control on-screen graphics
+              Save individual graphics and control which ones appear on Program. Use Template Studio to compose multiple layers.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -353,7 +353,7 @@ function GraphicsPage() {
                   className="min-h-11 flex items-center gap-1.5 px-3 py-1 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
                 >
                   <Square className="w-3 h-3" />
-                  Clear all
+                  Clear program graphics
                 </button>
               )}
           </div>

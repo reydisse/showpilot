@@ -1107,7 +1107,7 @@ function SongStudioPage() {
                   Cue maps
                 </h2>
                 <p className="mt-1 text-xs text-board-muted">
-                  Timing maps are view-only in Reader mode.
+                  Cue maps are view-only in Reader mode.
                 </p>
                 <div className="mt-4 flex flex-col gap-2">
                   {storedSong.cueMaps.length ? (

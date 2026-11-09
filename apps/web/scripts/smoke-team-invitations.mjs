@@ -51,7 +51,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
     assert.equal(await evaluate("document.querySelector('input[type=email]').value"), "first@display-smoke.invalid");
     await hold("inviteMember"); await click("Create invitation");
     await check("window.teamReplies.some(r=>r.kind==='inviteMember'&&r.status===200)", "creation committed with reply withheld");
-    await tab("Reports"); await retry("inviteMember"); await tab("Members");
+    await tab("Content reports"); await retry("inviteMember"); await tab("Workspace members");
     await evaluate("window.teamReplies.forEach(r=>r.release())"); await ready();
     assert.equal((await capturedEmails()).length, 1);
     await rowText("first@display-smoke.invalid", "Email provider accepted");

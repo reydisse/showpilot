@@ -67,11 +67,11 @@ async function view() {
   return mounted;
 }
 async function confirm() {
-  fireEvent.click(screen.getByRole("button", { name: "Clear graphics" }));
+  fireEvent.click(screen.getByRole("button", { name: "Clear all graphics" }));
   await tick();
   fireEvent.click(
     within(screen.getByRole("dialog")).getByRole("button", {
-      name: "Clear graphics now",
+      name: "Clear all graphics",
     }),
   );
   await tick();
@@ -81,7 +81,7 @@ it("bounds an initial read and keeps retry pending without showing an empty outp
   await view();
   await tick(8100);
   expect(screen.queryByText("No Program graphics on air")).toBeNull();
-  expect(screen.getByRole("button", { name: "Clear graphics" })).toHaveProperty(
+  expect(screen.getByRole("button", { name: "Clear all graphics" })).toHaveProperty(
     "disabled",
     true,
   );
@@ -96,7 +96,7 @@ it("bounds an initial read and keeps retry pending without showing an empty outp
 });
 it("names both outputs and cancels without clearing", async () => {
   await view();
-  fireEvent.click(screen.getByRole("button", { name: "Clear graphics" }));
+  fireEvent.click(screen.getByRole("button", { name: "Clear all graphics" }));
   await tick();
   expect(screen.getByRole("dialog").textContent).toContain(
     "Program title, Speaker name",
@@ -107,7 +107,7 @@ it("names both outputs and cancels without clearing", async () => {
 });
 it("retains the reviewed revisions while newer feedback arrives during confirmation", async () => {
   await view();
-  fireEvent.click(screen.getByRole("button", { name: "Clear graphics" }));
+  fireEvent.click(screen.getByRole("button", { name: "Clear all graphics" }));
   await tick();
   rpc.read.mockImplementation(async () => ({
     ...state,
@@ -116,7 +116,7 @@ it("retains the reviewed revisions while newer feedback arrives during confirmat
     serverTime: Date.now(),
   }));
   await tick(2100);
-  fireEvent.click(screen.getByRole("button", { name: "Clear graphics now" }));
+  fireEvent.click(screen.getByRole("button", { name: "Clear all graphics" }));
   await tick();
   expect(rpc.write.mock.calls[0][0].data).toMatchObject({
     expectedProgramRevision: 3,
@@ -128,7 +128,7 @@ it("bounds a stalled Clear and retries the exact original command across navigat
   const mounted = await view();
   await confirm();
   await tick(10100);
-  expect(screen.getByRole("button", { name: "Clear graphics" })).toHaveProperty(
+  expect(screen.getByRole("button", { name: "Clear all graphics" })).toHaveProperty(
     "disabled",
     true,
   );
@@ -142,7 +142,7 @@ it("bounds a stalled Clear and retries the exact original command across navigat
 });
 it("isolates pending commands from another account and discards confirmations on scope change", async () => {
   const mounted = await view();
-  fireEvent.click(screen.getByRole("button", { name: "Clear graphics" }));
+  fireEvent.click(screen.getByRole("button", { name: "Clear all graphics" }));
   await tick();
   mounted.rerender(element("other", "another"));
   await tick();
@@ -216,7 +216,7 @@ it("allows a reviewed clear of unreadable saved output without treating it as id
     serverTime: Date.now(),
   }));
   await view();
-  expect(screen.getByRole("button", { name: "Clear graphics" })).toHaveProperty(
+  expect(screen.getByRole("button", { name: "Clear all graphics" })).toHaveProperty(
     "disabled",
     false,
   );
@@ -231,7 +231,7 @@ it("disables Clear when feedback confirms no output or missing control permissio
     serverTime: Date.now(),
   }));
   await view();
-  expect(screen.getByRole("button", { name: "Clear graphics" })).toHaveProperty(
+  expect(screen.getByRole("button", { name: "Clear all graphics" })).toHaveProperty(
     "disabled",
     true,
   );
@@ -244,7 +244,7 @@ it("disables Clear when feedback confirms no output or missing control permissio
   expect(
     screen.getByText("Graphics control permission is required."),
   ).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Clear graphics" })).toHaveProperty(
+  expect(screen.getByRole("button", { name: "Clear all graphics" })).toHaveProperty(
     "disabled",
     true,
   );

@@ -1916,14 +1916,14 @@ export async function writeMobileGraphicControl(command: GraphicControlCommand, 
 export async function getMobileDashboard(
   orgId: string,
   kind: "pm" | "tm",
-  showId?: string,
+  options: { showId?: string; signal?: AbortSignal } = {},
 ): Promise<MobileDashboard> {
-  const query = new URLSearchParams({ orgId });
-  if (showId) query.set("showId", showId);
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/dashboards/${kind}?${query}`,
-  );
-  return dashboardSchema.parse(await response.json());
+  return runMobileOperation(async controller => {
+    const query = new URLSearchParams({ orgId });
+    if (options.showId) query.set("showId", options.showId);
+    const response = await authenticatedFetch(`/api/mobile/v1/dashboards/${kind}?${query}`, { signal: controller.signal });
+    return dashboardSchema.parse(await response.json());
+  }, options.signal, 10_000);
 }
 
 export async function getMobileReports(orgId: string): Promise<MobileReports> {

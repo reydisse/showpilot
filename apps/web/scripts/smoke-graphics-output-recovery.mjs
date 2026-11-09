@@ -7,7 +7,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   const click = name => browser("find", "role", "button", "click", "--name", name, "--exact");
   const outputAction = async name => {
     await click(name);
-    await click(name.startsWith("Show ") ? "Show graphic" : name.startsWith("Hide ") ? "Hide graphic" : "Clear all graphics");
+    await click(name.startsWith("Show ") ? "Show graphic" : name.startsWith("Hide ") ? "Hide graphic" : "Clear program graphics");
   };
   const stored = async () => JSON.parse((await queryFixture(`SELECT value FROM app_setting WHERE orgId='${orgId}' AND key='active-graphics'`))[0]?.value ?? "[]");
   await browser("open", `${origin}/login`); await browser("fill", "#email", operatorEmail); await browser("fill", "#password", operatorPassword);
@@ -18,7 +18,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await browser("wait", '[role="alert"][aria-label="Refresh graphics output"] time');
   assert.equal(await evaluate("document.querySelector('button[aria-label=\"Hide Fixture overlay title\"]').disabled"), true);
   assert.equal(await evaluate("document.body.textContent.includes('last confirmed on air')"), true);
-  assert.equal(await evaluate("[...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Clear all').disabled"), false, "Explicit stop-all stays available");
+  assert.equal(await evaluate("[...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Clear program graphics').disabled"), false, "Explicit stop-all stays available");
   await browser("set", "viewport", "320", "740");
   await browser("scrollintoview", 'button[aria-label="Refresh graphics output"]');
   const bounds = await evaluate("(() => { const el = document.querySelector('button[aria-label=\"Refresh graphics output\"]'); const r = el.getBoundingClientRect(); return {left:r.left,right:r.right,height:r.height,reachable:document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('button')===el}; })()");
@@ -29,8 +29,8 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   const pageFits = await evaluate("(() => { let el = document.querySelector('h1'); while(el && !(el.classList.contains('h-full') && el.classList.contains('overflow-auto'))) el = el.parentElement; return el && el.scrollWidth <= el.clientWidth; })()");
   await browser("screenshot", "/tmp/showpilot-graphics-output-card-320.png");
   assert.ok(pageFits, "Graphics workspace must not scroll horizontally");
-  await evaluate("[...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Clear all').scrollIntoView({block:'center'})");
-  const stopBounds = await evaluate("(() => { const el = [...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Clear all'); const r = el.getBoundingClientRect(); return {left:r.left,right:r.right,height:r.height,reachable:document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('button')===el}; })()");
+  await evaluate("[...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Clear program graphics').scrollIntoView({block:'center'})");
+  const stopBounds = await evaluate("(() => { const el = [...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Clear program graphics'); const r = el.getBoundingClientRect(); return {left:r.left,right:r.right,height:r.height,reachable:document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('button')===el}; })()");
   assert.ok(stopBounds.left >= 0 && stopBounds.right <= 320 && stopBounds.height >= 44 && stopBounds.reachable, JSON.stringify(stopBounds));
   await click("Refresh graphics output");
   await startServer(); await evaluate("document.querySelector('button[aria-label=\"Refresh graphics output\"]')?.click()");
@@ -72,9 +72,9 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await outputAction("Show Fixture overlay title");
   await browser("wait", 'button[aria-label="Hide Fixture overlay title"]:not(:disabled)');
   await browser("wait", "--fn", "!document.querySelector('[aria-label=\"Graphics change confirmation\"]')");
-  await outputAction("Clear all");
+  await outputAction("Clear program graphics");
   await browser("wait", 'button[aria-label="Show Fixture overlay title"]:not(:disabled)');
   await poll(async () => (await stored()).length === 0, "clear persisted");
-  assert.equal(await evaluate("[...document.querySelectorAll('button')].some(el => el.textContent.trim() === 'Clear all' && !el.disabled)"), true, "Stop-all stays reachable even when the last confirmed output is empty");
+  assert.equal(await evaluate("[...document.querySelectorAll('button')].some(el => el.textContent.trim() === 'Clear program graphics' && !el.disabled)"), true, "Stop-all stays reachable even when the last confirmed output is empty");
   console.log(JSON.stringify({passed:true,realWorkerOutage:true,lastConfirmedStateVisible:true,readRecovery:true,stopAllAvailable:true,lateReadCannotOverwriteWrite:true,lostAcknowledgementAfterCommit:true,reconcileWithoutReplay:true,clearConfirmed:true,fits320:true}));
 });

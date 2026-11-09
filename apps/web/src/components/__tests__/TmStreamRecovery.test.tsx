@@ -173,11 +173,11 @@ it("allows Stop during Go Live and keeps Stop feedback after the older reply arr
   );
   await view();
   await confirm();
-  expect(screen.getByRole("button", { name: "Stop stream" })).toHaveProperty(
+  expect(screen.getByRole("button", { name: "Disconnect destinations" })).toHaveProperty(
     "disabled",
     false,
   );
-  await confirm("Stop stream", "Stop destinations");
+  await confirm("Disconnect destinations", "Disconnect destinations");
   const live = rpc.write.mock.calls[0][0].data;
   await act(async () =>
     release({
@@ -188,7 +188,7 @@ it("allows Stop during Go Live and keeps Stop feedback after the older reply arr
   await tick();
   expect(
     screen.getByText(
-      "Stop request confirmed. Check current output status above.",
+      "Disconnect request confirmed. Check current output status above.",
     ),
   ).toBeTruthy();
   expect(screen.queryByText(/Go Live request confirmed/)).toBeNull();
@@ -230,7 +230,7 @@ it("preserves success if the following read fails and offers only feedback retry
     "disabled",
     true,
   );
-  expect(screen.getByRole("button", { name: "Stop stream" })).toHaveProperty(
+  expect(screen.getByRole("button", { name: "Disconnect destinations" })).toHaveProperty(
     "disabled",
     false,
   );
@@ -255,7 +255,7 @@ it("shows unknown provider status with retry and permits Stop", async () => {
     "disabled",
     true,
   );
-  expect(screen.getByRole("button", { name: "Stop stream" })).toHaveProperty(
+  expect(screen.getByRole("button", { name: "Disconnect destinations" })).toHaveProperty(
     "disabled",
     false,
   );
@@ -280,11 +280,11 @@ it("can Stop retained Go Live targets when navigation lost the read cache and fe
   rpc.read.mockRejectedValue(new Error("Feedback unavailable"));
   render(element());
   await tick();
-  expect(screen.getByRole("button", { name: "Stop stream" })).toHaveProperty(
+  expect(screen.getByRole("button", { name: "Disconnect destinations" })).toHaveProperty(
     "disabled",
     false,
   );
-  await confirm("Stop stream", "Stop destinations");
+  await confirm("Disconnect destinations", "Disconnect destinations");
   expect(rpc.write.mock.calls[1][0].data).toMatchObject({
     action: "stream-stop",
     targets: original.targets,

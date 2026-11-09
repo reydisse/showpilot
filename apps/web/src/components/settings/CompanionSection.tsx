@@ -62,7 +62,7 @@ const ACTION_GROUPS: { group: string; actions: ActionRecipe[] }[] = [
     group: "Stream (10)",
     actions: [
       { n: 10, label: "Go live (connect destinations)", method: "POST", path: "/api/v1/companion/stream/go-live", body: "{}" },
-      { n: 10, label: "Stop all destinations", method: "POST", path: "/api/v1/companion/stream/stop", body: "{}" },
+      { n: 10, label: "Disconnect all destinations", method: "POST", path: "/api/v1/companion/stream/stop", body: "{}" },
     ],
   },
   {

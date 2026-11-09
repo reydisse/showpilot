@@ -195,7 +195,7 @@ function AccessWorkspace({ orgId, userId }: { orgId: string; userId: string }) {
       backTo="/(app)/operations"
       backLabel="Back to operations"
       eyebrow="TEAM CONTROL"
-      title="Access"
+      title="Access grants"
       scroll={false}
       action={canManage ? (
         <Pressable accessibilityRole="button" disabled={locked} onPress={openGrantForm} style={styles.grantButton}>

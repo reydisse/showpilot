@@ -110,22 +110,22 @@ it("confirms the named destinations and retries an exact Go Live request after a
   expect(api.live.mock.calls[1][0].data).toEqual(sent);
 });
 
-it("lets confirmed Stop All supersede a held Go Live and ignores its later reply", async () => {
+it("lets confirmed Disconnect all destinations supersede a held Go Live and ignores its later reply", async () => {
   let resolve!: (value:unknown)=>void;api.live.mockReturnValue(new Promise(done=>{resolve=done;}));
   api.stop.mockResolvedValue([{id:row.id,success:true}]);
   await renderOutputs();fireEvent.click(screen.getByRole("button",{name:"Go Live"}));await confirmOutput("Go Live");
-  expect(screen.getByRole("button",{name:"Stop All"}).hasAttribute("disabled")).toBe(false);
-  fireEvent.click(screen.getByRole("button",{name:"Stop All"}));await settle();expect(api.stop).not.toHaveBeenCalled();
-  await confirmOutput("Stop All");
+  expect(screen.getByRole("button",{name:"Disconnect all destinations"}).hasAttribute("disabled")).toBe(false);
+  fireEvent.click(screen.getByRole("button",{name:"Disconnect all destinations"}));await settle();expect(api.stop).not.toHaveBeenCalled();
+  await confirmOutput("Disconnect all destinations");
   expect(api.live.mock.calls[0][0].signal.aborted).toBe(true);
   expect(api.stop.mock.calls[0][0].data).toMatchObject({orgId:"fixture",targets:[{id:row.id,version:""}]});
   const reads=api.read.mock.calls.length;await act(async()=>resolve([{id:row.id,success:true}]));
   expect(api.read).toHaveBeenCalledTimes(reads);expect(screen.queryByRole("alert",{name:"Output change"})).toBeNull();
 });
 
-it("keeps partial Stop All results retryable and retains the original target set", async () => {
+it("keeps partial Disconnect all destinations results retryable and retains the original target set", async () => {
   api.stop.mockResolvedValueOnce([{id:row.id,success:false,error:"Provider outcome unconfirmed"}]).mockResolvedValueOnce([{id:row.id,success:true}]);
-  await renderOutputs();fireEvent.click(screen.getByRole("button",{name:"Stop All"}));await confirmOutput("Stop All");
+  await renderOutputs();fireEvent.click(screen.getByRole("button",{name:"Disconnect all destinations"}));await confirmOutput("Disconnect all destinations");
   expect(screen.getByRole("alert",{name:"Output change"}).textContent).toContain("Fixture stream: Provider outcome unconfirmed");
   const sent=api.stop.mock.calls[0][0].data;
   fireEvent.click(screen.getByRole("button",{name:"Retry change"}));await settle();expect(api.stop.mock.calls[1][0].data).toEqual(sent);
