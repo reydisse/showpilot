@@ -6,11 +6,14 @@ import * as jsx from "react/jsx-runtime";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import * as ids from "../../../../mobile/src/lib/request-id.ts";
+import * as draft from "../../../../mobile/src/lib/rundown-item-draft.ts";
 const container = ({ children }) => React.createElement("div", null, children);
 const modules = {
   react: React,
   "react/jsx-runtime": jsx,
   "@/lib/request-id": ids,
+  "@/lib/rundown-item-draft": draft,
+  "../lib/rundown-item-draft": draft,
   "react-native": {
     View: container,
     Text: container,
@@ -73,6 +76,7 @@ function load(name) {
   }, exported);
   return exported;
 }
+modules["./rundown-item-recovery"] = load("rundown-item-recovery");
 const Sheet = load("rundown-item-sheet").RundownItemSheet;
 const Clear = load("rundown-clear-confirmation").RundownClearConfirmation;
 const Reset = load("rundown-reset-confirmation").RundownResetConfirmation;
@@ -96,6 +100,27 @@ function props() {
     currentItem: item,
     index: 0,
     itemCount: 2,
+    items: [item, { ...item, id: "next", title: "Next" }],
+    serviceDate: "2026-11-09",
+    state: {
+      draft: {
+        id: item.id,
+        showId: "show",
+        base: {
+          item,
+          revision: 4,
+          serviceDate: "2026-11-09",
+          order: ["cue", "next"],
+        },
+        fields: draft.itemDraftFields(item),
+      },
+      setFields: vi.fn(),
+      submit: vi.fn(),
+      discard: vi.fn(),
+      review: vi.fn(),
+      retry: vi.fn(),
+      refresh: vi.fn(),
+    },
     revision: 4,
     currentItemId: "cue",
     canEdit: true,
@@ -278,4 +303,15 @@ it("reset remains blocked after control access is lost", () => {
   render(React.createElement(Reset, p));
   fireEvent.click(screen.getByRole("button", { name: "Confirm timing reset" }));
   expect(p.onConfirm).not.toHaveBeenCalled();
+});
+
+it("keeps the item editor open until the save has a confirmed outcome", () => {
+  const p = props();
+  render(React.createElement(Sheet, p));
+  fireEvent.change(screen.getByLabelText("Title"), {
+    target: { value: "Revised welcome" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+  expect(p.state.submit).toHaveBeenCalledTimes(1);
+  expect(p.onClose).not.toHaveBeenCalled();
 });

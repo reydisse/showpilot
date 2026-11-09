@@ -374,3 +374,91 @@ it("reset preserves production-manager control access without granting item edit
   expect(await f.send(request)).toMatchObject({ outcome: "applied" });
   await expect(f.send(await f.removal())).rejects.toThrow(/access changed/);
 });
+
+const editFields = {
+  title: "Edited welcome",
+  type: "segment" as const,
+  duration: 30000,
+  notes: "Operator notes",
+  assignee: "Host",
+  cue: "Stand by",
+  hardStop: true,
+};
+it("a native add retry after eviction adds exactly one item", async () => {
+  const f = await fixture();
+  const request: RundownChangeCommand = {
+    ...f.scope,
+    requestId: crypto.randomUUID(),
+    expectedRevision: (await f.state()).revision,
+    action: "add-item",
+    itemId: "native-new",
+    fields: editFields,
+  };
+  expect(await f.send(request)).toMatchObject({ outcome: "applied" });
+  const before = await f.state();
+  await evictDurableObject(f.stub);
+  expect(await f.send(request)).toMatchObject({ outcome: "applied" });
+  expect((await f.state()).revision).toBe(before.revision);
+  expect(
+    (await f.state()).items.filter((i) => i.id === "native-new"),
+  ).toHaveLength(1);
+});
+it("native edit replay preserves a later operator edit and stale new edits conflict", async () => {
+  const f = await fixture();
+  const request: RundownChangeCommand = {
+    ...f.scope,
+    requestId: crypto.randomUUID(),
+    expectedRevision: (await f.state()).revision,
+    action: "update-item",
+    itemId: "welcome",
+    fields: editFields,
+  };
+  await f.send(request);
+  await f.command("update-item", {
+    id: "welcome",
+    updates: { title: "Other operator" },
+  });
+  const before = await f.state();
+  await evictDurableObject(f.stub);
+  expect(await f.send(request)).toMatchObject({ outcome: "applied" });
+  expect(
+    await f.send({ ...request, requestId: crypto.randomUUID() }),
+  ).toMatchObject({ outcome: "conflict" });
+  expect((await f.state()).items).toEqual(before.items);
+});
+it("native reorder retry preserves a later order and never changes item content", async () => {
+  const f = await fixture();
+  const before = await f.state();
+  const request: RundownChangeCommand = {
+    ...f.scope,
+    requestId: crypto.randomUUID(),
+    expectedRevision: before.revision,
+    action: "reorder",
+    order: ["next", "welcome"],
+  };
+  expect(await f.send(request)).toMatchObject({ outcome: "applied" });
+  expect((await f.state()).items.map((i) => i.id)).toEqual(request.order);
+  await f.command("reorder", { order: ["welcome", "next"] });
+  await evictDurableObject(f.stub);
+  expect(await f.send(request)).toMatchObject({ outcome: "applied" });
+  expect((await f.state()).items).toEqual(before.items);
+});
+it("native editing rejects forged operational fields and changed actor before mutation", async () => {
+  const f = await fixture();
+  const before = await f.state();
+  const request: RundownChangeCommand = {
+    ...f.scope,
+    requestId: crypto.randomUUID(),
+    expectedRevision: before.revision,
+    action: "update-item",
+    itemId: "welcome",
+    fields: editFields,
+  };
+  await expect(
+    f.send({ ...request, fields: { ...editFields, ...{ status: "live" } } }),
+  ).rejects.toThrow();
+  await expect(f.send({ ...request, userId: "other" })).rejects.toThrow(
+    /account changed/,
+  );
+  expect((await f.state()).items).toEqual(before.items);
+});

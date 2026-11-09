@@ -13,7 +13,7 @@ const replySchema = z.object({
   reason: z.string().optional(),
 });
 
-/** Keep native destructive edits on the existing revision-checked single writer.
+/** Keep native edits on the existing revision-checked single writer.
  * The actor is server-derived and the relay rechecks the live session and PIN. */
 export async function applyMobileRundownChange(
   bindings: {
@@ -72,7 +72,15 @@ export async function applyMobileRundownChange(
         id: command.requestId,
         expectedRevision: command.expectedRevision,
         action: command.action,
-        ...("itemId" in command ? { payload: { id: command.itemId } } : {}),
+        ...(command.action === "add-item"
+          ? { payload: { id: command.itemId, ...command.fields } }
+          : command.action === "update-item"
+            ? { payload: { id: command.itemId, updates: command.fields } }
+            : command.action === "reorder"
+              ? { payload: { order: command.order } }
+              : "itemId" in command
+                ? { payload: { id: command.itemId } }
+                : {}),
       }),
     }),
   );
