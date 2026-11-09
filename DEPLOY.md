@@ -8587,3 +8587,71 @@ Markdown files remain, with no new Markdown file.
 Stack gate: #273's corrected head 9e24b348 is running CI 42549381346; its Rust
 job and web coverage step passed, with native verification still active at this
 recording. This clock-review branch remains without a PR until that head is green.
+
+
+## Phase 2: native Timecode automation Stop and reviewed Resume
+
+Native Timecode now exposes the global automation Stop and a separately reviewed
+Resume, plus resume of the cue-controlled automatic-firing gate. Stop does not
+wait for a confirmation and remains available while Resume or another change is
+pending. It stops new dispatches without stopping the clock or clearing existing
+output; already-sent commands cannot be recalled. Resume explains the selected
+show, any clock-jump hold, and that crossed cues are not replayed or re-armed.
+
+A durable automation revision changes on Stop, legacy gate decisions, automatic
+cue gates, clock edits and safety holds. This catches a second Stop while already
+off, including an older Resume that arrives afterward. The reviewed gate command
+stores its immutable actor/request receipt atomically with state and clock. A
+lost-reply retry returns its original result without overriding a later Stop or
+Resume. Device timing and renewed membership checks happen outside the local
+commit lock; current control, generation and review are rechecked at commit.
+The automatic-cue gate cannot bypass the global Stop or an unresolved format.
+
+Native review and request state are scoped by actor/organization/show and survive
+screen navigation, not app termination. Mutations and refreshes have 15s and 12s
+deadlines. A known result has refresh-only recovery. Another Stop remains possible
+after an uncertain result, while an original retry retains the same request ID.
+No global Phase 2 requirement is closed by this narrower Timecode change. Matching
+backend deployment is required before distributing this native build.
+
+Verification: six initial Worker regressions failed before implementation. The
+final coverage/full-suite run passes 356 unit files / 2,973 tests and 146 Worker
+files / 1,633 tests, 4,606 total. New focused coverage includes 14 native-hook
+cases, 16 shared-boundary cases and 12 real Worker cases. Timecode coverage is
+93.20% statements / 92.54% branches / 91.83% functions / 95.39% lines; all other
+unchanged coverage gates pass. Web and mobile typechecks pass. Web production
+build passes at 549,593 raw / 173,795 gzip main-client bytes. Native verification
+passes iOS/Android/web exports, Expo Doctor 18/18, contracts and polling checks,
+with 18 existing lint warnings and no errors. Hermes bundles are 5,825,399 bytes
+on iOS and 5,824,560 on Android.
+
+The compiled Expo web rehearsal passes against disposable real auth, D1 and
+TimecodeRelay: Stop leaves freerun running; opening/canceling review sends no
+resume; a newer stop disables stale confirmation; a lost Resume reply followed
+by native Stop preserves that stop after navigation and same-request retry;
+refresh-only recovery never repeats the mutation; old Stop receipts preserve a
+later Resume; and automatic-cue pause/resume remains independent. At 320, 768 and
+1440px it checks horizontal overflow and 44px control targets. The 320px and
+1440px screenshots were inspected. No runtime errors. This does not claim a
+physical-device rehearsal.
+
+Reproduce after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-timecode-automation-gate.mjs`.
+Logs: /tmp/showpilot-native-timecode-gate-{before,worker1,worker2,worker3,unit1,mobile-tsc1,mobile-tsc2,tsc1,coverage1,build1,verify1,browser1}.log.
+Screenshots: /tmp/showpilot-native-timecode-gate-review-{320,768,1440}.png.
+The first expanded Worker run exposed two fixture assumptions: unauthenticated
+DO responses are text/401, and default startup tolerance can fire a cue near the
+first frame. The corrected crossing fixture explicitly uses zero tolerance and
+asserts that held cues stay unfired. A native generic-inference type error was
+fixed with the concrete command/result types; final typechecks are green.
+
+Phase 2 remains 67/79. Native Timecode still needs per-cue retry/disable/re-arm,
+accessible delete/reset confirmations, broader editing/typed action fields and
+complete frame-rate choices. Other outstanding product-wide UX checks remain
+open. No deployment, release, remote migration, external mail or real-org writes.
+Twenty necessary tracked Markdown files remain; no new Markdown was added.
+
+Stack gate: #273 head 9e24b348 passed CI 42549381346. Clock review is draft #274,
+head b7c2b25e, CI 42551059842. Its Rust job and coverage step have passed; native
+verification is still running at this recording. The automation-controls branch
+will be pushed, with a draft PR held until that exact preceding head is green.

@@ -1,3 +1,4 @@
+import { isTimecodeGateCommand, sameTimecodeGateReview } from "@showpilot/shared";
 import { isReviewedTimecodeClockEdit, sameTimecodeClockReview } from "@showpilot/shared";
 import { prepareTimecodeClockEdit, type PreparedClockEdit } from "@/lib/timecode-clock-edit";
 import { scopedTokenDigest } from "@/lib/scoped-token-store.server";
@@ -190,7 +191,7 @@ interface FormatCandidate { format: TimecodeFormat; count: number; receivedAt: n
 interface BridgeFeed { source?: "mtc" | "ltc-bridge"; timecode: TimecodeValue; format: TimecodeFormat; receivedAt: number }
 /** Small durable journal; never rewrite the full event timeline at feed rate. */
 interface ClockSnapshot {
-  state: Pick<TimecodeState, "timecode" | "display" | "totalFrames" | "format" | "source" | "running" | "serverTime" | "signal" | "triggersEnabled" | "automaticCuesEnabled" | "automationHold" | "incomingFormat">;
+  state: Pick<TimecodeState, "timecode" | "display" | "totalFrames" | "format" | "source" | "running" | "serverTime" | "signal" | "triggersEnabled" | "automaticCuesEnabled" | "automationRevision" | "automationHold" | "incomingFormat">;
   previousFeedFrame: number | null;
   masterSessionId: string | null;
   expectedFeedSince: number | null;
@@ -222,6 +223,7 @@ export class TimecodeRelay extends DurableObject {
     running: false,
     triggersEnabled: true,
     automaticCuesEnabled: true,
+    automationRevision: crypto.randomUUID(),
     serverTime: Date.now(),
     totalFrames: 0,
     lyrics: null,
@@ -274,6 +276,7 @@ export class TimecodeRelay extends DurableObject {
           ...stored.state,
           triggersEnabled: stored.state.triggersEnabled ?? true,
           automaticCuesEnabled: stored.state.automaticCuesEnabled ?? true,
+          automationRevision: stored.state.automationRevision ?? crypto.randomUUID(),
           running: false,
           serverTime: Date.now(),
           lyrics: stored.state.lyrics ?? null,
@@ -318,8 +321,8 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private clockSnapshot(state = this.state): ClockSnapshot {
-    const { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automaticCuesEnabled, automationHold, incomingFormat } = state;
-    return { state: { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automaticCuesEnabled, automationHold, incomingFormat },
+    const { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automaticCuesEnabled, automationRevision, automationHold, incomingFormat } = state;
+    return { state: { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automaticCuesEnabled, automationRevision, automationHold, incomingFormat },
       previousFeedFrame: this.previousFeedFrame, masterSessionId: this.masterSessionId,
       expectedFeedSince: this.expectedFeedSince, bridgeFeed: this.bridgeFeed, bridgeTransport: this.bridgeTransport, formatCandidate: this.formatCandidate };
   }
@@ -372,6 +375,7 @@ export class TimecodeRelay extends DurableObject {
     if (!isLargeTimecodeJump(previousFrame, currentFrame, format) || previousFrame === null) return;
     this.automationGeneration++;
     this.state.triggersEnabled = false;
+    this.state.automationRevision = crypto.randomUUID();
     this.state.automationHold = {
       id: crypto.randomUUID(), reason: "timecode-jump", detectedAt: Date.now(),
       from: timecodeToString(framesToTimecode(previousFrame, format), format.dropFrame === "df"),
@@ -412,7 +416,7 @@ export class TimecodeRelay extends DurableObject {
       this.orgId = resolved.orgId;
       if (snapshot) {
         // Preserve cue history, but never resume imported automation implicitly.
-        this.state = { ...snapshot.state, running: false, triggersEnabled: false, serverTime: Date.now() };
+        this.state = { ...snapshot.state, running: false, triggersEnabled: false, automationRevision: crypto.randomUUID(), serverTime: Date.now() };
         this.events = recoverInterruptedEvents(snapshot.events);
       }
       this.state.showId = resolved.showId;
@@ -440,6 +444,7 @@ export class TimecodeRelay extends DurableObject {
         await this.ctx.storage.put("legacy-export", this.legacyExport);
         this.state.running = false;
         this.state.triggersEnabled = false;
+        this.state.automationRevision = crypto.randomUUID();
         this.masterSessionId = null;
         for (const socket of this.ctx.getWebSockets()) socket.close(4409, "Timecode now belongs to a show. Reconnect.");
       }
@@ -563,6 +568,7 @@ export class TimecodeRelay extends DurableObject {
         running: false,
         triggersEnabled: true,
         automaticCuesEnabled: true,
+        automationRevision: crypto.randomUUID(),
         serverTime: Date.now(),
         totalFrames: 0,
         lyrics: null,
@@ -999,6 +1005,71 @@ export class TimecodeRelay extends DurableObject {
     });
   }
 
+  private async editAutomationGate(payload: Record<string, unknown> | undefined, sessionId: string | undefined): Promise<TimecodeEditReceipt> {
+    const id = payload?.requestId;
+    if (typeof id !== "string" || !z.uuid().safeParse(id).success)
+      throw new TimecodeCommandRejection("Use a new automation request identity.");
+    const fingerprint = await scopedTokenDigest(JSON.stringify(payload));
+    const key = `automation-gate:${id}`;
+    const generation = this.automationGeneration;
+    // D1 work stays outside the local commit. A stop may interrupt this load;
+    // the generation and durable review are checked again before enabling.
+    let timingFailure: string | null = null;
+    if (isTimecodeGateCommand(payload) && payload.operation === "resume" && !this.state.triggersEnabled
+      && !await this.ctx.storage.get(key)) {
+      try {
+        const owner = this.controlOwner();
+        const claim = owner?.attachment.authClaim;
+        if (!await this.loadDeviceTiming(true)) timingFailure = "Automation changed while device timing loaded. Review it again.";
+        if (!claim || !await withOperationTimeout(hasLivePermissionAuthority(this.env.DB, claim, "timecode:access"), 2_000, "Automation permission check timed out."))
+          timingFailure = "Timecode access changed. Sign in and check your permissions.";
+      } catch (error) { timingFailure = error instanceof Error ? error.message : "Device timing could not load. Review automation again."; }
+    }
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const owner = this.controlOwner(), target = this.target;
+      const userId = owner?.attachment.authClaim?.userId;
+      if (this.retired || !target || !userId || owner.attachment.sessionId !== sessionId)
+        throw new TimecodeCommandRejection("Timecode control changed. Claim control before changing automation.");
+      const identity = { orgId: target.orgId, userId, requestId: id };
+      const prior = await this.ctx.storage.get<TimecodeEditRecord>(key);
+      if (prior) return prior.receipt.userId === userId && prior.fingerprint === fingerprint ? prior.receipt
+        : { ...identity, outcome: "conflict", message: "This request identity belongs to a different automation decision." };
+      const reject = async (outcome: "conflict" | "rejected", message: string) => {
+        const receipt = { ...identity, outcome, message };
+        await this.ctx.storage.put(key, { fingerprint, receipt } satisfies TimecodeEditRecord);
+        return receipt;
+      };
+      if (!isTimecodeGateCommand(payload)) return reject("rejected", "Review and confirm automation before resuming it.");
+      if (payload.showId !== target.showId || payload.serviceDate !== target.serviceDate)
+        return reject("conflict", "The selected show changed. Review its current date and automation.");
+      if (payload.operation !== "stop") {
+        const review = { revision: this.state.automationRevision ?? "", holdId: this.state.automationHold?.id ?? null };
+        if (!sameTimecodeGateReview(payload.expected, review) || generation !== this.automationGeneration)
+          return reject("conflict", "Automation changed after review. Review its current state before resuming.");
+        if (timingFailure) return reject("rejected", timingFailure);
+        if (this.state.incomingFormat) return reject("conflict", "Confirm the input format before resuming automation.");
+        if (payload.operation === "resume-automatic" && (!this.state.triggersEnabled || this.state.automationHold))
+          return reject("conflict", "Enable automation and resolve its safety hold before resuming automatic cues.");
+      }
+      const state: TimecodeState = { ...this.state, automationRevision: crypto.randomUUID(),
+        ...(payload.operation === "resume-automatic" ? { automaticCuesEnabled: true }
+          : { triggersEnabled: payload.operation === "resume", ...(payload.operation === "resume" ? { automationHold: null } : {}) }),
+      };
+      // Resume at the present frame; never replay the frames crossed while held.
+      const previousFeedFrame = payload.operation === "stop" ? this.previousFeedFrame : state.totalFrames;
+      const receipt: TimecodeEditReceipt = { ...identity, outcome: "applied" };
+      await this.ctx.storage.transaction(async storage => {
+        await storage.put({ timecode: { state, events: this.events, deviceTimings: this.deviceTimings, target } satisfies TimecodeSnapshot,
+          clock: { ...this.clockSnapshot(state), previousFeedFrame }, [key]: { fingerprint, receipt } satisfies TimecodeEditRecord });
+      });
+      this.automationGeneration++;
+      this.state = state; this.previousFeedFrame = previousFeedFrame;
+      this.hasSnapshot = true; this.lastPersistedAt = Date.now();
+      await this.scheduleAlarm(); this.broadcastState();
+      return receipt;
+    });
+  }
+
   private async handleCommand(
     action: TimecodeCommand,
     payload?: Record<string, unknown>,
@@ -1117,6 +1188,7 @@ export class TimecodeRelay extends DurableObject {
               this.automationGeneration++;
             }
             this.state.triggersEnabled = false;
+            this.state.automationRevision = crypto.randomUUID();
             this.state.running = false;
             this.state.signal = { status: "format-mismatch", lastFeedAt: feedReceivedAt };
             this.state.serverTime = Date.now();
@@ -1208,6 +1280,9 @@ export class TimecodeRelay extends DurableObject {
         await this.persist(); this.broadcastState(); this.broadcastEvents();
         break;
       }
+
+      case "edit-automation-gate":
+        return await this.editAutomationGate(payload, sessionId);
 
       case "edit-clock":
         return await this.editClock(payload, sessionId);
@@ -1361,6 +1436,7 @@ export class TimecodeRelay extends DurableObject {
         }
         if (!payload.enabled) this.automationGeneration++;
         this.state.triggersEnabled = payload.enabled;
+        this.state.automationRevision = crypto.randomUUID();
         await this.persist();
         this.broadcastState();
         break;
@@ -1513,6 +1589,7 @@ export class TimecodeRelay extends DurableObject {
     }
     if (!enabled) this.automationGeneration++;
     this.state.automaticCuesEnabled = enabled;
+    this.state.automationRevision = crypto.randomUUID();
     if (enabled) this.previousFeedFrame = this.state.totalFrames;
   }
 

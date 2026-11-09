@@ -16,3 +16,4 @@ export * from "./relay-sequence";
 export * from "./timecode-validation";
 
 export * from "./timecode-clock-edit";
+export * from "./timecode-automation-gate";

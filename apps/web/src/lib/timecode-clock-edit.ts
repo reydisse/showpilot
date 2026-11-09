@@ -15,7 +15,7 @@ export function prepareTimecodeClockEdit(state: TimecodeState, events: Automatio
     if (!isValidTimecode(tc, state.format)) return null;
     const totalFrames = timecodeToFrames(tc, state.format);
     const jump = isLargeTimecodeJump(state.totalFrames, totalFrames, state.format);
-    const next: TimecodeState = { ...state, timecode: tc, totalFrames,
+    const next: TimecodeState = { ...state, automationRevision: crypto.randomUUID(), timecode: tc, totalFrames,
       display: timecodeToString(tc, state.format.dropFrame === "df"), serverTime: Date.now(),
       ...(jump ? { triggersEnabled: false, automationHold: {
         id: crypto.randomUUID(), reason: "timecode-jump" as const, detectedAt: Date.now(),
@@ -38,7 +38,7 @@ export function prepareTimecodeClockEdit(state: TimecodeState, events: Automatio
   const invalid = events.find(event => !isValidTimecode(event.triggerTimecode, format));
   if (invalid) throw new Error(`Cue “${invalid.label}” has a timecode that is invalid at the new frame rate. Correct or remove that cue before reformatting.`);
   const timecode = normalizeTimecodeForFormat(state.timecode, format);
-  const next: TimecodeState = { ...state, triggersEnabled: false, format, timecode,
+  const next: TimecodeState = { ...state, automationRevision: crypto.randomUUID(), triggersEnabled: false, format, timecode,
     totalFrames: timecodeToFrames(timecode, format), display: timecodeToString(timecode, format.dropFrame === "df"),
     serverTime: Date.now(), incomingFormat: null,
     ...(state.signal?.status === "format-mismatch" ? { signal: { status: "waiting" as const, lastFeedAt: null } } : {}),
