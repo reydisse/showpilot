@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useParams } from "@tanstack/react-router";
 import { configureDesktopLocalDevices } from "@/lib/desktop-local-devices";
+import { getDesktopActions } from "@/lib/desktop-operations";
 import { isDesktopRuntime } from "@/lib/desktop-runtime";
 
 /**
@@ -15,17 +16,9 @@ export function DesktopBridgeController() {
     if (!isDesktopRuntime() || !slug) return;
     let active = true;
 
-    const bootstrap = async () => {
-      try {
-        await configureDesktopLocalDevices(slug, false, () => active);
-        if (!active) return;
-      } catch (cause) {
-        // The status bar reports native engine errors on authenticated app routes.
-        console.error("Unable to configure the desktop device engine", cause);
-      }
-    };
-
-    void bootstrap();
+    getDesktopActions().bridge.start("Local devices", async withinDeadline => {
+      await configureDesktopLocalDevices(slug, false, () => active && withinDeadline());
+    });
     return () => {
       active = false;
     };

@@ -1,12 +1,13 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { hydrateRoot } from "react-dom/client";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopStatusBar } from "../DesktopStatusBar";
 import type { DesktopBridgeStatus } from "@/lib/desktop-runtime";
 
 const mocks = vi.hoisted(() => ({
   native: true,
+  slug: "faithfire-production",
   configure: vi.fn(),
   getBridgeStatus: vi.fn(),
   checkUpdate: vi.fn(),
@@ -16,7 +17,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-  useParams: () => ({ slug: "faithfire-production" }),
+  useParams: () => ({ slug: mocks.slug }),
 }));
 
 vi.mock("@/lib/desktop-local-devices", () => ({
@@ -43,17 +44,19 @@ vi.mock("@/lib/desktop-runtime", async (importOriginal) => {
   };
 });
 
-describe("DesktopStatusBar", () => {
-  beforeEach(() => {
-    mocks.native = true;
-    mocks.configure.mockReset();
-    mocks.openLocalShow.mockReset().mockResolvedValue(undefined);
-    mocks.getBridgeStatus.mockReset().mockResolvedValue({ configured: false, running: false, connection: "offline", pid: null, logs: [], lastError: null });
-    mocks.checkUpdate.mockReset().mockResolvedValue(null);
-    mocks.installUpdate.mockReset().mockResolvedValue({ version: "0.1.4", notes: null, date: null });
-    mocks.openWindow.mockReset().mockResolvedValue(undefined);
-  });
+beforeEach(() => {
+  window.__TAURI__ = { core: { invoke: vi.fn() } };
+  mocks.native = true;
+  mocks.slug = "faithfire-production";
+  mocks.configure.mockReset();
+  mocks.openLocalShow.mockReset().mockResolvedValue(undefined);
+  mocks.getBridgeStatus.mockReset().mockResolvedValue({ configured: false, running: false, connection: "offline", pid: null, logs: [], lastError: null });
+  mocks.checkUpdate.mockReset().mockResolvedValue(null);
+  mocks.installUpdate.mockReset().mockResolvedValue({ version: "0.1.4", notes: null, date: null });
+  mocks.openWindow.mockReset().mockResolvedValue(undefined);
+});
 
+describe("DesktopStatusBar", () => {
   it("hydrates the server page before adding native controls without replacing the operator tree", async () => {
     const element = <div><button>Keep operator state</button><DesktopStatusBar /></div>;
     mocks.native = false;
@@ -101,6 +104,7 @@ describe("DesktopStatusBar", () => {
     render(<DesktopStatusBar />);
     await screen.findByText("Venue Bridge mode");
 
+    await waitFor(() => expect(screen.getByRole("button", { name: "Use this computer" }).hasAttribute("disabled")).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Use this computer" }));
     const dialog = await screen.findByRole("dialog");
     expect(mocks.configure).not.toHaveBeenCalled();
@@ -108,7 +112,7 @@ describe("DesktopStatusBar", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Use this computer" }));
 
     await waitFor(() => {
-      expect(mocks.configure).toHaveBeenCalledWith("faithfire-production", true);
+      expect(mocks.configure).toHaveBeenCalledWith("faithfire-production", true, expect.any(Function));
       expect(screen.getByText("This computer controls local devices")).not.toBeNull();
       expect(screen.getByRole("button", { name: "Use venue Bridge" })).not.toBeNull();
     });
@@ -180,4 +184,91 @@ it("opens the native local workspace and surfaces older-engine failures", async 
   fireEvent.click(screen.getByRole("button", { name: "Local show" }));
   await screen.findByText("The local workspace could not open. Update ShowPilot Desktop and try again.");
   expect(mocks.openLocalShow).toHaveBeenCalledTimes(1);
+});
+
+
+afterEach(async () => {
+  cleanup();
+  if (vi.isFakeTimers()) await vi.runOnlyPendingTimersAsync();
+  else await new Promise(resolve => setTimeout(resolve, 0));
+  vi.useRealTimers();
+});
+it("does not overlap a stalled Bridge status read", async () => {
+  vi.useFakeTimers(); mocks.native = true;
+  mocks.getBridgeStatus.mockReturnValue(new Promise(() => {}));
+  render(<DesktopStatusBar />);
+  await act(() => vi.advanceTimersByTimeAsync(16000));
+  expect(mocks.getBridgeStatus).toHaveBeenCalledTimes(1);
+  expect(screen.getByText("Local device status unavailable")).toBeTruthy();
+});
+it("reports an unresolved native window without allowing duplicate opens", async () => {
+  vi.useFakeTimers(); mocks.native = true;
+  let finish!: () => void; mocks.openWindow.mockReturnValue(new Promise<void>(done => { finish = done; }));
+  render(<DesktopStatusBar />);
+  fireEvent.click(screen.getByRole("button", { name: "Check-in" }));
+  await act(() => vi.advanceTimersByTimeAsync(12000));
+  expect(screen.getByText(/Check-in has not confirmed/)).toBeTruthy();
+  expect(mocks.openWindow).toHaveBeenCalledTimes(1);
+  await act(async () => finish());
+  expect(screen.getByRole("button", { name: "Check-in" }).hasAttribute("disabled")).toBe(false);
+});
+it("does not apply a local-device confirmation from the preceding workspace", async () => {
+  mocks.native = true; mocks.slug = "faithfire-production"; mocks.configure.mockReset();
+  mocks.getBridgeStatus.mockResolvedValue({ configured: false, running: false, connection: "offline", pid: null, logs: [], lastError: null });
+  const view = render(<DesktopStatusBar />);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Use this computer" }).hasAttribute("disabled")).toBe(false));
+  fireEvent.click(screen.getByRole("button", { name: "Use this computer" }));
+  const dialog = await screen.findByRole("dialog");
+  mocks.slug = "other-workspace"; view.rerender(<DesktopStatusBar />);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Use this computer" }));
+  await act(async () => {});
+  expect(mocks.configure).not.toHaveBeenCalled();
+});
+
+it("retains a slow installation across remounts and accepts its late confirmed result", async () => {
+  vi.useFakeTimers();
+  mocks.checkUpdate.mockResolvedValue({ version: "0.2.0", notes: null, date: null });
+  let finish!: (value: { version: string; restartRequired: boolean }) => void;
+  mocks.installUpdate.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  const view = render(<DesktopStatusBar />);
+  fireEvent.click(screen.getByRole("button", { name: "Check update" }));
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  fireEvent.click(screen.getByRole("button", { name: "Update 0.2.0" }));
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Install and restart" }));
+  await act(() => vi.advanceTimersByTimeAsync(60000));
+  expect(screen.getByText(/Desktop installation has not confirmed completion/)).toBeTruthy();
+  view.unmount(); render(<DesktopStatusBar />);
+  const button = screen.getByRole("button", { name: "Installation not confirmed" });
+  expect(button.hasAttribute("disabled")).toBe(true); fireEvent.click(button);
+  expect(mocks.installUpdate).toHaveBeenCalledTimes(1);
+  await act(async () => finish({ version: "0.2.0", restartRequired: true }));
+  expect(screen.getByRole("button", { name: "Restart required" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.queryByText(/Desktop installation has not confirmed completion/)).toBeNull();
+});
+
+it("ignores an older status reply after an explicit retry reads newer state", async () => {
+  vi.useFakeTimers();
+  let finish!: (value: DesktopBridgeStatus) => void;
+  mocks.getBridgeStatus.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+  const connected: DesktopBridgeStatus = { configured: true, running: true, connection: "connected", localDevicesEnabled: true, pid: 1, logs: [], lastError: null };
+  mocks.getBridgeStatus.mockResolvedValue(connected);
+  render(<DesktopStatusBar />);
+  await act(() => vi.advanceTimersByTimeAsync(12000));
+  fireEvent.click(screen.getByRole("button", { name: "Retry local status" }));
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  expect(screen.getByText("This computer controls local devices")).toBeTruthy();
+  await act(async () => finish({ ...connected, connection: "offline", running: false, localDevicesEnabled: false }));
+  expect(screen.getByText("This computer controls local devices")).toBeTruthy();
+});
+
+it("does not let the scheduled update check overlap a manual check", async () => {
+  vi.useFakeTimers();
+  let finish!: (value: { version: string; notes: null; date: null }) => void;
+  mocks.checkUpdate.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  render(<DesktopStatusBar />);
+  fireEvent.click(screen.getByRole("button", { name: "Check update" }));
+  await act(() => vi.advanceTimersByTimeAsync(3000));
+  expect(mocks.checkUpdate).toHaveBeenCalledTimes(1);
+  await act(async () => finish({ version: "0.2.0", notes: null, date: null }));
+  expect(screen.getByRole("button", { name: "Update 0.2.0" })).toBeTruthy();
 });
