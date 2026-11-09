@@ -8327,3 +8327,90 @@ Stack gate: #268 at 1f3139e4 is green in run 42539873974, web 15m20s and Rust
 4m55s. Draft Reset PR #269 is open at 126e3e65, based on
 fix/native-rundown-transport-safety. CI 42541348414 is pending. Connection recovery
 is pushed at 9d41c2d8 and its PR waits for #269's green head. Later PRs remain held.
+
+### Phase 2 follow-up: native Timecode authority and recovery
+
+Twelve focused baseline regressions reproduced native Timecode following the
+organization's active show, treating socket-open as connected, overwriting live
+state with older HTTP data, declaring failed cues fired, ignoring ownership and
+command rejections, waiting indefinitely for start acknowledgement, accepting
+retired-socket updates and automatically restarting a clock on reconnect.
+
+The native operator now explicitly selects a show. State/event reads, commands,
+WebSockets and query caches carry its identity; caches also separate actors.
+The same full show catalog serves web and native Timecode through a shared
+server query. The new authenticated GET /api/mobile/v1/timecode/shows requires
+timecode access, includes older and same-day shows, excludes deleting shows and
+filters by organization. The first browser rehearsal exposed why bootstrap was
+not a suitable catalog: it intentionally lists upcoming/active shows and uses
+the organization's date. Four real-auth Worker cases cover the new catalog,
+including session, permission and organization boundaries. The first test run
+expected 403 for non-membership; the existing API deliberately returns 401 when
+there is no identity in that organization. The test now asserts that exact
+existing response, without changing authorization.
+
+Native bootstrap, catalog and timecode HTTP requests have 10-second deadlines.
+Timecode opts out of automatic bootstrap retries so the first failure exposes
+Retry. A socket has 12 seconds to provide a valid same-show/date snapshot.
+Claim, release, start and stop wait at most eight seconds for confirmation.
+Connected requires hydration; explicit ownership is visible and HTTP edits are
+blocked until this device owns control. A local generator needs both its grant
+and the reviewed running position. Source math is unchanged. Disconnect, error,
+backgrounding, unreadable/wrong-room data and missed sequence updates retire the
+connection and stop its feed immediately. Recovery never replays commands or
+restarts the clock. Every 20 seconds, the existing read-only sync protocol
+refreshes the full snapshot; a missing reply after eight seconds retires an
+otherwise open socket. Retry obtains fresh state. Command rejection/uncertainty
+notices persist until dismissed. The existing relay sequence tracker moved to
+shared code; web, display and native readers use the same implementation.
+
+Native events preserve their server execution status/error and enabled/skipped
+flags. Failed and dispatching updates no longer become Fired, and newer action
+names do not discard the timeline. Late HTTP polls cannot replace socket state.
+An added event's label is retained until its ID appears in the authoritative
+event list. Clock metadata and action-choice labels are at least 12px; action choices
+are at least 44px. The operator can change show only after the local source/pending action
+has settled. Reset-all now requires explicit confirmation and is unavailable
+while the clock is running.
+
+Verification: 30 focused native hook/contract tests and four real-auth catalog
+Worker tests pass. Full suite 2 passes 351 unit files / 2,884 tests and 143 Worker
+files / 1,589 tests, 4,473 total. Web typecheck 2 and build 2 pass. Main client is
+549,593 raw / 173,777 gzip bytes within unchanged budgets. Native verify 2 passes
+all three exports, Expo Doctor 18/18, contracts and polling boundaries; Hermes
+is 5,769,758 bytes on iOS / 5,768,838 on Android. Lint has 18 pre-existing warnings
+and no errors. Earlier summaries said 17; the preceding heartbeat verification
+log actually records the same 18 warnings.
+
+Compiled Expo web rehearsals 2 and 3 pass against isolated real authentication, D1
+and TimecodeRelay. It stalls bootstrap and catalog reads until visible timeout
+and retries, withholds socket hydration, then tests a competing operator's
+ownership, a real failed rundown cue, a disabled cue, explicit claim, native
+clock feeding and Stop, an established silent connection, last-known timing,
+manual retry without an automatic restart, and selecting a separate older
+same-day show without leaking the first timeline. All HTTP/socket requests pin
+a selected show. Controls stay within bounds and at least 44px at
+320/768/1440px. Zero runtime errors. Inspected final narrow timeout, competing
+operator and failed/disabled-cue layouts. Rehearsal 3 changes only the capture
+position so the cue status/error rows are visible in the screenshots. This is an Expo web rehearsal, not a physical-device claim.
+
+Rehearsal after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-timecode-authority.mjs`.
+Evidence: /tmp/showpilot-native-timecode-{before,unit1,unit2,shows-before,worker1,worker2,full1,full2,mobile-tsc1,tsc1,tsc2,build1,build2,verify1,verify2,browser1,browser2,browser3}.log.
+Screenshots: /tmp/showpilot-native-timecode-{timeout,failed,evening}-{320,768,1440}.png.
+The matching backend catalog endpoint must be deployed before distributing this
+native build. No deployment, release, migration, external mail or real-org write
+was performed.
+
+Phase 2 remains 67/79. Native Timecode still needs the broader editor and mutation
+recovery pass, seek/reformat confirmations, accessible confirmation sheets,
+automation kill/retry controls and typed action forms. Shared operations-row
+status badges still use 11px and remain part of the broader typography pass. Native Chat's own socket
+lifecycle, rundown item editing and ProPresenter command recovery remain open.
+These checks do not close the product-wide gate or claim native Timecode parity.
+No new Markdown file; twenty necessary tracked Markdown files remain.
+
+Stack gate: Reset #269 at 126e3e65 passed run 42541348414. Connection recovery
+#270 at 9d41c2d8 passed run 42542523164. Draft heartbeat #271 is open at ab5c6f09,
+based on fix/native-live-connection-recovery; run 42543651519 is pending. Its
+Rust job passed. Timecode's PR remains held until that head is green.
