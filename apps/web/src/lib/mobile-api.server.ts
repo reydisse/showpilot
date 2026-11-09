@@ -3838,13 +3838,13 @@ async function commandIncident(
     return json({ ok: true });
 
   const now = new Date().toISOString();
-  let result: ChecklistWriteResult;
+  let result: { id: string } | null;
   if (command.kind === "claim") {
     result = await db
       .prepare(
         `UPDATE incident SET assignedTo = ?, assignedName = ?, acknowledgedAt = ?, assignedBy = ?, assignedAt = ?
          WHERE id = ? AND orgId = ? AND status <> 'resolved'
-           AND (assignedTo IS NULL OR assignedTo = '' OR assignedTo = ?)`,
+           AND (assignedTo IS NULL OR assignedTo = '' OR assignedTo = ?) RETURNING id`,
       )
       .bind(
         access.identity.userId,
@@ -3856,7 +3856,7 @@ async function commandIncident(
         access.orgId,
         access.identity.userId,
       )
-      .run();
+      .first<{ id: string }>();
   } else if (command.kind === "assign") {
     if (!assignmentTarget)
       return json(
@@ -3867,7 +3867,7 @@ async function commandIncident(
       .prepare(
         `UPDATE incident SET assignedTo = ?, assignedName = ?, acknowledgedAt = NULL, assignedBy = ?, assignedAt = ?
        WHERE id = ? AND orgId = ? AND status <> 'resolved'
-         AND COALESCE(assignedTo, '') = ?`,
+         AND COALESCE(assignedTo, '') = ? RETURNING id`,
       )
       .bind(
         assignmentTarget.userId,
@@ -3878,37 +3878,37 @@ async function commandIncident(
         access.orgId,
         incident.assignedTo ?? "",
       )
-      .run();
+      .first<{ id: string }>();
   } else if (command.kind === "unassign") {
     result = await db
       .prepare(
         `UPDATE incident SET assignedTo = NULL, assignedName = '', acknowledgedAt = NULL,
                assignedBy = NULL, assignedAt = NULL
        WHERE id = ? AND orgId = ? AND status <> 'resolved'
-         AND COALESCE(assignedTo, '') = ?`,
+         AND COALESCE(assignedTo, '') = ? RETURNING id`,
       )
       .bind(incidentId, access.orgId, incident.assignedTo ?? "")
-      .run();
+      .first<{ id: string }>();
   } else if (command.kind === "acknowledge") {
     result = await db
       .prepare(
         `UPDATE incident SET acknowledgedAt = ?
        WHERE id = ? AND orgId = ? AND status <> 'resolved'
-         AND assignedTo = ? AND acknowledgedAt IS NULL`,
+         AND assignedTo = ? AND acknowledgedAt IS NULL RETURNING id`,
       )
       .bind(now, incidentId, access.orgId, access.identity.userId)
-      .run();
+      .first<{ id: string }>();
   } else {
     result = await db
       .prepare(
         `UPDATE incident SET status = 'resolved', resolvedAt = ?, resolvedBy = ?
-       WHERE id = ? AND orgId = ? AND status <> 'resolved'`,
+       WHERE id = ? AND orgId = ? AND status <> 'resolved' RETURNING id`,
       )
       .bind(now, access.identity.name, incidentId, access.orgId)
-      .run();
+      .first<{ id: string }>();
   }
 
-  if (changedExactlyOneRow(result)) {
+  if (result?.id === incidentId) {
     await notifyMobileIncidentCommand({
       orgId: access.orgId,
       actorId: access.identity.userId,
@@ -4186,11 +4186,11 @@ async function updateMobileIncident(
   const result = await db
     .prepare(
       `UPDATE incident SET category = ?, severity = ?, description = ?
-     WHERE id = ? AND orgId = ?`,
+     WHERE id = ? AND orgId = ? RETURNING id`,
     )
     .bind(category, severity, description, incidentId, access.orgId)
-    .run();
-  if (!changedExactlyOneRow(result))
+    .first<{ id: string }>();
+  if (result?.id !== incidentId)
     return json({ error: "Incident not found." }, 404);
   try {
     const { notifyOperationalEvent } =
@@ -4224,10 +4224,10 @@ async function deleteMobileIncident(
   const access = await authorize(request, url, db, ["incidents:access"]);
   if (access instanceof Response) return access;
   const result = await db
-    .prepare("DELETE FROM incident WHERE id = ? AND orgId = ?")
+    .prepare("DELETE FROM incident WHERE id = ? AND orgId = ? RETURNING id")
     .bind(incidentId, access.orgId)
-    .run();
-  return changedExactlyOneRow(result)
+    .first<{ id: string }>();
+  return result?.id === incidentId
     ? json({ ok: true })
     : json({ error: "Incident not found." }, 404);
 }

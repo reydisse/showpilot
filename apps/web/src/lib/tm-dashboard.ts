@@ -16,7 +16,6 @@ import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import { getD1 } from "@/lib/d1";
 import {
-  hasEffectivePermission,
   isAdminTier,
   type Permission,
 } from "@/lib/app-permissions";
@@ -327,16 +326,17 @@ async function loadOpenFaults(orgId: string): Promise<TmIncident[]> {
     (
       await getD1()
         .prepare(
-          `SELECT id, category, severity, description, reportedBy, serviceDate,
-                  timestamp, status, assignedTo, assignedName, acknowledgedAt
-             FROM incident
-            WHERE orgId = ? AND status <> 'resolved'
+          `SELECT i.id, category, severity, description, reportedBy, serviceDate,
+                  timestamp, status, assignedTo, assignedName, acknowledgedAt, r.revision
+             FROM incident i JOIN incident_management_revision r ON r.orgId=i.orgId AND r.incidentId=i.id
+            WHERE i.orgId = ? AND status <> 'resolved'
             ORDER BY timestamp DESC
             LIMIT ?`,
         )
         .bind(orgId, OPEN_FAULT_LIMIT)
         .all<{
           id: string;
+          revision: number;
           category: string;
           severity: string;
           description: string;
@@ -352,6 +352,7 @@ async function loadOpenFaults(orgId: string): Promise<TmIncident[]> {
 
   return rows.map((row) => ({
     id: row.id,
+    revision: row.revision,
     category: row.category,
     severity: row.severity,
     description: row.description,
@@ -404,164 +405,3 @@ async function loadRundownMeta(
     return null;
   }
 }
-
-// ─── Fault actions ───────────────────────────────────────────
-
-/**
- * Take a fault, or hand it to someone else.
- *
- * Claiming also acknowledges it: you cannot press this button without
- * having read the fault, so recording otherwise would be theatre.
- * Assigning someone *else* does not acknowledge — they have not seen it
- * yet, and that gap is exactly what the staleness rule watches for.
- */
-export const assignFault = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        id: idSchema,
-        /** Null hands it back to the pool. */
-        assignedTo: idSchema.nullable(),
-        assignedName: z.string().max(120).default(""),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    const viewer = await assertTm(data.orgId, ["dashboard:tm", "incidents:access"]);
-    // Claiming a fault yourself acknowledges it — you cannot press the
-    // button without having read it. Handing it to someone else does
-    // not: they have not seen it yet, and that gap is exactly what the
-    // staleness rule watches for.
-    const claimingSelf = data.assignedTo === viewer.userId;
-    if (
-      claimingSelf &&
-      !hasEffectivePermission(viewer.role, viewer.grantedPermissions, "incidents:access")
-    ) throw new Error("Forbidden");
-    let name = data.assignedTo ? data.assignedName || viewer.userName : "";
-
-    if (data.assignedTo && !claimingSelf) {
-      if (!isAdminTier(viewer.role)) throw new Error("Forbidden");
-      const target = await getPrisma().member.findFirst({
-        where: { organizationId: data.orgId, userId: data.assignedTo },
-        select: { user: { select: { name: true } } },
-      });
-      const targetAccess = target
-        ? await resolveEffectiveAccess(getD1(), data.assignedTo, data.orgId)
-        : null;
-      if (!target || !targetAccess?.permissions.includes("incidents:access")) {
-        throw new Error("That person cannot be assigned operational issues");
-      }
-      // Never trust the display name supplied by the browser. It is
-      // denormalised onto the incident, so source it from membership.
-      name = target.user.name;
-    }
-
-    if (!data.assignedTo && !isAdminTier(viewer.role)) {
-      const current = await getD1()
-        .prepare(`SELECT assignedTo FROM incident WHERE id = ? AND orgId = ?`)
-        .bind(data.id, data.orgId)
-        .first<{ assignedTo: string | null }>();
-      if (current?.assignedTo !== viewer.userId) throw new Error("Forbidden");
-    }
-
-    // orgId in the WHERE, not just the permission check. The check proves
-    // this caller may manage faults in their own org, not that this fault
-    // belongs to it.
-    const result = await getD1()
-      .prepare(
-        `UPDATE incident SET assignedTo = ?, assignedName = ?, acknowledgedAt = ?,
-          assignedBy = ?, assignedAt = ?
-          WHERE id = ? AND orgId = ?`,
-      )
-      .bind(
-        data.assignedTo,
-        name,
-        claimingSelf ? new Date().toISOString() : null,
-        data.assignedTo ? viewer.userId : null,
-        data.assignedTo ? new Date().toISOString() : null,
-        data.id,
-        data.orgId,
-      )
-      .run();
-    if (!result.success) throw new Error("Could not assign that fault");
-
-    try {
-      const { notifyOperationalEvent } = await import("@/lib/operational-notifications.server");
-      await notifyOperationalEvent({
-        orgId: data.orgId,
-        actorId: viewer.userId,
-        recipientIds: data.assignedTo ? [data.assignedTo] : [],
-        includeLeadership: true,
-        category: "incidents",
-        type: data.assignedTo ? "incident-assigned" : "incident-unassigned",
-        severity: "warning",
-        title: data.assignedTo ? "Operational issue assigned" : "Operational issue returned to the queue",
-        message: data.assignedTo ? `${name || "A technician"} is now responsible for this issue.` : `${viewer.userName} returned an issue to the unassigned queue.`,
-        actionUrl: `production/incidents?incident=${encodeURIComponent(data.id)}`,
-        source: data.id,
-        pushTag: `fault-${data.id}`,
-      });
-    } catch {
-      // The assignment remains authoritative when notification delivery fails.
-    }
-
-    return { ok: true as const };
-  });
-
-/** Confirm you have seen a fault someone else handed you. */
-export const acknowledgeFault = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
-  )
-  .handler(async ({ data }) => {
-    const viewer = await assertTm(data.orgId, ["dashboard:tm", "incidents:access"]);
-    await getD1()
-      .prepare(`UPDATE incident SET acknowledgedAt = ? WHERE id = ? AND orgId = ? AND assignedTo = ?`)
-      .bind(new Date().toISOString(), data.id, data.orgId, viewer.userId)
-      .run();
-    const { notifyOperationalEvent } = await import("@/lib/operational-notifications.server");
-    await notifyOperationalEvent({
-      orgId: data.orgId,
-      actorId: viewer.userId,
-      includeLeadership: true,
-      category: "incidents",
-      type: "incident-acknowledged",
-      title: "Operational issue acknowledged",
-      message: `${viewer.userName} acknowledged the assigned issue.`,
-      actionUrl: `production/incidents?incident=${encodeURIComponent(data.id)}`,
-      source: data.id,
-      pushTag: `fault-${data.id}`,
-    });
-    return { ok: true as const };
-  });
-
-export const resolveFault = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
-  )
-  .handler(async ({ data }) => {
-    const viewer = await assertTm(data.orgId, ["dashboard:tm", "incidents:access"]);
-    await getD1()
-      .prepare(
-        `UPDATE incident SET status = 'resolved', resolvedAt = ?, resolvedBy = ?
-          WHERE id = ? AND orgId = ?`,
-      )
-      .bind(new Date().toISOString(), viewer.userName, data.id, data.orgId)
-      .run();
-    const { notifyOperationalEvent } = await import("@/lib/operational-notifications.server");
-    await notifyOperationalEvent({
-      orgId: data.orgId,
-      actorId: viewer.userId,
-      includeLeadership: true,
-      category: "incidents",
-      type: "incident-resolved",
-      title: "Operational issue resolved",
-      message: `${viewer.userName} marked the issue as resolved.`,
-      actionUrl: `production/incidents?incident=${encodeURIComponent(data.id)}`,
-      source: data.id,
-      pushTag: `fault-${data.id}`,
-    });
-    return { ok: true as const };
-  });
