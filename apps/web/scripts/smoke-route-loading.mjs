@@ -53,19 +53,28 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
       assert.equal(await evaluate('window.routeDocument'), 'same-document');
       if (path === 'timecode') {
         await page('Emulation.setDeviceMetricsOverride', { width: 320, height: 480, deviceScaleFactor: 1, mobile: false });
-        const bounds = await evaluate(`(() => {
+        // CDP acknowledges the viewport change before responsive layout and hit
+        // testing settle. Measure after paint, then allow scrolling to settle.
+        const bounds = await evaluate(`(async () => {
+          const painted = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+          await painted();
           const button = [...document.querySelectorAll('button')].find(node => node.textContent.trim() === 'Try again');
-          button.scrollIntoView({ block: 'center' }); const r = button.getBoundingClientRect();
-          return { left: r.left, right: r.right, height: r.height, reachable: button.contains(document.elementFromPoint(r.x + r.width/2, r.y + r.height/2)) };
+          button.scrollIntoView({ block: 'center', behavior: 'instant' });
+          await painted();
+          const r = button.getBoundingClientRect();
+          const x = r.x + r.width/2, y = r.y + r.height/2;
+          return { left: r.left, right: r.right, height: r.height, x, y, reachable: button.contains(document.elementFromPoint(x, y)) };
         })()`);
         assert.ok(bounds.left >= 0 && bounds.right <= 320 && bounds.height >= 44 && bounds.reachable, JSON.stringify(bounds));
         const screenshot = await page('Page.captureScreenshot', { format: 'png' });
         await writeFile('/tmp/showpilot-route-timeout-320.png', Buffer.from(screenshot.data, 'base64'));
-        await page('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
-        // Retry also has to finish while the endpoint remains stuck.
-        await click('Try again');
+        // Use a real pointer at the small viewport, not DOM click(), which can
+        // activate an obscured control. Retry must finish with the read stuck.
+        await page('Input.dispatchMouseEvent', { type: 'mousePressed', x: bounds.x, y: bounds.y, button: 'left', clickCount: 1 });
+        await page('Input.dispatchMouseEvent', { type: 'mouseReleased', x: bounds.x, y: bounds.y, button: 'left', clickCount: 1 });
         await poll(() => evaluate('window.heldReads.length >= 2'), 'second attempt held');
         await errorReady();
+        await page('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
       }
       await release();
       assert.equal(await evaluate(`!!document.querySelector('.route-recovery')`), true, 'late response must not dismiss the failed route');
