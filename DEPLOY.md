@@ -9681,3 +9681,9 @@ Parent #290 head 15ff6dd2e9d7c5fed0221ab00b3a3d90770ad70a has both CI checks gre
 Logs: /tmp/showpilot-chat-attachments-{before1,full3,worker3,unit3,ui5,tsc8,shared3,build4,native3,browser6,native-browser4,mutation-browser1,frozen-force}.log.
 Screenshots: /tmp/showpilot-{web,native}-attachment-{upload,removal}-{320,768,1440}.png
 and /tmp/showpilot-native-attachment-preview-timeout.png.
+
+### Phase 2 follow-up: covered ProPresenter PIN tests
+
+CI run 42613200920 at d185aaee failed two existing ProPresenter output tests: the PIN-rotation test exceeded its default 5-second runner budget at 5.538s, and the valid TM write returned the correct `expired` outcome after its test command's 5-second window elapsed (6.434s total case time). Other real PIN cases took 5.283–5.681s under coverage. This was not a missing-secret or spending-limit failure.
+
+The two fixtures now use the existing server-allowed 10-second command window, and the rotation case uses the neighboring PIN cases' 15-second test budget. Production code, the server-clock deadline guard, the 210,000-iteration PIN work factor, exact-once verification assertions, transactional PIN-rotation guard, and explicit expired/future-deadline cases are unchanged. The actual Worker test file passed all 21 tests with Istanbul coverage locally (`/tmp/showpilot-pr291-ci-covered1.log`). The complete GitHub check must still pass on the updated head before opening a successor PR.

@@ -453,12 +453,14 @@ it("rejects a PIN configuration change between verification and the output commi
     },
   });
   await expect(writeProPresenterOutput(db, {
-    orgId, userId, requestId: crypto.randomUUID(), expectedRevision: null, enabled: true, expiresAt: Date.now() + 5_000,
+    orgId, userId, requestId: crypto.randomUUID(), expectedRevision: null, enabled: true, expiresAt: Date.now() + 10_000,
   }, { ...actor, rundownPin: "2468" })).rejects.toThrow("access changed");
   expect(await savedOutput()).toBeUndefined();
-});
-// One API request per case: real 210,000-iteration verification stays in place,
-// without accumulating four expensive derivations under one test deadline.
+}, 15_000);
+// One API request per case: keep real 210,000-iteration verification. Coverage
+// on CI takes 5–7 seconds for this derivation. Use the existing server-allowed
+// 10-second command window, independently of the 15-second test runner budget.
+// Dedicated expired/future-deadline cases above still prove server clock rejection.
 it.each([
   ["read", undefined, 401], ["read", "0000", 401], ["read", "2468", 200],
   ["write", undefined, 401], ["write", "0000", 401], ["write", "2468", 200],
@@ -469,7 +471,7 @@ it.each([
   const verify = vi.spyOn(pinCrypto, "verifyStoredRundownPin");
   const command = operation === "write" ? {
     orgId, userId, requestId: crypto.randomUUID(), expectedRevision: null,
-    enabled: true, expiresAt: Date.now() + 5_000,
+    enabled: true, expiresAt: Date.now() + 10_000,
   } : undefined;
   const result = await call(command, env, pin);
   expect(result.status).toBe(status);
