@@ -1,3 +1,4 @@
+import { runMobileOperation } from "./request-deadline";
 import type { ChatUploadSpec } from "@showpilot/shared/chat-attachment";
 import { proPresenterOutputResultSchema, proPresenterOutputSnapshotSchema, type ProPresenterOutputCommand } from "@showpilot/shared/propresenter-output";
 import { proPresenterReplySchema, type ProPresenterCommand } from "@showpilot/shared/propresenter-command";
@@ -1337,6 +1338,7 @@ export interface MobileIncidentHistoryFilters {
 export async function getMobileIncidentHistory(
   orgId: string,
   filters: MobileIncidentHistoryFilters,
+  signal?: AbortSignal,
 ): Promise<MobileIncidentHistory> {
   const query = new URLSearchParams({
     orgId,
@@ -1350,10 +1352,12 @@ export async function getMobileIncidentHistory(
   if (filters.assignee) query.set("assignee", filters.assignee);
   if (filters.from) query.set("from", filters.from);
   if (filters.to) query.set("to", filters.to);
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/incidents/history?${query}`,
-  );
-  return incidentHistorySchema.parse(await response.json());
+  return runMobileOperation(async controller => {
+    const response = await authenticatedFetch(
+      `/api/mobile/v1/incidents/history?${query}`, { signal: controller.signal },
+    );
+    return incidentHistorySchema.parse(await response.json());
+  }, signal, 10_000);
 }
 
 export async function reportMobileIncident(input: {

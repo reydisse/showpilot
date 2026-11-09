@@ -1,4 +1,5 @@
 import { RelaySyncNotice } from "@/components/RelaySyncNotice";
+import { parseIncidentTimestamp } from "@/lib/incident-time";
 import { createFileRoute, Link, useBlocker } from "@tanstack/react-router";
 import { isEmojiReaction } from "@showpilot/shared";
 import { PageSkeleton } from "@/components/ui/Skeleton";
@@ -353,7 +354,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
                         {incident.timestamp && (
                           <span className="text-xs text-board-muted">
                             {formatTime(
-                              new Date(incident.timestamp),
+                              parseIncidentTimestamp(incident.timestamp),
                               "12hr",
                               orgTimezone,
                             )}
