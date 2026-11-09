@@ -30,7 +30,6 @@ import { invitationDeliverySchema } from "./invitation-recovery";
 import { workspaceSchema, type MobileWorkspace } from "./workspace-schema";
 export { workspaceSchema, type MobileWorkspace } from "./workspace-schema";
 import {
-  type ModuleId,
   type WorkspaceType,
 
   isEmojiReaction,
@@ -2223,28 +2222,13 @@ export async function saveMobilePushToken(
   });
 }
 
-export async function saveMobileWorkspaceType(input: {
-  orgId: string;
-  type: WorkspaceType;
-  resetModules: boolean;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/workspace/type?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify(input) },
-  );
-  return z.object({ workspace: workspaceSchema }).parse(await response.json())
-    .workspace;
+export async function getMobileWorkspaceChange(scope: { orgId: string; userId: string }, signal: AbortSignal): Promise<unknown> {
+  const response = await authenticatedFetch(`/api/mobile/v1/workspace/change?orgId=${encodeURIComponent(scope.orgId)}&userId=${encodeURIComponent(scope.userId)}`, { signal });
+  return response.json();
 }
-export async function saveMobileWorkspaceModules(input: {
-  orgId: string;
-  modules: ModuleId[];
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/workspace/modules?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify(input) },
-  );
-  return z.object({ workspace: workspaceSchema }).parse(await response.json())
-    .workspace;
+export async function sendMobileWorkspaceChange(command: import("@showpilot/shared/workspace-change").WorkspaceChange, mode: "save" | "review", signal: AbortSignal): Promise<unknown> {
+  const response = await authenticatedFetch(`/api/mobile/v1/workspace/${mode === "save" ? "change" : "review-change"}`, { method: "POST", body: JSON.stringify(command), signal });
+  return response.json();
 }
 export async function saveMobileInitialWorkspace(input: {
   orgId: string;

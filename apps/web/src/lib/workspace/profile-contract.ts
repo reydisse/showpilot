@@ -1,30 +1,10 @@
 import { z } from "zod";
-import { WORKSPACE_TYPES, MODULE_IDS, isWorkspaceTerm } from "@showpilot/shared";
+import { WORKSPACE_TYPES, MODULE_IDS } from "@showpilot/shared";
 
 export const WORKSPACE_REVISION_KEY = "workspace-profile-revision";
 
-const term = z
-  .string()
-  .trim()
-  .refine(isWorkspaceTerm, "Use 1–24 plain-text characters");
-export const workspaceCustomSchema = z
-  .object({
-    label: z
-      .string()
-      .trim()
-      .max(80)
-      .refine((value) => !/[<>\x00-\x1f\x7f]/.test(value), "Use plain text"),
-    terms: z
-      .object({
-        event: term.optional(),
-        events: term.optional(),
-        item: term.optional(),
-        items: term.optional(),
-      })
-      .strict()
-      .default({}),
-  })
-  .strict();
+import { workspaceCustomSchema } from "@showpilot/shared/workspace-change";
+export { workspaceCustomSchema };
 export const workspaceTypeSchema = z.enum(WORKSPACE_TYPES);
 export const workspaceModulesSchema = z.array(z.enum(MODULE_IDS));
 export const workspaceCommandSchema = z.discriminatedUnion("kind", [
