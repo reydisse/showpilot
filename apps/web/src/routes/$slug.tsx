@@ -118,6 +118,7 @@ function OrgContent() {
             revision={context.accessRevision}
           />
             <WorkspaceRouteGate
+              userId={context.user.id}
               orgId={context.orgId}
               slug={context.slug}
               canManage={context.role === "owner" || context.role === "admin"}
@@ -148,6 +149,7 @@ function OrgContent() {
             revision={context.accessRevision}
           />
           <WorkspaceRouteGate
+              userId={context.user.id}
             orgId={context.orgId}
             slug={context.slug}
             canManage={context.role === "owner" || context.role === "admin"}

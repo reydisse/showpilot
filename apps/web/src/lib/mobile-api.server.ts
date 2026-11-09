@@ -7293,6 +7293,22 @@ export async function handleMobileApi(
   if (contentLengthExceeds(request, 3_250_000)) {
     return json({ error: "Request payload is too large." }, 413);
   }
+  if ((url.pathname === "/api/mobile/v1/workspace/change" && ["GET", "POST"].includes(request.method)) ||
+      (url.pathname === "/api/mobile/v1/workspace/review-change" && request.method === "POST")) {
+    const { workspaceScopeSchema, workspaceChangeSchema } = await import("@showpilot/shared/workspace-change");
+    const { readWorkspaceChange, writeWorkspaceChange, WorkspaceChangeAccessError } = await import("./workspace/change.server");
+    const { getD1 } = await import("./d1");
+    const read = request.method === "GET";
+    const parsed = read ? workspaceScopeSchema.safeParse({ orgId: url.searchParams.get("orgId"), userId: url.searchParams.get("userId") })
+      : workspaceChangeSchema.safeParse(await readJson(request));
+    if (!parsed.success) return json({ error: "Check the workspace change and account." }, 400);
+    try {
+      if (read) return json(await readWorkspaceChange(request.headers, parsed.data, getD1()));
+      return json(await writeWorkspaceChange(request.headers, workspaceChangeSchema.parse(parsed.data), url.pathname.endsWith("/review-change") ? "review" : "save", getD1()));
+    } catch (error) {
+      return json({ error: error instanceof WorkspaceChangeAccessError ? error.message : "Workspace change could not be confirmed. Retry or review the original change." }, error instanceof WorkspaceChangeAccessError ? 403 : 503);
+    }
+  }
   if (
     [
       "/api/mobile/v1/workspace/type",

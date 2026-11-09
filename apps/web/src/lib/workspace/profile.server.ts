@@ -110,6 +110,17 @@ export async function writeWorkspaceProfile(
   command: WorkspaceCommand,
 ): Promise<WorkspaceProfile> {
   const settings = await store.read();
+  const entries = workspaceEntries(settings, command);
+  const current = resolveWorkspaceProfile(settings);
+  if (entries.length)
+    await store.write(
+      entries,
+      command.kind === "initial" && command.onlyIfUnconfigured,
+    );
+  return entries.length ? readWorkspaceProfile(store) : current;
+}
+
+export function workspaceEntries(settings: WorkspaceSettings, command: WorkspaceCommand): [string, string][] {
   const current = resolveWorkspaceProfile(settings);
   const entries: [string, string][] = [];
   switch (command.kind) {
@@ -171,10 +182,5 @@ export async function writeWorkspaceProfile(
       }
       break;
   }
-  if (entries.length)
-    await store.write(
-      entries,
-      command.kind === "initial" && command.onlyIfUnconfigured,
-    );
-  return entries.length ? readWorkspaceProfile(store) : current;
+  return entries;
 }

@@ -355,6 +355,7 @@ function OrganizationSettingsPage({
           <div className="max-w-4xl">
             {resolvedSection === "workspace" && (
               <WorkspaceSettings
+                userId={user.id}
                 orgId={orgId}
                 canResumeSetup={role === "owner"}
                 canManage={canViewOrganization && (role === "owner" || role === "admin")}

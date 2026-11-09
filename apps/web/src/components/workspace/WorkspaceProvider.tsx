@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
-import { Link, useLocation, useRouter } from "@tanstack/react-router";
+import { createContext, useContext, type ReactNode } from "react";
+import { Link, useLocation } from "@tanstack/react-router";
 import {
   resolveWorkspaceProfile,
   moduleForSurface,
@@ -7,7 +7,8 @@ import {
   type ModuleId,
   type WorkspaceProfile,
 } from "@showpilot/shared";
-import { setWorkspaceModules } from "@/lib/workspace/profile";
+import { useWorkspaceWork } from "@/hooks/useWorkspaceWork";
+import { WorkspaceChangeNotice } from "./WorkspaceChangeNotice";
 const Context = createContext<WorkspaceProfile>(resolveWorkspaceProfile({}));
 export function WorkspaceProvider({
   profile,
@@ -29,22 +30,26 @@ export function useModuleEnabled(module: ModuleId) {
 }
 export function WorkspaceRouteGate({
   orgId,
+  userId,
   slug,
   canManage,
   children,
 }: {
   orgId: string;
+  userId: string;
   slug: string;
   canManage: boolean;
   children: ReactNode;
 }) {
   const profile = useWorkspace();
   const { pathname } = useLocation();
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const module = moduleForSurface("web", pathname.slice(slug.length + 2));
   if (!module || profile.modules.includes(module)) return children;
+  return <DisabledWorkspaceFeature orgId={orgId} userId={userId} slug={slug} canManage={canManage} module={module} />;
+}
+function DisabledWorkspaceFeature({ orgId, userId, slug, canManage, module }: { orgId: string; userId: string; slug: string; canManage: boolean; module: ModuleId }) {
+  const profile = useWorkspace();
+  const work = useWorkspaceWork({ orgId, userId }, profile, canManage);
   return (
     <section className="mx-auto max-w-xl p-8 text-board-text">
       <h1 className="text-xl font-semibold">
@@ -62,32 +67,12 @@ export function WorkspaceRouteGate({
       >
         Back to {profile.terms.event}
       </Link>
-      {error && (
-        <p role="alert" className="mt-3 text-red-400">
-          {error}
-        </p>
-      )}
+      {canManage && <WorkspaceChangeNotice work={work} />}
       {canManage && (
         <button
-          disabled={busy}
+          disabled={work.locked}
           className="mt-5 rounded-lg bg-fire-500 px-5 py-3 text-black disabled:opacity-50"
-          onClick={async () => {
-            setBusy(true);
-            try {
-              await setWorkspaceModules({
-                data: { orgId, modules: [...profile.modules, module] },
-              });
-              await router.invalidate();
-            } catch (e) {
-              setError(
-                e instanceof Error
-                  ? e.message
-                  : "Could not enable this feature",
-              );
-            } finally {
-              setBusy(false);
-            }
-          }}
+          onClick={() => work.submit({ kind: "module", module, enabled: true })}
         >
           Enable {WORKSPACE_MODULES[module]}
         </button>
