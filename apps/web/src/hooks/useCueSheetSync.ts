@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cueSheetEventSchema, type CueSheetEvent, type CueNoteEvent, type IncidentEvent } from "@/lib/cue-sheet-events";
-import { RelaySequenceTracker } from "@/lib/relay-sequence";
+import { RelaySequenceTracker } from "@showpilot/shared";
 export type { CueSheetEvent, CueNoteEvent, IncidentEvent } from "@/lib/cue-sheet-events";
 
 interface Options {

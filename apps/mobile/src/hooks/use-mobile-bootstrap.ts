@@ -5,14 +5,16 @@ import { getMobileBootstrap } from "@/lib/mobile-api";
 type MobileBootstrapOptions = {
   enabled?: boolean;
   poll?: boolean;
+  retry?: boolean;
 };
 
-export function useMobileBootstrap({ enabled = true, poll = false }: MobileBootstrapOptions = {}) {
+export function useMobileBootstrap({ enabled = true, poll = false, retry }: MobileBootstrapOptions = {}) {
   const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
   const { data: session } = authClient.useSession();
   const query = useQuery({
     queryKey: ["mobile-bootstrap", session?.user.id, organization?.id],
     queryFn: () => getMobileBootstrap(organization!.id),
+    retry,
     enabled: enabled && Boolean(session?.user.id) && Boolean(organization?.id),
     // Push notifications carry urgent changes. A slower safety refresh keeps
     // badges and organization state current without a permanent 5-second

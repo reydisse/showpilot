@@ -17,7 +17,7 @@ import { createBrowserId } from "@/lib/browser-id";
 import { MtcSource } from "@/lib/timecode-sources/mtc-source";
 import type { cueReviewState } from "@/lib/automation-cues";
 import { emptyMidiController, type MidiControllerConfig, type MidiControllerSnapshot } from "@/lib/midi-controller";
-import { RelaySequenceTracker } from "@/lib/relay-sequence";
+import { RelaySequenceTracker } from "@showpilot/shared";
 import { useLyricsCommands } from "@/hooks/useLyricsCommands";
 import type { LyricsOperation } from "@/lib/lyrics-control";
 import { automationEditReview, automationChangesMatch, type AutomationEventChanges } from "@/lib/automation-edit";

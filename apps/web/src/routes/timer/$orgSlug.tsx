@@ -2,7 +2,7 @@ import { NamedTimers } from "@/components/timers/NamedTimers";
 import { ConfidenceLyricsControls } from "@/components/confidence/ConfidenceLyricsControls";
 import type { NamedTimerSample } from "@/lib/named-timers";
 import type { ReactNode } from "react";
-import { RelaySequenceTracker } from "@/lib/relay-sequence";
+import { RelaySequenceTracker } from "@showpilot/shared";
 import { getRundownStateBySlug } from "@/lib/display-data";
 import { closeConfidenceOutputWindow, confidenceOutputReady } from "@/lib/confidence-output";
 import { isDesktopRuntime } from "@/lib/desktop-runtime";

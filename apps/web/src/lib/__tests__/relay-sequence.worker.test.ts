@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { afterEach, expect, it } from "vitest";
 import { timecodeFixture } from "@/test/timecode-fixtures";
 import { seedRelayMember } from "@/test/relay-fixtures";
-import { readRelaySequence, RelaySequenceTracker } from "@/lib/relay-sequence";
+import { readRelaySequence, RelaySequenceTracker } from "@showpilot/shared";
 
 afterEach(() => abortAllDurableObjects());
 async function listen(stub: { fetch: typeof fetch }, url: URL) {
