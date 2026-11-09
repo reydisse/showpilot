@@ -26,3 +26,5 @@ export * from "./automation-timeline";
 export * from "./automation-summary";
 export * from "./timecode-lyrics-control";
 export * from "./text-fit";
+
+export * from "./stage-message";

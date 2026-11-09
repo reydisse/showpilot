@@ -1,3 +1,4 @@
+import { StageMessageCard } from "@/components/stage-message-card";
 import { useRundownItemEditor } from "@/hooks/use-rundown-item-editor";
 import { RundownResetConfirmation } from "@/components/rundown-reset-confirmation";
 import { useRundownChange } from "@/hooks/use-rundown-change";
@@ -22,7 +23,6 @@ import Plus from "lucide-react-native/icons/plus";
 import RotateCcw from "lucide-react-native/icons/rotate-ccw";
 import SkipBack from "lucide-react-native/icons/skip-back";
 import SkipForward from "lucide-react-native/icons/skip-forward";
-import Send from "lucide-react-native/icons/send";
 import Share2 from "lucide-react-native/icons/share-2";
 import Presentation from "lucide-react-native/icons/presentation";
 import ScreenShare from "lucide-react-native/icons/screen-share";
@@ -196,8 +196,6 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
   const templateDeletions = useTemplateDeleteAttempts({orgId,userId,showId:detail.show.id});
   const templateDraft = useTemplateSaveDraft({ orgId, userId, showId: detail.show.id });
   const replacementDraft=useRundownReplacementDraft({orgId,userId,showId:detail.show.id});
-  const [message, setMessage] = useState("");
-  const [messagePriority, setMessagePriority] = useState(false);
   const [stageDisplayEnabled, setStageDisplayEnabled] = useState(detail.proPresenter.stageDisplayEnabled);
   const seededRef = useRef(false);
   const sameRoom = relay.showId === detail.show.id && relay.serviceDate === detail.show.serviceDate;
@@ -278,13 +276,6 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
       seededRef.current = true;
     }
   }, [canUseLiveRelay, detail, relay, sameRoom]);
-
-  const displayStageMessage = relay.stageMessage.replace(/^!!PRIORITY!!/, "");
-  const stageMessagePriority = relay.stageMessage.startsWith("!!PRIORITY!!");
-  useEffect(() => {
-    setMessage(relay.stageMessage.replace(/^!!PRIORITY!!/, ""));
-    setMessagePriority(relay.stageMessage.startsWith("!!PRIORITY!!"));
-  }, [relay.stageMessage]);
 
   async function command(action: string, payload?: Record<string, unknown>) {
     if (!controlsEnabled) return;
@@ -413,12 +404,9 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
                 </View>
               </> : null}
             </View> : null}
-            {canUseLiveRelay ? <View style={styles.messageCard}>
-              <View style={styles.messageHeading}><Text style={styles.messageTitle}>STAGE MESSAGE</Text>{relay.stageMessage ? <Text style={styles.messageLive}>{liveReady ? "LIVE" : "Last known"}</Text> : null}</View>
-              <TextInput accessibilityLabel="Stage message" editable={liveWriteEnabled} maxLength={1_980} multiline onChangeText={setMessage} placeholder="Send a message to confidence displays" placeholderTextColor={colors.textFaint} style={styles.messageInput} value={message} />
-              <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: messagePriority, disabled: !liveWriteEnabled }} disabled={!liveWriteEnabled} onPress={() => setMessagePriority((current) => !current)} style={[styles.priorityToggle, messagePriority && styles.priorityToggleActive]}><View style={[styles.priorityDot, messagePriority && styles.priorityDotActive]} /><View style={styles.priorityCopy}><Text style={[styles.priorityTitle, messagePriority && styles.priorityTitleActive]}>Priority message</Text><Text style={styles.priorityHint}>Use the urgent treatment on confidence displays.</Text></View></Pressable>
-              <View style={styles.messageActions}><AppButton disabled={!liveWriteEnabled || !message.trim()} label="Send message" onPress={() => relay.sendCommand("stage-message", { message: `${messagePriority ? "!!PRIORITY!!" : ""}${message.trim()}` })} style={styles.messageButton} /><Pressable accessibilityRole="button" disabled={!liveWriteEnabled || !relay.stageMessage} onPress={() => relay.sendCommand("stage-clear")} style={[styles.clearMessage, (!liveWriteEnabled || !relay.stageMessage) && styles.disabled]}><Text style={styles.clearMessageText}>Clear</Text></Pressable></View>
-            </View> : relay.stageMessage ? <View style={[styles.activeMessage, stageMessagePriority && styles.activeMessagePriority]}><Send color={stageMessagePriority ? colors.red : colors.amberText} size={16} /><Text style={[styles.activeMessageText, stageMessagePriority && styles.activeMessagePriorityText]}>{displayStageMessage}</Text></View> : null}
+            {canUseLiveRelay || relay.stageMessage ? <StageMessageCard key={`${userId}:${orgId}:${detail.show.id}`}
+              scope={{orgId,userId,showId:detail.show.id,serviceDate:detail.show.serviceDate}}
+              canWrite={canUseLiveRelay} ready={liveReady} revision={relay.revision} message={relay.stageMessage}/> : null}
             <View style={styles.sectionHeading}>
               <Text style={styles.sectionTitle}>RUNDOWN</Text>
               <View style={styles.sectionActions}><Text style={styles.sectionCount}>{items.length} ITEMS</Text><Pressable accessibilityLabel="Export rundown" accessibilityRole="button" onPress={() => Alert.alert("Export rundown", "Choose a shareable format.", [{ text: "Cancel", style: "cancel" }, { text: "CSV", onPress: () => exportRundown("csv") }, { text: "PDF", onPress: () => exportRundown("pdf") }])} style={styles.templateButton}><Share2 color={colors.textMuted} size={16} /></Pressable>{canAuthor ? <><Pressable accessibilityLabel="Open rundown templates" accessibilityRole="button" onPress={() => setTemplatesOpen(true)} style={styles.templateButton}><Files color={colors.textMuted} size={16} /></Pressable>{items.length > 0 ? <Pressable accessibilityLabel="Clear rundown" accessibilityRole="button" disabled={!canRemove} onPress={() => setClearOpen(true)} style={[styles.templateButton, !editControlsEnabled && styles.disabled]}><Trash2 color={colors.red} size={16} /></Pressable> : null}<Pressable accessibilityLabel="Add rundown item" accessibilityRole="button" disabled={!editControlsEnabled || !!itemEditor.draft} onPress={() => openItem(null)} style={[styles.addItem, (!editControlsEnabled || !!itemEditor.draft) && styles.disabled]}><Plus color={colors.black} size={16} /><Text style={styles.addItemText}>Add</Text></Pressable></> : null}</View>
@@ -578,26 +566,6 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   ppStageHint: { color: colors.textFaint, fontFamily, fontSize: 11, lineHeight: 15 },
   ppWarning: { color: colors.amberText, fontFamily, fontSize: 11, lineHeight: 17 },
   ppControls: { flexDirection: "row", gap: 8 },
-  messageCard: { gap: 10, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: 13 },
-  messageHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  messageTitle: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.3 },
-  messageLive: { color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "900", letterSpacing: 1 },
-  messageInput: { minHeight: 72, borderRadius: radii.small, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, color: colors.text, fontFamily, fontSize: 14, lineHeight: 20, padding: 11, textAlignVertical: "top" },
-  messageActions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  priorityToggle: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: radii.small, borderWidth: 1, borderColor: colors.borderSoft, padding: 10 },
-  priorityToggleActive: { borderColor: colors.redBorder, backgroundColor: colors.redSoft },
-  priorityDot: { width: 14, height: 14, borderRadius: 7, borderWidth: 2, borderColor: colors.textFaint },
-  priorityDotActive: { borderColor: colors.red, backgroundColor: colors.red },
-  priorityCopy: { flex: 1, minWidth: 0, gap: 2 },
-  priorityTitle: { color: colors.textMuted, fontFamily, fontSize: 12, fontWeight: "800" },
-  priorityTitleActive: { color: colors.red },
-  priorityHint: { color: colors.textFaint, fontFamily, fontSize: 11, lineHeight: 15 },
-  messageButton: { flex: 1, minHeight: 44 },
-  clearMessage: { minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 16 },
-  clearMessageText: { color: colors.textMuted, fontFamily, fontSize: 12, fontWeight: "700" },
-  activeMessage: { flexDirection: "row", alignItems: "flex-start", gap: 9, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.amberStrongBorder, backgroundColor: colors.amberSoft, padding: 12 },
-  activeMessageText: { flex: 1, color: colors.amberText, fontFamily, fontSize: 13, lineHeight: 19 },
-  activeMessagePriority: { borderColor: colors.redBorder, backgroundColor: colors.redSoft },
   activeMessagePriorityText: { color: colors.red },
   sectionHeading: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.6 },

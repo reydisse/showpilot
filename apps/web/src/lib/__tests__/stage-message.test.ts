@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeStageMessage, encodeStageMessage } from "../stage-message";
+import { decodeStageMessage, encodeStageMessage } from "@showpilot/shared";
 
 describe("stage messages", () => {
   it("round-trips normal and priority messages", () => {

@@ -21,7 +21,12 @@ export async function applyMobileRundownChange(
     RUNDOWN_RELAY: NonNullable<MobileApiEnvironment["RUNDOWN_RELAY"]>;
   },
   input: RundownChangeCommand,
-  actor: { userId: string; sessionId: string; pin: string | null },
+  actor: {
+    userId: string;
+    sessionId: string;
+    pin: string | null;
+    stageAccess?: "edit" | "control";
+  },
 ): Promise<RundownChangeReply> {
   const command = rundownChangeCommandSchema.parse(input);
   if (actor.userId !== command.userId)
@@ -48,7 +53,12 @@ export async function applyMobileRundownChange(
     orgId: command.orgId,
     showId: command.showId,
     serviceDate: command.serviceDate,
-    access: command.action === "reset" ? "control" : "edit",
+    access:
+      command.action === "reset"
+        ? "control"
+        : command.action === "stage-message" || command.action === "stage-clear"
+          ? (actor.stageAccess ?? "edit")
+          : "edit",
     authUserId: actor.userId,
     authSessionId: actor.sessionId,
   });
@@ -72,15 +82,17 @@ export async function applyMobileRundownChange(
         id: command.requestId,
         expectedRevision: command.expectedRevision,
         action: command.action,
-        ...(command.action === "add-item"
-          ? { payload: { id: command.itemId, ...command.fields } }
-          : command.action === "update-item"
-            ? { payload: { id: command.itemId, updates: command.fields } }
-            : command.action === "reorder"
-              ? { payload: { order: command.order } }
-              : "itemId" in command
-                ? { payload: { id: command.itemId } }
-                : {}),
+        ...(command.action === "stage-message"
+          ? { payload: { message: command.message } }
+          : command.action === "add-item"
+            ? { payload: { id: command.itemId, ...command.fields } }
+            : command.action === "update-item"
+              ? { payload: { id: command.itemId, updates: command.fields } }
+              : command.action === "reorder"
+                ? { payload: { order: command.order } }
+                : "itemId" in command
+                  ? { payload: { id: command.itemId } }
+                  : {}),
       }),
     }),
   );

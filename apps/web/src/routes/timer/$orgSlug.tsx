@@ -21,7 +21,7 @@ import { useDisplayFullscreen } from "@/hooks/useDisplayFullscreen";
 import type { LyricsDisplayState, TimecodeWsMessage } from "@/types/timecode";
 import type { TimecodePresentationSample } from "@/lib/timecode-presentation";
 import { TimecodeText } from "@/components/timecode/TimecodeDisplay";
-import { decodeStageMessage } from "@/lib/stage-message";
+import { decodeStageMessage } from "@showpilot/shared";
 import {
   type RundownDisplayItem as KioskRundownItem,
   type RundownDisplayState as KioskRundownState,
