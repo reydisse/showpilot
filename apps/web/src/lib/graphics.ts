@@ -352,15 +352,3 @@ export const getActiveGraphic = createServerFn({ method: "GET" })
     const { templates } = await resolveActive(prisma, data.orgId);
     return templates[0] ?? null;
   });
-
-export const getActiveGraphicBySlug = createServerFn({ method: "GET" })
-  .inputValidator((data: { orgSlug: string }) => data)
-  .handler(async ({ data }) => {
-    const prisma = getPrisma();
-    const org = await prisma.organization.findUnique({
-      where: { slug: data.orgSlug },
-    });
-    if (!org) return null;
-    const { templates } = await resolveActive(prisma, org.id);
-    return templates[0] ?? null;
-  });
