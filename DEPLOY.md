@@ -9533,3 +9533,18 @@ Phase 2 remains 67/79; this is partial evidence for the product-wide gates.
 No deployment, release or migration. Twenty necessary Markdown files remain.
 Logs: /tmp/showpilot-weboutput-{unit1,worker1,ui2,full2,tsc2,build1,browser2}.log.
 Screenshots: /tmp/showpilot-web-pp-output-{review,lost,refresh,hide-review}-{320,768,1440}.png.
+
+### Web output CI test isolation (2026-11-09)
+
+Run 42593570002 reached all Worker tests but timed out after 15 seconds in the
+combined TM PIN test. That case generated a PIN hash and then checked several
+requests, accumulating four expensive PBKDF2 derivations in one deadline. The
+existing crypto suite independently tests hash creation and compatibility.
+The output integration now uses the existing 210,000-iteration fixture hash and
+six independent read/write cases: missing, wrong and correct PIN. Each asserts
+exactly one real verification per API request; rejected writes preserve storage,
+and the valid write must apply within its original five-second command deadline.
+No production code, PIN work factor, command expiry or test timeout was relaxed.
+All 21 output Worker integration tests pass under Istanbul coverage after this
+change (`/tmp/showpilot-weboutput-ci-split2.log`). The CI rerun remains the
+required check before a successor PR is opened.

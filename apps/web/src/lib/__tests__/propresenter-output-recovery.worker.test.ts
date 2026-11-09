@@ -15,7 +15,6 @@ import {
   writeProPresenterOutput,
 } from "../propresenter-output.server";
 import { rundownRelayKey } from "../rundown-relay-key";
-import { hashRundownPin } from "../rundown-pin-crypto";
 import * as pinCrypto from "../rundown-pin-crypto";
 import { buildCompanionDeps } from "../companion-api";
 
@@ -458,41 +457,31 @@ it("rejects a PIN configuration change between verification and the output commi
   }, { ...actor, rundownPin: "2468" })).rejects.toThrow("access changed");
   expect(await savedOutput()).toBeUndefined();
 });
-it("requires the configured TM PIN for both reads and writes", async () => {
-  await env.DB.prepare(
-    "UPDATE member SET role='tm' WHERE organizationId=? AND userId=?",
-  )
-    .bind(orgId, userId)
-    .run();
-  await env.DB.prepare(
-    "INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,'rundown-pin',?)",
-  )
-    .bind(crypto.randomUUID(), orgId, await hashRundownPin("2468"))
-    .run();
+// One API request per case: real 210,000-iteration verification stays in place,
+// without accumulating four expensive derivations under one test deadline.
+it.each([
+  ["read", undefined, 401], ["read", "0000", 401], ["read", "2468", 200],
+  ["write", undefined, 401], ["write", "0000", 401], ["write", "2468", 200],
+] as const)("checks the TM PIN once for %s with %s (HTTP %s)", async (operation, pin, status) => {
+  await env.DB.prepare("UPDATE member SET role='tm' WHERE organizationId=? AND userId=?").bind(orgId, userId).run();
+  await env.DB.prepare("INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,'rundown-pin',?)")
+    .bind(crypto.randomUUID(), orgId, "pbkdf2-sha256:210000:MDEyMzQ1Njc4OWFiY2RlZg:dn1Cq81hnTfBlkh2maxSEZ3GzIkOQC9w2mVohTIJ_uo").run();
   const verify = vi.spyOn(pinCrypto, "verifyStoredRundownPin");
-  expect((await call()).status).toBe(401);
+  const command = operation === "write" ? {
+    orgId, userId, requestId: crypto.randomUUID(), expectedRevision: null,
+    enabled: true, expiresAt: Date.now() + 5_000,
+  } : undefined;
+  const result = await call(command, env, pin);
+  expect(result.status).toBe(status);
   expect(verify).toHaveBeenCalledTimes(1);
-  const command = {
-    orgId,
-    userId,
-    requestId: crypto.randomUUID(),
-    expectedRevision: null,
-    enabled: true,
-    expiresAt: Date.now() + 5_000,
-  };
-  expect((await call(command, env, "0000")).status).toBe(401);
-  expect(verify).toHaveBeenCalledTimes(2);
-  expect(await call({ ...command, requestId: crypto.randomUUID(), expiresAt: Date.now() + 5_000 }, env, "2468")).toMatchObject({
-    status: 200,
-    body: { outcome: "applied" },
-  });
-  expect(verify).toHaveBeenCalledTimes(3);
-  expect(await call(undefined, env, "2468")).toMatchObject({
-    status: 200,
-    body: { enabled: true },
-  });
-  expect(verify).toHaveBeenCalledTimes(4);
-}, 15_000); // Multiple real PBKDF2 checks, matching the Worker PIN crypto suite.
+  if (operation === "write" && status === 200) {
+    expect(result.body).toMatchObject({ outcome: "applied", snapshot: { enabled: true } });
+    expect(await savedOutput()).toBe("true");
+  } else {
+    expect(await savedOutput()).toBeUndefined();
+    if (status === 200) expect(result.body).toMatchObject({ enabled: false, revision: null, serverTime: expect.any(Number) });
+  }
+}, 15_000);
 it("advances the shared revision for the Companion writer", async () => {
     const original = {
       orgId,
