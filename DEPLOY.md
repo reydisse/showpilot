@@ -8513,3 +8513,77 @@ the absolute-path probe and run 2 verify instrumentation and the gate itself.
 Logs: /tmp/showpilot-native-timecode-cue-{worker3,worker4,worker5,coverage1,coverage-probe,coverage2,tsc3,build2}.log.
 The next native clock-review work is retained on fix/native-timecode-clock-review
 and has no PR; the next PR remains gated on #273's corrected head passing CI.
+
+
+## Phase 2 follow-up: reviewed native Timecode clock edits (2026-11-08)
+
+Native frame-rate buttons omitted the backend's confirmation/precondition fields,
+so valid operator clicks were rejected. Manual clock changes had neither a
+confirmation nor stale-state protection. Eight initial Worker regressions failed.
+
+Native seek and reformat now open a bounded, scrollable confirmation showing the
+selected show and the proposed change. The reviewed show/date, held frame,
+format and incoming-format identity are frozen. A newer clock/format/date disables
+confirmation until explicit review; losing connection/control or starting the
+source disables both review and confirmation. Cancel preserves the entered time.
+The source must be stopped. Incoming format and automation jump holds are visible.
+
+A dedicated edit-clock command commits the clock/timeline changes and an immutable
+actor-scoped receipt atomically. Retries use the original request, returning its
+result without rewinding later movement or formatting. Conflicts/rejections remain
+terminal even if their old preconditions return. New requests require a new
+review. The native draft, review and request survive screen navigation, scoped by
+account/organization/show; they do not survive application termination. Mutation
+and refresh deadlines are 15 and 12 seconds respectively, and a confirmed result
+has a separate refresh retry. Stop remains available while a result is uncertain.
+Deploy the matching backend before distributing this native build.
+
+Web and reviewed native edits share the same prepared clock transformation.
+Reformat preserves cue execution history and recalculates trigger/dispatch frames
+at the new rate. It refuses while a cue is awaiting acknowledgement, preserving
+that cue's live object/result. Large seeks keep the existing automation hold,
+without re-arming fired cues. Invalid legacy set-timecode requests now return an
+explicit error instead of reporting success without changing anything. Immediate
+reviewed-command rejections are awaited inside the command handler, as with the
+creation-receipt correction in #273.
+
+Verification: final full suite 3 passes 354 unit files / 2,943 tests plus
+145 Worker files / 1,621 tests, 4,564 total. This includes 14 native hook tests,
+29 boundary/transformation unit tests and 13 real Worker clock-edit tests.
+Coverage run 2 passed all unchanged thresholds before the final native-only
+review-availability refinement: Timecode 93.06% statements / 92.16% branches /
+91.48% functions / 95.31% lines. The final full suite verifies that refinement.
+Web typecheck 3 and build 1 pass; the main client is 549,593 raw / 173,795 gzip
+bytes. Native verify 3 passes all exports, Expo Doctor 18/18, contracts and polling
+boundaries, with 18 existing lint warnings and no errors. Hermes bundles are
+5,806,126 bytes on iOS and 5,805,268 on Android.
+
+Compiled Expo web rehearsal 1 passes against disposable real authentication, D1
+and TimecodeRelay. It verifies no edit before confirmation, a newer clock making
+a dialog stale, explicit re-review, a lost seek reply, a later clock movement,
+navigation to another show and back, same-request retry preserving that later
+movement, refresh-only recovery, canceling reformat and then confirming a valid
+reformat. It asserts no overflow at 320/768/1440px and a 44px-or-larger cancel
+control. Narrow and wide dialog screenshots were inspected. No runtime errors.
+This is an Expo web rehearsal, not physical-device verification.
+
+Reproduce after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-timecode-clock-review.mjs`.
+Logs: /tmp/showpilot-native-timecode-clock-{before,worker1,worker2,worker3,unit1,unit2,full1,full2,full3,coverage1,coverage2,mobile-tsc1,tsc1,tsc2,tsc3,build1,verify1,verify2,verify3,browser1}.log.
+Screenshots: /tmp/showpilot-native-timecode-clock-review-{320,768,1440}.png.
+An early hook test failed because it asserted before Query's queued notification;
+it now waits for the actual rendered value. An early in-flight Worker fixture
+resolved a response from a foreign DO context; the corrected delay creates its
+response within the request context. The failing process was explicitly stopped
+after that real error. No deadlines, coverage thresholds or auth checks changed.
+
+Phase 2 remains 67/79. Native Timecode still needs automation kill/resume and
+per-cue retry controls, accessible cue-delete/reset confirmations, broader editing
+and typed action fields, including complete frame-rate choices. Native Chat,
+rundown editing and ProPresenter recovery also remain open. No deployment,
+release, migration, external mail or real-org write. Twenty necessary tracked
+Markdown files remain, with no new Markdown file.
+
+Stack gate: #273's corrected head 9e24b348 is running CI 42549381346; its Rust
+job and web coverage step passed, with native verification still active at this
+recording. This clock-review branch remains without a PR until that head is green.
