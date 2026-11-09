@@ -23,6 +23,14 @@ export interface ProPresenterOutputDatabase {
   batch(statements: OutputStatement[]): Promise<unknown>;
 }
 export type ProPresenterOutputSurface = "rundown" | "settings";
+export class ProPresenterOutputAccessError extends Error {
+  constructor(public readonly code: "pin_required" | "forbidden") {
+    super(code === "pin_required"
+      ? "Unlock the rundown before changing output."
+      : "Your output-control permission is no longer active.");
+    this.name = "ProPresenterOutputAccessError";
+  }
+}
 export const PRO_PRESENTER_OUTPUT_KEY = "propresenter-stage-display";
 export const PRO_PRESENTER_OUTPUT_REVISION_KEY = "propresenter-output-revision";
 const nowSql = "CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)";
@@ -63,7 +71,7 @@ async function authority(
     actor.userId,
     actor.orgId,
   );
-  if (!access) throw new Error("Your workspace access is no longer active.");
+  if (!access) throw new ProPresenterOutputAccessError("forbidden");
   const pin =
     (
       await database
@@ -84,8 +92,8 @@ async function authority(
       (value) => rundown.permissions.includes(value),
     );
     if (!permission)
-      throw new Error(
-        "Unlock the rundown and check your output-control permission.",
+      throw new ProPresenterOutputAccessError(
+        rundown.pin === "locked" ? "pin_required" : "forbidden",
       );
     // An unlocked PIN can supply a TM's permission; the role/session and exact
     // PIN configuration are still guarded in the committing transaction.

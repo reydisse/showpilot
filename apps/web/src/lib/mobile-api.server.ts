@@ -1,5 +1,5 @@
 import { proPresenterOutputCommandSchema } from "@showpilot/shared/propresenter-output";
-import { readMemberProPresenterOutput, writeProPresenterOutput } from "./propresenter-output.server";
+import { readMemberProPresenterOutput, writeProPresenterOutput, ProPresenterOutputAccessError } from "./propresenter-output.server";
 import { notifyProPresenterOutput } from "./propresenter-output-notify.server";
 import { listTimecodeShows } from "./timecode-shows.server";
 import { idSchema } from "./validation";
@@ -867,7 +867,10 @@ async function mobileProPresenterOutput(
   url: URL,
   env: MobileApiEnvironment,
 ): Promise<Response> {
-  const access = await authorize(request, url, env.DB, ["rundown:edit", "rundown:control"]);
+  // The shared output authority checks live permission and the PIN once, then
+  // guards that exact authority in the committing transaction. Hashing the PIN
+  // here as well can consume the command's validity window before it is stored.
+  const access = await authorize(request, url, env.DB);
   if (access instanceof Response) return access;
   const session = await getAuth().api.getSession({ headers: request.headers, query: { disableCookieCache: true } });
   if (!session || session.user.id !== access.identity.userId) return json({ error: "Sign in again before changing output." }, 401);
@@ -880,7 +883,9 @@ async function mobileProPresenterOutput(
     const result = await writeProPresenterOutput(env.DB, parsed.data, actor);
     if (result.outcome === "applied" || result.outcome === "superseded") await notifyProPresenterOutput(env, actor.orgId);
     return json(result);
-  } catch {
+  } catch (error) {
+    if (error instanceof ProPresenterOutputAccessError)
+      return error.code === "pin_required" ? rundownPinChallenge() : json({ error: "Forbidden" }, 403);
     return json({ error: "Output state could not be confirmed. Check your access and retry the original request." }, 503);
   }
 }
