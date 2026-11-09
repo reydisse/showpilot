@@ -1,3 +1,6 @@
+import { proPresenterOutputCommandSchema } from "@showpilot/shared/propresenter-output";
+import { readMemberProPresenterOutput, writeProPresenterOutput } from "./propresenter-output.server";
+import { notifyProPresenterOutput } from "./propresenter-output-notify.server";
 import { listTimecodeShows } from "./timecode-shows.server";
 import { idSchema } from "./validation";
 import { removeSavedRundown } from "./saved-rundown-delete.server";
@@ -859,37 +862,27 @@ async function controlMobileProPresenter(
   }
 }
 
-async function updateMobileProPresenterStageDisplay(
+async function mobileProPresenterOutput(
   request: Request,
   url: URL,
-  showId: string,
   env: MobileApiEnvironment,
 ): Promise<Response> {
-  const access = await authorize(request, url, env.DB, [
-    "rundown:edit",
-    "rundown:control",
-  ]);
+  const access = await authorize(request, url, env.DB, ["rundown:edit", "rundown:control"]);
   if (access instanceof Response) return access;
-  const show = await env.DB.prepare(
-    "SELECT id FROM rundown WHERE id = ? AND orgId = ? LIMIT 1",
-  )
-    .bind(showId, access.orgId)
-    .first<{ id: string }>();
-  if (!show) return json({ error: "Show not found." }, 404);
-
-  const body = await readJson(request);
-  if (typeof body?.enabled !== "boolean") {
-    return json({ error: "enabled must be true or false." }, 400);
+  const session = await getAuth().api.getSession({ headers: request.headers, query: { disableCookieCache: true } });
+  if (!session || session.user.id !== access.identity.userId) return json({ error: "Sign in again before changing output." }, 401);
+  const actor = { orgId: access.orgId, userId: session.user.id, sessionId: session.session.id, rundownPin: getPresentedRundownPin(request, access.orgId) };
+  const parsed = request.method === "POST" ? proPresenterOutputCommandSchema.safeParse(await readJson(request)) : null;
+  if (parsed && !parsed.success) return json({ error: "Update the app and review the original output change." }, 400);
+  if (parsed?.success && (parsed.data.orgId !== actor.orgId || parsed.data.userId !== actor.userId)) return json({ error: "Return to the account and workspace that started this output change." }, 403);
+  try {
+    if (!parsed?.success) return json(await readMemberProPresenterOutput(env.DB, actor));
+    const result = await writeProPresenterOutput(env.DB, parsed.data, actor);
+    if (result.outcome === "applied" || result.outcome === "superseded") await notifyProPresenterOutput(env, actor.orgId);
+    return json(result);
+  } catch {
+    return json({ error: "Output state could not be confirmed. Check your access and retry the original request." }, 503);
   }
-
-  await env.DB.prepare(
-    `INSERT INTO app_setting (id, orgId, key, value, createdAt, updatedAt)
-     VALUES (?, ?, 'propresenter-stage-display', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-     ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value, updatedAt = CURRENT_TIMESTAMP`,
-  )
-    .bind(crypto.randomUUID(), access.orgId, body.enabled ? "true" : "false")
-    .run();
-  return json({ ok: true, enabled: body.enabled });
 }
 
 interface MobileRundownTemplate {
@@ -7802,13 +7795,16 @@ export async function handleMobileApi(
       ? controlMobileProPresenter(request, url, showId, env, rundownProPresenterMatch[2] === "prepare" ? "prepare" : rundownProPresenterMatch[2] === "check" ? "check" : "execute")
       : json({ error: "Not found." }, 404);
   }
+  if (url.pathname === "/api/mobile/v1/propresenter/output" && ["GET", "POST"].includes(request.method)) {
+    return mobileProPresenterOutput(request, url, env);
+  }
   const rundownProPresenterStageDisplayMatch = url.pathname.match(
     /^\/api\/mobile\/v1\/rundowns\/([^/]+)\/propresenter\/stage-display$/,
   );
   if (rundownProPresenterStageDisplayMatch && request.method === "POST") {
     const showId = decodePathId(rundownProPresenterStageDisplayMatch[1]);
     return showId
-      ? updateMobileProPresenterStageDisplay(request, url, showId, env)
+      ? json({ error: "Update the app before changing ProPresenter output." }, 400)
       : json({ error: "Not found." }, 404);
   }
   const rundownMatch = url.pathname.match(

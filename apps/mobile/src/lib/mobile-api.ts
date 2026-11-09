@@ -1,3 +1,4 @@
+import { proPresenterOutputResultSchema, proPresenterOutputSnapshotSchema, type ProPresenterOutputCommand } from "@showpilot/shared/propresenter-output";
 import { proPresenterReplySchema, type ProPresenterCommand } from "@showpilot/shared/propresenter-command";
 import { chatInviteReplySchema, type ChatInviteCommand } from "./chat-pass-recovery";
 import { chatNotificationResultSchema, type ChatNotificationCommand } from "./chat-notification";
@@ -1216,18 +1217,16 @@ export async function controlMobileProPresenter(input: ProPresenterCommand, mode
   return proPresenterReplySchema.parse(await response.json());
 }
 
-export async function updateMobileProPresenterStageDisplay(input: {
-  orgId: string;
-  showId: string;
-  enabled: boolean;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/propresenter/stage-display?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify({ enabled: input.enabled }) },
-  );
-  return z
-    .object({ ok: z.literal(true), enabled: z.boolean() })
-    .parse(await response.json());
+export async function readMobileProPresenterOutput(orgId: string, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/propresenter/output?orgId=${encodeURIComponent(orgId)}`, { signal });
+  return proPresenterOutputSnapshotSchema.parse(await response.json());
+}
+
+export async function writeMobileProPresenterOutput(command: ProPresenterOutputCommand, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/propresenter/output?orgId=${encodeURIComponent(command.orgId)}`, {
+    method: "POST", signal, body: JSON.stringify(command),
+  });
+  return proPresenterOutputResultSchema.parse(await response.json());
 }
 
 export async function commandMobileShowCreation(input: ShowCreationCommand, review: boolean, signal: AbortSignal) {

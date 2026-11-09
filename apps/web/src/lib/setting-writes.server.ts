@@ -1,4 +1,5 @@
 import type { SettingWrite, SettingWriteResult } from "./setting-writes";
+import { PRO_PRESENTER_OUTPUT_KEY, PRO_PRESENTER_OUTPUT_REVISION_KEY } from "./propresenter-output.server";
 
 /** Internal storage command. Each RPC validates its keys and permissions before
  * calling this helper, including server-derived personal preference keys.
@@ -32,6 +33,10 @@ export async function applySettingWrite(db: Pick<D1Database, "prepare" | "batch"
       SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM app_setting WHERE orgId = ? AND key = ? AND value = ?)
       ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`)
       .bind(crypto.randomUUID(), orgId, key, value, orgId, receiptKey, applied),
+    ...(key === PRO_PRESENTER_OUTPUT_KEY ? [db.prepare(`INSERT INTO app_setting(id,orgId,key,value)
+      SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM app_setting WHERE orgId=? AND key=? AND value=?)
+      ON CONFLICT(orgId,key) DO UPDATE SET value=excluded.value`)
+      .bind(crypto.randomUUID(), orgId, PRO_PRESENTER_OUTPUT_REVISION_KEY, crypto.randomUUID(), orgId, receiptKey, applied)] : []),
   ]);
   const saved = await read();
   if (!saved) throw new Error("Missing setting acknowledgement.");

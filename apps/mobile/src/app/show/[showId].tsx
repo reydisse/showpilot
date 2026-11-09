@@ -1,3 +1,4 @@
+import { ProPresenterOutputControl } from "@/components/propresenter-output-control";
 import { ProPresenterControls } from "../../components/propresenter-controls";
 import { StageMessageCard } from "@/components/stage-message-card";
 import { useRundownItemEditor } from "@/hooks/use-rundown-item-editor";
@@ -8,13 +9,11 @@ import { RundownClearConfirmation } from "@/components/rundown-clear-confirmatio
 import { useTemplateDeleteAttempts } from "@/hooks/use-template-delete";
 import {useRundownReplacementDraft} from "@/hooks/use-rundown-replacement";
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Redirect, useLocalSearchParams } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import CircleStop from "lucide-react-native/icons/circle-stop";
 import Clock3 from "lucide-react-native/icons/clock-3";
-import Eye from "lucide-react-native/icons/eye";
-import EyeOff from "lucide-react-native/icons/eye-off";
 import Files from "lucide-react-native/icons/files";
 import Minus from "lucide-react-native/icons/minus";
 import Pause from "lucide-react-native/icons/pause";
@@ -48,7 +47,6 @@ import {
   commandMobileRundownChange,
   getMobileRundown,
   getMobileRundownTemplates,
-  updateMobileProPresenterStageDisplay,
   type MobileRundown,
   type RundownItem,
 } from "@/lib/mobile-api";
@@ -196,7 +194,6 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
   const templateDeletions = useTemplateDeleteAttempts({orgId,userId,showId:detail.show.id});
   const templateDraft = useTemplateSaveDraft({ orgId, userId, showId: detail.show.id });
   const replacementDraft=useRundownReplacementDraft({orgId,userId,showId:detail.show.id});
-  const [stageDisplayEnabled, setStageDisplayEnabled] = useState(detail.proPresenter.stageDisplayEnabled);
   const seededRef = useRef(false);
   const sameRoom = relay.showId === detail.show.id && relay.serviceDate === detail.show.serviceDate;
   // Keep the last relay snapshot during reconnect, including an empty list.
@@ -212,15 +209,6 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
     networkMode: "always", retry: false,
     queryFn: () => getMobileRundownTemplates(orgId, detail.show.id),
     enabled: canAuthor,
-  });
-  const stageDisplay = useMutation({
-    mutationFn: (enabled: boolean) => updateMobileProPresenterStageDisplay({
-      orgId,
-      showId: detail.show.id,
-      enabled,
-    }),
-    onSuccess: ({ enabled }) => setStageDisplayEnabled(enabled),
-    onError: (error) => Alert.alert("Stage display was not changed", error.message),
   });
   const liveReady = relay.status === "connected" && relay.hydrated && sameRoom;
   const controlsEnabled = detail.canControl && liveReady && relay.unconfirmedCount === 0;
@@ -376,17 +364,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
             {canUseLiveRelay && detail.proPresenter.configured ? <View style={styles.ppCard}>
               <View style={styles.ppHeading}><View style={styles.ppTitleRow}><Presentation color={colors.amberText} size={17} /><Text style={styles.ppTitle}>PROPRESENTER</Text></View><Text style={[styles.ppStatus, detail.proPresenter.connected && styles.ppStatusConnected]}>{detail.proPresenter.connected ? "CONNECTED" : detail.proPresenter.bridgeOnline ? "READY" : "BRIDGE OFFLINE"}</Text></View>
               {relay.ppPreviewSlide ? <View style={styles.ppPreview}><Text numberOfLines={1} style={styles.ppPresentation}>{relay.ppPreviewSlide.presentationName || "Current slide"}</Text><Text numberOfLines={5} style={styles.ppText}>{relay.ppPreviewSlide.text || "Blank slide"}</Text>{relay.ppPreviewSlide.notes ? <Text numberOfLines={2} style={styles.ppNotes}>{relay.ppPreviewSlide.notes}</Text> : null}</View> : <Text style={styles.ppEmpty}>No active slide preview. Commands will connect through the Venue Bridge.</Text>}
-              <Pressable
-                accessibilityLabel="Show ProPresenter slides on stage displays"
-                accessibilityRole="switch"
-                accessibilityState={{ checked: stageDisplayEnabled, disabled: stageDisplay.isPending }}
-                disabled={stageDisplay.isPending}
-                onPress={() => stageDisplay.mutate(!stageDisplayEnabled)}
-                style={[styles.ppStageToggle, stageDisplayEnabled && styles.ppStageToggleActive, stageDisplay.isPending && styles.disabled]}
-              >
-                {stageDisplayEnabled ? <Eye color={colors.green} size={17} /> : <EyeOff color={colors.textFaint} size={17} />}
-                <View style={styles.ppStageCopy}><Text style={styles.ppStageTitle}>{stageDisplayEnabled ? "Visible on stage displays" : "Hidden from stage displays"}</Text><Text style={styles.ppStageHint}>Controls live slide and scripture streaming on kiosk displays.</Text></View>
-              </Pressable>
+              <ProPresenterOutputControl key={`${userId}:${orgId}`} scope={{ userId, orgId }} />
               {detail.canControl ? <>
                 {!detail.proPresenter.cuesEnabled ? <Text style={styles.ppWarning}>Enable “Send cues” in Settings → ProPresenter before using remote slide controls.</Text> : null}
                 <ProPresenterControls key={`${userId}:${orgId}:${detail.show.id}`} scope={{ userId, orgId, showId: detail.show.id }} ready={liveReady && detail.proPresenter.cuesEnabled && detail.proPresenter.bridgeOnline} />
@@ -547,11 +525,6 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   ppText: { color: colors.text, fontFamily, fontSize: 14, lineHeight: 20 },
   ppNotes: { color: colors.textFaint, fontFamily, fontSize: 11, lineHeight: 16 },
   ppEmpty: { color: colors.textMuted, fontFamily, fontSize: 12, lineHeight: 18 },
-  ppStageToggle: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: radii.small, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, padding: 10 },
-  ppStageToggleActive: { borderColor: colors.greenBorder, backgroundColor: colors.greenSoft },
-  ppStageCopy: { flex: 1, minWidth: 0, gap: 2 },
-  ppStageTitle: { color: colors.text, fontFamily, fontSize: 12, fontWeight: "800" },
-  ppStageHint: { color: colors.textFaint, fontFamily, fontSize: 11, lineHeight: 15 },
   ppWarning: { color: colors.amberText, fontFamily, fontSize: 11, lineHeight: 17 },
   activeMessagePriorityText: { color: colors.red },
   sectionHeading: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center", justifyContent: "space-between" },
