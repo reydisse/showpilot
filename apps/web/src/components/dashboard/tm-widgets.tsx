@@ -30,6 +30,7 @@ export interface TmWidgetModel {
   canClaimFaults: boolean;
   members: { id: string; name: string; role: string; roleLabel: string }[];
   busyId: string | null;
+  readUnavailable?: boolean;
   onClaim(faultId: string): void;
   onAssign(faultId: string, userId: string, name: string): void;
   onResolve(faultId: string): void;
@@ -63,7 +64,7 @@ const signalPathWidget: TmWidget = {
       >
         <div className="flex items-center gap-3 px-4 py-3 border-b border-board-border">
           <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${path.status === "fail" ? "bg-red-500/15 text-red-400" : path.status === "warn" ? "bg-yellow-400/15 text-yellow-400" : "bg-green-500/15 text-green-400"}`}><Radio className="w-4 h-4" /></span>
-          <div><h2 className="text-xs font-semibold text-board-text">Signal path</h2><p className="text-[11px] text-board-muted mt-0.5">{path.detail || "End-to-end delivery status"}</p></div>
+          <div><h2 className="text-xs font-semibold text-board-text">Signal path</h2><p className="text-xs text-board-muted mt-0.5">{path.detail || "End-to-end delivery status"}</p></div>
           <HealthChip className="ml-auto" status={path.status ?? "ok"} label={path.status === "ok" ? "healthy" : path.status === "warn" ? "degraded" : "attention"} />
         </div>
         <div className="flex items-stretch gap-2 p-3 overflow-x-auto">
@@ -90,8 +91,8 @@ function SignalNode({ ok, eyebrow, label, detail }: {
 }) {
   return (
     <div className={`min-w-40 flex-1 rounded-lg border px-3 py-2.5 ${ok ? "border-board-border bg-board-bg/50" : "border-red-500/35 bg-red-500/5"}`}>
-      <div className="flex items-center gap-2"><CircleDot className={`w-3.5 h-3.5 ${ok ? "text-green-400" : "text-red-400"}`} /><span className="text-[9px] uppercase tracking-[0.12em] text-board-muted">{eyebrow}</span></div>
-      <p className="text-xs font-medium text-board-text mt-2 truncate">{label}</p><p className={`text-[10px] mt-0.5 ${ok ? "text-board-muted" : "text-red-400"}`}>{detail}</p>
+      <div className="flex items-center gap-2"><CircleDot className={`w-3.5 h-3.5 ${ok ? "text-green-400" : "text-red-400"}`} /><span className="text-xs uppercase tracking-[0.12em] text-board-muted">{eyebrow}</span></div>
+      <p className="text-xs font-medium text-board-text mt-2 truncate">{label}</p><p className={`text-xs mt-0.5 ${ok ? "text-board-muted" : "text-red-400"}`}>{detail}</p>
     </div>
   );
 }
@@ -121,7 +122,7 @@ const faultQueueWidget: TmWidget = {
       <div>
         <div className="flex items-baseline gap-2 mb-2 px-1">
           <h2 className="text-xs font-semibold text-board-text">Incidents</h2>
-          <span className="text-[11px] text-board-muted">
+          <span className="text-xs text-board-muted">
             {model.openCount} open
             {model.unownedCount > 0 && (
               <span className="text-red-400"> · {model.unownedCount} unowned</span>
@@ -143,7 +144,7 @@ const faultQueueWidget: TmWidget = {
 
 function FaultRow({ fault, widget }: { fault: Fault; widget: TmWidgetModel }) {
   const unowned = fault.ownership === "unassigned" || fault.stale;
-  const busy = widget.busyId === fault.id;
+  const busy = widget.busyId === fault.id || widget.readUnavailable;
 
   return (
     <div
@@ -156,13 +157,13 @@ function FaultRow({ fault, widget }: { fault: Fault; widget: TmWidgetModel }) {
       }`}
     >
       <div className="flex items-baseline gap-2 flex-wrap">
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-board-border text-board-text shrink-0">
+        <span className="text-xs px-1.5 py-0.5 rounded bg-board-border text-board-text shrink-0">
           {fault.departmentLabel}
         </span>
         <p className="text-[13px] text-board-text flex-1 min-w-[180px]">{fault.description}</p>
         {/* Ownership is the thing the eye should find first: an unowned
             fault is the one that gets dropped. */}
-        <span className={`text-[11px] shrink-0 ${unowned ? "text-red-400" : "text-board-muted"}`}>
+        <span className={`text-xs shrink-0 ${unowned ? "text-red-400" : "text-board-muted"}`}>
           {fault.ownership === "unassigned"
             ? "Unassigned"
             : fault.stale
@@ -176,23 +177,23 @@ function FaultRow({ fault, widget }: { fault: Fault; widget: TmWidgetModel }) {
           <button
             onClick={() => widget.onClaim(fault.id)}
             disabled={busy}
-            className="text-[11px] px-2.5 py-1 rounded-lg bg-fire-500/15 border border-fire-500/30 text-fire-400 hover:bg-fire-500/25 disabled:opacity-50 transition-colors"
+            className="min-h-11 min-w-11 text-xs px-2.5 py-1 rounded-lg bg-fire-500/15 border border-fire-500/30 text-fire-400 hover:bg-fire-500/25 disabled:opacity-50 transition-colors"
           >
             Take it
           </button>
         )}
         {fault.ownership === "mine" && !fault.acknowledged && (
-          <button onClick={() => widget.onAcknowledge(fault.id)} disabled={busy} className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-lg bg-yellow-400/10 border border-yellow-400/25 text-yellow-300 hover:bg-yellow-400/20 disabled:opacity-50 transition-colors"><Check className="w-3 h-3" />Acknowledge</button>
+          <button onClick={() => widget.onAcknowledge(fault.id)} disabled={busy} className="min-h-11 min-w-11 inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-yellow-400/10 border border-yellow-400/25 text-yellow-300 hover:bg-yellow-400/20 disabled:opacity-50 transition-colors"><Check className="w-3 h-3" />Acknowledge</button>
         )}
         <button
           onClick={() => widget.onResolve(fault.id)}
           disabled={busy}
-          className="text-[11px] px-2.5 py-1 rounded-lg border border-board-border text-board-muted hover:text-board-text disabled:opacity-50 transition-colors"
+          className="min-h-11 min-w-11 text-xs px-2.5 py-1 rounded-lg border border-board-border text-board-muted hover:text-board-text disabled:opacity-50 transition-colors"
         >
           Resolve
         </button>
         {fault.ownership !== "unassigned" && (widget.canAssignPeople || fault.ownership === "mine") && (
-          <button onClick={() => widget.onRelease(fault.id)} disabled={busy} title="Return incident to the unassigned queue" className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg text-board-muted hover:text-board-text disabled:opacity-50"><UserMinus className="w-3 h-3" />Release</button>
+          <button onClick={() => widget.onRelease(fault.id)} disabled={busy} title="Return incident to the unassigned queue" className="min-h-11 min-w-11 inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg text-board-muted hover:text-board-text disabled:opacity-50"><UserMinus className="w-3 h-3" />Release</button>
         )}
         {widget.canAssignPeople ? (
           <>
@@ -205,7 +206,7 @@ function FaultRow({ fault, widget }: { fault: Fault; widget: TmWidgetModel }) {
                 const member = widget.members.find((m) => m.id === event.target.value);
                 if (member) widget.onAssign(fault.id, member.id, member.name);
               }}
-              className="text-[11px] bg-transparent border border-board-border rounded-lg px-2 py-1 text-board-muted hover:text-board-text outline-none disabled:opacity-50"
+              className="min-h-11 min-w-11 max-w-full text-xs bg-transparent border border-board-border rounded-lg px-2 py-1 text-board-muted hover:text-board-text outline-none disabled:opacity-50"
             >
               <option value="">{widget.members.length ? "Assign person…" : "No eligible people"}</option>
               {widget.members.map((member) => (
@@ -214,7 +215,7 @@ function FaultRow({ fault, widget }: { fault: Fault; widget: TmWidgetModel }) {
             </select>
           </>
         ) : null}
-        <span className="text-[11px] text-board-muted/60 ml-auto">
+        <span className="text-xs text-board-muted/60 ml-auto">
           {fault.carriedForward ? "carried forward" : `reported by ${fault.reportedBy}`}
         </span>
       </div>
@@ -248,11 +249,11 @@ const prepWidget: TmWidget = {
             />
             <div className="min-w-0 flex-1">
               <p className="text-[13px] text-board-text">{item.title}</p>
-              <p className="text-[11px] text-board-muted mt-0.5">{item.detail}</p>
+              <p className="text-xs text-board-muted mt-0.5">{item.detail}</p>
             </div>
             <Link
               to={`/${slug}/${item.actionPath}` as never}
-              className="shrink-0 text-[11px] px-2.5 py-1 rounded-lg border border-board-border text-board-muted hover:text-board-text transition-colors"
+              className="min-h-11 min-w-11 inline-flex items-center shrink-0 text-xs px-2.5 py-1 rounded-lg border border-board-border text-board-muted hover:text-board-text transition-colors"
             >
               {item.actionLabel}
             </Link>
@@ -286,7 +287,7 @@ const checksWidget: TmWidget = {
       </ul>
       <Link
         to={`/${slug}/production/checklist` as never}
-        className="block mt-3 text-[11px] text-board-muted hover:text-board-text transition-colors"
+        className="min-h-11 min-w-11 items-center flex mt-3 text-xs text-board-muted hover:text-board-text transition-colors"
       >
         Open the checklist
       </Link>
@@ -307,7 +308,7 @@ const equipmentWidget: TmWidget = {
       <EquipmentRotator items={model.equipmentFaults} />
       <Link
         to={`/${slug}/production/assets` as never}
-        className="block mt-3 text-[11px] text-board-muted hover:text-board-text transition-colors"
+        className="min-h-11 min-w-11 items-center flex mt-3 text-xs text-board-muted hover:text-board-text transition-colors"
       >
         Equipment register
       </Link>
@@ -352,10 +353,10 @@ function EquipmentRotator({
       </ul>
       {pageCount > 1 ? (
         <div className="flex items-center justify-between mt-3 pt-2 border-t border-board-border/60">
-          <span className="text-[10px] text-board-muted">{page * EQUIPMENT_PAGE_SIZE + 1}–{Math.min((page + 1) * EQUIPMENT_PAGE_SIZE, items.length)} of {items.length}</span>
+          <span className="text-xs text-board-muted">{page * EQUIPMENT_PAGE_SIZE + 1}–{Math.min((page + 1) * EQUIPMENT_PAGE_SIZE, items.length)} of {items.length}</span>
           <div className="flex items-center gap-1">
-            <button type="button" aria-label="Previous equipment" onClick={() => setPage((current) => (current - 1 + pageCount) % pageCount)} className="w-6 h-6 rounded text-board-muted hover:text-board-text hover:bg-board-border flex items-center justify-center"><ArrowLeft className="w-3 h-3" /></button>
-            <button type="button" aria-label="Next equipment" onClick={() => setPage((current) => (current + 1) % pageCount)} className="w-6 h-6 rounded text-board-muted hover:text-board-text hover:bg-board-border flex items-center justify-center"><ArrowRight className="w-3 h-3" /></button>
+            <button type="button" aria-label="Previous equipment" onClick={() => setPage((current) => (current - 1 + pageCount) % pageCount)} className="min-h-11 min-w-11 rounded text-board-muted hover:text-board-text hover:bg-board-border flex items-center justify-center"><ArrowLeft className="w-3 h-3" /></button>
+            <button type="button" aria-label="Next equipment" onClick={() => setPage((current) => (current + 1) % pageCount)} className="min-h-11 min-w-11 rounded text-board-muted hover:text-board-text hover:bg-board-border flex items-center justify-center"><ArrowRight className="w-3 h-3" /></button>
           </div>
         </div>
       ) : null}
@@ -380,8 +381,8 @@ const devicesWidget: TmWidget = {
           <li key={device.id} className="group flex items-center gap-2.5 text-xs rounded-lg px-2 py-2 -mx-2 hover:bg-board-bg/70">
             <Cpu className="w-3.5 h-3.5 text-green-400" />
             <span className="text-board-text truncate">{device.name}</span>
-            <span className="ml-auto text-[10px] text-board-muted uppercase tracking-wide">{device.kind}</span>
-            <Link to={`/${slug}/dashboard/devices/${device.id}` as never} aria-label={`Open ${device.name}`} className="text-board-muted opacity-50 group-hover:opacity-100 hover:text-board-text"><ExternalLink className="w-3 h-3" /></Link>
+            <span className="ml-auto text-xs text-board-muted uppercase tracking-wide">{device.kind}</span>
+            <Link to={`/${slug}/dashboard/devices/${device.id}` as never} aria-label={`Open ${device.name}`} className="min-h-11 min-w-11 inline-flex items-center justify-center text-board-muted opacity-50 group-hover:opacity-100 hover:text-board-text"><ExternalLink className="w-3 h-3" /></Link>
           </li>
         ))}
       </ul>
@@ -414,7 +415,7 @@ const dutyWidget: TmWidget = {
         {model.duty.map((officer) => (
           <li key={officer.key} className="flex items-center gap-2.5 text-xs">
             <span
-              className={`w-7 h-7 rounded-full text-[10px] flex items-center justify-center shrink-0 ${
+              className={`w-7 h-7 rounded-full text-xs flex items-center justify-center shrink-0 ${
                 officer.name
                   ? "bg-board-border text-board-text"
                   : "bg-yellow-400/10 text-yellow-400 border border-dashed border-yellow-400/40"
@@ -432,7 +433,7 @@ const dutyWidget: TmWidget = {
               >
                 {officer.name ?? "Nobody assigned"}
               </span>
-              <span className="block text-[10px] text-board-muted mt-0.5">{officer.label}</span>
+              <span className="block text-xs text-board-muted mt-0.5">{officer.label}</span>
             </span>
           </li>
         ))}
@@ -440,7 +441,7 @@ const dutyWidget: TmWidget = {
       {model.duty.some((officer) => !officer.name) && (
         <Link
           to={`/${slug}/dashboard/prod-manager` as never}
-          className="inline-flex items-center gap-1 mt-3 text-[11px] text-board-muted hover:text-board-text transition-colors"
+          className="min-h-11 min-w-11 inline-flex items-center gap-1 mt-3 text-xs text-board-muted hover:text-board-text transition-colors"
         >
           Set the rota
           <ExternalLink className="w-3 h-3" />

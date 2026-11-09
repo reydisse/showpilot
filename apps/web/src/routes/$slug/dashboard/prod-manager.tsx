@@ -5,9 +5,8 @@ import {
   createFileRoute,
   Link,
   useNavigate,
-  useRouter,
 } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { getPmDashboard } from "@/lib/pm-dashboard";
 import { formatCountdown } from "@/lib/pm-dashboard-derive";
@@ -22,7 +21,9 @@ import {
   PlanServiceButton,
   PlanServicePanel,
 } from "@/components/dashboard/plan-service";
-import { ScrollEdges, useEdgeScroll } from "@/components/ui/scroll-edges";
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
+import { runRouteLoad } from "@/lib/route-load-deadlines";
 import {
   healthTextClass,
   selectWidgets,
@@ -30,16 +31,7 @@ import {
   widgetsInRegion,
 } from "@/components/dashboard/widget";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
-import { Download } from "lucide-react";
-
-/** How often the loader re-reads. Live services need a tighter loop. */
-const REFRESH_MS: Record<ServicePhase, number> = {
-  planning: 60_000,
-  prep: 45_000,
-  call: 30_000,
-  live: 20_000,
-  debrief: 90_000,
-};
+import { Download, RefreshCw } from "lucide-react";
 
 const PHASE_CHIP: Record<ServicePhase, string> = {
   planning: "bg-board-bg text-board-muted border-board-border",
@@ -58,7 +50,7 @@ export const Route = createFileRoute("/$slug/dashboard/prod-manager")({
   pendingMs: 800,
   pendingMinMs: 100,
   pendingComponent: () => <PageSkeleton />,
-  loader: async ({ context, deps }) => {
+  loader: async ({ context, deps, abortController }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(
       context.role,
@@ -67,38 +59,34 @@ export const Route = createFileRoute("/$slug/dashboard/prod-manager")({
       context.orgId,
     );
     return await getPmDashboard({
-      data: { orgId: context.orgId, serviceDate: deps.date, showId: deps.showId },
+      data: { orgId: context.orgId, serviceDate: deps.date, showId: deps.showId }, signal: abortController.signal,
     });
   },
   component: ProdManagerPage,
 });
 
 function ProdManagerPage() {
-  const { model, rundownState, shows, showId, orgId, orgTimezone } = Route.useLoaderData();
+  const initial = Route.useLoaderData();
+  const { user } = Route.useRouteContext();
+  return <ProdManagerWorkspace key={`${user.id}:${initial.orgId}:${initial.showId}`} initial={initial} />;
+}
+function ProdManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof getPmDashboard>> }) {
+  const search = Route.useSearch();
+  const load = useCallback((signal: AbortSignal) => getPmDashboard({ data: { orgId: initial.orgId, serviceDate: search.date, showId: search.show }, signal }), [initial.orgId, search.date, search.show]);
+  const read = useOperatorRead({ key: JSON.stringify(initial), initialValue: initial, read: load, intervalMs: 20_000, errorMessage: "Production dashboard could not refresh. Last confirmed values are shown. Retry to check readiness." });
+  const { model, rundownState, shows, showId, orgId, orgTimezone } = read.value;
   const deviceTimeZone = useDeviceTimeZone();
   const timeZone = orgTimezone || deviceTimeZone;
   const { slug } = Route.useParams();
-  const router = useRouter();
   const navigate = useNavigate({ from: Route.fullPath });
-  const headerScroll = useEdgeScroll();
   const [planOpen, setPlanOpen] = useState(false);
   const { syncError, syncErrorAt, status: syncStatus, retrySync } = useCueSheetSync({
     orgId,
     scope: showId ?? "",
     onNote: () => {},
-    onRefresh: async () => { await router.invalidate(); },
-    onIncident: () => void router.invalidate(),
+    onRefresh: async () => { await read.refresh(); },
+    onIncident: read.invalidate,
   });
-
-  // Server data ages; the countdown does not. Re-read on a cadence that
-  // matches the phase rather than making the operator hit reload.
-  useEffect(() => {
-    const interval = REFRESH_MS[model.phase];
-    const id = setInterval(() => {
-      if (document.visibilityState === "visible") void router.invalidate();
-    }, interval);
-    return () => clearInterval(id);
-  }, [model.phase, router]);
 
   const {user,role} = Route.useRouteContext();
   const widgetModel: PmWidgetModel = {
@@ -119,23 +107,16 @@ function ProdManagerPage() {
   return (
     <div className="h-full overflow-auto overscroll-y-none bg-board-bg">
       <RelaySyncNotice error={syncError} occurredAt={syncErrorAt} status={syncStatus} onRetry={retrySync} />
-      {/* One toolbar row. Identity and context on the left, live numbers
-          right-aligned against the edge so the eye always lands in the
-          same place regardless of how wide the window is. */}
-      <header className="sticky top-0 z-10 bg-board-bg/85 backdrop-blur-xl border-b border-board-border">
-        {/* Same treatment as the rundown toolbar: one row that scrolls
-            sideways rather than wrapping or hiding controls. */}
+      {/* Wrap on narrow screens so controls remain reachable without horizontal scrolling. */}
+      <header className="lg:sticky lg:top-0 z-10 bg-board-bg/85 backdrop-blur-xl border-b border-board-border">
         <div className="relative">
-          <div
-            ref={headerScroll.ref}
-            className="overflow-x-auto hide-scrollbar"
-          >
-            <div className="flex items-center gap-x-4 w-max min-w-full px-6 py-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-3 min-w-0 px-3 sm:px-6 py-3">
               <h1 className="text-[15px] font-semibold text-board-text font-[family-name:var(--font-display)] shrink-0 whitespace-nowrap">
                 Production Manager
               </h1>
               <span
-                className={`shrink-0 text-[10px] font-medium uppercase tracking-[0.12em] px-2 py-0.5 rounded border ${PHASE_CHIP[model.phase]}`}
+                className={`shrink-0 text-xs font-medium uppercase tracking-[0.12em] px-2 py-0.5 rounded border ${PHASE_CHIP[model.phase]}`}
               >
                 {phaseLabel(model.phase)}
               </span>
@@ -148,7 +129,7 @@ function ProdManagerPage() {
               />
 
               {model.timing.scheduledStartMs !== null && (
-                <span className="text-[11px] text-board-muted tabular-nums shrink-0 whitespace-nowrap">
+                <span className="text-xs text-board-muted tabular-nums shrink-0 whitespace-nowrap">
                   call {formatClock(model.timing.callTimeMs, timeZone)} · start{" "}
                   {formatClock(model.timing.scheduledStartMs, timeZone)}
                 </span>
@@ -158,7 +139,8 @@ function ProdManagerPage() {
                 open={planOpen}
                 onToggle={() => setPlanOpen((v) => !v)}
               />
-              <ShowReportButton orgId={orgId} serviceDate={model.serviceDate} showId={showId} />
+              <ShowReportButton key={showId ?? model.serviceDate} orgId={orgId} serviceDate={model.serviceDate} showId={showId} />
+              <button type="button" aria-label="Refresh dashboard" disabled={read.refreshing} onClick={read.retry} className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-lg border border-board-border text-board-muted focus-visible:outline-2 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${read.refreshing ? "animate-spin" : ""}`} /></button>
 
               <div className="ml-auto flex items-center gap-5 shrink-0 pl-4">
                 {/* A countdown with nothing to count toward is dead space in
@@ -170,7 +152,7 @@ function ProdManagerPage() {
                         typeof Link
                       >[0]["to"]
                     }
-                    className="shrink-0 whitespace-nowrap text-xs px-2.5 py-1.5 rounded border border-board-border/70 text-board-muted hover:text-board-text hover:border-board-border transition-colors"
+                    className="inline-flex items-center min-h-11 shrink-0 whitespace-nowrap text-xs px-2.5 py-1.5 rounded border border-board-border/70 text-board-muted hover:text-board-text hover:border-board-border transition-colors"
                   >
                     Set a start time
                   </Link>
@@ -184,15 +166,11 @@ function ProdManagerPage() {
                   >
                     {model.readiness.score}%
                   </p>
-                  <p className="text-[10px] text-board-muted mt-1">ready</p>
+                  <p className="text-xs text-board-muted mt-1">ready</p>
                 </div>
               </div>
             </div>
           </div>
-          <ScrollEdges
-            edges={headerScroll.edges}
-            scrollBy={headerScroll.scrollBy}
-          />
         </div>
 
         {planOpen && (
@@ -208,9 +186,11 @@ function ProdManagerPage() {
         )}
       </header>
 
+      <ReadFailureNotice error={read.error} refreshing={read.refreshing} retry={read.retry} label="Retry dashboard" />
+      {read.refreshing && !read.error ? <p role="status" className="px-3 sm:px-6 py-2 text-sm text-board-muted">Refreshing dashboard… Last confirmed values remain visible.</p> : null}
       {/* Banners span the width; below them a wide reading column and a
           fixed rail. No spans, so no ragged rows and no dead space. */}
-      <div className="px-6 py-5 w-full max-w-[1500px] space-y-4">
+      <div className="px-3 sm:px-6 py-5 w-full max-w-[1500px] space-y-4">
         {banners.map((widget) => (
           <div key={widget.id}>{widget.render(widgetModel)}</div>
         ))}
@@ -246,7 +226,7 @@ function LiveCountdown({
   return (
     <div className="text-right leading-none">
       <p className="text-[22px] font-semibold tabular-nums text-board-text">{formatCountdown(displayMs ?? 0)}</p>
-      <p className="mt-1 text-[10px] text-board-muted">{countdown.label}</p>
+      <p className="mt-1 text-xs text-board-muted">{countdown.label}</p>
     </div>
   );
 }
@@ -262,45 +242,42 @@ function ShowReportButton({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const active = useRef<AbortController | null>(null);
+  useEffect(() => () => { active.current?.abort(); active.current = null; }, []);
   async function generate() {
-    setBusy(true);
-    setError(null);
+    if (active.current) return;
+    const owner = new AbortController(); active.current = owner;
+    setBusy(true); setError(null);
     try {
-      const [{ exportShowReport }, { exportRundownPdf }] = await Promise.all([
-        import("@/lib/report"),
-        import("@/lib/rundown-export"),
-      ]);
-      const report = await exportShowReport({ data: { orgId, serviceDate, showId: showId ?? undefined } });
-      await exportRundownPdf({
-        ...report,
-        rundown: {
-          items: report.rundown.items,
-          stageMessage: report.rundown.stageMessage,
-        },
-      });
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Report generation failed",
-      );
+      await runRouteLoad(async controller => {
+        const [{ exportShowReport }, { exportRundownPdf }] = await Promise.all([import("@/lib/report"), import("@/lib/rundown-export")]);
+        controller.signal.throwIfAborted();
+        const report = await exportShowReport({ data: { orgId, serviceDate, showId: showId ?? undefined }, signal: controller.signal });
+        controller.signal.throwIfAborted();
+        await exportRundownPdf(report, controller.signal);
+      }, owner.signal, 15_000);
+    } catch {
+      if (active.current === owner) setError("Report could not be generated. Retry to download the current show report.");
     } finally {
-      setBusy(false);
+      owner.abort();
+      if (active.current === owner) { active.current = null; setBusy(false); }
     }
   }
   return (
-    <div className="flex shrink-0 items-center gap-2">
+    <div className="flex flex-wrap min-w-0 items-center gap-2">
       <button
         type="button"
         onClick={() => void generate()}
         disabled={busy}
-        className="inline-flex items-center gap-1.5 rounded border border-board-border/70 px-2.5 py-1.5 text-xs text-board-muted transition-colors hover:border-board-border hover:text-board-text disabled:opacity-50"
+        className="inline-flex min-h-11 items-center gap-1.5 rounded border border-board-border/70 px-2.5 py-1.5 text-xs text-board-muted transition-colors hover:border-board-border hover:text-board-text disabled:opacity-50"
       >
         <Download className="h-3.5 w-3.5" />
-        {busy ? "Generating…" : "Show report"}
+        {busy ? "Generating…" : error ? "Retry report" : "Show report"}
       </button>
       {error ? (
         <span
-          className="max-w-40 truncate text-[10px] text-red-400"
-          title={error}
+          role="alert"
+          className="max-w-sm text-sm text-red-400"
         >
           {error}
         </span>
