@@ -517,3 +517,50 @@ it("refuses plaintext connection settings even from the authenticated relay", as
   await barrier(socket);
   expect(packets).toHaveLength(0);
 });
+
+it("reserves ProPresenter commands without moving slides and executes each reservation only once", async () => {
+  const mutations: string[] = [];
+  const api = await httpServer((request, response) => {
+    if (request.url?.includes("/trigger") || request.url?.includes("/clear/")) {
+      mutations.push(request.url ?? ""); response.writeHead(204).end(); return;
+    }
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({ current: { text: "Fixture lyric", uuid: "one" }, next: { text: "Next", uuid: "two" } }));
+  });
+  const target = `propresenter:127.0.0.1:${api.port}`;
+  const connection = { type: "connect-device", protocol: "propresenter", target, settings: { apiPort: api.port } };
+  const { socket } = await fixture();
+  await role(socket, "active", resolveBridgeEndpoints(connection));
+  const connected = next(socket, "device-status");
+  await send(socket, connection);
+  expect(await connected).toMatchObject({ connected: true });
+  async function command(type: string, reservationId: string, action = "next") {
+    const response = next(socket, "command-response");
+    await send(socket, { type, id: crypto.randomUUID(), reservationId, target, command: action });
+    return response;
+  }
+  expect(await command("execute-propresenter-command", "missing")).toMatchObject({ success: false, notExecuted: true });
+  expect(await command("prepare-propresenter-command", "one")).toMatchObject({ success: true });
+  expect(mutations).toHaveLength(0);
+  const unchanged = next(socket, "device-status");
+  await send(socket, connection);
+  expect(await unchanged).toMatchObject({ connected: true });
+  expect(await command("execute-propresenter-command", "one", "clear")).toMatchObject({ success: false, notExecuted: true });
+  expect(await command("execute-propresenter-command", "one")).toMatchObject({ success: true });
+  expect(await command("execute-propresenter-command", "one")).toMatchObject({ success: false, notExecuted: true });
+  expect(mutations).toEqual(["/v1/presentation/active/next/trigger"]);
+  expect(await command("prepare-propresenter-command", "two")).toMatchObject({ success: true });
+  await role(socket, "standby", resolveBridgeEndpoints(connection));
+  await role(socket, "active", resolveBridgeEndpoints(connection));
+  expect(await command("execute-propresenter-command", "two")).toMatchObject({ success: false, notExecuted: true });
+  expect(mutations).toHaveLength(1);
+  const restored = next(socket, "device-status");
+  await send(socket, connection);
+  expect(await restored).toMatchObject({ connected: true });
+  expect(await command("prepare-propresenter-command", "three")).toMatchObject({ success: true });
+  const replaced = next(socket, "device-status");
+  await send(socket, { ...connection, settings: { ...connection.settings, password: "new-fixture-password" } });
+  expect(await replaced).toMatchObject({ connected: true });
+  expect(await command("execute-propresenter-command", "three")).toMatchObject({ success: false, notExecuted: true });
+  expect(mutations).toHaveLength(1);
+});

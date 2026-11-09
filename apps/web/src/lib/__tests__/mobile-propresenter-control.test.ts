@@ -59,6 +59,10 @@ function database(cuesEnabled = true, writes: unknown[][] = []): MobileApiDataba
 
 function environment(cuesEnabled = true, writes: unknown[][] = []) {
   const dispatchBridgeMessage = vi.fn(async () => ({ success: true }));
+  const recoverProPresenterCommand = vi.fn(async (input: Record<string, unknown>) => {
+    if (!cuesEnabled) throw new Error("Cue control is disabled");
+    return { ...input, status: "prepared", message: "Slide command ready." };
+  });
   const bridge = {
     idFromName: vi.fn(() => ({ toString: () => "bridge-room" })),
     get: vi.fn(() => ({
@@ -67,22 +71,23 @@ function environment(cuesEnabled = true, writes: unknown[][] = []) {
         clientCount: 0,
         connectedTargets: [],
       })),
-      dispatchBridgeMessage,
+      dispatchBridgeMessage, recoverProPresenterCommand,
     })),
   } as unknown as MobileApiEnvironment["BRIDGE_RELAY"];
   return {
     env: { DB: database(cuesEnabled, writes), BRIDGE_RELAY: bridge } satisfies MobileApiEnvironment,
-    dispatchBridgeMessage,
+    dispatchBridgeMessage, recoverProPresenterCommand,
   };
 }
 
+const scope = { orgId: "org-1", userId: "operator-1", showId: "show-1", requestId: "a31b4d77-7f9b-40cd-9119-4794980c0551" };
 async function command(body: Record<string, unknown>, env: MobileApiEnvironment) {
   const response = await handleMobileApi(new Request(
-    "https://showpilot.tech/api/mobile/v1/rundowns/show-1/propresenter?orgId=org-1",
+    "https://showpilot.tech/api/mobile/v1/rundowns/show-1/propresenter/prepare?orgId=org-1",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...scope, ...body }),
     },
   ), env);
   if (!response) throw new Error("Mobile API did not handle ProPresenter route");
@@ -105,32 +110,18 @@ async function stageDisplay(body: Record<string, unknown>, env: MobileApiEnviron
 describe("mobile ProPresenter control", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getSession.mockResolvedValue({ user: { id: "operator-1", name: "Operator", email: "operator@example.com" } });
+    mocks.getSession.mockResolvedValue({ session: { id: "session-1" }, user: { id: "operator-1", name: "Operator", email: "operator@example.com" } });
     mocks.resolveAccess.mockResolvedValue({ role: "tm", permissions: ["rundown:control"], today: "2026-08-27" });
   });
 
-  it("connects the configured venue target before dispatching an allowlisted command", async () => {
-    const { env, dispatchBridgeMessage } = environment();
+  it("delegates the original command and live session to the org-scoped receipt authority", async () => {
+    const { env, dispatchBridgeMessage, recoverProPresenterCommand } = environment();
     const response = await command({ command: "next" }, env);
-
     expect(response.status).toBe(200);
-    expect(dispatchBridgeMessage).toHaveBeenNthCalledWith(1, {
-      type: "connect-device",
-      protocol: "propresenter",
-      target: "propresenter:192.168.1.20:50001",
-      settings: {
-        host: "192.168.1.20",
-        port: 50001,
-        apiPort: 1025,
-        password: "venue-password",
-      },
-    }, { source: "operator", actorUserId: "operator-1" });
-    expect(dispatchBridgeMessage).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      type: "command",
-      protocol: "propresenter",
-      target: "propresenter:192.168.1.20:50001",
-      command: "next",
-    }), { source: "operator", actorUserId: "operator-1" });
+    expect(recoverProPresenterCommand).toHaveBeenCalledWith({ ...scope, command: "next" }, {
+      orgId: "org-1", userId: "operator-1", sessionId: "session-1", rundownPin: null,
+    }, "prepare");
+    expect(dispatchBridgeMessage).not.toHaveBeenCalled();
   });
 
   it("rejects commands outside the remote-control allowlist", async () => {
@@ -141,11 +132,11 @@ describe("mobile ProPresenter control", () => {
     expect(dispatchBridgeMessage).not.toHaveBeenCalled();
   });
 
-  it("honors the workspace cue-control safety setting", async () => {
+  it("does not report success when the relay rejects preparation", async () => {
     const { env, dispatchBridgeMessage } = environment(false);
     const response = await command({ command: "clear" }, env);
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(503);
     expect(dispatchBridgeMessage).not.toHaveBeenCalled();
   });
 

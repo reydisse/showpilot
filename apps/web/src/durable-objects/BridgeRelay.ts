@@ -1,3 +1,5 @@
+import { ProPresenterCommandRecovery, type ProPresenterCommandContext } from "@/lib/propresenter-command-recovery.server";
+import { proPresenterCommandSchema, type ProPresenterCommand } from "../../../mobile/src/lib/propresenter-command";
 import { reportRelayError } from "@/lib/operational-errors.server";
 import { proPresenterViewerMessage } from "@/lib/propresenter-viewer-message";
 import { TIMECODE_FEED_STALL_MS } from "@/types/timecode";
@@ -18,6 +20,7 @@ import { resolveTimecodeTarget, timecodeRelayKey, timecodeTargetUrl, type Timeco
 import type { BridgeDeviceProtocol } from "@/lib/device-modules/types";
 import {
   hasLivePermissionAuthority,
+  hasLiveRundownAuthority,
   type LiveSessionAuthorityClaim,
   type LiveRundownAuthorityClaim,
 } from "@/lib/live-rundown-authority.server";
@@ -56,7 +59,9 @@ export type BridgeDispatchMessage =
       target: string;
     };
 
-type NativeDispatchMessage = Exclude<BridgeDispatchMessage, { type: "connect-device" }> | {
+type ReservedProPresenterMessage = { type: "prepare-propresenter-command" | "execute-propresenter-command"; id: string; reservationId: string; target: string; command: "next" | "previous" | "clear" };
+
+type NativeDispatchMessage = ReservedProPresenterMessage | Exclude<BridgeDispatchMessage, { type: "connect-device" }> | {
   type: "connect-device";
   protocol: string;
   target: string;
@@ -139,6 +144,7 @@ function commandConnection(message: { type: string; [key: string]: unknown }, ac
 
 export interface BridgeDispatchResult {
   success: boolean;
+  notExecuted?: boolean;
   response?: string;
   error?: string;
 }
@@ -220,6 +226,7 @@ function bridgeAuditAction(type: string): BridgeAuditAction | null {
 }
 
 export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
+  private readonly proPresenterCommands: ProPresenterCommandRecovery;
   private bridgeWs: WebSocket | null = null;
   private readonly ownership = new SerialCommandExecutor();
   private activeInstallation: BridgeSelection | null = null;
@@ -249,6 +256,11 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
 
   constructor(ctx: DurableObjectState, env: BridgeRelayEnv) {
     super(ctx, env);
+    this.proPresenterCommands = new ProPresenterCommandRecovery(ctx.storage, {
+      queue: work => this.ownership.run(work),
+      context: (command, claim) => this.proPresenterCommandContext(command, claim),
+      dispatch: (command, context, mode) => this.dispatchProPresenterCommand(command, context, mode),
+    });
 
     ctx.blockConcurrencyWhile(async () => {
       this.activeInstallation = await ctx.storage.get<BridgeSelection>("active-installation") ?? null;
@@ -685,6 +697,53 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     });
   }
 
+  async recoverProPresenterCommand(input: unknown, claim: LiveRundownAuthorityClaim, mode: "prepare" | "execute" | "check") {
+    const command = proPresenterCommandSchema.parse(input);
+    if (command.orgId !== claim.orgId || command.userId !== claim.userId || (this.orgId && this.orgId !== command.orgId)
+      || !await hasLiveRundownAuthority(this.env.DB, claim, "rundown:control")) throw new Error("Slide control access changed. Sign in and check your show access.");
+    this.orgId ||= command.orgId;
+    if (mode === "prepare") return this.proPresenterCommands.prepare(command, claim);
+    if (mode === "execute") return this.proPresenterCommands.execute(command, claim);
+    if (mode === "check") return this.proPresenterCommands.check(command, claim);
+    throw new Error("Unknown slide command operation.");
+  }
+
+  private async proPresenterCommandContext(command: ProPresenterCommand, claim: LiveRundownAuthorityClaim): Promise<ProPresenterCommandContext> {
+    if (command.orgId !== this.orgId || claim.orgId !== this.orgId || command.userId !== claim.userId
+      || !await hasLiveRundownAuthority(this.env.DB, claim, "rundown:control")) throw new Error("Slide control access changed.");
+    const show = await this.env.DB.prepare("SELECT id FROM rundown WHERE id=? AND orgId=? LIMIT 1").bind(command.showId, this.orgId).first();
+    if (!show) throw new Error("Show no longer exists.");
+    const settings = await readProPresenterSettings(this.env.DB, this.orgId, this.env.CREDENTIAL_ENCRYPTION_KEYS);
+    if (!settings.host || !settings.cuesEnabled) throw new Error("Configure ProPresenter and enable Send cues in Settings first.");
+    const socket = this.bridgeWs;
+    const installation = socket ? this.bridges.get(socket) : undefined;
+    if (!socket || !this.bridgeOnline || !installation) throw new Error("Venue Bridge is offline.");
+    const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([settings.host, settings.stagePort, settings.apiPort, settings.password, settings.cuesEnabled])));
+    return { installationId: installation.installationId, fingerprint: Array.from(new Uint8Array(bytes), value => value.toString(16).padStart(2, "0")).join(""), target: proPresenterConnection(settings).target };
+  }
+
+  /** Called under the ownership queue. Return the pending reply without waiting
+   * in that queue, because Bridge acknowledgements use the same queue. */
+  private async dispatchProPresenterCommand(command: ProPresenterCommand, context: ProPresenterCommandContext, mode: "connect" | "prepare" | "execute"): Promise<{ result: Promise<BridgeDispatchResult> }> {
+    const socket = this.bridgeWs;
+    if (!socket || !this.bridgeOnline || this.bridges.get(socket)?.installationId !== context.installationId)
+      return { result: Promise.resolve({ success: false, notExecuted: true, error: "Active Bridge changed." }) };
+    const actor: BridgeTargetActor = { source: "operator", actorUserId: command.userId };
+    if (!await this.authorizeBridgeWrite(socket, mode === "connect" ? "connect-device" : "command", "to-bridge", command.userId)) return { result: Promise.resolve({ success: false, notExecuted: true }) };
+    try {
+      if (mode === "connect") {
+        const settings = await readProPresenterSettings(this.env.DB, this.orgId, this.env.CREDENTIAL_ENCRYPTION_KEYS);
+        const connection = proPresenterConnection(settings);
+        await authorizeBridgeTarget(this.env.DB, this.orgId, connection, actor);
+        const wire = await this.protectDeviceSettings(socket, connection.protocol, connection.target, connection.settings);
+        return { result: this.beginDispatch(socket, wire, actor) };
+      }
+      await authorizeBridgeTarget(this.env.DB, this.orgId, { type: "command", protocol: "propresenter", target: context.target, command: command.command }, actor);
+      return { result: this.beginDispatch(socket, { type: mode === "prepare" ? "prepare-propresenter-command" : "execute-propresenter-command",
+        id: `pp-${mode}-${command.requestId}`, reservationId: command.requestId, target: context.target, command: command.command }, actor) };
+    } catch { return { result: Promise.resolve({ success: false, notExecuted: true, error: "ProPresenter destination approval is unavailable." }) }; }
+  }
+
   /** Internal Worker RPC used by permission-checked native device controls. */
   async dispatchBridgeMessage(message: BridgeDispatchMessage, actor: BridgeTargetActor, expectedInstallationId?: string): Promise<BridgeDispatchResult> {
     const operation = await this.ownership.run(async () => {
@@ -731,18 +790,18 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       }
     }
 
-    const key = message.type === "command"
+    const key = message.type !== "connect-device"
       ? typeof message.id === "string" ? message.id : ""
       : typeof message.target === "string" ? message.target : "";
     if (!key) return Promise.resolve({ success: false, error: "Bridge operation is missing an identifier" });
-    const pending = message.type === "command" ? this.pendingCommands : this.pendingConnections;
+    const pending = message.type !== "connect-device" ? this.pendingCommands : this.pendingConnections;
     if (pending.has(key)) return Promise.resolve({ success: false, error: "A matching device operation is already running" });
 
     return new Promise<BridgeDispatchResult>((resolve) => {
       const timer = setTimeout(() => {
         pending.delete(key);
-        resolve({ success: false, error: message.type === "command" ? "Device command timed out" : "Device connection timed out" });
-      }, message.type === "command" ? 10_000 : 8_000);
+        resolve({ success: false, error: message.type !== "connect-device" ? "Device command timed out" : "Device connection timed out" });
+      }, message.type !== "connect-device" ? 10_000 : 8_000);
       pending.set(key, { resolve, timer, connection: commandConnection(message, actor) });
       try {
         bridgeSocket.send(JSON.stringify(message));
@@ -966,6 +1025,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
             this.pendingCommands.delete(msg.id);
             pending.resolve({
               success: msg.success === true,
+              ...(msg.notExecuted === true ? { notExecuted: true } : {}),
               response: typeof msg.response === "string" ? redactCredentialText(msg.response) : undefined,
               error: typeof msg.error === "string" ? redactCredentialText(msg.error) : undefined,
             });

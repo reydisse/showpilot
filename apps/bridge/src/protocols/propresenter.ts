@@ -266,7 +266,7 @@ export class ProPresenterBridge {
   }
 
   /** Send a command to PP (for control actions like next slide, clear, etc.) */
-  async sendCommand(command: string): Promise<string | void> {
+  async sendCommand(command: string, beforeMutation?: () => void): Promise<string | void> {
     let structured: Record<string, unknown> | null = null;
     if (command.startsWith("{")) {
       try {
@@ -313,6 +313,7 @@ export class ProPresenterBridge {
     for (const port of ports) {
       const base = `http://${this.options.host}:${port}`;
       for (const { path, method } of endpoints) {
+        beforeMutation?.();
         let response: Response;
         try {
           response = await fetch(`${base}${path}`, {
@@ -334,6 +335,7 @@ export class ProPresenterBridge {
     }
 
     if (!structured && endpoints.length === 0 && this.ws?.readyState === WebSocket.OPEN) {
+      beforeMutation?.();
       this.ws.send(command);
       return;
     }

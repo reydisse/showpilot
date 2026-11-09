@@ -1,3 +1,4 @@
+import { ProPresenterReservations } from "./propresenter-reservations.js";
 import WebSocket, { type ClientOptions } from "ws";
 import { createBridgeSettingsRecipient, type BridgeSettingsRecipient } from "@showpilot/shared/bridge-settings";
 import { BridgeTargetError, parseBridgeEndpoint, resolveBridgeEndpoints, type BridgeEndpoint } from "@showpilot/shared/bridge-target";
@@ -48,6 +49,11 @@ interface CommandMessage {
   target: string;
   command: string;
   settings?: Record<string, unknown>;
+}
+
+interface ReservedProPresenterMessage {
+  type: "prepare-propresenter-command" | "execute-propresenter-command";
+  id: string; reservationId: string; target: string; command: "next" | "previous" | "clear";
 }
 
 interface DeviceConnectionInput {
@@ -119,7 +125,7 @@ export function connectedBridgeTargets(...groups: Iterable<string>[]): string[] 
   return [...new Set(groups.flatMap((group) => [...group]))].sort();
 }
 
-type IncomingMessage = CommandMessage | ConnectDeviceMessage | DisconnectDeviceMessage | PingMessage | BridgeRoleMessage | BridgePolicyMessage | PrepareLocalShowMessage;
+type IncomingMessage = ReservedProPresenterMessage | CommandMessage | ConnectDeviceMessage | DisconnectDeviceMessage | PingMessage | BridgeRoleMessage | BridgePolicyMessage | PrepareLocalShowMessage;
 
 function endpointKey(endpoint: BridgeEndpoint): string {
   return JSON.stringify([endpoint.protocol, endpoint.host, endpoint.port]);
@@ -144,6 +150,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function parseIncomingMessage(value: unknown): IncomingMessage | null {
   if (!isRecord(value) || typeof value.type !== "string") return null;
   switch (value.type) {
+    case "prepare-propresenter-command":
+    case "execute-propresenter-command":
+      return typeof value.id === "string" && /^[A-Za-z0-9:_-]{1,100}$/.test(value.id)
+        && typeof value.reservationId === "string" && /^[A-Za-z0-9:_-]{1,100}$/.test(value.reservationId)
+        && typeof value.target === "string" && value.target.length <= 300
+        && (value.command === "next" || value.command === "previous" || value.command === "clear")
+        ? { type: value.type, id: value.id, reservationId: value.reservationId, target: value.target, command: value.command } : null;
     case "prepare-local-show":
       return typeof value.id === "string" && /^[A-Za-z0-9:_-]{1,100}$/.test(value.id)
         && typeof value.showId === "string" && /^[A-Za-z0-9:_-]{1,100}$/.test(value.showId)
@@ -205,6 +218,7 @@ export function shouldReconnectBridge(code: number): boolean {
  * and proxies commands to local network devices.
  */
 export class Bridge {
+  private readonly ppReservations = new ProPresenterReservations();
   private commandSource: "cloud" | "entering-local" | "local" | "local-held" | "leaving-local" | "stopped" = "cloud";
   private localStore: LocalShowStore | null = null;
   private localShow: LocalShowManager | null = null;
@@ -408,6 +422,7 @@ export class Bridge {
   }
 
   private async disconnectDevices(): Promise<void> {
+    this.ppReservations.clear();
     this.pendingConnectionApproval?.finish(false);
     // Stop device output and polling when this installation becomes standby.
     for (const conn of this.ppConnections.values()) conn.disconnect();
@@ -509,6 +524,7 @@ export class Bridge {
         try {this.localShow?.applyCloudPolicy([],false);}
         catch {console.error('[bridge] Local preparation could not record its revocation; local control remains unavailable.');}
       }
+      this.ppReservations.clear();
       this.settingsRecipient = null;
       this.settingsScope = null;
       this.role = "waiting";
@@ -565,6 +581,7 @@ export class Bridge {
     }
     if (msg.type === "bridge-role") {
       const changed = this.role !== msg.role;
+      if (changed) this.ppReservations.clear();
       await this.applyTargetPolicy(msg.approvedTargets);
       this.role = msg.role;
       this.settingsScope = { orgId: msg.orgId, installationId: msg.installationId };
@@ -585,6 +602,10 @@ export class Bridge {
     }
     if (msg.type !== "ping" && this.role !== "active") return;
     switch (msg.type) {
+      case "prepare-propresenter-command":
+      case "execute-propresenter-command":
+        await this.handleReservedProPresenterCommand(msg);
+        break;
       case "prepare-local-show":
         await this.prepareLocalShow(msg);
         break;
@@ -628,6 +649,25 @@ export class Bridge {
     // command cannot replace that metadata with its primary port alone.
     this.connectionEndpoints.set(msg.target, msg.type === "connect-device" ? endpoints
       : [...new Map(effective.map(endpoint => [endpointKey(endpoint), endpoint])).values()]);
+  }
+
+  private async handleReservedProPresenterCommand(msg: ReservedProPresenterMessage): Promise<void> {
+    let invoked = false;
+    try {
+      const socket = this.ws;
+      await this.authorizeDestination({ type: "command", id: msg.id, protocol: "propresenter", target: msg.target, command: msg.command });
+      if (this.ws !== socket || socket?.readyState !== WebSocket.OPEN || this.role !== "active") throw new Error("Bridge ownership changed before the slide command.");
+      if (msg.type === "prepare-propresenter-command") this.ppReservations.reserve(msg.reservationId, msg.target, msg.command);
+      else {
+        const beforeMutation = this.ppReservations.take(msg.reservationId, msg.target, msg.command);
+        invoked = true;
+        await this.executePPCommand(msg.target, msg.command, beforeMutation);
+      }
+      this.send({ type: "command-response", id: msg.id, success: true });
+    } catch (error) {
+      this.send({ type: "command-response", id: msg.id, success: false, notExecuted: !invoked,
+        error: error instanceof Error ? error.message : "Slide command could not be confirmed." });
+    }
   }
 
   private async handleCommand(msg: CommandMessage): Promise<void> {
@@ -844,6 +884,7 @@ export class Bridge {
     this.teardownOscMixerFeedback(msg.target);
     const pp = this.ppConnections.get(msg.target);
     if (pp) {
+      this.ppReservations.clear();
       pp.disconnect();
       this.ppConnections.delete(msg.target);
     }
@@ -890,10 +931,11 @@ export class Bridge {
   private async executePPCommand(
     target: string,
     command: string,
+    beforeMutation?: () => void,
   ): Promise<string | void> {
     const pp = this.ppConnections.get(target);
     if (!pp) throw new Error("ProPresenter is not connected");
-    return pp.sendCommand(command);
+    return pp.sendCommand(command, beforeMutation);
   }
 
   private async connectAtem(
@@ -1141,6 +1183,7 @@ export class Bridge {
       await existing.waitUntilReady();
       return;
     }
+    this.ppReservations.clear();
     if (existing) {
       // Detach before closing so old status/slide callbacks cannot resolve the
       // replacement connection or clear its last confirmed browser preview.

@@ -314,3 +314,14 @@ describe("ProPresenter commands", () => {
     bridge.disconnect();
   });
 });
+
+it("checks the reservation again before a fallback endpoint can mutate a later slide", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 404 }));
+  vi.stubGlobal("fetch", fetchMock);
+  const guard = vi.fn().mockImplementationOnce(() => {}).mockImplementation(() => { throw new Error("Reservation expired"); });
+  const bridge = createBridge(() => {});
+  await expect(bridge.sendCommand("next", guard)).rejects.toThrow("Reservation expired");
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(guard).toHaveBeenCalledTimes(2);
+  bridge.disconnect();
+});
