@@ -1,6 +1,7 @@
 // Exercise the compiled native controls against a local command-receipt stub.
 // Authentication and live rundown hydration use the disposable Worker; no production traffic.
-// Real receipt persistence, permissions and Bridge dispatch are covered by Worker/Bridge tests.
+// Slide receipt persistence/Bridge dispatch use dedicated Worker/Bridge tests.
+// Output settings below use the real Worker/D1 API, with lost-reply/read fault injection.
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
@@ -95,6 +96,9 @@ await withLocalSmokeFixture(
           ? route.continue()
           : route.abort(),
       );
+    let outputMode = "normal",
+      outputReadFails = false;
+    const outputCalls = [];
     let mode = "normal",
       failCheck = false;
     const receipts = new Map(),
@@ -224,6 +228,19 @@ await withLocalSmokeFixture(
           })
           .catch(() => {});
       }
+      const output = url.pathname === "/api/mobile/v1/propresenter/output";
+      if (output && request.method() === "GET" && outputReadFails) {
+        return route.fulfill({
+          status: 503,
+          headers,
+          body: JSON.stringify({ error: "Fixture output read failed" }),
+        });
+      }
+      if (output && request.method() === "POST") {
+        outputCalls.push(JSON.parse(body));
+        if (outputMode === "before")
+          await new Promise((done) => held.push(done));
+      }
       const result = await fetch(`${origin}${url.pathname}${url.search}`, {
         method: request.method(),
         headers: {
@@ -234,6 +251,15 @@ await withLocalSmokeFixture(
         ...(body ? { body } : {}),
       });
       let bytes = Buffer.from(await result.arrayBuffer());
+      if (output && request.method() === "POST" && outputMode === "after") {
+        outputMode = "normal";
+        return route.fulfill({
+          status: 503,
+          headers,
+          body: JSON.stringify({ error: "Fixture lost output reply" }),
+        });
+      }
+
       if (request.method() === "GET" && url.pathname === base && result.ok) {
         const detail = JSON.parse(bytes);
         detail.proPresenter = {
@@ -270,6 +296,22 @@ await withLocalSmokeFixture(
     async function api(path = "/details", data) {
       const response = await fetch(
         `${origin}${base}${path}?orgId=${orgId}&userId=smoke-operator`,
+        {
+          method: data ? "POST" : "GET",
+          headers: {
+            Cookie: cookie,
+            Origin: origin,
+            "Content-Type": "application/json",
+          },
+          ...(data ? { body: JSON.stringify(data) } : {}),
+        },
+      );
+      assert.equal(response.status, 200, await response.clone().text());
+      return response.json();
+    }
+    async function outputApi(data) {
+      const response = await fetch(
+        `${origin}/api/mobile/v1/propresenter/output?orgId=${orgId}`,
         {
           method: data ? "POST" : "GET",
           headers: {
@@ -322,6 +364,89 @@ await withLocalSmokeFixture(
       await page.goto(`${nativeOrigin}/shows`);
       await showCard().click();
       await wait(() => button("Next slide").isEnabled(), "live slide controls");
+      await wait(
+        () => button("Show slides on stage displays").isEnabled(),
+        "output state",
+      );
+      await button("Show slides on stage displays").click();
+      await widths("output-review", [
+        "Confirm show slides",
+        "Cancel output change",
+      ]);
+      assert.equal(outputCalls.length, 0, "review alone does not write output");
+      await button("Cancel output change").click();
+      assert.equal(outputCalls.length, 0);
+      await button("Show slides on stage displays").click();
+      outputMode = "after";
+      await button("Confirm show slides").click();
+      await button("Recover original output change").waitFor();
+      assert.equal(
+        (await outputApi()).enabled,
+        true,
+        "lost reply followed a real database commit",
+      );
+      await widths("output-lost", ["Recover original output change"]);
+      const originalOutput = outputCalls[0];
+      await button("Back to shows").click();
+      await showCard().click();
+      await button("Recover original output change").waitFor();
+      const changed = await outputApi();
+      await outputApi({
+        orgId,
+        userId: "smoke-operator",
+        requestId: crypto.randomUUID(),
+        enabled: false,
+        expectedRevision: changed.revision,
+        expiresAt: changed.serverTime + 5_000,
+      });
+      outputReadFails = true;
+      await button("Recover original output change").click();
+      await button("Refresh output state").waitFor();
+      assert.deepEqual(
+        outputCalls[1],
+        originalOutput,
+        "recovery retains the original request",
+      );
+      assert.equal(
+        (await outputApi()).enabled,
+        false,
+        "recovery preserves the later output change",
+      );
+      await widths("output-refresh-error", ["Refresh output state"]);
+      outputReadFails = false;
+      await button("Refresh output state").click();
+      await button("Review current output").waitFor();
+      await button("Review current output").click();
+      await wait(
+        () => button("Show slides on stage displays").isEnabled(),
+        "fresh output review",
+      );
+      await button("Show slides on stage displays").click();
+      outputMode = "before";
+      await button("Confirm show slides").click();
+      await wait(
+        () => held.length === 1,
+        "output request held before delivery",
+      );
+      await button("Recover original output change").waitFor({
+        timeout: 20_000,
+      });
+      outputMode = "normal";
+      held.splice(0).forEach((done) => done());
+      await button("Recover original output change").click();
+      await page
+        .getByText(
+          "This command expired without changing output. Review the current state before starting another.",
+          { exact: true },
+        )
+        .waitFor();
+      assert.equal(
+        (await outputApi()).enabled,
+        false,
+        "expired output request never enables the display",
+      );
+      assert.deepEqual(outputCalls[3], outputCalls[2]);
+      await button("Review current output").click();
       await widths("ready", ["Previous slide", "Next slide", "Clear"]);
       await button("Clear").click();
       assert.equal(executed.length, 0);
@@ -399,6 +524,12 @@ await withLocalSmokeFixture(
           clearConfirmation: true,
           uncertainAcknowledgement: true,
           latePreparationBlocked: true,
+          outputRealDatabase: true,
+          outputNavigationRetention: true,
+          outputLostReplyRecovery: true,
+          outputReadRetry: true,
+          outputExpiredDelivery: true,
+          outputPreservesNewerSetting: true,
           widths: [320, 768, 1440],
         }),
       );
@@ -413,6 +544,7 @@ await withLocalSmokeFixture(
           errors,
           calls,
           deliveries,
+          outputCalls,
         }),
       );
       throw error;

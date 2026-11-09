@@ -1,9 +1,10 @@
 import { hasPermission, type Permission } from "./app-permissions";
 import { isGrantablePermission } from "./access-capabilities";
+import type { AccessDatabase } from "./effective-access";
 const activeSession = `(CASE WHEN typeof(s.expiresAt) IN ('integer','real') THEN s.expiresAt ELSE (julianday(s.expiresAt)-2440587.5)*86400000 END)>(julianday('now')-2440587.5)*86400000`;
 const notDeleting = `NOT EXISTS(SELECT 1 FROM app_setting WHERE orgId=m.organizationId AND key='organization-deleting')`;
 export async function memberPermissionGuard(
-  database: Pick<D1Database, "prepare">,
+  database: AccessDatabase,
   orgId: string,
   actor: { userId: string; sessionId: string },
   required: readonly Permission[],

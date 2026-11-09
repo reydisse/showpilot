@@ -890,16 +890,14 @@ export async function setProPresenterStageDisplayForOrg(
   orgId: string,
   enabled: boolean,
 ): Promise<void> {
-  const prisma = getPrisma();
-  await prisma.appSetting.upsert({
-    where: { orgId_key: { orgId, key: ppStageDisplayKey() } },
-    update: { value: enabled ? "true" : "false" },
-    create: {
-      orgId,
-      key: ppStageDisplayKey(),
-      value: enabled ? "true" : "false",
-    },
-  });
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,?,?)
+      ON CONFLICT(orgId,key) DO UPDATE SET value=excluded.value`)
+      .bind(crypto.randomUUID(), orgId, ppStageDisplayKey(), String(enabled)),
+    env.DB.prepare(`INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,'propresenter-output-revision',?)
+      ON CONFLICT(orgId,key) DO UPDATE SET value=excluded.value`)
+      .bind(crypto.randomUUID(), orgId, crypto.randomUUID()),
+  ]);
 }
 
 /** Read the ProPresenter-lyrics-on-timer flag for an org. */

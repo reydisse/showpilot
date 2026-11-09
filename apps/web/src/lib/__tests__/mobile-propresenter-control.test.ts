@@ -140,38 +140,15 @@ describe("mobile ProPresenter control", () => {
     expect(dispatchBridgeMessage).not.toHaveBeenCalled();
   });
 
-  it("lets rundown editors switch the stage-display feed without device-control permission", async () => {
+  it("rejects the old stage-display endpoint with an update-required response", async () => {
     const writes: unknown[][] = [];
     const { env, dispatchBridgeMessage } = environment(true, writes);
-    mocks.resolveAccess.mockResolvedValue({ role: "sm", permissions: ["rundown:edit"], today: "2026-08-27" });
-
-    const response = await stageDisplay({ enabled: true }, env);
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true, enabled: true });
-    expect(writes).toHaveLength(1);
-    expect(writes[0]?.slice(1)).toEqual(["org-1", "true"]);
+    for (const enabled of [true, false, "yes"]) {
+      const response = await stageDisplay({ enabled }, env);
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: "Update the app before changing ProPresenter output." });
+    }
+    expect(writes).toHaveLength(0);
     expect(dispatchBridgeMessage).not.toHaveBeenCalled();
-  });
-
-  it("rejects malformed stage-display state before writing", async () => {
-    const writes: unknown[][] = [];
-    const { env } = environment(true, writes);
-
-    const response = await stageDisplay({ enabled: "yes" }, env);
-
-    expect(response.status).toBe(400);
-    expect(writes).toHaveLength(0);
-  });
-
-  it("rejects stage-display changes without rundown edit or control access", async () => {
-    const writes: unknown[][] = [];
-    const { env } = environment(true, writes);
-    mocks.resolveAccess.mockResolvedValue({ role: "member", permissions: ["rundown:view"], today: "2026-08-27" });
-
-    const response = await stageDisplay({ enabled: true }, env);
-
-    expect(response.status).toBe(403);
-    expect(writes).toHaveLength(0);
   });
 });

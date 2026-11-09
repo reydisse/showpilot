@@ -24,7 +24,7 @@ export function selectActiveShow(
 
 /** Resolve external device/control traffic to the same show room as the UI. */
 export async function getActiveRundownRelayTarget(
-  db: D1Database,
+  db: { prepare(sql: string): { bind(...values: unknown[]): { all<T>(): Promise<{ results?: T[] }> } } },
   orgId: string,
 ): Promise<{
   key: string;

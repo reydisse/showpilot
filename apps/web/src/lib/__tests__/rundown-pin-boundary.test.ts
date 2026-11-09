@@ -138,9 +138,9 @@ describe("rundown PIN boundaries", () => {
     expect(new URL(mocks.relay.mock.calls[1][0].url).searchParams.get("access")).toBe("control");
   });
 
-  it.each(["meta", "propresenter", "propresenter/stage-display"])("requires the PIN for mobile %s changes", async (action) => {
+  it.each(["rundowns/show-1/meta", "rundowns/show-1/propresenter", "propresenter/output"])("requires the PIN for mobile %s changes", async (action) => {
     const response = await handleMobileApi(new Request(
-      `https://showpilot.test/api/mobile/v1/rundowns/show-1/${action}?orgId=org-1`,
+      `https://showpilot.test/api/mobile/v1/${action}?orgId=org-1`,
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: "pin-test", expectedRevision: 0, name: "Test", location: "", startTime: "" }) },
     ), { DB: database() });
     expect(response?.status).toBe(401);
