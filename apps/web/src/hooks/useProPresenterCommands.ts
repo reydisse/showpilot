@@ -11,15 +11,13 @@ import {
   type ProPresenterCommand,
   type ProPresenterReply,
 } from "@showpilot/shared/propresenter-command";
-import {
-  sendProPresenterCommand,
-  setProPresenterStageDisplay,
-} from "@/lib/rundown";
+import { sendProPresenterCommand } from "@/lib/rundown";
 import { runRouteLoad } from "@/lib/route-load-deadlines";
 
-export type ProPresenterOperation =
-  | { kind: "slide"; command: "previous" | "next" | "clear" }
-  | { kind: "output"; enabled: boolean };
+export type ProPresenterOperation = {
+  kind: "slide";
+  command: "previous" | "next" | "clear";
+};
 type SlideAttempt = {
   kind: "slide";
   command: ProPresenterCommand;
@@ -30,29 +28,17 @@ type SlideAttempt = {
   | { phase: "unknown"; message: string }
   | { phase: "result"; result: ProPresenterReply }
 );
-type OutputAttempt = {
-  kind: "output";
-  enabled: boolean;
-  at: number;
-  viewScope: string;
-} & (
-  | { phase: "pending" | "confirmed" }
-  | { phase: "unknown"; message: string }
-);
-type Attempt = SlideAttempt | OutputAttempt;
+type Attempt = SlideAttempt;
 const operationName = (attempt: Attempt) =>
-  attempt.kind === "output"
-    ? "Kiosk output change"
-    : attempt.command.command === "clear"
-      ? "Clear slide"
-      : attempt.command.command === "next"
-        ? "Next slide"
-        : "Previous slide";
+  attempt.command.command === "clear"
+    ? "Clear slide"
+    : attempt.command.command === "next"
+      ? "Next slide"
+      : "Previous slide";
 const isPending = (attempt: Attempt | null) =>
   attempt?.phase === "pending" || attempt?.phase === "checking";
 const confirmed = (attempt: Attempt | null) =>
-  attempt?.phase === "confirmed" ||
-  (attempt?.phase === "result" && attempt.result.status === "confirmed");
+  attempt?.phase === "result" && attempt.result.status === "confirmed";
 
 /** One retained operator request per workspace. Navigating away, changing show,
  * or changing the configured target must not erase an uncertain hardware action. */
@@ -63,7 +49,6 @@ export function useProPresenterCommands(options: {
   scope: string;
   canControlSlides: boolean;
   canCheckSlides: boolean;
-  canChangeOutput: boolean;
 }) {
   const client = useQueryClient();
   const key = ["web-propresenter-command", options.userId, options.orgId],
@@ -125,86 +110,57 @@ export function useProPresenterCommands(options: {
     const previous = read(),
       currentOptions = latest.current.options;
     if (!active() || (previous && !confirmed(previous))) return;
-    if (
-      operation.kind === "slide"
-        ? !currentOptions.canControlSlides || !currentOptions.showId
-        : !currentOptions.canChangeOutput
-    )
-      return;
-    const command =
-      operation.kind === "slide" && currentOptions.showId
-        ? {
-            orgId: currentOptions.orgId,
-            userId: currentOptions.userId,
-            showId: currentOptions.showId,
-            requestId: crypto.randomUUID(),
-            command: operation.command,
-          }
-        : null;
-    const next: Attempt = command
-      ? {
-          kind: "slide",
-          command,
-          viewScope: currentOptions.scope,
-          phase: "pending",
-          at: Date.now(),
-        }
-      : {
-          kind: "output",
-          enabled: operation.kind === "output" && operation.enabled,
-          viewScope: currentOptions.scope,
-          phase: "pending",
-          at: Date.now(),
-        };
+    if (!currentOptions.canControlSlides || !currentOptions.showId) return;
+    const command: ProPresenterCommand = {
+      orgId: currentOptions.orgId,
+      userId: currentOptions.userId,
+      showId: currentOptions.showId,
+      requestId: crypto.randomUUID(),
+      command: operation.command,
+    };
+    const next: Attempt = {
+      kind: "slide",
+      command,
+      viewScope: currentOptions.scope,
+      phase: "pending",
+      at: Date.now(),
+    };
     const claim = put(previous, next);
     if (!claim) return;
     try {
       const result = await runRouteLoad(
         async (controller) => {
-          if (command) {
-            const prepared = await slideCall(
-              command,
-              "prepare",
-              controller.signal,
-            );
-            if (
-              prepared.status !== "prepared" ||
-              controller.signal.aborted ||
-              !active() ||
-              !latest.current.options.canControlSlides
-            )
-              return prepared;
-            return slideCall(command, "execute", controller.signal);
-          }
-          if (next.kind !== "output") throw new Error("Missing output action.");
-          const output = await setProPresenterStageDisplay({
-            data: { orgId: currentOptions.orgId, enabled: next.enabled },
-            signal: controller.signal,
-          });
-          if (output?.ok !== true)
-            throw new Error("No output acknowledgement.");
-          return null;
+          const prepared = await slideCall(
+            command,
+            "prepare",
+            controller.signal,
+          );
+          if (
+            prepared.status !== "prepared" ||
+            controller.signal.aborted ||
+            !active() ||
+            !latest.current.options.canControlSlides
+          )
+            return prepared;
+          return slideCall(command, "execute", controller.signal);
         },
         undefined,
         20_000,
       );
-      if (command && result)
-        put(claim, {
-          kind: "slide",
-          command,
-          viewScope: currentOptions.scope,
-          phase: "result",
-          result,
-          at: Date.now(),
-        });
-      else if (next.kind === "output")
-        put(claim, { ...next, phase: "confirmed", at: Date.now() });
+      put(claim, {
+        kind: "slide",
+        command,
+        viewScope: currentOptions.scope,
+        phase: "result",
+        result,
+        at: Date.now(),
+      });
     } catch {
       put(claim, {
         ...next,
         phase: "unknown",
         at: Date.now(),
-        message: `${operationName(next)} was not confirmed. ${next.kind === "slide" ? "Check the original command status before sending another action." : "Check ProPresenter and the kiosk before sending another action."}`,
+        message: `${operationName(next)} was not confirmed. Check the original command status before sending another action.`,
       });
     }
   }
@@ -255,10 +211,8 @@ export function useProPresenterCommands(options: {
     }
   }
   const canAcknowledge = (value: Attempt | null) =>
-    (value?.kind === "output" && value.phase === "unknown") ||
-    (value?.phase === "result" &&
-      (value.result.status === "rejected" ||
-        value.result.status === "uncertain"));
+    value?.phase === "result" &&
+    (value.result.status === "rejected" || value.result.status === "uncertain");
   const failure =
     attempt?.phase === "unknown"
       ? { message: attempt.message, occurredAt: attempt.at }
@@ -275,9 +229,7 @@ export function useProPresenterCommands(options: {
     previousContext: !!attempt && attempt.viewScope !== options.scope,
     pending:
       isPending(attempt) && attempt
-        ? attempt.kind === "slide"
-          ? { kind: "slide" as const, command: attempt.command.command }
-          : { kind: "output" as const, enabled: attempt.enabled }
+        ? { kind: "slide" as const, command: attempt.command.command }
         : null,
     checking: attempt?.phase === "checking",
     failure,

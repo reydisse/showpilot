@@ -29,7 +29,6 @@ const EDITABLE_SETTING_PERMISSIONS = {
   "propresenter-password": "settings:integrations",
   "propresenter-pull-order": "settings:integrations",
   "propresenter-send-cues": "settings:integrations",
-  "propresenter-stage-display": "settings:integrations",
   "default-call-lead-minutes": "settings:production_defaults",
   "default-countdown-minutes": "settings:production_defaults",
   "default-timer-mode": "settings:production_defaults",

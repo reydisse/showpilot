@@ -10,7 +10,6 @@ import {
   handleMobileApi,
   type MobileApiEnvironment,
 } from "../mobile-api.server";
-import { applySettingWrite } from "../setting-writes.server";
 import {
   readProPresenterOutputSnapshot,
   writeProPresenterOutput,
@@ -19,7 +18,6 @@ import { rundownRelayKey } from "../rundown-relay-key";
 import { hashRundownPin } from "../rundown-pin-crypto";
 import * as pinCrypto from "../rundown-pin-crypto";
 import { buildCompanionDeps } from "../companion-api";
-import { setProPresenterStageDisplayForOrg } from "../rundown";
 
 vi.mock("better-auth/tanstack-start", () => ({
   tanstackStartCookies: () => ({ id: "test-cookie-bridge" }),
@@ -155,21 +153,10 @@ it("does not accept a stale review after Settings changes away and back", async 
   };
   expect((await call(first)).status).toBe(200);
   const reviewed = await readProPresenterOutputSnapshot(env.DB, orgId);
-  for (const [expectedValue, value] of [
-    ["true", "false"],
-    ["false", "true"],
-  ]) {
-    await applySettingWrite(
-      env.DB,
-      {
-        orgId,
-        key: "propresenter-stage-display",
-        value,
-        expectedValue,
-        requestId: crypto.randomUUID(),
-      },
-      userId,
-    );
+  const actor = await seedRelayMember(orgId, userId);
+  for (const enabled of [false, true]) {
+    const current = await readProPresenterOutputSnapshot(env.DB, orgId);
+    await writeProPresenterOutput(env.DB, { ...first, requestId: crypto.randomUUID(), enabled, expectedRevision: current.revision }, { ...actor, rundownPin: null }, "settings");
   }
   const result = await call({
     ...first,
@@ -506,9 +493,7 @@ it("requires the configured TM PIN for both reads and writes", async () => {
   });
   expect(verify).toHaveBeenCalledTimes(4);
 }, 15_000); // Multiple real PBKDF2 checks, matching the Worker PIN crypto suite.
-it.each(["companion", "fallback"])(
-  "advances the shared revision for the %s writer",
-  async (writer) => {
+it("advances the shared revision for the Companion writer", async () => {
     const original = {
       orgId,
       userId,
@@ -519,9 +504,7 @@ it.each(["companion", "fallback"])(
     };
     expect((await call(original)).status).toBe(200);
     const reviewed = await readProPresenterOutputSnapshot(env.DB, orgId);
-    if (writer === "companion")
-      await buildCompanionDeps().setLyrics(orgId, false);
-    else await setProPresenterStageDisplayForOrg(orgId, false);
+    await buildCompanionDeps().setLyrics(orgId, false);
     const later = await readProPresenterOutputSnapshot(env.DB, orgId);
     expect(later.enabled).toBe(false);
     expect(later.revision).not.toBe(reviewed.revision);

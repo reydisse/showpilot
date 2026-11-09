@@ -882,24 +882,6 @@ export interface PPSlidePayload extends RelayPPSlide {
   updatedAt: number;
 }
 
-/**
- * Persist the ProPresenter-lyrics-on-timer flag for an org. Caller is
- * responsible for access control (server fn below; Companion endpoint).
- */
-export async function setProPresenterStageDisplayForOrg(
-  orgId: string,
-  enabled: boolean,
-): Promise<void> {
-  await env.DB.batch([
-    env.DB.prepare(`INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,?,?)
-      ON CONFLICT(orgId,key) DO UPDATE SET value=excluded.value`)
-      .bind(crypto.randomUUID(), orgId, ppStageDisplayKey(), String(enabled)),
-    env.DB.prepare(`INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,'propresenter-output-revision',?)
-      ON CONFLICT(orgId,key) DO UPDATE SET value=excluded.value`)
-      .bind(crypto.randomUUID(), orgId, crypto.randomUUID()),
-  ]);
-}
-
 /** Read the ProPresenter-lyrics-on-timer flag for an org. */
 export async function getProPresenterStageDisplayForOrg(
   orgId: string,
@@ -910,41 +892,6 @@ export async function getProPresenterStageDisplayForOrg(
   });
   return row?.value === "true";
 }
-
-export const setProPresenterStageDisplay = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, enabled: z.boolean() }), data),
-  )
-  .handler(async ({ data }) => {
-    await assertRundownEditAccess(data.orgId);
-    const bindings = env as unknown as RundownRelayEnv & {
-      DB: Parameters<typeof getActiveRundownRelayTarget>[0];
-    };
-    if (!bindings.RUNDOWN_RELAY) {
-      await setProPresenterStageDisplayForOrg(data.orgId, data.enabled);
-      return { ok: true };
-    }
-    const target = await getActiveRundownRelayTarget(bindings.DB, data.orgId);
-    const relay = bindings.RUNDOWN_RELAY.get(
-      bindings.RUNDOWN_RELAY.idFromName(target.key),
-    );
-    const response = await relay.fetch(
-      rundownInternalRequest(
-        `https://rundown.local/command?orgId=${encodeURIComponent(data.orgId)}&serviceDate=${encodeURIComponent(target.serviceDate)}${target.showId ? `&showId=${encodeURIComponent(target.showId)}` : ""}&access=edit`, bindings.BETTER_AUTH_SECRET,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "pp-output-enabled",
-            payload: { enabled: data.enabled },
-          }),
-        },
-      ),
-    );
-    if (!response.ok)
-      throw new Error("Could not update the shared kiosk lyrics output.");
-    return { ok: true };
-  });
 
 export const getActiveRundownTarget = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) =>

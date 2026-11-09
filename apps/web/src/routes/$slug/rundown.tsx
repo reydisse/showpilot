@@ -1,3 +1,4 @@
+import { ProPresenterOutputControl } from "@/components/rundown/ProPresenterOutputControl";
 import { ProPresenterSlideControls } from "@/components/rundown/ProPresenterSlideControls";
 import { runRouteLoad } from "@/lib/route-load-deadlines";
 import { VirtualRows } from "@/components/ui/virtual-rows";
@@ -44,8 +45,6 @@ import {
   Send,
   Copy,
   Check,
-  Eye,
-  EyeOff,
   MessageSquare,
   X,
   Monitor,
@@ -411,7 +410,6 @@ function RundownPage() {
     stateInitialized: syncedInitialized,
     revision: cloudRevision,
     ppPreviewSlide: syncedPpSlide,
-    ppOutputEnabled: ppOnKiosk,
     stageMessage: syncedStageMessage,
     lastError: syncError,
     lastErrorAt: syncErrorAt,
@@ -875,9 +873,7 @@ function RundownPage() {
     orgId, userId: user.id, showId: showId ?? null, scope: ppCommandScope,
     canCheckSlides: canControlRundown,
     canControlSlides: canControlRundown && syncConnected && pp.isStreaming && ppCuesEnabled && !!ppApiPort,
-    canChangeOutput: canEditRundown && syncConnected,
   });
-  const ppOutputPending = ppCommands.pending?.kind === "output";
   const ppControlsBlocked = ppCommands.blocked;
   const handleProPresenterCommand = (command: "next" | "previous" | "clear") => ppCommands.run({ kind: "slide", command });
 
@@ -910,7 +906,6 @@ function RundownPage() {
     }
   }, [canEditRundown, canControlRundown, ppEnabled]);
 
-  const togglePPOnKiosk = () => ppCommands.run({ kind: "output", enabled: !ppOnKiosk });
 
   // Load rundown for new date
   const loadDate = async (date: string, targetShowId?: string, signal?: AbortSignal) => {
@@ -2105,37 +2100,11 @@ function RundownPage() {
                           )}
                           {ppEnabled ? pp.isStreaming ? "Streaming" : "Reconnecting" : "Off"}
                         </Button>
-                        {canEditRundown && (
-                        <Button variant="ghost"
-                          onClick={togglePPOnKiosk}
-                          disabled={ppControlsBlocked || !syncConnected}
-                          aria-busy={ppOutputPending}
-                          className={`min-h-11 flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium uppercase tracking-wider transition-colors ${
-                            ppOnKiosk
-                              ? "bg-blue-500/15 text-blue-300 hover:bg-blue-500/25"
-                              : "bg-board-bg text-board-muted hover:bg-board-border hover:text-board-text"
-                          }`}
-                          title={
-                            ppOnKiosk
-                              ? "Hide ProPresenter on kiosk"
-                              : "Show ProPresenter on kiosk"
-                          }
-                        >
-                          {ppOnKiosk ? (
-                            <Eye className="w-3 h-3" />
-                          ) : (
-                            <EyeOff className="w-3 h-3" />
-                          )}
-                          {ppOutputPending
-                            ? "Updating…"
-                            : ppOnKiosk
-                              ? "On Kiosk"
-                              : "Kiosk Off"}
-                        </Button>)}
                       </>
                     )}
                   </div>
 
+                  {(canEditRundown || canControlRundown) && <ProPresenterOutputControl orgId={orgId} userId={user.id} surface="rundown" enabled /> }
                   {ppCommands.failure && (
                     <div role="alert" aria-label="ProPresenter command confirmation" className="my-3 space-y-2 text-sm text-amber-200">
                       <p>{ppCommands.failure.message} <time dateTime={new Date(ppCommands.failure.occurredAt).toISOString()}>{new Date(ppCommands.failure.occurredAt).toLocaleTimeString()}</time></p>
