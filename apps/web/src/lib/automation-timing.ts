@@ -1,3 +1,4 @@
+import { automationDeviceId } from "@showpilot/shared";
 import type { AutomationEvent, TimecodeFormat } from "@/types/timecode";
 
 export const MAX_AUTOMATION_LEAD_MS = 60_000;
@@ -28,20 +29,6 @@ export interface DeviceTiming {
   latencyMs: number;
 }
 
-/** Matches the saved-device precedence used when the relay dispatches. */
-export function automationDeviceId(
-  event: Pick<AutomationEvent, "targetDeviceId" | "payload">,
-): string | undefined {
-  for (const value of [
-    event.targetDeviceId,
-    event.payload.deviceId,
-    event.payload.targetDeviceId,
-  ]) {
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return undefined;
-}
-
 export function deviceTimingForEvent(
   event: AutomationEvent,
   devices: readonly DeviceTiming[],
@@ -54,9 +41,4 @@ export function deviceTimingForEvent(
   return (event.action === "lighting-scene" || event.action === "lighting-blackout") && lighting.length === 1
     ? lighting[0]
     : undefined;
-}
-
-/** Canonical dispatch time sent to clients; older zero-offset cues retain theirs. */
-export function scheduledDispatchFrame(event: AutomationEvent): number {
-  return event.dispatchFrame ?? event.triggerFrame;
 }

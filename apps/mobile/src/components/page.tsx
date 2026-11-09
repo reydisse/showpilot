@@ -13,6 +13,7 @@ type PageProps = PropsWithChildren<{
   eyebrow?: string;
   subtitle?: string;
   action?: ReactNode;
+  fixedHeader?: ReactNode;
   scroll?: boolean;
   refreshing?: boolean;
   onRefresh?: () => void;
@@ -21,7 +22,7 @@ type PageProps = PropsWithChildren<{
   backLabel?: string;
 }>;
 
-export function Page({ title, eyebrow, subtitle, action, scroll = true, onRefresh, maxWidth = 1040, backTo, backLabel = "Back", children }: PageProps) {
+export function Page({ title, eyebrow, subtitle, action, fixedHeader, scroll = true, onRefresh, maxWidth = 1040, backTo, backLabel = "Back", children }: PageProps) {
   const workspace = useWorkspace();
   const module = moduleForSurface("mobile", usePathname());
   const blocked = module && !workspace.modules.includes(module) ? module : null;
@@ -77,6 +78,7 @@ export function Page({ title, eyebrow, subtitle, action, scroll = true, onRefres
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "left", "right"]}>
+      {!blocked && fixedHeader ? <View style={{ width: "100%", maxWidth, alignSelf: "center" }}>{fixedHeader}</View> : null}
       {scroll ? (
         <ScrollView
           automaticallyAdjustKeyboardInsets

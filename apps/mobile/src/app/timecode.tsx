@@ -1,7 +1,8 @@
 import { TimecodeCueEditor } from "@/components/timecode-cue-editor";
 import { TimecodeCueFields } from "@/components/timecode-cue-fields";
 import { useTimecodeCueEdit } from "@/hooks/use-timecode-cue-edit";
-import { AUTOMATION_ACTIONS } from "@showpilot/shared";
+import { TimecodeTimeline } from "@/components/timecode-timeline";
+import { TimecodeTransport } from "@/components/timecode-transport";
 import { TimecodeCueConfirmation } from "@/components/timecode-cue-confirmation";
 import { useTimecodeCueControls } from "@/hooks/use-timecode-cue-controls";
 import { useTimecodeAutomationGate } from "@/hooks/use-timecode-automation-gate";
@@ -19,7 +20,7 @@ import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
 import { useTimecodeCueSave } from "@/hooks/use-timecode-cue-save";
 import { useTimecodeRelay } from "@/hooks/use-timecode-relay";
 import { controlMobileTimecodeCues, createMobileTimecodeCue, editMobileTimecodeCue, editMobileTimecodeClock, editMobileTimecodeAutomation, getMobileTimecode, getMobileTimecodeShows } from "@/lib/mobile-api";
-import { timecodeEventStatus, type MobileTimecodeShow } from "@/lib/timecode-contract";
+import type { MobileTimecodeShow } from "@/lib/timecode-contract";
 import { createThemedStyles, fontFamily } from "@/theme/tokens";
 
 
@@ -102,7 +103,11 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
   const canEdit = canSaveEdit && !cueEdit.locked;
 
   return (
-    <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="SMPTE RELAY" title="Timecode" onRefresh={relay.refresh}>
+    <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="SMPTE RELAY" title="Timecode" onRefresh={relay.refresh} fixedHeader={<TimecodeTransport
+      state={data?.state} connected={relay.status === "connected"}
+      canStart={Boolean(canEdit && !relay.isMaster && data && !data.state.running)} canStop={relay.status === "connected" && relay.control === "yours"}
+      starting={relay.starting} stopping={relay.stopping} stoppingAutomation={gate.stopping}
+      onStart={relay.startFreerun} onStop={relay.stopFreerun} onStopAutomation={gate.stop} />}>
       {cueEdit.error && !cueEdit.draft ? <OperationsError message={cueEdit.error} /> : null}
       {cueControls.review ? <TimecodeCueConfirmation review={cueControls.review} showName={show.name}
         changed={cueControls.changed} active={cueControls.canReview} error={cueControls.error} onCancel={cueControls.cancel}
@@ -120,14 +125,9 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
       <OperationsPanel title="Control" detail={relay.status !== "connected" ? "Last known state. Live controls are unavailable until the show reconnects." : relay.control === "yours" ? "This device controls the selected show." : relay.control === "other" ? "Another operator controls this show. Ask them to release control." : "Viewing this show. Claim control to edit timecode and automation."}>
         {relay.control === "yours" ? <AppButton label="Release control" variant="secondary" disabled={relay.isMaster || Boolean(relay.pending)} onPress={relay.releaseControl} /> : <AppButton label="Claim control" disabled={relay.status !== "connected" || relay.control === "other" || Boolean(relay.pending)} onPress={relay.claimControl} />}
       </OperationsPanel>
-      <View style={styles.clockCard}>
-        <Text accessibilityLabel={`Timecode ${data?.state.display ?? "unavailable"}`} style={styles.clock}>{data?.state.display ?? "--:--:--:--"}</Text>
-        <Text style={styles.clockMeta}>{data?.state.source.replaceAll("-", " ")} · {data?.state.format.frameRate} fps {data?.state.format.dropFrame.toUpperCase()} · {relay.status !== "connected" ? "last known" : data?.state.signal?.status === "timecode-lost" || data?.state.signal?.status === "timecode-stalled" ? data.state.signal.status.replaceAll("-", " ") : data?.state.running ? "running" : "stopped"} · {relay.status}{relay.isMaster ? " · this device is master" : ""}</Text>
-      </View>
       <OperationsPanel title="Automation safety" detail={relay.status !== "connected" ? "Last known automation state. Reconnect to control this show."
         : !data?.state.triggersEnabled ? "Automation stopped. Manual and automatic cues are blocked."
         : data.state.automaticCuesEnabled ? "Automation enabled. Upcoming cues can fire." : "Automatic cues paused. Manual cue firing remains available."}>
-        <AppButton label="Stop automation" variant="danger" loading={gate.stopping} disabled={relay.status !== "connected" || relay.control !== "yours" || gate.stopping} onPress={gate.stop} />
         <Text style={styles.saveText}>Stops new cue dispatches. The clock and existing output continue; commands already sent cannot be recalled.</Text>
         {gate.error ? <OperationsError message={gate.error} /> : null}
         {!data?.state.triggersEnabled ? <AppButton label="Review resume automation" variant="secondary" disabled={!canEdit || !data?.state.automationRevision} onPress={() => gate.prepare("resume")} />
@@ -162,11 +162,7 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
         {clockEdit.attempt.kind === "confirmed" && (clockEdit.attempt.refresh === "failed" || clockEdit.attempt.refresh === "idle") ? <><OperationsError message={clockEdit.attempt.message ?? "Refresh the current clock before continuing."} /><AppButton label="Retry clock refresh" disabled={relay.status !== "connected"} onPress={clockEdit.refresh} /></> : null}
         {clockEdit.attempt.kind === "confirmed" && clockEdit.attempt.refresh === "done" ? <AppButton label="Continue with current clock" variant="secondary" onPress={clockEdit.finish} /> : null}
       </OperationsPanel> : null}
-      <OperationsPanel title="Transport" detail="Control the shared relay used by web, desktop, overlays, and automation.">
-        <View style={styles.buttonRow}>
-          <View style={styles.button}><AppButton label="Start freerun" loading={relay.starting} disabled={!canEdit || relay.isMaster || data?.state.running} onPress={relay.startFreerun} /></View>
-          <View style={styles.button}><AppButton label="Stop" variant="secondary" loading={relay.stopping} disabled={relay.status !== "connected" || relay.control !== "yours"} onPress={relay.stopFreerun} /></View>
-        </View>
+      <OperationsPanel title="Clock position" detail="The transport above controls the shared relay used by web, desktop, overlays, and automation.">
         <AppField label="Set timecode" value={clockEdit.draft.timecode} editable={!clockEdit.locked} onChangeText={clockEdit.update} autoCapitalize="characters" placeholder="00:00:00:00" />
         <AppButton label="Set relay time" variant="secondary" disabled={!canEdit || data?.state.running} onPress={() => clockEdit.prepare("seek")} />
       </OperationsPanel>
@@ -174,12 +170,27 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
         <OperationsPanel title={data.state.lyrics.songTitle} detail={data.state.lyrics.sectionLabel}><View style={styles.lyricsPreview}><Text style={styles.lyricsText}>{data.state.lyrics.lyrics.split(/\r?\n/).filter(Boolean).slice(0, 4).join("\n")}</Text><Text style={styles.lyricsNext}>{data.state.lyrics.nextLabel ? `NEXT · ${data.state.lyrics.nextLabel}` : "END OF SONG"}</Text></View></OperationsPanel>
       ) : null}
       <OperationsPanel title="Source and format" detail="This device can generate internal freerun. MTC, LTC, rundown, and network sources remain visible here when supplied by the desktop or bridge.">
+        <Text style={styles.saveText}>{data?.state.source.replaceAll("-", " ")} · {data?.state.format.frameRate} fps {data?.state.format.dropFrame.toUpperCase()}{relay.isMaster ? " · This device is master" : ""}</Text>
         <View style={styles.buttonRow}>
           {([{ frameRate: 24, dropFrame: "ndf" }, { frameRate: 25, dropFrame: "ndf" }, { frameRate: 29.97, dropFrame: "ndf" }, { frameRate: 29.97, dropFrame: "df" }, { frameRate: 30, dropFrame: "ndf" }] as const).map((format) => (
             <View key={`${format.frameRate}:${format.dropFrame}`} style={styles.button}><AppButton label={`${format.frameRate} fps ${format.dropFrame.toUpperCase()}`} disabled={!canEdit || data?.state.running} variant={data?.state.format.frameRate === format.frameRate && data.state.format.dropFrame === format.dropFrame ? "primary" : "secondary"} onPress={() => clockEdit.prepare("reformat", format)} /></View>
           ))}
         </View>
       </OperationsPanel>
+      {cueControls.error ? <OperationsError message={cueControls.error} /> : null}
+      {cueAttempt ? <View style={styles.saveNotice}>
+        <Text accessibilityRole="header" style={styles.saveText}>{cueAttempt.label}</Text>
+        <Text accessibilityRole="alert" style={styles.saveText}>{cueAttempt.kind === "pending" ? "Waiting for the relay to confirm the cue action…" : cueAttempt.kind === "failed" ? cueAttempt.message
+          : cueAttempt.result.outcome !== "applied" ? cueAttempt.result.message ?? "The cue action was not applied."
+          : ["fire", "retry", "refire"].includes(cueAttempt.command.operation) ? "Cue request accepted. Check its delivery status in the timeline. Recovery will not send it again."
+          : "Cue change confirmed. Later changes are preserved."}</Text>
+        {cueAttempt.kind === "failed" ? <AppButton label="Retry original cue action" disabled={!canControl} onPress={cueControls.retry} /> : null}
+        {cueAttempt.kind === "confirmed" && cueAttempt.refresh === "pending" ? <Text style={styles.saveText}>Refreshing current cues…</Text> : null}
+        {cueAttempt.kind === "confirmed" && (cueAttempt.refresh === "failed" || cueAttempt.refresh === "idle") ? <><OperationsError message={cueAttempt.message ?? "Refresh the current cues before continuing."} /><AppButton label="Retry cue action refresh" disabled={relay.status !== "connected"} onPress={cueControls.refresh} /></> : null}
+        {cueAttempt.kind === "confirmed" && cueAttempt.refresh === "done" ? <AppButton label="Continue with current cues" variant="secondary" onPress={cueControls.finish} /> : null}
+      </View> : null}
+      {data ? <TimecodeTimeline orgId={orgId} userId={actorId} events={data.events} state={data.state}
+        connected={relay.status === "connected"} canEdit={canEdit} onEdit={cueEdit.begin} onControl={cueControls.prepare} /> : null}
       <TimecodeCueEditor scope={{ orgId, userId: actorId, showId: show.id }} editor={cueEdit} canSave={canSaveEdit} connected={relay.status === "connected"} />
       <OperationsPanel title="Automation" detail="Events fire when the relay crosses the selected frame. Cue drafts and unconfirmed saves stay with this show when you leave the screen.">
         {cueSave.error ? <OperationsError message={cueSave.error} /> : null}
@@ -199,37 +210,6 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
         <TimecodeCueFields scope={{ orgId, userId: actorId, showId: show.id }} draft={draft} update={cueSave.update} disabled={cueSave.locked || cueEdit.locked} onValid={setCueValid} />
         <AppButton label="Add automation event" disabled={!canControl || cueSave.locked || cueEdit.locked || gate.locked || cueControls.locked || clockEdit.locked || formatChanged || !cueValid} onPress={cueSave.save} />
         </> : null}
-
-        {cueControls.error ? <OperationsError message={cueControls.error} /> : null}
-        {cueAttempt ? <View style={styles.saveNotice}>
-          <Text accessibilityRole="header" style={styles.saveText}>{cueAttempt.label}</Text>
-          <Text accessibilityRole="alert" style={styles.saveText}>{cueAttempt.kind === "pending" ? "Waiting for the relay to confirm the cue action…" : cueAttempt.kind === "failed" ? cueAttempt.message
-            : cueAttempt.result.outcome !== "applied" ? cueAttempt.result.message ?? "The cue action was not applied."
-            : ["fire", "retry", "refire"].includes(cueAttempt.command.operation) ? "Cue request accepted. Check its delivery status in the timeline. Recovery will not send it again."
-            : "Cue change confirmed. Later changes are preserved."}</Text>
-          {cueAttempt.kind === "failed" ? <AppButton label="Retry original cue action" disabled={!canControl} onPress={cueControls.retry} /> : null}
-          {cueAttempt.kind === "confirmed" && cueAttempt.refresh === "pending" ? <Text style={styles.saveText}>Refreshing current cues…</Text> : null}
-          {cueAttempt.kind === "confirmed" && (cueAttempt.refresh === "failed" || cueAttempt.refresh === "idle") ? <><OperationsError message={cueAttempt.message ?? "Refresh the current cues before continuing."} /><AppButton label="Retry cue action refresh" disabled={relay.status !== "connected"} onPress={cueControls.refresh} /></> : null}
-          {cueAttempt.kind === "confirmed" && cueAttempt.refresh === "done" ? <AppButton label="Continue with current cues" variant="secondary" onPress={cueControls.finish} /> : null}
-        </View> : null}
-        {data?.events.length ? data.events.map(event => <OperationsPanel key={event.id} title={event.label}
-          detail={`${[event.triggerTimecode.hours, event.triggerTimecode.minutes, event.triggerTimecode.seconds, event.triggerTimecode.frames].map(value => String(value).padStart(2, "0")).join(":")} · ${AUTOMATION_ACTIONS.find(option => option.value === event.action)?.label ?? event.action}`}>
-          <Text style={styles.saveText}>{timecodeEventStatus(event)}{!event.enabled && (event.executionStatus === "failed" || event.executionStatus === "dispatching") ? " · Disabled" : ""}</Text>
-          {event.executionError ? <OperationsError message={event.executionError} /> : null}
-          <View style={styles.buttonRow}>
-            <View style={styles.cueButton}><AppButton label="Edit" accessibilityLabel={`Edit cue ${event.label}`} variant="secondary" disabled={!canEdit || event.executionStatus === "dispatching"} onPress={() => cueEdit.begin(event.id)} /></View>
-            <View style={styles.cueButton}><AppButton label={event.enabled ? "Disable" : "Enable"} accessibilityLabel={`${event.enabled ? "Disable" : "Enable"} cue ${event.label}`} variant="secondary" disabled={!canEdit}
-              onPress={() => cueControls.prepare(event.enabled ? "disable" : "enable", event.id)} /></View>
-            {event.enabled && !event.skipped && event.executionStatus !== "dispatching" ? <View style={styles.cueButton}><AppButton
-              label={event.executionStatus === "failed" ? "Retry" : event.fired ? "Fire again" : "Fire now"}
-              accessibilityLabel={`${event.executionStatus === "failed" ? "Retry" : event.fired ? "Fire again" : "Fire now"} cue ${event.label}`}
-              disabled={!canEdit || !data.state.triggersEnabled} onPress={() => cueControls.prepare(event.executionStatus === "failed" ? "retry" : event.fired ? "refire" : "fire", event.id)} /></View> : null}
-            {event.fired || event.skipped || event.executionStatus === "failed" ? <View style={styles.cueButton}><AppButton label="Re-arm" accessibilityLabel={`Re-arm cue ${event.label}`} variant="secondary"
-              disabled={!canEdit || event.executionStatus === "dispatching"} onPress={() => cueControls.prepare("rearm", event.id)} /></View> : null}
-            <View style={styles.cueButton}><AppButton label="Remove" accessibilityLabel={`Remove cue ${event.label}`} variant="danger" disabled={!canEdit || event.executionStatus === "dispatching"} onPress={() => cueControls.prepare("remove", event.id)} /></View>
-          </View>
-        </OperationsPanel>) : <OperationsEmpty>No automation cues in this show.</OperationsEmpty>}
-        {data?.events.length ? <AppButton label="Re-arm all cues" variant="secondary" disabled={!canEdit || data.state.running || data.events.some(event => event.executionStatus === "dispatching")} onPress={() => cueControls.prepare("reset")} /> : null}
       </OperationsPanel>
     </Page>
   );
@@ -238,12 +218,8 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
   saveNotice: { gap: 10, borderRadius: 14, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft, padding: 12 },
   saveText: { color: colors.text, fontFamily, fontSize: 13, lineHeight: 19 },
-  clockCard: { alignItems: "center", gap: 8, borderRadius: 22, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.black, paddingHorizontal: 12, paddingVertical: 28 },
-  clock: { color: colors.amberText, fontFamily, fontSize: 39, fontWeight: "900", fontVariant: ["tabular-nums"], letterSpacing: 1 },
-  clockMeta: { color: colors.textMuted, fontFamily, fontSize: 12, fontWeight: "700", textTransform: "uppercase" },
   buttonRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   button: { flex: 1, minWidth: 80 },
-  cueButton: { flex: 1, minWidth: 100 },
   lyricsPreview: { gap: 16, borderRadius: 18, backgroundColor: colors.black, paddingHorizontal: 18, paddingVertical: 28 },
   lyricsText: { color: colors.white, fontFamily, fontSize: 24, lineHeight: 31, fontWeight: "800", textAlign: "center" },
   lyricsNext: { color: colors.textMuted, fontFamily, fontSize: 12, fontWeight: "800", letterSpacing: 0.8 },

@@ -70,6 +70,9 @@ export const timecodeEventSchema = z.object({
   fired: z.boolean(),
   toleranceFrames: z.number().optional(),
   leadMs: z.number().optional(),
+  dispatchFrame: z.number().int().nonnegative().optional(),
+  deviceLatencyMs: z.number().nonnegative().optional(),
+  timingDeviceId: z.string().optional(),
   targetDeviceId: z.string().optional(),
   targetActionId: z.string().optional(),
 });

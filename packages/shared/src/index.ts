@@ -22,3 +22,5 @@ export * from "./timecode-cue-control";
 export { AUTOMATION_ACTIONS, type AutomationAction } from "./automation-actions";
 export { normalizeActionParams, findAndNormalizeAction, type AutomationActionParameter } from "./automation-action-params";
 export { isSafeAutomationWebhookUrl } from "./automation-webhook-url";
+export * from "./automation-timeline";
+export * from "./automation-summary";

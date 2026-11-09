@@ -11,5 +11,4 @@ export type AutomationDeviceTarget = {
 } & ({ actionSource: "static"; actions: AutomationDeviceAction[] } | { actionSource: "homeassistant" });
 export type CueDetails = { status: "ready"; payload: Record<string, unknown> } | { status: "invalid"; message: string };
 
-export interface AutomationDeviceName { id: string; label: string; enabled: boolean }
-export type AutomationDeviceNames = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; value: AutomationDeviceName[] };
+export type { AutomationDeviceName, AutomationDeviceNames } from "@showpilot/shared";

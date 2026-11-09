@@ -1,7 +1,7 @@
 import type { AutomationActionType, AutomationEvent } from "@/types/timecode";
 import { namedTimerKey } from "./named-timers";
 import { mediaOutputKey } from "./media-output";
-import { automationDeviceId } from "./automation-timing";
+import { automationDeviceId } from "@showpilot/shared";
 
 export function isTriggerControlAction(action: AutomationActionType): action is "triggers-disable" | "triggers-enable" {
   return action === "triggers-disable" || action === "triggers-enable";

@@ -1,7 +1,6 @@
+import { nextAutomationEvent, scheduledDispatchFrame } from "@showpilot/shared";
 import { z } from "zod";
 import type { AutomationEvent, TimecodeState } from "@/types/timecode";
-import { nextAutomationEvent } from "@/lib/automation-cues";
-import { scheduledDispatchFrame } from "./automation-timing";
 
 const byte = z.number().int().min(0).max(127);
 export const midiPortSchema = z.object({ id: z.string().max(300), name: z.string().max(300).nullable(), manufacturer: z.string().max(300).nullable() }).strict();

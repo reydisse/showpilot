@@ -1,10 +1,6 @@
+import { automationDeviceId, nextAutomationEvent } from "@showpilot/shared";
 import { describe, expect, it } from "vitest";
-import {
-  automationDispatchFrame,
-  automationDeviceId,
-  isValidTimingMs,
-} from "../automation-timing";
-import { nextAutomationEvent } from "../automation-cues";
+import { automationDispatchFrame, isValidTimingMs } from "../automation-timing";
 import { cueBank } from "../midi-controller";
 import { automationOutput } from "../automation-execution";
 import type { AutomationEvent, TimecodeFormat } from "@/types/timecode";
