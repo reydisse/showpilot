@@ -184,6 +184,7 @@ export interface PmSnapshot {
   upcoming: SnapshotUpcomingService[];
   assignments: SnapshotAssignment[];
   openItems: SnapshotOpenItem[];
+  openItemsTruncated: boolean;
   recent: SnapshotRecentService[];
   onFloor: SnapshotOnFloorMember[];
   /** Checked-in count before the photo query's cap was applied. */
@@ -392,6 +393,7 @@ export interface PmDashboardModel {
   roster: RosterMember[];
   schedulingInUse: boolean;
   openItems: OpenItem[];
+  openItemsTruncated: boolean;
   incidents: SnapshotIncident[];
   recent: RecentService[];
   onFloor: OnFloor;
@@ -547,9 +549,9 @@ export function deriveAttentionQueue(
     notifications,
   } = snapshot;
 
-  for (const incident of incidents) {
+  for (const incident of incidents.filter(item => item.status !== "resolved")) {
     const severity: Severity =
-      incident.severity === "high"
+      (incident.severity === "high" || incident.severity === "critical")
         ? "critical"
         : incident.severity === "medium"
           ? "warning"
@@ -748,14 +750,14 @@ export function deriveAttentionQueue(
 
   if ((phase === "call" || phase === "live") && liveInputs.length > 0) {
     const connected = liveInputs.filter(
-      (i) => i.status === "connected" || i.status === "streaming",
+      (i) => i.status === "connected" || i.status === "streaming" || i.status === "live",
     );
     if (connected.length === 0) {
       out.push({
         id: "stream:no-signal",
         severity: phase === "live" ? "critical" : "warning",
-        title: "No encoder connected",
-        detail: `${plural(liveInputs.length, "live input")} idle`,
+        title: "Encoder status needs checking",
+        detail: `Last saved input status is not live. Open Stream to check the current encoder signal.`,
         source: "stream",
         actionLabel: "Check",
         actionPath: "streaming/health",
@@ -888,7 +890,7 @@ export function deriveDepartments(
   // Carried-forward incidents count against a department exactly like
   // one logged today. A radio mic that broke in May is still broken.
   const allIncidents = [
-    ...snapshot.incidents,
+    ...snapshot.incidents.filter(item => item.status !== "resolved"),
     ...snapshot.openItems.map((o) => ({
       id: o.id,
       category: o.category,
@@ -911,7 +913,7 @@ export function deriveDepartments(
         )
       : [];
 
-    const highIncident = incidents.find((i) => i.severity === "high");
+    const highIncident = incidents.find((i) => (i.severity === "high" || i.severity === "critical"));
     const dead = equipment.find((e) => e.status === "out-of-service");
     if (highIncident) {
       return {
@@ -962,8 +964,8 @@ export function deriveDepartments(
     return {
       key,
       label: DEPARTMENT_LABELS[key],
-      status: "ok" as Health,
-      detail: "Clear",
+      status: snapshot.openItemsTruncated ? "warn" as Health : "ok" as Health,
+      detail: snapshot.openItemsTruncated ? "More incidents need review in the log" : "Clear",
     };
   });
 }
@@ -1236,7 +1238,7 @@ export function deriveOpenItems(snapshot: PmSnapshot): OpenItem[] {
       return { ...item, ageDays };
     })
     .sort((a, b) => {
-      const rank = (s: string) => (s === "high" ? 0 : s === "medium" ? 1 : 2);
+      const rank = (s: string) => (s === "high" || s === "critical" ? 0 : s === "medium" ? 1 : 2);
       return rank(a.severity) - rank(b.severity) || b.ageDays - a.ageDays;
     });
 }
@@ -1359,20 +1361,21 @@ export function deriveReadiness(
   // Incidents, including everything still open from earlier services.
   // Scoring only today's would let the card read "None logged" while
   // three unresolved incidents sit on the same screen.
-  const todays = snapshot.incidents.length;
+  const activeIncidents = snapshot.incidents.filter(item => item.status !== "resolved");
+  const todays = activeIncidents.length;
   const carried = snapshot.openItems.length;
   const high =
-    snapshot.incidents.filter((i) => i.severity === "high").length +
-    snapshot.openItems.filter((i) => i.severity === "high").length;
+    activeIncidents.filter((i) => (i.severity === "high" || i.severity === "critical")).length +
+    snapshot.openItems.filter((i) => (i.severity === "high" || i.severity === "critical")).length;
   const totalOpen = todays + carried;
   factors.push({
     id: "incidents",
     label: "Incidents",
     detail:
       high > 0
-        ? plural(high, "high-severity incident")
+        ? `${snapshot.openItemsTruncated ? "At least " : ""}${plural(high, "high-severity incident")}`
         : totalOpen > 0
-          ? `${plural(totalOpen, "open incident")}${carried > 0 && todays === 0 ? " carried over" : ""}`
+          ? `${snapshot.openItemsTruncated ? "At least " : ""}${plural(totalOpen, "open incident")}${carried > 0 && todays === 0 ? " carried over" : ""}`
           : "None open",
     status: high > 0 ? "fail" : totalOpen > 0 ? "warn" : "ok",
     weight: 15,
@@ -1386,11 +1389,11 @@ export function deriveReadiness(
   if (snapshot.streamDestinations.length > 0) {
     factors.push({
       id: "stream",
-      label: "Stream",
+      label: "Stream setup",
       detail:
         enabled > 0
-          ? `${plural(enabled, "destination")} enabled`
-          : "All destinations off",
+          ? `${plural(enabled, "destination")} selected for Go Live`
+          : "No destinations selected for Go Live",
       status: enabled > 0 ? "ok" : "fail",
       weight: 10,
     });
@@ -1610,6 +1613,7 @@ export function derivePmDashboard(
     })),
     schedulingInUse: snapshot.schedulingInUse,
     openItems: deriveOpenItems(snapshot),
+    openItemsTruncated: snapshot.openItemsTruncated,
     incidents: snapshot.incidents.filter(
       (incident) => incident.status !== "resolved",
     ),
