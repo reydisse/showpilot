@@ -1,3 +1,5 @@
+import { isReviewedTimecodeClockEdit, sameTimecodeClockReview } from "@showpilot/shared";
+import { prepareTimecodeClockEdit, type PreparedClockEdit } from "@/lib/timecode-clock-edit";
 import { scopedTokenDigest } from "@/lib/scoped-token-store.server";
 import { RelaySequenceStore } from "@/lib/relay-sequence.server";
 import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh } from "@/lib/socket-read-authority.server";
@@ -16,7 +18,7 @@ import type {
   TimecodeDisplayState,
   TimecodeControlStatus,
 } from "@/types/timecode";
-import { sameTimecodeFormat, normalizeTimecodeForFormat, isLargeTimecodeJump, framesToTimecode, crossedTriggerFrame, isSafeAutomationWebhookUrl, isValidTimecode, isValidTimecodeFormat, replaceAutomationEventGroup, timecodeToFrames, timecodeToString } from "@/lib/timecode";
+import { sameTimecodeFormat, isLargeTimecodeJump, framesToTimecode, crossedTriggerFrame, isSafeAutomationWebhookUrl, isValidTimecode, isValidTimecodeFormat, replaceAutomationEventGroup, timecodeToFrames, timecodeToString } from "@/lib/timecode";
 import {
   appendWebhookEvent,
   sanitizePayloadSummary,
@@ -111,17 +113,17 @@ const cueCreationSchema = z.object({
   category: z.string().max(200).optional(),
   sourceKey: z.string().max(500).optional(),
 });
-type CueCreationOutcome = "applied" | "removed" | "conflict" | "rejected";
-interface CueCreationReceipt {
+type TimecodeEditOutcome = "applied" | "removed" | "conflict" | "rejected";
+interface TimecodeEditReceipt {
   orgId: string;
   userId: string;
   requestId: string;
-  outcome: CueCreationOutcome;
+  outcome: TimecodeEditOutcome;
   message?: string;
 }
-interface CueCreationRecord {
+interface TimecodeEditRecord {
   fingerprint: string;
-  receipt: CueCreationReceipt;
+  receipt: TimecodeEditReceipt;
 }
 
 // Server-owned acknowledgement and retry fields cannot be patched by clients.
@@ -315,8 +317,8 @@ export class TimecodeRelay extends DurableObject {
     this.lastPersistedAt = Date.now();
   }
 
-  private clockSnapshot(): ClockSnapshot {
-    const { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automaticCuesEnabled, automationHold, incomingFormat } = this.state;
+  private clockSnapshot(state = this.state): ClockSnapshot {
+    const { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automaticCuesEnabled, automationHold, incomingFormat } = state;
     return { state: { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automaticCuesEnabled, automationHold, incomingFormat },
       previousFeedFrame: this.previousFeedFrame, masterSessionId: this.masterSessionId,
       expectedFeedSince: this.expectedFeedSince, bridgeFeed: this.bridgeFeed, bridgeTransport: this.bridgeTransport, formatCandidate: this.formatCandidate };
@@ -857,7 +859,7 @@ export class TimecodeRelay extends DurableObject {
     finally { this.timingLoad = null; }
   }
 
-  private async createCue(payload: Record<string, unknown> | undefined, sessionId: string | undefined): Promise<CueCreationReceipt> {
+  private async createCue(payload: Record<string, unknown> | undefined, sessionId: string | undefined): Promise<TimecodeEditReceipt> {
     if (!payload) throw new TimecodeCommandRejection("Review the cue before saving it.");
     const id = payload.id ?? crypto.randomUUID();
     if (typeof id !== "string" || !id || id.length > 128)
@@ -876,7 +878,7 @@ export class TimecodeRelay extends DurableObject {
       const target = this.target;
       const identity = { orgId: target.orgId, userId, requestId: id };
       const key = `cue-create:${id}`;
-      const prior = await this.ctx.storage.get<CueCreationRecord>(key);
+      const prior = await this.ctx.storage.get<TimecodeEditRecord>(key);
       if (prior) {
         if (prior.receipt.userId !== userId || prior.fingerprint !== fingerprint)
           return { ...identity, outcome: "conflict", message: "This cue identity belongs to a different save. Keep the draft and review it as a new request." };
@@ -888,7 +890,7 @@ export class TimecodeRelay extends DurableObject {
       }
       const reject = async (outcome: "conflict" | "rejected", message: string) => {
         const receipt = { ...identity, outcome, message };
-        await this.ctx.storage.put(key, { fingerprint, receipt } satisfies CueCreationRecord);
+        await this.ctx.storage.put(key, { fingerprint, receipt } satisfies TimecodeEditRecord);
         return receipt;
       };
       if (!parsed.success) return reject("rejected", "Review the cue label, timecode, action details, tolerance and lead before saving.");
@@ -898,8 +900,8 @@ export class TimecodeRelay extends DurableObject {
         const original = cueCreationSchema.safeParse(existing);
         if (!original.success || JSON.stringify(original.data) !== JSON.stringify(definition))
           return reject("conflict", "This cue already exists with different details. Keep your draft and review the current timeline.");
-        const receipt: CueCreationReceipt = { ...identity, outcome: "applied" };
-        await this.ctx.storage.put(key, { fingerprint, receipt } satisfies CueCreationRecord);
+        const receipt: TimecodeEditReceipt = { ...identity, outcome: "applied" };
+        await this.ctx.storage.put(key, { fingerprint, receipt } satisfies TimecodeEditRecord);
         this.broadcastEvents();
         return receipt;
       }
@@ -915,14 +917,14 @@ export class TimecodeRelay extends DurableObject {
       if (problem) return reject("rejected", problem);
       this.applyEventTiming(event);
       const events = [...this.events, event].sort((a, b) => a.triggerFrame - b.triggerFrame);
-      const receipt: CueCreationReceipt = { ...identity, outcome: "applied" };
+      const receipt: TimecodeEditReceipt = { ...identity, outcome: "applied" };
       // Commit the cue and its immutable receipt together. A later delete or
       // group replacement cannot make an old creation request insert it again.
       await this.ctx.storage.transaction(async storage => {
         await storage.put({
           timecode: { state: this.state, events, deviceTimings: this.deviceTimings, target } satisfies TimecodeSnapshot,
           clock: this.clockSnapshot(),
-          [key]: { fingerprint, receipt } satisfies CueCreationRecord,
+          [key]: { fingerprint, receipt } satisfies TimecodeEditRecord,
         });
       });
       this.events = events;
@@ -934,12 +936,75 @@ export class TimecodeRelay extends DurableObject {
     });
   }
 
+  private clockAfterEdit(edit: PreparedClockEdit): ClockSnapshot {
+    return { ...this.clockSnapshot(edit.state), previousFeedFrame: edit.previousFeedFrame,
+      ...(edit.reformatted ? { formatCandidate: null,
+        expectedFeedSince: this.state.signal?.status === "format-mismatch" ? Date.now() : this.expectedFeedSince } : {}),
+    };
+  }
+
+  private installClockEdit(edit: PreparedClockEdit, clock = this.clockAfterEdit(edit)): void {
+    this.automationGeneration++;
+    this.state = edit.state; this.events = edit.events;
+    this.previousFeedFrame = clock.previousFeedFrame;
+    this.expectedFeedSince = clock.expectedFeedSince;
+    this.formatCandidate = clock.formatCandidate ?? null;
+  }
+
+  private async editClock(payload: Record<string, unknown> | undefined, sessionId: string | undefined): Promise<TimecodeEditReceipt> {
+    const id = payload?.requestId;
+    if (typeof id !== "string" || !z.uuid().safeParse(id).success)
+      throw new TimecodeCommandRejection("Review the clock change before confirming it.");
+    const fingerprint = await scopedTokenDigest(JSON.stringify(payload));
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const owner = this.controlOwner(), target = this.target;
+      const userId = owner?.attachment.authClaim?.userId;
+      if (this.retired || !target || !userId || owner.attachment.sessionId !== sessionId)
+        throw new TimecodeCommandRejection("Timecode control changed. Claim control and review the clock before editing it.");
+      const identity = { orgId: target.orgId, userId, requestId: id }, key = `clock-edit:${id}`;
+      const prior = await this.ctx.storage.get<TimecodeEditRecord>(key);
+      if (prior) return prior.receipt.userId === userId && prior.fingerprint === fingerprint ? prior.receipt
+        : { ...identity, outcome: "conflict", message: "This request identity belongs to a different clock change. Review a new change." };
+      const reject = async (outcome: "conflict" | "rejected", message: string) => {
+        const receipt = { ...identity, outcome, message };
+        await this.ctx.storage.put(key, { fingerprint, receipt } satisfies TimecodeEditRecord);
+        return receipt;
+      };
+      if (!isReviewedTimecodeClockEdit(payload)) return reject("rejected", "Review a valid clock change and confirm it before sending.");
+      const current = { showId: target.showId, serviceDate: target.serviceDate, frame: this.state.totalFrames,
+        format: this.state.format, incomingFormatId: this.state.incomingFormat?.id ?? null };
+      if (!sameTimecodeClockReview(payload.expected, current)) return reject("conflict", "The show, clock position or format changed. Review the current clock before trying a new change.");
+      if (this.state.running || this.masterSessionId || this.state.signal?.status === "paused")
+        return reject("conflict", "Stop the current source before editing the clock.");
+      if (payload.kind === "seek" && this.state.incomingFormat)
+        return reject("conflict", "Review the detected input format before changing the clock position.");
+      let edit: PreparedClockEdit | null;
+      try {
+        edit = payload.kind === "seek"
+          ? prepareTimecodeClockEdit(this.state, this.events, "set-timecode", { timecode: payload.timecode })
+          : prepareTimecodeClockEdit(this.state, this.events, "set-format", { format: payload.format,
+            expectedFormat: payload.expected.format, expectedIncomingFormatId: payload.expected.incomingFormatId, confirmed: true });
+      } catch (error) { return reject("rejected", error instanceof Error ? error.message : "The clock change was rejected."); }
+      if (!edit) return reject("rejected", "Enter a valid clock position.");
+      const receipt: TimecodeEditReceipt = { ...identity, outcome: "applied" }, clock = this.clockAfterEdit(edit);
+      await this.ctx.storage.transaction(async storage => {
+        await storage.put({ timecode: { state: edit.state, events: edit.events, deviceTimings: this.deviceTimings, target } satisfies TimecodeSnapshot,
+          clock, [key]: { fingerprint, receipt } satisfies TimecodeEditRecord });
+      });
+      this.installClockEdit(edit, clock);
+      this.hasSnapshot = true; this.lastPersistedAt = Date.now();
+      await this.scheduleAlarm(); this.broadcastState();
+      if (edit.reformatted) this.broadcastEvents();
+      return receipt;
+    });
+  }
+
   private async handleCommand(
     action: TimecodeCommand,
     payload?: Record<string, unknown>,
     sessionId?: string,
     feedReceivedAt = Date.now(),
-  ): Promise<CueCreationReceipt | void> {
+  ): Promise<TimecodeEditReceipt | void> {
     switch (action) {
       case "save-controller": {
         const parsed = midiControllerSchema.safeParse(payload?.config);
@@ -1115,22 +1180,10 @@ export class TimecodeRelay extends DurableObject {
         break;
 
       case "set-timecode": {
-        if (!payload) break;
-        const tc = payload.timecode as TimecodeValue;
-        if (!tc || !isValidTimecode(tc, this.state.format)) break;
-        const totalFrames = timecodeToFrames(tc, this.state.format);
-        this.holdForJump(this.state.totalFrames, totalFrames);
-        this.automationGeneration++;
-        this.state.timecode = tc;
-        this.state.totalFrames = totalFrames;
-        this.state.display = timecodeToString(
-          tc,
-          this.state.format.dropFrame === "df"
-        );
-        this.state.serverTime = Date.now();
-        this.previousFeedFrame = null;
-        await this.persist();
-        this.broadcastState();
+        const edit = prepareTimecodeClockEdit(this.state, this.events, action, payload);
+        if (!edit) throw new TimecodeCommandRejection("Enter a valid clock time for the current frame rate.");
+        this.installClockEdit(edit);
+        await this.persist(); this.broadcastState();
         break;
       }
 
@@ -1147,47 +1200,17 @@ export class TimecodeRelay extends DurableObject {
         break;
 
       case "set-format": {
-        const format = payload?.format;
-        if (!isValidTimecodeFormat(format) || !isValidTimecodeFormat(payload?.expectedFormat) || payload?.confirmed !== true) {
-          throw new TimecodeCommandRejection("Confirm Reformat timeline before changing the frame rate.");
-        }
-        if (!sameTimecodeFormat(payload.expectedFormat, this.state.format)) {
-          throw new TimecodeCommandRejection("The timeline format changed. Review the new format before confirming.");
-        }
-        if (this.state.running) throw new TimecodeCommandRejection("Stop the clock before reformatting the timeline.");
-        const incoming = this.state.incomingFormat;
-        if (incoming ? payload.expectedIncomingFormatId !== incoming.id || !sameTimecodeFormat(incoming.format, format)
-          : Boolean(payload.expectedIncomingFormatId)) {
-          throw new TimecodeCommandRejection("The input format changed. Review the latest detected format.");
-        }
-        const invalid = this.events.find(event => !isValidTimecode(event.triggerTimecode, format));
-        if (invalid) throw new TimecodeCommandRejection(`Cue “${invalid.label}” has a timecode that is invalid at the new frame rate. Correct or remove that cue before reformatting.`);
-        this.automationGeneration++;
-        this.state.triggersEnabled = false;
-        this.state.format = format;
-        this.state.timecode = normalizeTimecodeForFormat(this.state.timecode, format);
-        this.state.totalFrames = timecodeToFrames(this.state.timecode, format);
-        this.state.display = timecodeToString(this.state.timecode, format.dropFrame === "df");
-        this.state.serverTime = Date.now();
-        this.state.incomingFormat = null;
-        this.formatCandidate = null;
-        for (const event of this.events) {
-          event.triggerFrame = timecodeToFrames(event.triggerTimecode, format);
-          event.dispatchFrame = automationDispatchFrame(event, format);
-        }
-        this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
-        // Preserve the baseline for jump detection when the newly formatted
-        // input resumes. Neither fired cues nor review holds are re-armed here.
-        this.previousFeedFrame = this.state.totalFrames;
-        if (this.state.signal?.status === "format-mismatch") {
-          this.state.signal = { status: "waiting", lastFeedAt: null };
-          this.expectedFeedSince = Date.now();
-        }
-        await this.persist();
-        this.broadcastState();
-        this.broadcastEvents();
+        let edit: PreparedClockEdit | null;
+        try { edit = prepareTimecodeClockEdit(this.state, this.events, action, payload); }
+        catch (error) { throw new TimecodeCommandRejection(error instanceof Error ? error.message : "The timeline could not be reformatted."); }
+        if (!edit) break;
+        this.installClockEdit(edit);
+        await this.persist(); this.broadcastState(); this.broadcastEvents();
         break;
       }
+
+      case "edit-clock":
+        return await this.editClock(payload, sessionId);
 
       case "add-event":
         return await this.createCue(payload, sessionId);

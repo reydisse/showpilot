@@ -242,6 +242,7 @@ export const TIMECODE_COMMANDS = [
   "set-source",
   "set-format",
   "set-timecode",
+  "edit-clock",
   "add-event",
   "replace-event-group",
   "update-event",

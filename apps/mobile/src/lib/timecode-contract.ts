@@ -10,6 +10,8 @@ export const timecodeStateSchema = z.object({
   showId: z.string().min(1),
   serviceDate: z.string().min(1),
   triggersEnabled: z.boolean(),
+  incomingFormat: z.object({ id: z.string(), format: z.object({ frameRate: z.union([z.literal(24), z.literal(25), z.literal(29.97), z.literal(30)]), dropFrame: z.enum(["df", "ndf"]) }) }).nullable().optional(),
+  automationHold: z.object({ id: z.string(), reason: z.literal("timecode-jump"), from: z.string(), to: z.string(), detectedAt: z.number() }).nullable().optional(),
   signal: z.object({
     status: z.enum(["idle", "waiting", "live", "timecode-stalled", "timecode-lost", "format-mismatch", "midi-stopped", "midi-waiting", "paused"]),
     lastFeedAt: z.number().nullable(),

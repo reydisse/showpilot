@@ -1,3 +1,4 @@
+import { timecodeClockReplySchema, type TimecodeClockCommand } from "./timecode-clock-recovery";
 import { cueCreateReplySchema, type CueCreateCommand } from "./timecode-cue-recovery";
 import { timecodeShowsSchema, timecodeStateSchema, timecodeEventSchema, type MobileTimecodeState, type MobileTimecodeEvent, type MobileTimecodeTarget } from "./timecode-contract";
 import { rundownChangeReplySchema, type RundownChangeCommand } from "./rundown-change-recovery";
@@ -2215,14 +2216,20 @@ export async function createMobileTimecodeCue(input: CueCreateCommand, signal: A
   return cueCreateReplySchema.parse(await response.json());
 }
 
+export async function editMobileTimecodeClock(input: TimecodeClockCommand, signal: AbortSignal) {
+  const payload = { requestId: input.requestId, expected: input.expected, confirmed: input.confirmed,
+    ...(input.kind === "seek" ? { kind: input.kind, timecode: input.timecode } : { kind: input.kind, format: input.format }) };
+  const response = await authenticatedFetch(`/api/timecode/${encodeURIComponent(input.orgId)}/command?showId=${encodeURIComponent(input.expected.showId)}`,
+    { method: "POST", signal, body: JSON.stringify({ action: "edit-clock", payload }) }, [400, 409]);
+  return timecodeClockReplySchema.parse(await response.json());
+}
+
 export async function commandMobileTimecode(input: MobileTimecodeTarget & {
   orgId: string;
   action:
     | "start"
     | "stop"
-    | "set-timecode"
     | "set-source"
-    | "set-format"
     | "update-event"
     | "remove-event"
     | "reset-events"
