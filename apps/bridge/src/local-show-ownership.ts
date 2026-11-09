@@ -77,10 +77,21 @@ export async function acquireLocalShowOwnership(
     } catch (error) {
       if (!record(error) || error.code !== "EEXIST") throw error;
     }
-    database = await openOwnershipDatabase(file);
-    database.exec(
-      "PRAGMA busy_timeout=0; PRAGMA journal_mode=DELETE; BEGIN EXCLUSIVE;",
-    );
+    // SQLite can report BUSY to both contenders while an empty file is being
+    // initialized. Release partial locks before a bounded, staggered retry.
+    // An established owner retains its exclusive transaction throughout.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        database = await openOwnershipDatabase(file);
+        database.exec("PRAGMA busy_timeout=0; BEGIN EXCLUSIVE;");
+        break;
+      } catch (error) {
+        if (!busy(error) || attempt >= 4) throw error;
+        database?.close();
+        database = undefined;
+        await new Promise(resolve => setTimeout(resolve, 10 + Math.floor(Math.random() * 20)));
+      }
+    }
   } catch (error) {
     // No ownership was granted, so this connection must not retain a partial lock.
     if (database) database.close();
