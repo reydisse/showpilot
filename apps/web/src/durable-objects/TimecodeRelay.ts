@@ -868,6 +868,84 @@ export class TimecodeRelay extends DurableObject {
     finally { this.timingLoad = null; }
   }
 
+  private async editCue(payload: Record<string, unknown> | undefined, sessionId: string | undefined): Promise<TimecodeEditReceipt | void> {
+    const requestId = payload?.requestId;
+    if (requestId !== undefined && (typeof requestId !== "string" || !z.uuid().safeParse(requestId).success))
+      throw new TimecodeCommandRejection("Review this cue edit with a new request identity.");
+    const fingerprint = requestId ? await scopedTokenDigest(JSON.stringify(payload)) : null;
+    const result = await this.ctx.blockConcurrencyWhile(async () => {
+      const owner = this.controlOwner(), target = this.target, userId = owner?.attachment.authClaim?.userId;
+      if (this.retired || !target || !userId || !sessionId || owner.attachment.sessionId !== sessionId)
+        return new TimecodeCommandRejection("Timecode control changed. Claim control before saving the cue.");
+      const identity = { orgId: target.orgId, userId, requestId: requestId ?? "" };
+      const key = requestId ? `cue-edit:${requestId}` : null;
+      if (key) {
+        const prior = await this.ctx.storage.get<TimecodeEditRecord>(key);
+        if (prior) return prior.receipt.userId === userId && prior.fingerprint === fingerprint ? prior.receipt
+          : { ...identity, outcome: "conflict" as const, message: "This request identity belongs to a different cue edit." };
+      }
+      const reject = async (outcome: "conflict" | "rejected", message: string): Promise<TimecodeEditReceipt> => {
+        const receipt = { ...identity, outcome, message };
+        if (key && fingerprint) await this.ctx.storage.put(key, { fingerprint, receipt } satisfies TimecodeEditRecord);
+        return receipt;
+      };
+      if (key && (!automationEditReviewSchema.safeParse(payload?.expected).success || !isValidTimecodeFormat(payload?.expectedFormat)
+        || typeof payload?.expectedServiceDate !== "string"))
+        return reject("rejected", "Review the cue, frame rate and show date before saving this edit.");
+      if (payload?.expectedServiceDate !== undefined && payload.expectedServiceDate !== target.serviceDate)
+        return reject("conflict", "The show was rescheduled. Review its current date before editing the cue.");
+      const event = this.events.find(candidate => candidate.id === payload?.id);
+      if (!event) return reject("conflict", "This cue is no longer in the timeline. Keep your draft and review the current show.");
+      if (event.executionStatus === "dispatching") return reject("conflict", "Wait for this cue's acknowledgement before editing it.");
+      const parsed = automationEventChangesSchema.safeParse(payload?.updates);
+      if (!parsed.success || Object.keys(parsed.data).length === 0) return reject("rejected", "Invalid cue changes. Edit only its label, timecode, tolerance, lead or action details.");
+      if (payload?.expected !== undefined) {
+        const review = automationEditReviewSchema.safeParse(payload.expected);
+        if (!review.success || !automationEditReviewMatches(event, review.data)) return reject("conflict", "The cue changed while you were editing. Keep your draft and review the latest cue before saving.");
+      }
+      if (payload?.expectedFormat !== undefined && (!isValidTimecodeFormat(payload.expectedFormat) || !sameTimecodeFormat(payload.expectedFormat, this.state.format))) {
+        return reject("conflict", "The timeline frame rate changed. Review the cue time before saving.");
+      }
+      const updates = parsed.data;
+      if (updates.triggerTimecode && !isValidTimecode(updates.triggerTimecode, this.state.format)) return reject("rejected", "The cue time is not valid at the current frame rate.");
+      const candidate = { ...event, ...updates };
+      const deviceDetails = updates.payload && (event.action === "device-action" || event.action === "lighting-scene" || event.action === "lighting-blackout") ? updates.payload : null;
+      const replacesDevice = deviceDetails !== null && Object.hasOwn(deviceDetails, "deviceId");
+      const replacesAction = deviceDetails !== null && Object.hasOwn(deviceDetails, "actionId");
+      for (const key of ["deviceId", "actionId"] as const) {
+        if (deviceDetails && Object.hasOwn(deviceDetails, key) && !z.string().trim().min(1).max(200).safeParse(deviceDetails[key]).success) return reject("rejected", "Choose a valid device and action.");
+      }
+      // Explicit structured selections replace older top-level routing aliases.
+      // Metadata-only edits send those saved targets unchanged in the payload.
+      if (replacesDevice) delete candidate.targetDeviceId;
+      if (replacesAction) delete candidate.targetActionId;
+      if (updates.payload && event.action === "custom-webhook" && !isSafeAutomationWebhookUrl(updates.payload.url)) {
+        return reject("rejected", "Custom webhook target must be a public HTTPS URL.");
+      }
+      const problem = automationPayloadProblem(candidate);
+      if (problem) return reject("rejected", problem);
+
+      candidate.editRevision = crypto.randomUUID();
+      if (updates.triggerTimecode) candidate.triggerFrame = timecodeToFrames(updates.triggerTimecode, this.state.format);
+      this.applyEventTiming(candidate);
+      const events = this.events.map(item => item.id === candidate.id ? candidate : item).sort((a, b) => a.triggerFrame - b.triggerFrame);
+      const receipt: TimecodeEditReceipt = { ...identity, outcome: "applied" };
+      // Commit the edited definition with its receipt. Recovery cannot replace
+      // a later edit, resurrect a removed cue or reset execution history.
+      await this.ctx.storage.transaction(async storage => {
+        await storage.put({ timecode: { state: this.state, events, deviceTimings: this.deviceTimings, target } satisfies TimecodeSnapshot,
+          clock: this.clockSnapshot(), ...(key && fingerprint ? { [key]: { fingerprint, receipt } satisfies TimecodeEditRecord } : {}) });
+      });
+      this.events = events; this.hasSnapshot = true; this.lastPersistedAt = Date.now();
+      await this.scheduleAlarm(); this.broadcastEvents();
+      return key ? receipt : undefined;
+    });
+    // Business rejections must leave the input gate healthy for the next command.
+    if (result instanceof TimecodeCommandRejection) throw result;
+    if (!requestId && result) throw new TimecodeCommandRejection(result.message ?? "The cue edit was rejected.");
+    return result;
+  }
+
   private async createCue(payload: Record<string, unknown> | undefined, sessionId: string | undefined): Promise<TimecodeEditReceipt> {
     if (!payload) throw new TimecodeCommandRejection("Review the cue before saving it.");
     const id = payload.id ?? crypto.randomUUID();
@@ -1454,48 +1532,8 @@ export class TimecodeRelay extends DurableObject {
         break;
       }
 
-      case "update-event": {
-        const event = this.events.find(candidate => candidate.id === payload?.id);
-        if (!event) throw new TimecodeCommandRejection("This cue is no longer in the timeline. Keep your draft and review the current show.");
-        if (event.executionStatus === "dispatching") throw new TimecodeCommandRejection("Wait for this cue's acknowledgement before editing it.");
-        const parsed = automationEventChangesSchema.safeParse(payload?.updates);
-        if (!parsed.success || Object.keys(parsed.data).length === 0) throw new TimecodeCommandRejection("Invalid cue changes. Edit only its label, timecode, tolerance, lead or action details.");
-        if (payload?.expected !== undefined) {
-          const review = automationEditReviewSchema.safeParse(payload.expected);
-          if (!review.success || !automationEditReviewMatches(event, review.data)) throw new TimecodeCommandRejection("The cue changed while you were editing. Keep your draft and review the latest cue before saving.");
-        }
-        if (payload?.expectedFormat !== undefined && (!isValidTimecodeFormat(payload.expectedFormat) || !sameTimecodeFormat(payload.expectedFormat, this.state.format))) {
-          throw new TimecodeCommandRejection("The timeline frame rate changed. Review the cue time before saving.");
-        }
-        const updates = parsed.data;
-        if (updates.triggerTimecode && !isValidTimecode(updates.triggerTimecode, this.state.format)) throw new TimecodeCommandRejection("The cue time is not valid at the current frame rate.");
-        const candidate = { ...event, ...updates };
-        const deviceDetails = updates.payload && (event.action === "device-action" || event.action === "lighting-scene" || event.action === "lighting-blackout") ? updates.payload : null;
-        const replacesDevice = deviceDetails !== null && Object.hasOwn(deviceDetails, "deviceId");
-        const replacesAction = deviceDetails !== null && Object.hasOwn(deviceDetails, "actionId");
-        for (const key of ["deviceId", "actionId"] as const) {
-          if (deviceDetails && Object.hasOwn(deviceDetails, key) && !z.string().trim().min(1).max(200).safeParse(deviceDetails[key]).success) throw new TimecodeCommandRejection("Choose a valid device and action.");
-        }
-        // Explicit structured selections replace older top-level routing aliases.
-        // Metadata-only edits send those saved targets unchanged in the payload.
-        if (replacesDevice) delete candidate.targetDeviceId;
-        if (replacesAction) delete candidate.targetActionId;
-        if (updates.payload && event.action === "custom-webhook" && !isSafeAutomationWebhookUrl(updates.payload.url)) {
-          throw new TimecodeCommandRejection("Custom webhook target must be a public HTTPS URL.");
-        }
-        const problem = automationPayloadProblem(candidate);
-        if (problem) throw new TimecodeCommandRejection(problem);
-        Object.assign(event, updates);
-        if (replacesDevice) delete event.targetDeviceId;
-        if (replacesAction) delete event.targetActionId;
-        event.editRevision = crypto.randomUUID();
-        if (updates.triggerTimecode) event.triggerFrame = timecodeToFrames(updates.triggerTimecode, this.state.format);
-        this.applyEventTiming(event);
-        this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
-        await this.persist();
-        this.broadcastEvents();
-        break;
-      }
+      case "update-event":
+        return await this.editCue(payload, sessionId);
 
       case "remove-event": {
         if (!payload?.id) break;

@@ -69,6 +69,9 @@ export const timecodeEventSchema = z.object({
   payload: z.record(z.string(), z.unknown()),
   fired: z.boolean(),
   toleranceFrames: z.number().optional(),
+  leadMs: z.number().optional(),
+  targetDeviceId: z.string().optional(),
+  targetActionId: z.string().optional(),
 });
 
 export type MobileTimecodeState = z.infer<typeof timecodeStateSchema>;

@@ -601,6 +601,35 @@ function parseTimer(value: string | null | undefined): MobileTimerState {
   }
 }
 
+async function timecodeChoices(request: Request, url: URL, env: MobileApiEnvironment): Promise<Response> {
+  const kind = url.searchParams.get("kind");
+  const access = await authorize(request, url, env.DB, ["timecode:access"]);
+  if (access instanceof Response) return access;
+  const required = kind === "devices" ? "devices:access" : "songs:access";
+  if (!access.identity.permissions.includes(required)) return json({ error: "Forbidden" }, 403);
+  const orgId = access.orgId;
+  if (kind === "devices") {
+    const { readAutomationDeviceChoices } = await import("./automation-device-choices.server");
+    return json({ devices: await readAutomationDeviceChoices(env.DB, orgId) });
+  }
+  if (kind === "songs") {
+    const rows = await env.DB.prepare("SELECT id, title, ppPresentationUuid FROM song WHERE orgId=? ORDER BY title,id").bind(orgId)
+      .all<{ id: string; title: string; ppPresentationUuid: string | null }>();
+    return json({ songs: rows.results ?? [] });
+  }
+  if (kind === "sections") {
+    const songId = idSchema.safeParse(url.searchParams.get("songId"));
+    if (!songId.success) return json({ error: "Choose a song." }, 400);
+    const song = await env.DB.prepare("SELECT id, title, ppPresentationUuid FROM song WHERE orgId=? AND id=?").bind(orgId, songId.data)
+      .first<{ id: string; title: string; ppPresentationUuid: string | null }>();
+    if (!song) return json({ error: "Song not found in this workspace." }, 404);
+    const sections = await env.DB.prepare("SELECT id, label, lyrics, sourceSlideIndex FROM song_section WHERE orgId=? AND songId=? ORDER BY sortOrder,id")
+      .bind(orgId, songId.data).all<{ id: string; label: string; lyrics: string; sourceSlideIndex: number | null }>();
+    return json({ ...song, sections: sections.results ?? [] });
+  }
+  return json({ error: "Choose a supported cue catalog." }, 400);
+}
+
 async function timecodeShows(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
   const access = await authorize(request, url, db, ["timecode:access"]);
   if (access instanceof Response) return access;
@@ -7285,6 +7314,8 @@ export async function handleMobileApi(
     request.method === "POST"
   )
     return saveMobileWorkspace(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/timecode/choices" && request.method === "GET")
+    return timecodeChoices(request, url, env);
   if (url.pathname === "/api/mobile/v1/timecode/shows" && request.method === "GET")
     return timecodeShows(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/bootstrap" && request.method === "GET")

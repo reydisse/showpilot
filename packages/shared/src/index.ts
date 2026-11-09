@@ -18,3 +18,7 @@ export * from "./timecode-validation";
 export * from "./timecode-clock-edit";
 export * from "./timecode-automation-gate";
 export * from "./timecode-cue-control";
+
+export { AUTOMATION_ACTIONS, type AutomationAction } from "./automation-actions";
+export { normalizeActionParams, findAndNormalizeAction, type AutomationActionParameter } from "./automation-action-params";
+export { isSafeAutomationWebhookUrl } from "./automation-webhook-url";
