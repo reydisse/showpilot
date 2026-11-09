@@ -1,0 +1,244 @@
+// Exercise compiled native Timecode against disposable authenticated Worker rooms.
+// All app API and socket traffic is intercepted; no production endpoint is contacted.
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { readFile } from "node:fs/promises";
+import { resolve, extname, join } from "node:path";
+import { createRequire } from "node:module";
+import { execFileSync } from "node:child_process";
+import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
+const modules = execFileSync("npm", ["root", "-g"], {
+  encoding: "utf8",
+}).trim();
+const { chromium } = createRequire(join(modules, "agent-browser/package.json"))(
+  "playwright-core",
+);
+const WebSocket = createRequire(join(modules, "agent-browser/package.json"))(
+  "ws",
+);
+const root = resolve(import.meta.dirname, "../../mobile/dist/web");
+await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, operatorPassword, date }) => {
+  const activated = await fetch(`${origin}/api/auth/organization/set-active`, {
+    method: "POST",
+    headers: {
+      Cookie: operatorCookie,
+      Origin: origin,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ organizationId: orgId }),
+  });
+  assert.equal(activated.status, 200, await activated.clone().text());
+  await activated.arrayBuffer();
+  const cookies = new Map(
+    operatorCookie.split("; ").map((value) => [value.split("=")[0], value]),
+  );
+  for (const value of activated.headers.getSetCookie()) {
+    const cookie = value.split(";")[0];
+    cookies.set(cookie.split("=")[0], cookie);
+  }
+  const cookie = [...cookies.values()].join("; ");
+  const server = createServer(async (request, response) => {
+    try {
+      const pathname = decodeURIComponent(
+        new URL(request.url, "http://fixture").pathname,
+      );
+      let file = resolve(root, `.${pathname}`);
+      if (!file.startsWith(root + "/") && file !== root) {
+        response.writeHead(403).end();
+        return;
+      }
+      if (!extname(file))
+        file = file === root ? join(root, "index.html") : file + ".html";
+      const body = await readFile(file);
+      response.writeHead(200, {
+        "Content-Type":
+          {
+            ".html": "text/html",
+            ".js": "application/javascript",
+            ".css": "text/css",
+            ".png": "image/png",
+            ".woff2": "font/woff2",
+            ".ttf": "font/ttf",
+          }[extname(file)] ?? "application/octet-stream",
+      });
+      response.end(body);
+    } catch {
+      response.writeHead(404).end();
+    }
+  });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  const nativeOrigin = `http://127.0.0.1:${server.address().port}`;
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+  });
+  // Native AbortSignal implementations need only the aborted flag/event.
+  await page.addInitScript(() => {
+    AbortSignal.prototype.throwIfAborted = undefined;
+  });
+  const errors = [], sockets = new Set(), commands = [], requests = [];
+  let mode = "normal", loseSaveReply = true;
+  const saves = [];
+  const showId = "smoke-show";
+  page.on("pageerror", (error) => errors.push(error.message));
+  // Forward real relay traffic to the disposable Worker with the fixture session.
+  // No production socket is opened. Native hydration and broadcasts remain real.
+  await page.routeWebSocket("**/*", (route) => {
+    const url = new URL(route.url());
+    if (!url.pathname.startsWith(`/api/timecode/${orgId}/`))
+      return route.close();
+    requests.push(url);
+    const local = new URL(`${origin}${url.pathname}${url.search}`);
+    local.protocol = "ws:";
+    const socket = new WebSocket(local, {
+      headers: { Cookie: cookie, Origin: origin },
+    });
+    sockets.add(socket);
+    const queue = [];
+    route.onMessage((message) => {
+      const packet = JSON.parse(String(message));
+      if (packet.type === "command") commands.push({ ...packet, showId: url.searchParams.get("showId") });
+      if(socket.readyState === WebSocket.OPEN) socket.send(message);
+      else queue.push(message);
+    });
+    let cancelledBeforeOpen = false;
+    route.onClose(() => {
+      cancelledBeforeOpen = socket.readyState === WebSocket.CONNECTING;
+      socket.close();
+    });
+    socket.on("open", () =>
+      queue.splice(0).forEach((message) => socket.send(message)),
+    );
+    socket.on("message", (message) => {
+      if (mode === "silent" || mode === "drop-sync" && JSON.parse(message.toString()).syncId) return;
+      route.send(message.toString());
+    });
+    socket.on("error", (error) => {
+      // Navigation can cancel the proxy handshake, just as it cancels native
+      // authentication. Only that intentional cancellation is expected.
+      if (cancelledBeforeOpen && error.message === "WebSocket was closed before the connection was established") return;
+      errors.push(error.message);
+    });
+    socket.on("close", () => {
+      sockets.delete(socket);
+      void route.close().catch(() => {});
+    });
+  });
+  await page.route("**/*", async (route) => {
+    const request = route.request(),
+      url = new URL(request.url()),
+      body = request.postData();
+    if (!url.pathname.startsWith("/api/"))
+      return url.origin === nativeOrigin ? route.continue() : route.abort();
+    if (url.pathname.startsWith(`/api/timecode/${orgId}/`)) requests.push(url);
+    const headers = {
+      "content-type": "application/json",
+      "access-control-allow-origin": nativeOrigin,
+      "access-control-allow-credentials": "true",
+    };
+    const result = await fetch(`${origin}${url.pathname}${url.search}`, {
+      method: request.method(),
+      headers: {
+        Cookie: cookie,
+        Origin: origin,
+        "Content-Type": "application/json",
+      },
+      ...(body ? { body } : {}),
+    });
+    const bytes = Buffer.from(await result.arrayBuffer());
+    if (url.pathname.endsWith("/command") && body && JSON.parse(body).action === "add-event") {
+      saves.push(JSON.parse(body));
+      if (loseSaveReply) {
+        loseSaveReply = false;
+        await new Promise(resolve => setTimeout(resolve, 17_000));
+      }
+    }
+    await route
+      .fulfill({ status: result.status, headers, body: bytes })
+      .catch(() => {});
+  });
+  const button = (name) => page.getByRole("button", { name, exact: true });
+  const wait = async (check, label, timeout = 20000) => {
+    const end = Date.now() + timeout;
+    while (!(await check())) {
+      if (Date.now() > end) throw new Error(`Timed out: ${label}`);
+      await new Promise((done) => setTimeout(done, 50));
+    }
+  };
+  async function events() {
+    const response = await fetch(`${origin}/api/timecode/${orgId}/events?showId=${showId}`, { headers: { Cookie: cookie } });
+    assert.equal(response.status, 200); return response.json();
+  }
+  try {
+    await page.goto(`${nativeOrigin}/timecode`);
+    await button(`Display test show · ${date}`).click();
+    await wait(() => button("Claim control").isEnabled(), "hydrated show");
+    await button("Claim control").click();
+    await wait(() => button("Add automation event").isEnabled(), "claimed control");
+    await page.getByLabel("Event label", { exact: true }).fill("Retained cue");
+    mode = "silent";
+    await button("Add automation event").click();
+    await wait(async () => (await events()).length === 1, "first save committed");
+    await button("Change show").click();
+    mode = "normal";
+    await button(`Evening test show · ${date}`).click();
+    assert.equal(await page.getByLabel("Event label", { exact: true }).inputValue(), "", "Different show has a different draft");
+    await button("Change show").click();
+    await button(`Display test show · ${date}`).click();
+    await page.getByText(/may have completed/).waitFor({ timeout: 20000 });
+    assert.equal(await page.getByLabel("Event label", { exact: true }).inputValue(), "Retained cue");
+    await wait(() => button("Claim control").isEnabled(), "return hydrated");
+    await button("Claim control").click();
+    await wait(() => button("Retry original cue save").isEnabled(), "retry available");
+    mode = "drop-sync";
+    await button("Retry original cue save").click();
+    await wait(() => saves.length === 2, "operator retries the original save");
+    assert.equal((await events()).length, 1, "A retry must not create a second cue");
+    assert.equal(saves[0].payload.id, saves[1].payload.id, "Retry keeps the original cue identity");
+    await button("Retry timeline refresh").waitFor({ timeout: 15000 });
+    mode = "normal";
+    if (await button("Retry live connection").count()) await button("Retry live connection").click();
+    await wait(() => button("Retry timeline refresh").isEnabled(), "reconnected for refresh");
+    await button("Retry timeline refresh").click();
+    await button("New cue").waitFor();
+    assert.equal(saves.length, 2, "Retry refresh never sends the cue again");
+    for (const width of [320, 768, 1440]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await button("New cue").scrollIntoViewIfNeeded();
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+      assert.equal(overflow, false, `No overflow at ${width}`);
+      const bounds = await button("New cue").boundingBox();
+      assert.ok(bounds.height >= 44 && bounds.width >= 44);
+      await page.screenshot({ path: `/tmp/showpilot-native-timecode-cue-saved-${width}.png` });
+    }
+    await button("New cue").click();
+    if (await button("Claim control").count()) await button("Claim control").click();
+    await wait(() => button("Add automation event").isEnabled(), "ready for new cue");
+    await page.getByLabel("Event label", { exact: true }).fill("Removed before retry");
+    loseSaveReply = true;
+    await button("Add automation event").click();
+    await wait(() => saves.length === 3, "second cue committed");
+    const removedId = saves[2].payload.id;
+    const removal = await fetch(`${origin}/api/timecode/${orgId}/command?showId=${showId}`, {
+      method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "remove-event", payload: { id: removedId } }),
+    });
+    assert.equal(removal.status, 200, await removal.text());
+    await button("Retry original cue save").waitFor({ timeout: 20000 });
+    await button("Retry original cue save").click();
+    await page.getByText(/has since been removed/).waitFor();
+    await button("Review retained draft").waitFor();
+    assert.equal((await events()).some(event => event.id === removedId), false, "Retry cannot resurrect a removed cue");
+    await button("Review retained draft").click();
+    assert.equal(await page.getByLabel("Event label", { exact: true }).inputValue(), "Removed before retry");
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ result: "pass", realAuth: true, realRelay: true, lostReply: true, duplicatePrevented: true, navigationRetainsDraft: true, refreshOnly: true, removedNotRecreated: true, widths: [320, 768, 1440] }));
+  } catch (error) {
+    console.error(JSON.stringify({ body: await page.locator("body").innerText(), errors, saves }));
+    throw error;
+  } finally {
+    for (const socket of sockets) socket.close();
+    await browser.close();
+    await new Promise(resolve => server.close(resolve));
+  }
+}, { secondShow: true });

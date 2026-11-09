@@ -54,7 +54,7 @@ const event = (overrides = {}) => ({
   executionStatus: "scheduled", ...overrides,
 });
 function hydrate(socket, overrides = {}, control = "available") {
-  socket.message({ type: "hydrate", ...target, state: state(overrides), events: [event()], control });
+  socket.message({ type: "hydrate", syncId: socket.sent.findLast(message => message.type === "sync")?.syncId, ...target, state: state(overrides), events: [event()], control });
 }
 async function fixture(control = "available") {
   const f = renderHook(({ seed } = {}) => useTimecodeRelay("org", seed, target), { initialProps: {} });
@@ -243,7 +243,7 @@ it("keeps healthy idle connections after a refreshed snapshot", async () => {
 });
 it("invalidates live control on a missing sequence without applying the partial update", async () => {
   const f = await fixture();
-  await act(async () => f.socket.message({ type: "hydrate", ...target, state: state(), events: [event()], control: "yours", sequence: 2, previousSequence: null }));
+  await act(async () => f.socket.message({ type: "hydrate", syncId: f.socket.sent.findLast(message => message.type === "sync")?.syncId, ...target, state: state(), events: [event()], control: "yours", sequence: 2, previousSequence: null }));
   await act(async () => f.socket.message({ type: "tc-update", ...target, state: state({ totalFrames: 999 }), sequence: 4, previousSequence: 3 }));
   expect(f.result.current.state.totalFrames).toBe(0);
   expect(f.result.current.status).not.toBe("connected");
@@ -278,4 +278,29 @@ it.each([
   [{}, "Armed"],
 ])("renders the actual cue execution state %j", (overrides, expected) => {
   expect(contract.timecodeEventStatus(contract.parseMobileTimecodeEvent(event(overrides)))).toBe(expected);
+});
+
+it("requires a fresh matching snapshot for an explicit refresh", async () => {
+  const f = await fixture();
+  await act(async () => vi.advanceTimersByTimeAsync(20_000));
+  const old = f.socket.sent.at(-1).syncId;
+  let confirmed;
+  await act(async () => { void f.result.current.refresh().then(value => { confirmed = value; }); });
+  const current = f.socket.sent.at(-1).syncId;
+  expect(current).not.toBe(old);
+  await act(async () => f.socket.message({ type: "hydrate", ...target, syncId: old, state: state({ totalFrames: 999 }), events: [], control: "available" }));
+  expect(confirmed).toBeUndefined();
+  expect(f.result.current.state.totalFrames).toBe(0);
+  await act(async () => hydrate(f.socket, { totalFrames: 50 }));
+  expect(confirmed).toBe(true);
+  expect(f.result.current.state.totalFrames).toBe(50);
+  await act(async () => f.socket.message({ type: "hydrate", ...target, syncId: old, state: state({ totalFrames: 999 }), events: [], control: "available" }));
+  expect(f.result.current.state.totalFrames).toBe(50);
+});
+it("settles a refresh as unconfirmed when its connection retires", async () => {
+  const f = await fixture();
+  let confirmed;
+  await act(async () => { void f.result.current.refresh().then(value => { confirmed = value; }); });
+  await act(async () => f.socket.close());
+  expect(confirmed).toBe(false);
 });
