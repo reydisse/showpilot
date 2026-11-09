@@ -1,3 +1,4 @@
+import { isTimecodeCueControl, reviewTimecodeCue, sameTimecodeCueReviews } from "@showpilot/shared";
 import { isTimecodeGateCommand, sameTimecodeGateReview } from "@showpilot/shared";
 import { isReviewedTimecodeClockEdit, sameTimecodeClockReview } from "@showpilot/shared";
 import { prepareTimecodeClockEdit, type PreparedClockEdit } from "@/lib/timecode-clock-edit";
@@ -126,6 +127,8 @@ interface TimecodeEditRecord {
   fingerprint: string;
   receipt: TimecodeEditReceipt;
 }
+
+interface ReviewedCueDispatch { generation: number; controllerSessionId: string; authority: LiveSessionAuthorityClaim }
 
 // Server-owned acknowledgement and retry fields cannot be patched by clients.
 const toleranceFramesSchema = z.number().int().min(0).max(MAX_TIMECODE_TOLERANCE_FRAMES);
@@ -1070,6 +1073,99 @@ export class TimecodeRelay extends DurableObject {
     });
   }
 
+  private async controlCues(payload: Record<string, unknown> | undefined, sessionId: string | undefined): Promise<TimecodeEditReceipt> {
+    const id = payload?.requestId;
+    if (typeof id !== "string" || !z.uuid().safeParse(id).success)
+      throw new TimecodeCommandRejection("Review the cue action with a new request identity.");
+    const fingerprint = await scopedTokenDigest(JSON.stringify(payload));
+    const dispatch: { value: { event: AutomationEvent; review: ReviewedCueDispatch } | null } = { value: null };
+    const receipt = await this.ctx.blockConcurrencyWhile(async (): Promise<TimecodeEditReceipt> => {
+      const owner = this.controlOwner(), target = this.target;
+      const authority = owner?.attachment.authClaim;
+      const userId = authority?.userId;
+      if (this.retired || !target || !authority || !userId || !sessionId || owner.attachment.sessionId !== sessionId)
+        throw new TimecodeCommandRejection("Timecode control changed. Claim control before changing cues.");
+      const identity = { orgId: target.orgId, userId, requestId: id }, key = `cue-control:${id}`;
+      const prior = await this.ctx.storage.get<TimecodeEditRecord>(key);
+      if (prior) return prior.receipt.userId === userId && prior.fingerprint === fingerprint ? prior.receipt
+        : { ...identity, outcome: "conflict", message: "This request identity belongs to a different cue action." };
+      const reject = async (outcome: "conflict" | "rejected", message: string) => {
+        const result = { ...identity, outcome, message };
+        await this.ctx.storage.put(key, { fingerprint, receipt: result } satisfies TimecodeEditRecord);
+        return result;
+      };
+      if (!isTimecodeCueControl(payload)) return reject("rejected", "Review and confirm a valid cue action before sending it.");
+      if (payload.showId !== target.showId || payload.serviceDate !== target.serviceDate)
+        return reject("conflict", "The selected show changed. Review its current date and cues.");
+      const operation = payload.operation;
+      const selected = operation === "reset" ? this.events : this.events.filter(event => event.id === payload.expected[0].id);
+      if (!sameTimecodeCueReviews(payload.expected, selected.map(reviewTimecodeCue)))
+        return reject("conflict", "The cue or timeline changed. Review its current state before sending a new action.");
+      if (operation !== "enable" && operation !== "disable" && selected.some(event => event.executionStatus === "dispatching"))
+        return reject("conflict", "Wait for the cue's delivery result before changing or removing its history.");
+      if (operation === "reset") {
+        const clock = { showId: target.showId, serviceDate: target.serviceDate, frame: this.state.totalFrames,
+          format: this.state.format, incomingFormatId: this.state.incomingFormat?.id ?? null };
+        if (this.state.running || !sameTimecodeClockReview(payload.clock, clock))
+          return reject("conflict", "Stop the clock and review the current timeline before re-arming all cues.");
+      }
+      const sendsOutput = operation === "retry" || operation === "refire" || operation === "fire";
+      const event = selected[0];
+      if (sendsOutput) {
+        if (!("gateRevision" in payload) || payload.gateRevision !== this.state.automationRevision)
+          return reject("conflict", "Automation changed after this cue was reviewed. Review it again before firing.");
+        if (!this.state.triggersEnabled || !event.enabled || event.skipped)
+          return reject("conflict", "Enable automation and this cue, and re-arm skipped cues before firing.");
+        if (operation === "retry" ? event.executionStatus !== "failed" || event.fired
+          : operation === "refire" ? !event.fired
+          : event.fired || event.executionStatus === "failed")
+          return reject("conflict", "The cue is not ready for this action. Review its delivery status.");
+      }
+      const replacements = new Map<string, AutomationEvent>();
+      const editRevision = crypto.randomUUID();
+      if (operation !== "remove") for (const current of selected) {
+        const next = { ...current, editRevision };
+        if (operation === "enable" || operation === "disable") next.enabled = operation === "enable";
+        else {
+          resetCueExecution(next); this.applyEventTiming(next);
+          if (sendsOutput) {
+            const durable = ["crew-message", "timer-start", "timer-stop", "media-play", "media-stop"].includes(current.action);
+            next.executionId = operation === "retry" && durable && current.executionId ? current.executionId : crypto.randomUUID();
+            // Reserve before committing. Recovery reports uncertainty if this
+            // process exits before runEvent persists the external dispatch.
+            next.executionStatus = "dispatching";
+            dispatch.value = { event: next, review: { generation: this.automationGeneration, controllerSessionId: sessionId, authority } };
+          }
+        }
+        replacements.set(current.id, next);
+      }
+      const events = operation === "remove" ? this.events.filter(candidate => candidate.id !== event.id)
+        : this.events.map(candidate => replacements.get(candidate.id) ?? candidate);
+      const previousFeedFrame = operation === "reset" ? this.state.totalFrames : this.previousFeedFrame;
+      const result: TimecodeEditReceipt = { ...identity, outcome: "applied" };
+      await this.ctx.storage.transaction(async storage => {
+        await storage.put({ timecode: { state: this.state, events, deviceTimings: this.deviceTimings, target } satisfies TimecodeSnapshot,
+          clock: { ...this.clockSnapshot(), previousFeedFrame }, [key]: { fingerprint, receipt: result } satisfies TimecodeEditRecord });
+      });
+      if (operation === "enable" || operation === "disable") {
+        // Preserve the live object an in-flight acknowledgement will update.
+        event.enabled = operation === "enable";
+        event.editRevision = editRevision;
+      } else this.events = events;
+      this.previousFeedFrame = previousFeedFrame;
+      this.hasSnapshot = true; this.lastPersistedAt = Date.now();
+      await this.scheduleAlarm(); this.broadcastEvents();
+      return result;
+    });
+    if (dispatch.value) {
+      // External effects never run under the local receipt transaction/lock.
+      // Duplicate requests return the reservation receipt and cannot dispatch.
+      await this.runEvent(dispatch.value.event, false, dispatch.value.review);
+      await this.persist();
+    }
+    return receipt;
+  }
+
   private async handleCommand(
     action: TimecodeCommand,
     payload?: Record<string, unknown>,
@@ -1281,6 +1377,9 @@ export class TimecodeRelay extends DurableObject {
         break;
       }
 
+      case "control-cues":
+        return await this.controlCues(payload, sessionId);
+
       case "edit-automation-gate":
         return await this.editAutomationGate(payload, sessionId);
 
@@ -1453,6 +1552,7 @@ export class TimecodeRelay extends DurableObject {
         const event = this.events.find((candidate) => candidate.id === payload.id);
         if (!event) break;
         event.enabled = payload.enabled;
+        event.editRevision = crypto.randomUUID();
         await this.persist();
         this.broadcastEvents();
         break;
@@ -1481,6 +1581,7 @@ export class TimecodeRelay extends DurableObject {
         if (action === "skip-event") {
           if (event.fired) throw new TimecodeCommandRejection("This cue already fired. Skipping cannot undo its output.");
           event.skipped = true;
+          event.editRevision = crypto.randomUUID();
         } else {
           const expected = cueReviewSchema.safeParse(payload?.expected);
           if (payload?.confirmed !== true || !expected.success || !cueReviewMatches(event, expected.data)) {
@@ -1626,21 +1727,21 @@ export class TimecodeRelay extends DurableObject {
     return executions.length > 0;
   }
 
-  private async runEvent(event: AutomationEvent, requiresLiveFeed = false): Promise<void> {
+  private async runEvent(event: AutomationEvent, requiresLiveFeed = false, reviewed?: ReviewedCueDispatch): Promise<void> {
     // Reserve before yielding, so concurrent feed messages cannot dispatch twice.
     event.executionStatus = "dispatching";
     event.executionAttempts = (event.executionAttempts ?? 0) + 1;
     event.executionStartedAt ??= Date.now();
     event.executionId ??= crypto.randomUUID();
     const startedAt = Date.now();
-    const generation = this.automationGeneration;
+    const generation = reviewed?.generation ?? this.automationGeneration;
     delete event.executionError;
     try {
       // A trigger barrier must take effect before the first await: another feed
       // can arrive while persistence is pending. The safety gate stays separate.
       const control = isTriggerControlAction(event.action);
-      if (control) {
-        this.assertAutomationDispatch(event, requiresLiveFeed, generation);
+      if (control && !reviewed) {
+        this.assertAutomationDispatch(event, requiresLiveFeed, generation, reviewed);
         this.applyAutomaticCueGate(event.action === "triggers-enable");
       }
       // Reserve output order before the first await. Persist the dispatch
@@ -1651,14 +1752,22 @@ export class TimecodeRelay extends DurableObject {
         async (signal) => {
           await this.persist();
           this.broadcastEvents();
+          if (reviewed) {
+            const allowed = await withOperationTimeout(hasLivePermissionAuthority(this.env.DB, reviewed.authority, "timecode:access"),
+              Math.max(1, Math.min(2000, startedAt + 10000 - Date.now())), "Cue permission check timed out.");
+            signal.throwIfAborted();
+            if (!allowed) throw new Error("Timecode access changed before dispatch. Check your permissions.");
+            this.assertAutomationDispatch(event, requiresLiveFeed, generation, reviewed);
+            if (control) { this.applyAutomaticCueGate(event.action === "triggers-enable"); await this.persist(); }
+          }
           if (control) { signal.throwIfAborted(); this.broadcastState(); }
-          else await this.executeEventAction(event, signal, requiresLiveFeed, generation, startedAt + 10000);
+          else await this.executeEventAction(event, signal, requiresLiveFeed, generation, startedAt + 10000, reviewed);
         },
       );
       event.fired = true;
       event.executionStatus = "acknowledged";
     } catch (error) {
-      if (error instanceof AutomationCancelled) {
+      if (error instanceof AutomationCancelled && reviewed === undefined) {
         event.executionStatus = "scheduled";
         this.broadcastEvents();
         return;
@@ -1683,8 +1792,10 @@ export class TimecodeRelay extends DurableObject {
     this.broadcastState();
   }
 
-  private assertAutomationDispatch(event: AutomationEvent, requiresLiveFeed: boolean, generation: number): void {
-    if (requiresLiveFeed && generation !== this.automationGeneration) {
+  private assertAutomationDispatch(event: AutomationEvent, requiresLiveFeed: boolean, generation: number, reviewed?: ReviewedCueDispatch): void {
+    if (reviewed && this.controlOwner()?.attachment.sessionId !== reviewed.controllerSessionId)
+      throw new AutomationCancelled("Timecode control changed before dispatch.");
+    if ((requiresLiveFeed || reviewed) && generation !== this.automationGeneration) {
       throw new AutomationCancelled("Automation changed after this cue was queued.");
     }
     const lastFeed = this.state.signal?.lastFeedAt ?? this.expectedFeedSince;
@@ -1699,11 +1810,11 @@ export class TimecodeRelay extends DurableObject {
     }
   }
 
-  private async executeEventAction(event: AutomationEvent, signal: AbortSignal, requiresLiveFeed: boolean, generation: number, deadline: number): Promise<void> {
+  private async executeEventAction(event: AutomationEvent, signal: AbortSignal, requiresLiveFeed: boolean, generation: number, deadline: number, reviewed?: ReviewedCueDispatch): Promise<void> {
     const env = this.env as unknown as Env;
     const assertCanDispatch = () => {
       signal.throwIfAborted();
-      this.assertAutomationDispatch(event, requiresLiveFeed, generation);
+      this.assertAutomationDispatch(event, requiresLiveFeed, generation, reviewed);
     };
     assertCanDispatch();
     const actionSummary = sanitizePayloadSummary({

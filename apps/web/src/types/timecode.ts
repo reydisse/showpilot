@@ -246,6 +246,7 @@ export const TIMECODE_COMMANDS = [
   "set-timecode",
   "edit-clock",
   "edit-automation-gate",
+  "control-cues",
   "add-event",
   "replace-event-group",
   "update-event",
