@@ -183,7 +183,7 @@ it.each([
   { name: "Speaker\ncountdown", durationMs: 300000 }, { name: "Speaker", durationMs: 300000, other: true },
 ])("validates timer payload on add, update and atomic group replacement: %j", async payload => {
   const test = await fixture();
-  await test.command("add-event", { ...start, payload }, 400);
+  await test.command("add-event", { ...start, id: crypto.randomUUID(), payload }, 400);
   await test.command("add-event", start);
   await test.command("update-event", { id: start.id, updates: { payload } }, 400);
   await test.command("replace-event-group", { sourceKey: "timers", events: [{ ...start, id: "replacement", payload }] }, 400);

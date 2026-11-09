@@ -405,7 +405,7 @@ it("validates prop names on add, update and group replacement without losing the
   for (const propName of [undefined, " ", 1, "x".repeat(201)]) {
     await test.command(
       "add-event",
-      { ...cue, id: "bad", payload: { propName } },
+      { ...cue, id: crypto.randomUUID(), payload: { propName } },
       400,
     );
     await test.command(

@@ -1,6 +1,6 @@
-import { workspaceCopy } from "@showpilot/shared";
+import { parseTimecodeString, workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { AppButton } from "@/components/app-button";
@@ -9,18 +9,11 @@ import { LoadingView } from "@/components/loading-view";
 import { OperationsEmpty, OperationsError, OperationsPanel, OperationsRow } from "@/components/operations-ui";
 import { Page } from "@/components/page";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
+import { useTimecodeCueSave } from "@/hooks/use-timecode-cue-save";
 import { useTimecodeRelay } from "@/hooks/use-timecode-relay";
-import { commandMobileTimecode, getMobileTimecode, getMobileTimecodeShows } from "@/lib/mobile-api";
-import { createLocalRequestUuid } from "@/lib/request-id";
+import { commandMobileTimecode, createMobileTimecodeCue, getMobileTimecode, getMobileTimecodeShows } from "@/lib/mobile-api";
 import { timecodeEventStatus, type MobileTimecodeShow } from "@/lib/timecode-contract";
 import { createThemedStyles, fontFamily } from "@/theme/tokens";
-
-const parseTimecode = (value: string) => {
-  const match = /^(\d{2}):(\d{2}):(\d{2})[:;](\d{2})$/.exec(value.trim());
-  if (!match) return null;
-  const [hours, minutes, seconds, frames] = match.slice(1).map(Number);
-  return hours <= 23 && minutes <= 59 && seconds <= 59 ? { hours, minutes, seconds, frames } : null;
-};
 
 const automationActions = [
   ["rundown-advance", "Next item"], ["rundown-previous", "Previous item"],
@@ -78,19 +71,8 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
     retry: false,
   });
   const [timecode, setTimecode] = useState("00:00:00:00");
-  const [eventLabel, setEventLabel] = useState("");
-  const [eventTimecode, setEventTimecode] = useState("00:00:10:00");
-  const [eventAction, setEventAction] = useState<(typeof automationActions)[number][0]>("rundown-advance");
-  const [eventPayload, setEventPayload] = useState("{}");
   const [error, setError] = useState("");
   const relay = useTimecodeRelay(orgId, query.data, target);
-  const savedEvent = useRef<{ id: string; label: string } | null>(null);
-  useEffect(() => {
-    const saved = savedEvent.current;
-    if (!saved || !relay.events.some(item => item.id === saved.id)) return;
-    savedEvent.current = null;
-    setEventLabel(current => current === saved.label ? "" : current);
-  }, [relay.events]);
   const command = useMutation({
     mutationFn: commandMobileTimecode,
     onSuccess: () => {
@@ -101,49 +83,29 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
   });
   const data = relay.state ? { state: relay.state, events: relay.events } : query.data;
 
-  const canEdit = relay.status === "connected" && relay.control === "yours" && !relay.pending && !command.isPending;
+  const canControl = relay.status === "connected" && relay.control === "yours" && !relay.pending && !command.isPending;
+  const cueSave = useTimecodeCueSave({ orgId, userId: actorId, ...target }, {
+    active: true, canSend: canControl, format: data?.state.format, send: createMobileTimecodeCue,
+    refresh: async signal => {
+      if (!await relay.refresh() || signal.aborted) throw new Error("The timeline refresh was not confirmed. Retry to load its current state.");
+    },
+  });
+  const draft = cueSave.draft;
+  const save = cueSave.attempt;
+  const formatChanged = Boolean(draft.format && data && (draft.format.frameRate !== data.state.format.frameRate || draft.format.dropFrame !== data.state.format.dropFrame));
+  const canEdit = canControl && !cueSave.locked;
 
   const run = (action: Parameters<typeof commandMobileTimecode>[0]["action"], payload?: Record<string, unknown>) => {
     if (!canEdit) { setError("Claim control on a connected show before editing timecode."); return; }
     command.mutate({ orgId, ...target, action, payload });
   };
   const setManualTimecode = () => {
-    const parsed = parseTimecode(timecode);
+    const parsed = data ? parseTimecodeString(timecode.trim(), data.state.format) : null;
     if (!parsed || (data && parsed.frames >= Math.round(data.state.format.frameRate))) {
       setError("Enter a valid SMPTE timecode for the selected frame rate.");
       return;
     }
     run("set-timecode", { timecode: parsed });
-  };
-  const addEvent = () => {
-    const parsed = parseTimecode(eventTimecode);
-    if (!parsed || !eventLabel.trim()) {
-      setError("An event label and valid SMPTE timecode are required.");
-      return;
-    }
-    let payload: unknown;
-    try {
-      payload = JSON.parse(eventPayload);
-    } catch {
-      setError("Action details must be valid JSON.");
-      return;
-    }
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-      setError("Action details must be a JSON object."); return;
-    }
-    if (!canEdit) return;
-    const id = `native-${createLocalRequestUuid()}`;
-    savedEvent.current = { id, label: eventLabel };
-    run("add-event", {
-      id,
-      label: eventLabel.trim(),
-      triggerTimecode: parsed,
-      triggerFrame: 0,
-      action: eventAction,
-      payload,
-      fired: false,
-      toleranceFrames: 5,
-    });
   };
 
   return (
@@ -181,22 +143,36 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
           ))}
         </View>
       </OperationsPanel>
-      <OperationsPanel title="Automation" detail="Create the same shared actions used by web and desktop. Events fire when the relay crosses the selected frame.">
+      <OperationsPanel title="Automation" detail="Events fire when the relay crosses the selected frame. Cue drafts and unconfirmed saves stay with this show when you leave the screen.">
+        {cueSave.error ? <OperationsError message={cueSave.error} /> : null}
+        {save ? <View style={styles.saveNotice}>
+          <Text accessibilityRole="alert" style={styles.saveText}>{save.kind === "pending" ? "Saving cue… Your draft is kept." : save.kind === "failed" ? save.message : save.result.outcome === "applied" ? "Cue saved. Refreshing or retrying this save will preserve later edits." : save.result.message ?? "Review the cue save result."}</Text>
+          {save.kind === "failed" ? <AppButton label="Retry original cue save" disabled={!canControl} onPress={cueSave.retry} /> : null}
+          {save.kind === "confirmed" && save.refresh === "pending" ? <Text style={styles.saveText}>Refreshing timeline…</Text> : null}
+          {save.kind === "confirmed" && (save.refresh === "failed" || save.refresh === "idle") ? <><OperationsError message={save.message ?? "The cue result is known. Refresh the current timeline before continuing."} /><AppButton label="Retry timeline refresh" disabled={relay.status !== "connected"} onPress={cueSave.refresh} /></> : null}
+          {save.kind === "confirmed" && save.refresh === "done" ? <View style={styles.buttonRow}>
+            <View style={styles.button}><AppButton label="New cue" variant="secondary" onPress={() => cueSave.finish(false)} /></View>
+            {save.result.outcome !== "applied" ? <View style={styles.button}><AppButton label="Review retained draft" variant="secondary" onPress={() => cueSave.finish(true)} /></View> : null}
+          </View> : null}
+        </View> : null}
+        {draft.format ? <Text style={styles.saveText}>Cue time reviewed at {draft.format.frameRate} fps {draft.format.dropFrame.toUpperCase()}.</Text> : null}
+        {formatChanged ? <><OperationsError message="The show's frame rate changed. Review the cue time before using the current format." /><AppButton label="Use current frame rate" variant="secondary" disabled={cueSave.locked} onPress={cueSave.reviewFormat} /></> : null}
         <AppField
           label="Event label"
-          value={eventLabel}
-          onChangeText={setEventLabel}
+          value={draft.label}
+          onChangeText={label => cueSave.update({ label })}
+          editable={!cueSave.locked}
           placeholder={workspaceCopy("Advance to sermon", workspaceTerms)}
         />
-        <AppField label="Trigger timecode" value={eventTimecode} onChangeText={setEventTimecode} placeholder="00:00:10:00" />
+        <AppField label="Trigger timecode" value={draft.timecode} editable={!cueSave.locked} onChangeText={timecode => cueSave.update({ timecode })} placeholder="00:00:10:00" />
         <Text style={styles.fieldLabel}>ACTION</Text>
         <View style={styles.actionGrid}>
           {automationActions.map(([value, label]) => (
-            <Pressable accessibilityRole="button" accessibilityState={{ selected: eventAction === value }} key={value} onPress={() => setEventAction(value)} style={[styles.actionChoice, eventAction === value && styles.actionChoiceActive]}><Text style={[styles.actionChoiceText, eventAction === value && styles.actionChoiceTextActive]}>{label}</Text></Pressable>
+            <Pressable accessibilityRole="button" accessibilityState={{ selected: draft.action === value, disabled: cueSave.locked }} key={value} disabled={cueSave.locked} onPress={() => cueSave.update({ action: value })} style={[styles.actionChoice, draft.action === value && styles.actionChoiceActive]}><Text style={[styles.actionChoiceText, draft.action === value && styles.actionChoiceTextActive]}>{label}</Text></Pressable>
           ))}
         </View>
-        <AppField label="Action details (JSON)" value={eventPayload} onChangeText={setEventPayload} multiline placeholder={eventAction === "stage-message" ? '{"message":"Stand by"}' : eventAction === "rundown-adjust" ? '{"deltaMs":30000}' : "{}"} />
-        <AppButton label="Add automation event" disabled={!canEdit} onPress={addEvent} />
+        <AppField label="Action details (JSON)" value={draft.payload} editable={!cueSave.locked} onChangeText={payload => cueSave.update({ payload })} multiline placeholder={draft.action === "stage-message" ? '{"message":"Stand by"}' : draft.action === "rundown-adjust" ? '{"deltaMs":30000}' : "{}"} />
+        <AppButton label="Add automation event" disabled={!canControl || cueSave.locked || formatChanged} onPress={cueSave.save} />
         {data?.events.length ? (
           data.events.map((event) => (
           <OperationsRow key={event.id} title={event.label} detail={`${event.triggerTimecode.hours.toString().padStart(2, "0")}:${event.triggerTimecode.minutes.toString().padStart(2, "0")}:${event.triggerTimecode.seconds.toString().padStart(2, "0")}:${event.triggerTimecode.frames.toString().padStart(2, "0")} · ${event.action}${event.executionError ? ` · ${event.executionError}` : ""}`} status={timecodeEventStatus(event)} onPress={canEdit ? () => Alert.alert("Remove automation event?", `Remove “${event.label}” from the shared timecode relay?`, [{ text: "Cancel", style: "cancel" }, { text: "Remove", style: "destructive", onPress: () => run("remove-event", { id: event.id }) }]) : undefined} />
@@ -213,6 +189,8 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
+  saveNotice: { gap: 10, borderRadius: 14, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft, padding: 12 },
+  saveText: { color: colors.text, fontFamily, fontSize: 13, lineHeight: 19 },
   clockCard: { alignItems: "center", gap: 8, borderRadius: 22, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.black, paddingHorizontal: 12, paddingVertical: 28 },
   clock: { color: colors.amberText, fontFamily, fontSize: 39, fontWeight: "900", fontVariant: ["tabular-nums"], letterSpacing: 1 },
   clockMeta: { color: colors.textMuted, fontFamily, fontSize: 12, fontWeight: "700", textTransform: "uppercase" },

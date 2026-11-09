@@ -66,7 +66,7 @@ type Actions = {
   claim(): void;
   release(): void;
   retry(): void;
-  refresh(): void;
+  refresh(): Promise<boolean>;
 };
 
 export function useTimecodeRelay(
@@ -109,6 +109,8 @@ export function useTimecodeRelay(
     let feedTimer: ReturnType<typeof setInterval> | undefined;
     let authentication: AbortController | null = null;
     const sequence = new RelaySequenceTracker();
+    let syncNumber = 0;
+    let syncRequest: { id: string; complete: (confirmed: boolean) => void } | null = null;
     const matches = (value: MobileTimecodeTarget) => value.showId === showId && value.serviceDate === serviceDate;
     // HTTP data is only a last-known initial fallback. Later polls cannot rewind
     // an authoritative socket or replace a live timeline with an older read.
@@ -129,6 +131,7 @@ export function useTimecodeRelay(
       ready = false; owner = null; setControl(null); sequence.disconnect();
       if (operation || generator) setCommandError("The clock connection was interrupted. Review the current show state before acting again. Commands are not replayed.");
       stopFeed(); finishOperation();
+      syncRequest?.complete(false); syncRequest = null;
       clearTimeout(handshakeTimer); clearTimeout(syncTimer); clearTimeout(syncDeadline);
       handshakeTimer = syncTimer = syncDeadline = undefined;
       const previous = socket; socket = null;
@@ -179,12 +182,18 @@ export function useTimecodeRelay(
         stopFeed();
       }
     };
-    const requestSync = () => {
-      if (!socket || socket.readyState !== WebSocket.OPEN || syncDeadline) return;
-      clearTimeout(syncTimer);
+    const requestSync = (): Promise<boolean> => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return Promise.resolve(false);
+      // A save refresh must be newer than the save acknowledgement. A previous
+      // periodic sync cannot confirm it, even if that old response arrives late.
+      syncRequest?.complete(false);
+      clearTimeout(syncTimer); clearTimeout(syncDeadline);
+      const id = `${generation}-${++syncNumber}`;
+      const completion = new Promise<boolean>(complete => { syncRequest = { id, complete }; });
       syncDeadline = setTimeout(() => retire("The timecode connection stopped responding. Showing last known state."), 8_000);
-      try { socket.send(JSON.stringify({ type: "sync", lastSeenSequence: sequence.lastSeenSequence })); }
+      try { socket.send(JSON.stringify({ type: "sync", syncId: id, lastSeenSequence: sequence.lastSeenSequence })); }
       catch { retire("Timecode could not refresh its current state."); }
+      return completion;
     };
     const connect = async () => {
       if (disposed || AppState.currentState !== "active" || socket || authentication) return;
@@ -221,14 +230,18 @@ export function useTimecodeRelay(
             const next = parseMobileTimecodeState(message.state);
             if (!next || !matches(next)) throw new Error("Invalid timecode state");
             if (message.type === "hydrate") {
+              if (message.syncId !== undefined && message.syncId !== syncRequest?.id) return;
               const nextEvents = parseMobileTimecodeEvents(message.events);
               if (!nextEvents || !isControl(message.control)) throw new Error("Invalid timecode snapshot");
               sequence.snapshot(message); owner = message.control; setControl(owner); setEvents(nextEvents);
               if (owner === "other") { stopFeed(); finishOperation(); }
-              clearTimeout(handshakeTimer); clearTimeout(syncDeadline); clearTimeout(syncTimer);
-              handshakeTimer = syncDeadline = undefined;
+              clearTimeout(handshakeTimer); handshakeTimer = undefined;
               ready = true; attempts = 0; setStatus("connected"); setConnectionError(null);
-              syncTimer = setTimeout(requestSync, 20_000);
+              if (!syncRequest || message.syncId === syncRequest.id) {
+                syncRequest?.complete(true); syncRequest = null;
+                clearTimeout(syncDeadline); clearTimeout(syncTimer); syncDeadline = undefined;
+                syncTimer = setTimeout(() => { void requestSync(); }, 20_000);
+              }
             }
             current = next; setState(next); confirmClock();
           } else if (message.type === "events-update") {
@@ -306,7 +319,7 @@ export function useTimecodeRelay(
   const claimControl = useCallback(() => actions.current?.claim(), []);
   const releaseControl = useCallback(() => actions.current?.release(), []);
   const retryConnection = useCallback(() => actions.current?.retry(), []);
-  const refresh = useCallback(() => actions.current?.refresh(), []);
+  const refresh = useCallback(() => actions.current?.refresh() ?? Promise.resolve(false), []);
   const dismissCommandError = useCallback(() => setCommandError(null), []);
   return { state, events, status, control, isMaster, pending, starting: pending === "start", stopping: pending === "stop",
     lastError: commandError ?? connectionError, commandError, startFreerun, stopFreerun, claimControl, releaseControl, retryConnection, refresh, dismissCommandError };

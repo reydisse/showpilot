@@ -1,3 +1,4 @@
+import { cueCreateReplySchema, type CueCreateCommand } from "./timecode-cue-recovery";
 import { timecodeShowsSchema, timecodeStateSchema, timecodeEventSchema, type MobileTimecodeState, type MobileTimecodeEvent, type MobileTimecodeTarget } from "./timecode-contract";
 import { rundownChangeReplySchema, type RundownChangeCommand } from "./rundown-change-recovery";
 import { templateDeleteReplySchema, type TemplateDeleteCommand } from "./template-delete-recovery";
@@ -953,7 +954,7 @@ export function isRundownPinRequired(error: unknown): boolean {
   );
 }
 
-async function authenticatedFetch(path: string, init?: FetchRequestInit) {
+async function authenticatedFetch(path: string, init?: FetchRequestInit, acceptedStatuses: readonly number[] = []) {
   const nativeCookieHeader = await getNativeCookieHeader();
   const rundownOrgId = orgIdFromPinProtectedPath(path);
   const rundownPin = rundownOrgId
@@ -972,7 +973,7 @@ async function authenticatedFetch(path: string, init?: FetchRequestInit) {
       ...init?.headers,
     },
   });
-  if (!response.ok) {
+  if (!response.ok && !acceptedStatuses.includes(response.status)) {
     const body = await response.text();
     let apiError = "";
     try {
@@ -2203,6 +2204,17 @@ export async function getMobileTimecode(
   });
 }
 
+export async function createMobileTimecodeCue(input: CueCreateCommand, signal: AbortSignal) {
+  const response = await authenticatedFetch(
+    `/api/timecode/${encodeURIComponent(input.orgId)}/command?showId=${encodeURIComponent(input.showId)}`,
+    { method: "POST", signal, body: JSON.stringify({ action: "add-event", payload: { ...input.event,
+      id: input.requestId, expectedFormat: input.expectedFormat, expectedServiceDate: input.serviceDate } }) },
+    // These are typed, authoritative non-applied receipts. Auth failures still throw.
+    [400, 409],
+  );
+  return cueCreateReplySchema.parse(await response.json());
+}
+
 export async function commandMobileTimecode(input: MobileTimecodeTarget & {
   orgId: string;
   action:
@@ -2211,7 +2223,6 @@ export async function commandMobileTimecode(input: MobileTimecodeTarget & {
     | "set-timecode"
     | "set-source"
     | "set-format"
-    | "add-event"
     | "update-event"
     | "remove-event"
     | "reset-events"
