@@ -66,6 +66,7 @@ export const Route = createFileRoute("/superadmin")({
       invitations,
       waitlist,
       publicLaunchDate: launch.publicLaunchDate,
+      snapshotAt: Date.now(),
     };
   },
   component: SuperAdminDashboard,
@@ -111,8 +112,11 @@ function parseUserAgent(ua: string | null): string {
 function formatDate(d: string | Date): string {
   const date = typeof d === "string" ? new Date(d) : d;
   return date.toLocaleDateString("en-US", {
+    year: "numeric",
     month: "short",
     day: "numeric",
+    timeZone: "UTC",
+    timeZoneName: "short",
     hour: "numeric",
     minute: "2-digit",
   });
@@ -127,7 +131,7 @@ const PLAN_BADGE_STYLES: Record<string, string> = {
 };
 
 function SuperAdminDashboard() {
-  const { stats, users, orgs, members, sessions, invitations, waitlist, publicLaunchDate } =
+  const { stats, users, orgs, members, sessions, invitations, waitlist, publicLaunchDate, snapshotAt } =
     Route.useLoaderData();
   const [tab, setTab] = useState<Tab>("waitlist");
   const [sendingInvite, setSendingInvite] = useState<string | null>(null);
@@ -220,17 +224,17 @@ function SuperAdminDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-board-bg">
+    <div className="min-h-screen min-w-0 bg-board-bg">
       {/* Header */}
-      <header className="border-b border-board-border bg-board-card px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center gap-3">
+      <header className="border-b border-board-border bg-board-card px-4 py-4 sm:px-6">
+        <div className="max-w-6xl mx-auto flex flex-wrap items-center gap-3">
           <Shield className="w-5 h-5 text-fire-500" />
           <h1 className="text-lg font-semibold text-board-text">
             <span className="text-fire-500">ShowPilot</span> Super Admin
           </h1>
-          <span className="ml-auto text-xs text-board-muted">
-            Platform-level dashboard
-          </span>
+          <p className="w-full text-xs text-board-muted sm:ml-auto sm:w-auto">
+            Platform snapshot · {formatDate(new Date(snapshotAt))}
+          </p>
         </div>
       </header>
 
@@ -246,14 +250,29 @@ function SuperAdminDashboard() {
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-1 border-b border-board-border">
-          {tabs.map((t) => {
+        <div role="tablist" aria-label="Platform administration" className="flex flex-wrap gap-1 border-b border-board-border">
+          {tabs.map((t, index) => {
             const Icon = t.icon;
             return (
               <button
                 key={t.id}
+                id={`platform-tab-${t.id}`}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                aria-controls="platform-panel"
+                tabIndex={tab === t.id ? 0 : -1}
+                onKeyDown={(event) => {
+                  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                  event.preventDefault();
+                  const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+                    : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+                  const next = tabs[nextIndex];
+                  setTab(next.id);
+                  document.getElementById(`platform-tab-${next.id}`)?.focus();
+                }}
                 onClick={() => setTab(t.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors min-h-[44px] ${
+                className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors min-h-11 min-w-11 ${
                   tab === t.id
                     ? "border-fire-500 text-fire-500"
                     : "border-transparent text-board-muted hover:text-board-text"
@@ -262,7 +281,7 @@ function SuperAdminDashboard() {
                 <Icon className="w-4 h-4" />
                 {t.label}
                 {t.count != null && t.count > 0 && (
-                  <span className="ml-1 text-[10px] font-medium bg-fire-500/15 text-fire-500 px-1.5 py-0.5 rounded-full">
+                  <span className="ml-1 text-xs font-medium bg-fire-500/15 text-fire-500 px-1.5 py-0.5 rounded-full">
                     {t.count}
                   </span>
                 )}
@@ -271,7 +290,7 @@ function SuperAdminDashboard() {
           })}
         </div>
 
-        {/* Content */}
+        <div id="platform-panel" role="tabpanel" aria-labelledby={`platform-tab-${tab}`}>
         {tab === "waitlist" && (
           <div className="space-y-2">
             <p className="text-xs text-board-muted mb-3">
@@ -311,14 +330,15 @@ function SuperAdminDashboard() {
                           <td className="px-4 py-3 text-right">
                             <div className="flex items-center justify-end gap-2">
                               {sentInvites.has(signup.id) ? (
-                                <span className="text-[10px] font-medium uppercase px-2 py-1 rounded bg-green-500/10 text-green-400 border border-green-500/20">
+                                <span className="text-xs font-medium uppercase px-2 py-1 rounded bg-green-500/10 text-green-400 border border-green-500/20">
                                   Invite Sent
                                 </span>
                               ) : (
                                 <button
+                                  aria-label={`Send invite to ${signup.email}`}
                                   onClick={() => handleSendInvite({ id: signup.id, email: signup.email, name: signup.name })}
                                   disabled={sendingInvite === signup.id}
-                                  className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-fire-500/10 text-fire-500 border border-fire-500/20 hover:bg-fire-500/20 transition-colors disabled:opacity-50 min-h-[32px]"
+                                  className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-fire-500/10 text-fire-500 border border-fire-500/20 hover:bg-fire-500/20 transition-colors disabled:opacity-50 min-h-11 min-w-11"
                                 >
                                   <Send className="w-3 h-3" />
                                   {sendingInvite === signup.id ? "Sending..." : "Send Invite"}
@@ -326,7 +346,8 @@ function SuperAdminDashboard() {
                               )}
                               <button
                                 onClick={() => handleDeleteSignup(signup.id)}
-                                className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                className="inline-flex items-center justify-center min-h-11 min-w-11 shrink-0 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                aria-label={`Remove ${signup.email} from waitlist`}
                                 title="Remove from waitlist"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -386,7 +407,7 @@ function SuperAdminDashboard() {
                                 {memberships.map((m, i) => (
                                   <span
                                     key={i}
-                                    className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded bg-board-card border border-board-border text-board-text"
+                                    className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded bg-board-card border border-board-border text-board-text"
                                   >
                                     {m.orgName}
                                     <span className="text-fire-500">
@@ -418,15 +439,15 @@ function SuperAdminDashboard() {
           <div className="space-y-4">
             {/* Header */}
             <div className="rounded-xl border border-board-border bg-board-card p-4">
-              <div className="flex items-center gap-2 mb-2">
+              <div className="flex flex-wrap items-center gap-2 mb-2">
                 <Rocket className="w-4 h-4 text-fire-500" />
-                <p className="text-sm font-medium text-board-text">Public launch date</p>
+                <label htmlFor="platform-launch-date" className="text-sm font-medium text-board-text">Public launch date</label>
                 {publicLaunchDate ? (
-                  <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded bg-fire-500/10 text-fire-500 border border-fire-500/20">
-                    {new Date(publicLaunchDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                  <span className="text-xs font-medium uppercase px-2 py-0.5 rounded bg-fire-500/10 text-fire-500 border border-fire-500/20">
+                    {new Date(publicLaunchDate).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}
                   </span>
                 ) : (
-                  <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded bg-board-border/40 text-board-muted border border-board-border">
+                  <span className="text-xs font-medium uppercase px-2 py-0.5 rounded bg-board-border/40 text-board-muted border border-board-border">
                     Not set — beta access open
                   </span>
                 )}
@@ -435,17 +456,18 @@ function SuperAdminDashboard() {
                 Beta orgs get full Pro access until this date, then evaluate as free.
                 Takes effect instantly — no deploy needed.
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <input
+                  id="platform-launch-date"
                   type="date"
                   value={launchDateInput}
                   onChange={(e) => setLaunchDateInput(e.target.value)}
-                  className="px-3 py-2 rounded-lg bg-board-bg border border-board-border text-board-text text-sm focus:outline-none focus:border-fire-500 transition-colors"
+                  className="min-h-11 min-w-0 max-w-full px-3 py-2 rounded-lg bg-board-bg border border-board-border text-board-text text-sm focus:outline-none focus:border-fire-500 transition-colors"
                 />
                 <button
                   onClick={() => launchDateInput && handleSaveLaunchDate(launchDateInput)}
                   disabled={savingLaunchDate || !launchDateInput}
-                  className="text-xs font-medium px-3 py-2 rounded-lg bg-fire-500/10 text-fire-500 border border-fire-500/20 hover:bg-fire-500/20 transition-colors disabled:opacity-50"
+                  className="min-h-11 min-w-11 text-xs font-medium px-3 py-2 rounded-lg bg-fire-500/10 text-fire-500 border border-fire-500/20 hover:bg-fire-500/20 transition-colors disabled:opacity-50"
                 >
                   {savingLaunchDate ? "Saving..." : "Set date"}
                 </button>
@@ -453,7 +475,7 @@ function SuperAdminDashboard() {
                   <button
                     onClick={() => handleSaveLaunchDate(null)}
                     disabled={savingLaunchDate}
-                    className="text-xs font-medium px-3 py-2 rounded-lg text-board-muted border border-board-border hover:text-board-text hover:bg-board-border/50 transition-colors disabled:opacity-50"
+                    className="min-h-11 min-w-11 text-xs font-medium px-3 py-2 rounded-lg text-board-muted border border-board-border hover:text-board-text hover:bg-board-border/50 transition-colors disabled:opacity-50"
                   >
                     Clear
                   </button>
@@ -461,14 +483,15 @@ function SuperAdminDashboard() {
               </div>
             </div>
 
-            <p className="text-xs text-board-muted">
-              {visibleOrgs.length} organization{visibleOrgs.length !== 1 ? "s" : ""}
-              <label className="ml-4">
-                Type{" "}
+            <div className="flex flex-wrap items-center gap-3 text-xs text-board-muted">
+              <span>{visibleOrgs.length} organization{visibleOrgs.length !== 1 ? "s" : ""}</span>
+              <div className="flex items-center gap-2">
+                <label htmlFor="platform-workspace-type">Workspace type</label>
                 <select
+                  id="platform-workspace-type"
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value)}
-                  className="rounded border border-board-border bg-board-card p-2"
+                  className="min-h-11 min-w-11 rounded border border-board-border bg-board-card p-2"
                 >
                   <option value="all">All types</option>
                   {WORKSPACE_TYPES.map((type) => (
@@ -477,13 +500,13 @@ function SuperAdminDashboard() {
                     </option>
                   ))}
                 </select>
-              </label>
-            </p>
+              </div>
+            </div>
             <div className="grid gap-3">
               {visibleOrgs.map((org) => (
                 <div
                   key={org.id}
-                  className="rounded-xl border border-board-border bg-board-card p-4 flex items-center gap-4"
+                  className="rounded-xl border border-board-border bg-board-card p-4 flex flex-wrap items-center gap-4"
                 >
                   <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-fire-500/20 to-fire-700/20 border border-fire-500/20 flex items-center justify-center shrink-0">
                     {org.logo ? (
@@ -498,41 +521,42 @@ function SuperAdminDashboard() {
                       </span>
                     )}
                   </div>
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 basis-44 min-w-0 [overflow-wrap:anywhere]">
                     <p className="font-semibold text-board-text">{org.name}</p>
                     <p className="text-xs text-board-muted">/{org.slug}</p>
                     <p className="mt-1 text-xs text-board-muted">
                       Type: {WORKSPACE_DEFINITIONS[org.workspaceType].label}
                     </p>
-                    <div className="flex items-center gap-1.5 mt-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                       <span
-                        className={`text-[10px] font-medium uppercase px-2 py-0.5 rounded border ${PLAN_BADGE_STYLES[org.effectivePlan] ?? PLAN_BADGE_STYLES.free}`}
+                        className={`text-xs font-medium uppercase px-2 py-0.5 rounded border ${PLAN_BADGE_STYLES[org.effectivePlan] ?? PLAN_BADGE_STYLES.free}`}
                         title={`Stored plan: ${org.plan}${org.subscriptionStatus ? ` · ${org.subscriptionStatus}` : ""}`}
                       >
                         {org.effectivePlan}
                       </span>
                       {org.betaTester && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-medium uppercase px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                        <span className="inline-flex items-center gap-1 text-xs font-medium uppercase px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
                           <FlaskConical className="w-2.5 h-2.5" />
                           Beta
                         </span>
                       )}
                       {org.foundingMember && (
-                        <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20">
+                        <span className="text-xs font-medium uppercase px-2 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20">
                           Founding
                         </span>
                       )}
-                      {org.trialEndsAt && new Date(org.trialEndsAt) > new Date() && (
-                        <span className="text-[10px] font-medium uppercase px-2 py-0.5 rounded bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+                      {org.trialEndsAt && new Date(org.trialEndsAt).getTime() > snapshotAt && (
+                        <span className="text-xs font-medium uppercase px-2 py-0.5 rounded bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
                           Trial
                         </span>
                       )}
                     </div>
                   </div>
                   <button
+                    aria-label={`${org.betaTester ? "Revoke" : "Grant"} beta access for ${org.name}`}
                     onClick={() => handleToggleBeta(org.id, !org.betaTester)}
                     disabled={togglingBeta === org.id}
-                    className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-50 shrink-0 min-h-[32px] ${
+                    className={`text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-50 shrink-0 min-h-11 min-w-11 ${
                       org.betaTester
                         ? "bg-purple-500/10 text-purple-400 border-purple-500/20 hover:bg-purple-500/20"
                         : "text-board-muted border-board-border hover:text-board-text hover:bg-board-border/50"
@@ -548,7 +572,7 @@ function SuperAdminDashboard() {
                     <p className="text-lg font-bold text-board-text tabular-nums">
                       {org.memberCount}
                     </p>
-                    <p className="text-[10px] text-board-muted">members</p>
+                    <p className="text-xs text-board-muted">members</p>
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-xs text-board-muted tabular-nums">
@@ -592,7 +616,7 @@ function SuperAdminDashboard() {
                           <p className="font-medium text-board-text">
                             {s.user.name}
                           </p>
-                          <p className="text-[10px] text-board-muted">
+                          <p className="text-xs text-board-muted">
                             {s.user.email}
                           </p>
                         </td>
@@ -608,7 +632,7 @@ function SuperAdminDashboard() {
                         <td className="px-4 py-3 text-xs tabular-nums">
                           <span
                             className={
-                              new Date(s.expiresAt) > new Date()
+                              new Date(s.expiresAt).getTime() > snapshotAt
                                 ? "text-green-400"
                                 : "text-red-400"
                             }
@@ -643,20 +667,20 @@ function SuperAdminDashboard() {
                 {invitations.map((inv) => (
                   <div
                     key={inv.id}
-                    className="rounded-xl border border-board-border bg-board-card p-4 flex items-center gap-4"
+                    className="rounded-xl border border-board-border bg-board-card p-4 flex flex-wrap items-center gap-4"
                   >
                     <Mail className="w-4 h-4 text-board-muted shrink-0" />
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 basis-44 min-w-0 [overflow-wrap:anywhere]">
                       <p className="text-sm font-medium text-board-text">
                         {inv.email}
                       </p>
-                      <p className="text-[10px] text-board-muted">
+                      <p className="text-xs text-board-muted">
                         → {inv.organization.name} as{" "}
                         <span className="text-fire-500">{inv.role}</span>
                       </p>
                     </div>
                     <span
-                      className={`text-[10px] font-medium uppercase px-2 py-0.5 rounded ${
+                      className={`text-xs font-medium uppercase px-2 py-0.5 rounded ${
                         inv.status === "pending"
                           ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
                           : inv.status === "accepted"
@@ -672,6 +696,7 @@ function SuperAdminDashboard() {
             )}
           </div>
         )}
+        </div>
       </div>
       {ConfirmDialogEl}
     </div>
