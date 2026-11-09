@@ -1,3 +1,4 @@
+import { groupRosterRows, rosterDepartment } from "@/lib/schedule-roster";
 import { ShowInventoryEditor } from "@/components/shows/ShowInventoryEditor";
 import { useShowDeletions } from "@/hooks/useShowDeletions";
 import { ShowDeletionProgress } from "@/components/shows/ShowDeletionProgress";
@@ -231,7 +232,7 @@ function SchedulePage() {
   const departments = Array.from(
     new Set(
       liveAssignments
-        .map((assignment) => assignment.department.trim())
+        .map(rosterDepartment)
         .filter(Boolean),
     ),
   ).sort((a, b) => a.localeCompare(b));
@@ -354,7 +355,7 @@ function SchedulePage() {
           />
           <div className="border-y border-board-border px-4 py-3">
             <div className="flex items-center justify-between">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-board-muted">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-board-muted">
                 {workspaceCopy(
                   "\n                Services\n              ",
                   workspaceTerms,
@@ -362,7 +363,7 @@ function SchedulePage() {
               </p>
               <button
                 onClick={() => chooseDate(data.today)}
-                className="min-h-11 min-w-11 text-[10px] text-fire-400 focus-visible:outline focus-visible:outline-fire-400"
+                className="min-h-11 min-w-11 text-xs text-fire-400 focus-visible:outline focus-visible:outline-fire-400"
               >
                 Today
               </button>
@@ -376,7 +377,7 @@ function SchedulePage() {
                 className={`min-w-[210px] snap-start border-b border-board-border border-l-[3px] px-4 py-4 text-left lg:w-full ${service.id === selected?.id ? "border-l-fire-500 bg-fire-500/[0.055]" : "border-l-transparent hover:bg-board-bg"}`}
               >
                 <p
-                  className={`text-[10px] font-semibold uppercase tracking-wider ${service.serviceDate === data.today ? "text-fire-400" : "text-board-muted"}`}
+                  className={`text-xs font-semibold uppercase tracking-wider ${service.serviceDate === data.today ? "text-fire-400" : "text-board-muted"}`}
                 >
                   {service.serviceDate === data.today
                     ? "Today"
@@ -385,7 +386,7 @@ function SchedulePage() {
                 <p className="mt-2 truncate text-sm font-medium text-board-text">
                   {service.name}
                 </p>
-                <p className="mt-1 text-[11px] text-board-muted">
+                <p className="mt-1 text-xs text-board-muted">
                   {timeLabel(service.scheduledStartTime, deviceTimeZone, locale)} ·{" "}
                   {service.id === selected?.id
                     ? selectedAssignments.filter(
@@ -402,7 +403,7 @@ function SchedulePage() {
             ))}
           </div>
         </aside>
-        <main className="min-w-0 bg-board-bg">
+        <main className="@container/schedule-main min-w-0 bg-board-bg [overflow-wrap:anywhere] [&_button]:min-h-11 [&_button]:min-w-11 [&_button]:outline-none [&_button]:focus-visible:ring-2 [&_button]:focus-visible:ring-fire-500">
           {selected ? (
             <>
               <section className="border-b border-board-border bg-board-card px-4 py-5 md:px-6">
@@ -411,14 +412,14 @@ function SchedulePage() {
                     <button
                       disabled={!data.canManage}
                       onClick={() => setServiceOpen(true)}
-                      className="flex items-center gap-2 text-left disabled:cursor-default"
+                      className="flex max-w-full items-center gap-2 text-left disabled:cursor-default"
                       aria-label={data.canManage ? `Edit ${selected.name}` : undefined}
                     >
                       <h2 className="text-xl font-semibold text-board-text md:text-2xl">
                         {selected.name}
                       </h2>
                       {data.canManage ? (
-                        <Pencil className="h-3.5 w-3.5 text-board-muted" />
+                        <Pencil className="h-3.5 w-3.5 shrink-0 text-board-muted" />
                       ) : null}
                     </button>
                     <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-board-muted">
@@ -485,19 +486,19 @@ function SchedulePage() {
                   ) : null}
                 </div>
               </section>
-              <section className="grid grid-cols-2 gap-2 border-b border-board-border bg-board-card px-4 py-3 sm:grid-cols-4 md:px-6 lg:grid-cols-[repeat(4,minmax(100px,150px))_1fr]">
+              <section className="grid grid-cols-2 gap-2 border-b border-board-border bg-board-card px-4 py-3 @min-[520px]/schedule-main:grid-cols-4 md:px-6">
                 <StatusMetric label="Filled" value={stats.filled} tone="success" compact />
                 <StatusMetric label="Open" value={stats.open} tone="danger" compact />
                 <StatusMetric label="Awaiting" value={stats.awaiting} tone="warning" compact />
                 <StatusMetric label="Declined" value={stats.declined} tone="danger" compact />
-                <div className="ml-auto flex items-center gap-2">
+                <div className="col-span-full flex flex-wrap items-center justify-end gap-2">
                   <select
                     aria-label="Filter crew responses"
                     value={filter}
                     onChange={(event) =>
                       setFilter(event.target.value as ResponseFilter)
                     }
-                    className="min-h-11 rounded-lg border border-board-border bg-board-bg px-3 py-2 text-[11px] text-board-text outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
+                    className="min-h-11 rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
                   >
                     <option value="all">All responses</option>
                     <option value="confirmed">Confirmed</option>
@@ -510,7 +511,7 @@ function SchedulePage() {
                     to="/$slug/rundown"
                     params={{ slug }}
                     search={{ show: selected.id, date: selected.serviceDate }}
-                    className="hidden items-center gap-1 rounded-lg border border-board-border px-3 py-2 text-[11px] text-board-text sm:flex"
+                    className="flex min-h-11 items-center gap-1 rounded-lg border border-board-border px-3 py-2 text-xs text-board-text focus-visible:outline-2 focus-visible:outline-fire-500"
                   >
                     Rundown
                     <ChevronRight className="h-3 w-3" />
@@ -528,6 +529,12 @@ function SchedulePage() {
                 </div>
               ) : null}
               <ReadFailureNotice error={roster.error} refreshing={roster.refreshing} retry={roster.retry} label="Retry roster" />
+              {!assignments.length && !roster.refreshing && !roster.error ? (
+                <div className="space-y-2 border-b border-board-border p-4 text-sm text-board-muted" role="status">
+                  <p>{selectedAssignments.length ? "No crew match this response filter." : "No positions assigned to this show."}</p>
+                  {filter !== "all" ? <button type="button" className="rounded-lg px-3 text-fire-400" onClick={() => setFilter("all")}>Show all responses</button> : null}
+                </div>
+              ) : null}
               <RosterTable
                 assignments={assignments}
                 departments={departments}
@@ -728,7 +735,7 @@ function MonthCalendar({
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-        <div className="mt-4 grid grid-cols-7 text-center text-[9px] font-medium uppercase text-board-muted">
+        <div className="mt-4 grid grid-cols-7 text-center text-xs font-medium uppercase text-board-muted">
           {["S", "M", "T", "W", "T", "F", "S"].map((label, index) => (
             <span key={`${label}-${index}`}>{label}</span>
           ))}
@@ -758,7 +765,7 @@ function MonthCalendar({
             );
           })}
         </div>
-        <div className="mt-4 flex items-center justify-between border-t border-board-border pt-3 text-[9px] text-board-muted">
+        <div className="mt-4 flex items-center justify-between border-t border-board-border pt-3 text-xs text-board-muted">
           <span>
             <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-fire-400" />
             {workspaceCopy(
@@ -779,15 +786,6 @@ function MonthCalendar({
     </div>
   );
 }
-function inferredDepartment(role: string) {
-  const value = role.toLowerCase();
-  if (/audio|sound|foh|monitor|wireless|mic/.test(value)) return "Audio";
-  if (/camera|video|graphics|stream|projection|playback/.test(value))
-    return "Video";
-  if (/worship|vocal|guitar|bass|drum|keys|music/.test(value)) return "Worship";
-  return "Production";
-}
-
 function RosterTable({
   assignments,
   departments,
@@ -807,21 +805,16 @@ function RosterTable({
   onChanged: () => Promise<void>;
   confirm: ReturnType<typeof useConfirmDialog>["confirm"];
 }) {
-  const groups = departments.map((name) => ({
-    name,
-    rows: assignments.filter(
-      (item) => (item.department || inferredDepartment(item.role)) === name,
-    ),
-  }));
+  const groups = groupRosterRows(assignments, departments);
   return (
     <>
-      <div className="divide-y divide-board-border md:hidden">
+      <div className="divide-y divide-board-border @min-[960px]/schedule-main:hidden">
         {groups.map((group) => (
           <section key={`mobile-${group.name}`}>
-            <div className="flex items-center justify-between bg-board-card/70 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-board-muted">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 bg-board-card/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-board-muted">
               <span>{group.name} <span className="ml-1 text-board-muted/50">{group.rows.length}</span></span>
               {canManage ? (
-                <button onClick={() => onAdd(group.name)} className="text-fire-400">Add position</button>
+                <button onClick={() => onAdd(group.name)} className="shrink-0 rounded-lg px-2 text-fire-400">Add position</button>
               ) : null}
             </div>
             <div className="divide-y divide-board-border">
@@ -840,9 +833,9 @@ function RosterTable({
           </section>
         ))}
       </div>
-      <div className="hidden overflow-x-auto md:block">
-      <div className="min-w-[900px]">
-        <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.8fr)_104px] border-b border-board-border bg-board-bg px-6 py-2.5 text-[10px] uppercase tracking-wider text-board-muted">
+      <div className="hidden @min-[960px]/schedule-main:block">
+      <div className="min-w-0">
+        <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.8fr)_140px] border-b border-board-border bg-board-bg px-6 py-2.5 text-xs uppercase tracking-wider text-board-muted">
           <span>Position</span>
           <span>Assigned to</span>
           <span>Invitation</span>
@@ -851,7 +844,7 @@ function RosterTable({
         </div>
         {groups.map((group) => (
           <section key={group.name}>
-            <div className="border-b border-board-border bg-board-card/70 px-6 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-board-muted">
+            <div className="border-b border-board-border bg-board-card/70 px-6 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-board-muted">
               {group.name}{" "}
               <span className="ml-1 text-board-muted/50">
                 {group.rows.length}
@@ -871,7 +864,7 @@ function RosterTable({
             {canManage ? (
               <button
                 onClick={() => onAdd(group.name)}
-                className="flex w-full items-center gap-2 border-b border-board-border px-6 py-2.5 text-left text-[11px] text-fire-400 hover:bg-board-card"
+                className="flex w-full items-center gap-2 border-b border-board-border px-6 py-2.5 text-left text-xs text-fire-400 hover:bg-board-card"
               >
                 <Plus className="h-3 w-3" />
                 Add position
@@ -927,27 +920,27 @@ function RosterMobileCard({
         : "text-yellow-300";
   return (
     <article id={`assignment-mobile-${assignment.id}`} className="min-w-0 space-y-3 bg-board-bg px-4 py-4">
-      <div className="flex min-w-0 items-start gap-3">
+      <div className="flex min-w-0 flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <p className="break-words text-sm font-medium text-board-text">{assignment.role}</p>
-          <p className="mt-1 text-[10px] text-board-muted">Call {timeLabel(assignment.effectiveCallTime, deviceTimeZone, locale)} · {assignment.department}</p>
+          <p className="mt-1 text-xs text-board-muted">Call {timeLabel(assignment.effectiveCallTime, deviceTimeZone, locale)} · {rosterDepartment(assignment)}</p>
         </div>
-        <span className={`shrink-0 text-[10px] font-medium capitalize ${statusClass}`}>{responseLabel}</span>
+        <span className={`shrink-0 text-xs font-medium capitalize ${statusClass}`}>{responseLabel}</span>
       </div>
       <div className="rounded-xl border border-board-border bg-board-card/45 p-3">
         <p className="break-words text-xs font-medium text-board-text">{assignment.crewMember?.name ?? "Nobody assigned"}</p>
-        <p className="mt-0.5 break-all text-[10px] text-board-muted">{assignment.crewMember?.email || "This position is open"}</p>
-        <p className="mt-2 text-[10px] text-board-muted">{assignment.invitedAt ? "Invitation sent" : assignment.crewMember ? "Invitation not sent" : "No invitation needed"}</p>
+        <p className="mt-0.5 break-all text-xs text-board-muted">{assignment.crewMember?.email || "This position is open"}</p>
+        <p className="mt-2 text-xs text-board-muted">{assignment.invitedAt ? "Invitation sent" : assignment.crewMember ? "Invitation not sent" : "No invitation needed"}</p>
       </div>
       {assignment.responseNote ? (
         <details className="min-w-0 rounded-xl border border-red-500/20 bg-red-500/[0.045] px-3 py-2.5">
-          <summary className="cursor-pointer text-[10px] font-semibold text-red-300">Read declined response</summary>
+          <summary className="min-h-11 cursor-pointer rounded-lg py-3 text-xs font-semibold text-red-300 outline-none focus-visible:ring-2 focus-visible:ring-fire-500">Read response note</summary>
           <p className="mt-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xs leading-5 text-board-text">{assignment.responseNote}</p>
         </details>
       ) : null}
       {canManage ? (
         <div className="flex flex-wrap gap-2">
-          <button onClick={onEdit} aria-label={`Edit ${assignment.role}`} className="rounded-lg border border-board-border px-3 py-2 text-[11px] text-board-text">Edit</button>
+          <button onClick={onEdit} aria-label={`Edit ${assignment.role}`} className="rounded-lg border border-board-border px-3 py-2 text-xs text-board-text">Edit</button>
           {assignment.crewMemberId ? (
             <ReminderControl orgId={orgId} target={{ kind: "assignment", id: assignment.id }} label="Resend invite" disabled={!pending} onChanged={onChanged} />
           ) : null}
@@ -993,26 +986,26 @@ function RosterRow({
           ? "text-board-muted"
           : "text-yellow-300";
   return (
-    <div id={`assignment-${assignment.id}`} className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.8fr)_104px] items-center border-b border-board-border px-6 py-3 text-xs hover:bg-board-card/60">
+    <div id={`assignment-${assignment.id}`} className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.8fr)_140px] items-center border-b border-board-border px-6 py-3 text-xs hover:bg-board-card/60">
       <button
         disabled={!canManage}
         onClick={onEdit}
-        className="text-left font-medium text-board-text disabled:cursor-default"
+        className="min-w-0 rounded-lg pr-3 text-left font-medium text-board-text disabled:cursor-default"
       >
         {assignment.role}
-        <span className="mt-0.5 block text-[9px] font-normal text-board-muted">Call {timeLabel(assignment.effectiveCallTime, deviceTimeZone, locale)}</span>
+        <span className="mt-0.5 block text-xs font-normal text-board-muted">Call {timeLabel(assignment.effectiveCallTime, deviceTimeZone, locale)}</span>
       </button>
       <button
         disabled={!canManage}
         onClick={onEdit}
-        className={`text-left disabled:cursor-default ${assignment.crewMember ? "text-board-text" : "text-fire-400"}`}
+        className={`min-w-0 rounded-lg pr-3 text-left disabled:cursor-default ${assignment.crewMember ? "text-board-text" : "text-fire-400"}`}
       >
         {assignment.crewMember?.name ?? "Open position"}
-        <p className="mt-0.5 text-[9px] text-board-muted">
+        <p className="mt-0.5 text-xs text-board-muted">
           {assignment.crewMember?.email || "Click to assign a roster contact"}
         </p>
       </button>
-      <div className="text-[10px] text-board-muted">
+      <div className="text-xs text-board-muted">
         {assignment.invitedAt ? (
           <>
             <Send className="mr-1 inline h-3 w-3 text-green-400" />
@@ -1024,8 +1017,8 @@ function RosterRow({
           "—"
         )}
       </div>
-      <div className={`min-w-0 text-[10px] ${statusColor}`}>
-        <div className="flex min-w-0 items-center gap-1.5 capitalize">
+      <div className={`min-w-0 text-xs ${statusColor}`}>
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 capitalize">
           {assignment.status === "confirmed" ? (
             <Check className="h-3 w-3 shrink-0" />
           ) : assignment.status === "declined" ? (
@@ -1045,12 +1038,13 @@ function RosterRow({
           ) : null}
         </div>
         {assignment.responseNote ? (
-          <p className="mt-1 line-clamp-2 max-w-full break-all normal-case leading-4 text-board-muted" title={assignment.responseNote}>
-            “{assignment.responseNote}”
-          </p>
+          <details className="mt-1 min-w-0 normal-case">
+            <summary className="min-h-11 cursor-pointer rounded-lg py-3 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-fire-500">Read response note</summary>
+            <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xs leading-5 text-board-text">{assignment.responseNote}</p>
+          </details>
         ) : null}
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         {canManage ? (
           <>
             <button

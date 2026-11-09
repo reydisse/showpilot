@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, nativeCueEditor = false, reportRecovery = false, personalAssignments = false, calendarNavigation = false, notificationInbox = false, desktopNotificationRecovery = false, notificationTimezoneRecovery = false, accountProfileRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, chatDeliveryNotifications = false, invitationResponses = false, teamRecovery = false, streamOutputs = false, timestampVersions = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, nativeCueEditor = false, reportRecovery = false, personalAssignments = false, scheduleRoster = false, calendarNavigation = false, notificationInbox = false, desktopNotificationRecovery = false, notificationTimezoneRecovery = false, accountProfileRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, chatDeliveryNotifications = false, invitationResponses = false, teamRecovery = false, streamOutputs = false, timestampVersions = false } = {}) {
   if (streamOutputs) {
     assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Stream status requires the isolated outbound handler");
     assert.equal(captureEmail, false, "Use separate fixtures for email and Stream status");
@@ -224,6 +224,12 @@ export async function withLocalSmokeFixture(check, { secondShow = false, nativeC
       ('assignment-accept','display-smoke','assignment-show','2099-01-01','Camera operator','Production','assignment-crew','assigned','Arrive early'),
       ('assignment-decline','display-smoke','assignment-show','2099-01-01','Audio operator','Production','assignment-crew','assigned','Bring headset'),
       ('assignment-other','display-smoke','assignment-show','2099-01-01','Private other assignment','Production','assignment-other-crew','assigned','Private fixture notes');
+  ` : ""}
+  ${scheduleRoster ? `
+    INSERT INTO service_assignment(id,orgId,showId,serviceDate,role,department,status) VALUES
+      ('roster-empty-department','display-smoke','assignment-show','2099-01-01','Legacy monitor engineer','','assigned'),
+      ('roster-padded-department','display-smoke','assignment-show','2099-01-01','Legacy projection operator',' Video ','assigned');
+    UPDATE service_assignment SET status='declined', responseNote='I cannot cover this assignment because the planned travel takes longer than expected. Please arrange another operator for the complete rehearsal and show. The final detail must remain readable without a hover tooltip. END-ROSTER-REASON' WHERE id='assignment-decline';
   ` : ""}
   ${reportRecovery ? Array.from({length:11},(_,i)=>`INSERT INTO rundown(id,orgId,serviceDate,name) VALUES ('report-fixture-${i}','display-smoke','${date}','Report fixture ${i} ${i===0?'LongShowTitle'.repeat(20):''}');`).join('\n') : ''}
   ${secondShow ? `INSERT INTO rundown (id,orgId,serviceDate,name) VALUES ('smoke-second-show','display-smoke','${date}','Evening test show');` : ""}
