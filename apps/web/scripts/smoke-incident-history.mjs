@@ -121,8 +121,8 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, capturedEmai
       await card.scrollIntoViewIfNeeded(); await card.focus(); await page.keyboard.press("Enter");
       await page.getByRole("button", { name: "Delete incident: Date-only fixture incident", exact: true }).waitFor();
     }
-    assert.deepEqual(errors, []); assert.equal(capturedEmails.length, 0);
-    console.log(JSON.stringify({ passed: true, native, widths: [320, 768, 1440], historyReads: reads, errors, emails: capturedEmails.length }));
+    assert.deepEqual(errors, []); const emails = await capturedEmails(); assert.equal(emails.length, 0);
+    console.log(JSON.stringify({ passed: true, native, widths: [320, 768, 1440], historyReads: reads, errors, emails: emails.length }));
   } catch (error) {
     console.log(JSON.stringify({ url: page.url(), body: (await page.locator("body").innerText()).slice(-6000), errors }));
     await page.screenshot({ path: `/tmp/showpilot-history-failure-${native ? "native" : "web"}.png`, fullPage: true });
