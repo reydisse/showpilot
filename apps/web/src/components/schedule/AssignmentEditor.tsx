@@ -210,7 +210,7 @@ export function AssignmentEditor({
           };
         return { kind: "create" as const, fields };
       });
-      work.submit(operations);
+      if (!work.submit(operations)) setError("This assignment draft changed. Review it and save again.");
     } catch {
       setError(
         "Enter a position and department for every row, and check the call times.",
