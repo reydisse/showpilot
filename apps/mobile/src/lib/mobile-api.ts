@@ -1,3 +1,4 @@
+import { destinationControlSnapshotSchema, destinationControlResultSchema, type DestinationControlScope, type DestinationControlCommand } from "@showpilot/shared/destination-control";
 import { graphicControlSnapshotSchema, graphicControlResultSchema, type GraphicControlScope, type GraphicControlCommand } from "@showpilot/shared/graphic-control";
 import { runMobileOperation } from "./request-deadline";
 import type { ChatUploadSpec } from "@showpilot/shared/chat-attachment";
@@ -1883,61 +1884,22 @@ export async function removeMobileAsset(input: {
   return okSchema.parse(await response.json());
 }
 
-export async function getMobileStreaming(
-  orgId: string,
-): Promise<MobileStreaming> {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/streaming?orgId=${encodeURIComponent(orgId)}`,
-  );
-  return streamingSchema.parse(await response.json());
+export async function getMobileStreaming(orgId: string, signal?: AbortSignal): Promise<MobileStreaming> {
+  return runMobileOperation(async controller => {
+    const response = await authenticatedFetch(`/api/mobile/v1/streaming?orgId=${encodeURIComponent(orgId)}`, { signal: controller.signal });
+    return streamingSchema.parse(await response.json());
+  }, signal, 10_000);
 }
 
-export interface MobileDestinationWrite {
-  orgId: string;
-  name: string;
-  platform: string;
-  rtmpUrl: string;
-  streamKey?: string;
+export async function readMobileDestinationControl(scope: DestinationControlScope, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/destinations/control?${new URLSearchParams(scope)}`, { signal });
+  return destinationControlSnapshotSchema.parse(await response.json());
 }
-
-export async function createMobileDestination(input: MobileDestinationWrite) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/streaming/destinations?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
-  );
-  return okSchema.extend({ id: z.string() }).parse(await response.json());
-}
-
-export async function updateMobileDestination(
-  input: MobileDestinationWrite & { id: string },
-) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/streaming/destinations/${encodeURIComponent(input.id)}?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
-  );
-  return okSchema.parse(await response.json());
-}
-
-export async function commandMobileDestination(input: {
-  orgId: string;
-  id: string;
-  action: "toggle" | "remove";
-  enabled?: boolean;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/streaming/destinations/${encodeURIComponent(input.id)}?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
-  );
-  return okSchema.parse(await response.json());
+export async function writeMobileDestinationControl(command: DestinationControlCommand, signal: AbortSignal, review = false) {
+  const response = await authenticatedFetch(`/api/mobile/v1/destinations/${review ? "review" : "control"}`, {
+    method: "POST", body: JSON.stringify(command), signal,
+  });
+  return destinationControlResultSchema.parse(await response.json());
 }
 
 export async function readMobileGraphicControl(scope: GraphicControlScope, signal: AbortSignal) {

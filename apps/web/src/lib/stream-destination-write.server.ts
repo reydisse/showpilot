@@ -4,7 +4,7 @@ import { CredentialVault } from "./credential-vault.server";
 import { markDatabaseWrite } from "./request-database.server";
 
 type DestinationFields = { name: string; platform: string; rtmpUrl: string; streamKey: string };
-type DestinationCommand = { orgId: string; actorId: string; requestId?: string } & (
+type DestinationCommand = { orgId: string; actorId: string; requestId?: string; commitGuard?: { sql: string; values: (string | number | null)[] } } & (
   | { kind: "create"; fields: DestinationFields }
   | { kind: "update"; id: string; fields: Partial<DestinationFields> }
 );
@@ -46,7 +46,7 @@ export async function saveStreamDestinationForOrg(command: DestinationCommand): 
   if (previous) return recover(previous);
   let prepared = false;
   try {
-    let id: string, guard: string, guardValues: (string | number)[], mutation: D1PreparedStatement;
+    let id: string, guard: string, guardValues: (string | number | null)[], mutation: D1PreparedStatement;
     if (command.kind === "create") {
       id = crypto.randomUUID();
       const key = await storedKey(command.orgId,id,command.fields.streamKey);
@@ -66,6 +66,10 @@ export async function saveStreamDestinationForOrg(command: DestinationCommand): 
       guardValues = [id,command.orgId,existing.name,existing.platform,existing.rtmpUrl,existing.streamKey,existing.enabled,existing.cfOutputId,existing.liveInputId];
       mutation = db.prepare("UPDATE stream_destination SET name=?,platform=?,rtmpUrl=?,streamKey=? WHERE id=? AND orgId=?")
         .bind(command.fields.name ?? existing.name,command.fields.platform ?? existing.platform,command.fields.rtmpUrl ?? existing.rtmpUrl,key,id,command.orgId);
+    }
+    if (command.commitGuard) {
+      guard = `(${guard}) AND (${command.commitGuard.sql})`;
+      guardValues.push(...command.commitGuard.values);
     }
     prepared = true;
     markDatabaseWrite();

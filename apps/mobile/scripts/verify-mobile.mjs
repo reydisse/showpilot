@@ -119,7 +119,7 @@ const sourceContract = [
   ["src/app/asset-inventory.tsx", "updateMobileAsset"],
   ["src/app/asset-inventory.tsx", "removeMobileAsset"],
   ["src/app/stream.tsx", "useScreenPollingInterval(5_000)"],
-  ["src/app/multi-platform.tsx", "commandMobileDestination"],
+  ["src/app/multi-platform.tsx", "useDestinationControl"],
   ["src/app/lower-thirds.tsx", "useGraphicControl"],
   ["src/components/manager-dashboard-screen.tsx", "getMobileDashboard"],
   ["src/app/reports.tsx", "Print.printToFileAsync"],
