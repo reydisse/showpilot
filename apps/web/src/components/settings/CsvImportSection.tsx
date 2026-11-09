@@ -1,159 +1,293 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import { FileUp, Upload, CheckCircle2, AlertTriangle } from "lucide-react";
-import { importMembersCsv, type ImportSummary } from "@/lib/import-members";
 import { isPlanLimitError } from "@/components/ui/upgrade-prompt";
+import { CsvImportError, useCsvImport } from "@/hooks/useCsvImport";
 
+function Failure({ error }: { error: unknown }) {
+  return (
+    <div role="alert" className="space-y-1 text-sm text-red-300">
+      <p>
+        {error instanceof Error
+          ? error.message
+          : "This operation could not be confirmed."}
+      </p>
+      {error instanceof CsvImportError && (
+        <p className="text-xs">
+          Failed at {new Date(error.occurredAt).toLocaleTimeString()}
+        </p>
+      )}
+    </div>
+  );
+}
 export function CsvImportSection({
   orgId,
+  userId,
   openBilling,
 }: {
   orgId: string;
+  userId: string;
   openBilling: () => void;
 }) {
-  const [csv, setCsv] = useState("");
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [summary, setSummary] = useState<ImportSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  function handleFile(file: File) {
-    setFileName(file.name);
-    setSummary(null);
-    setError(null);
-    const reader = new FileReader();
-    reader.onload = () => setCsv(typeof reader.result === "string" ? reader.result : "");
-    reader.readAsText(file);
-  }
-
-  async function handleImport() {
-    setImporting(true);
-    setError(null);
-    setSummary(null);
-    try {
-      const result = await importMembersCsv({ data: { orgId, csv } });
-      setSummary(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Import failed");
-    } finally {
-      setImporting(false);
-    }
-  }
-
+  const control = useCsvImport({ orgId, userId }),
+    { csv, fileName } = control.draft;
+  const input = useRef<HTMLInputElement>(null),
+    current = control.current,
+    file = control.fileCurrent;
+  const outcome = current?.result?.outcome,
+    summary =
+      current?.result?.outcome === "applied" ? current.result.summary : null;
+  const action =
+    "inline-flex min-h-11 min-w-11 max-w-full items-center justify-center gap-2 rounded-lg border border-board-border px-4 py-2 text-sm text-board-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-fire-500 disabled:opacity-50";
+  const locked = control.unresolved || control.fileBusy;
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-lg font-semibold text-board-text font-[family-name:var(--font-display)]">
           Import People
         </h1>
-        <p className="text-sm text-board-muted mt-0.5">
-          Bulk-add crew members from a CSV — paste below or upload a file
+        <p className="mt-0.5 text-sm text-board-muted">
+          Add crew profiles from a CSV. This does not send invitations or grant
+          sign-in access.
         </p>
       </div>
-
       <div className="space-y-4">
         <div className="rounded-xl border border-board-border bg-board-card p-4">
-          <p className="text-xs text-board-muted leading-relaxed">
-            Expected columns: <code className="text-board-text">name, email, role</code> (role is
+          <p className="text-xs leading-relaxed text-board-muted">
+            Expected columns:{" "}
+            <code className="text-board-text">name, email, role</code> (role is
             optional). Planning Center exports with{" "}
             <code className="text-board-text">First Name</code> /{" "}
-            <code className="text-board-text">Last Name</code> columns work too. Up to 500 rows;
-            people whose email is already on the roster are skipped.
+            <code className="text-board-text">Last Name</code> columns work too.
+            Up to 500 rows and 512 KB; people whose email is already on the
+            roster are skipped. Your plan's roster limit still applies.
           </p>
         </div>
-
-        <label htmlFor="crew-csv" className="block text-sm font-medium text-board-text">Crew CSV</label>
+        {control.access.isPending && (
+          <p role="status" className="text-sm text-board-muted">
+            Checking import access…
+          </p>
+        )}
+        {control.access.isError && (
+          <div className="space-y-2 rounded-xl border border-red-500/25 p-3">
+            <Failure error={control.access.error} />
+            <button
+              type="button"
+              className={action}
+              disabled={control.access.isFetching}
+              onClick={() => void control.access.refetch()}
+            >
+              Retry import access
+            </button>
+          </div>
+        )}
+        <label
+          htmlFor="crew-csv"
+          className="block text-sm font-medium text-board-text"
+        >
+          Crew CSV
+        </label>
         <textarea
           id="crew-csv"
           value={csv}
-          onChange={(e) => {
-            setCsv(e.target.value);
-            setFileName(null);
-            setSummary(null);
-            setError(null);
-          }}
-          placeholder={"name,email,role\nJane Smith,jane@example.com,Camera 1\nMike Jones,mike@example.com,Audio"}
+          disabled={locked}
+          onChange={(event) => control.changeText(event.target.value)}
+          placeholder={
+            "name,email,role\nJane Smith,jane@example.com,Camera 1\nMike Jones,mike@example.com,Audio"
+          }
           rows={8}
           spellCheck={false}
-          className="w-full px-4 py-3 rounded-xl bg-board-card border border-board-border text-sm font-mono text-board-text placeholder:text-board-muted/40 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 resize-y"
+          className="w-full resize-y rounded-xl border border-board-border bg-board-card px-4 py-3 font-mono text-sm text-board-text outline-none placeholder:text-board-muted/40 focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 disabled:opacity-60"
         />
-
         <div className="flex flex-wrap items-center gap-3">
           <input
-            ref={fileInputRef}
+            ref={input}
             type="file"
             accept=".csv,text/csv"
             className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) handleFile(file);
-              e.target.value = "";
+            aria-label="Choose crew CSV file"
+            disabled={locked}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) control.chooseFile(file);
+              event.target.value = "";
             }}
           />
           <button
             type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex min-h-11 min-w-11 max-w-full items-center gap-2 px-4 py-2 rounded-lg text-sm text-board-muted border border-board-border hover:text-board-text hover:bg-board-border/50 transition-colors"
+            disabled={locked}
+            onClick={() => input.current?.click()}
+            className={action}
           >
-            <FileUp className="w-4 h-4" />
-            <span className="min-w-0 break-all">{fileName ?? "Upload .csv"}</span>
+            <FileUp className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 break-all">
+              {fileName ?? "Upload .csv"}
+            </span>
           </button>
           <button
             type="button"
-            onClick={handleImport}
-            disabled={importing || !csv.trim()}
-            className="flex min-h-11 min-w-11 max-w-full items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fire-500 text-white hover:bg-fire-600 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+            disabled={!control.canImport}
+            onClick={() => void control.send()}
+            className={`${action} bg-fire-500 font-semibold text-black`}
           >
-            <Upload className="w-4 h-4" />
-            {importing ? "Importing..." : "Import"}
+            <Upload className="h-4 w-4" />
+            {control.pending
+              ? current?.attempt?.mode === "review"
+                ? "Reviewing..."
+                : "Importing..."
+              : "Import"}
           </button>
         </div>
-
-        {error && (
-          <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3">
-            <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-            <p className="text-sm text-red-300">{error}</p>
+        {control.validationError && (
+          <p role="alert" className="text-sm text-red-300">
+            {control.validationError}
+          </p>
+        )}
+        {control.fileBusy && (
+          <div className="space-y-2">
+            <p role="status" className="break-all text-sm text-board-muted">
+              Reading {file?.attempt?.file.name}…
+            </p>
+            <button
+              type="button"
+              className={action}
+              onClick={control.clearFile}
+            >
+              Cancel file read
+            </button>
           </div>
         )}
-
-        {summary && (
-          <div className="rounded-xl border border-board-border bg-board-card p-4 space-y-3">
-            <div className="flex items-center gap-4">
-              <span className="flex items-center gap-1.5 text-sm text-green-400">
-                <CheckCircle2 className="w-4 h-4" />
-                {summary.imported} imported
-              </span>
-              {summary.skipped > 0 && (
-                <span className="text-sm text-board-muted">
-                  {summary.skipped} skipped (already on roster)
-                </span>
-              )}
-              {summary.errors.length > 0 && (
-                <span className="flex items-center gap-1.5 text-sm text-yellow-400">
-                  <AlertTriangle className="w-4 h-4" />
-                  {summary.errors.length} error{summary.errors.length !== 1 ? "s" : ""}
-                </span>
-              )}
+        {file?.status === "error" && file.attempt && (
+          <div className="space-y-2 rounded-xl border border-red-500/25 p-3">
+            <Failure error={file.error} />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className={action}
+                onClick={() => {
+                  if (file.attempt) control.chooseFile(file.attempt.file);
+                }}
+              >
+                Retry file
+              </button>
+              <button
+                type="button"
+                className={action}
+                onClick={control.clearFile}
+              >
+                Keep current CSV
+              </button>
             </div>
-            {summary.errors.length > 0 && (
-              <ul className="space-y-1 max-h-48 overflow-auto">
-                {summary.errors.map((e, i) => (
-                  <li key={i} className="text-xs text-board-muted">
-                    <span className="font-mono text-yellow-400/80">line {e.line}</span> —{" "}
-                    {e.message}
-                    {isPlanLimitError(e.message) && (
-                      <button
-                        onClick={openBilling}
-                        className="ml-1.5 text-fire-500 hover:text-fire-400 font-medium"
-                      >
-                        View plans
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
           </div>
+        )}
+        {current?.attempt && (
+          <section
+            aria-label="CSV import status"
+            className="space-y-3 rounded-xl border border-board-border bg-board-card p-4"
+          >
+            <p className="break-all text-sm font-semibold text-board-text">
+              {current.attempt.fileName ?? "Pasted CSV"}
+            </p>
+            {control.pending ? (
+              <p role="status" className="text-sm text-board-muted">
+                {current.attempt.mode === "review"
+                  ? "Checking the original import…"
+                  : "Waiting for import confirmation…"}
+              </p>
+            ) : current.status === "error" ? (
+              <>
+                <Failure error={current.error} />
+                <p className="text-sm text-board-muted">
+                  Your CSV is kept. Retry recovers the original import result.
+                  Review cancels the import if it has not been applied.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className={action}
+                    onClick={() => void control.recover()}
+                  >
+                    Retry import
+                  </button>
+                  <button
+                    type="button"
+                    className={action}
+                    onClick={() => void control.recover("review")}
+                  >
+                    Review import result
+                  </button>
+                </div>
+              </>
+            ) : outcome && outcome !== "applied" ? (
+              <>
+                <p role="alert" className="text-sm text-amber-300">
+                  {outcome === "cancelled"
+                    ? "The undelivered import was cancelled. No crew profiles were added."
+                    : outcome === "expired"
+                      ? "The import request expired without adding crew profiles."
+                      : "Your plan changed before the import arrived. No crew profiles were added."}{" "}
+                  Your CSV is kept.
+                </p>
+                <button
+                  type="button"
+                  className={action}
+                  onClick={control.dismiss}
+                >
+                  Continue editing CSV
+                </button>
+              </>
+            ) : null}
+            {summary && (
+              <>
+                <div
+                  role="status"
+                  className="flex flex-wrap items-center gap-3 text-sm"
+                >
+                  <span className="inline-flex items-center gap-1.5 text-green-400">
+                    <CheckCircle2 className="h-4 w-4" />
+                    {summary.imported} imported
+                  </span>
+                  {summary.skipped > 0 && (
+                    <span className="text-board-muted">
+                      {summary.skipped} skipped (already on roster)
+                    </span>
+                  )}
+                  {summary.errors.length > 0 && (
+                    <span className="inline-flex items-center gap-1.5 text-yellow-400">
+                      <AlertTriangle className="h-4 w-4" />
+                      {summary.errors.length} error
+                      {summary.errors.length === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
+                {summary.errors.length > 0 && (
+                  <ul className="max-h-48 space-y-1 overflow-auto">
+                    {summary.errors.map((error, index) => (
+                      <li
+                        key={`${error.line}-${index}`}
+                        className="text-xs text-board-muted"
+                      >
+                        <span className="font-mono text-yellow-400/80">
+                          line {error.line}
+                        </span>{" "}
+                        — {error.message}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {summary.errors.some((error) =>
+                  isPlanLimitError(error.message),
+                ) && (
+                  <button
+                    type="button"
+                    className={action}
+                    onClick={openBilling}
+                  >
+                    View plans
+                  </button>
+                )}
+              </>
+            )}
+          </section>
         )}
       </div>
     </div>

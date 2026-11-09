@@ -366,7 +366,7 @@ function OrganizationSettingsPage({
           )}
             {resolvedSection === "team" && <TeamSection {...sectionProps} onInvitationDirty={setInvitationDirty} />}
             {resolvedSection === "people" && (
-            <CsvImportSection orgId={orgId} openBilling={openBilling} />
+            <CsvImportSection orgId={orgId} userId={user.id} openBilling={openBilling} />
           )}
             {resolvedSection === "billing" && (
             <div><SectionHeader title="Billing" description="Plans and payment for this organization" /><BillingSection orgId={orgId} billing={billing} /></div>
