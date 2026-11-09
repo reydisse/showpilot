@@ -1,8 +1,10 @@
+import type { WebChatAttachmentDraft } from "@/lib/chat-attachment-draft";
+import type { ChatAttachmentWork } from "@showpilot/shared/chat-attachment-draft";
 import { chatEditTime, chatMutationSummary, chatMutationOutcomeMessage } from "@showpilot/shared/chat-mutation";
 import { ChatMutationTrackedError, type ChatMutationWork } from "@showpilot/shared/chat-mutation-tracker";
 import type { ChatNotificationWork } from "@/lib/chat-notifications";
 import { connectionLabel } from "@/lib/connection-state";
-import { useState, useRef, useEffect, useMemo, useCallback, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useSyncExternalStore, useState, useRef, useEffect, useMemo, useCallback, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 import { isEmojiReaction, QUICK_REACTION_EMOJIS } from "@showpilot/shared";
 import {
   MessageSquare,
@@ -15,9 +17,7 @@ import {
   Paperclip,
   Reply,
   FileText,
-  Image as ImageIcon,
   Download,
-  Loader2,
   Pencil,
   Trash2,
   AtSign,
@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
-import type { ChatAttachment, ChatGatewayStatus, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
+import type { ChatGatewayStatus, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
 import { getDepartment, DEPARTMENTS } from "@/types";
 import type { ChatMemberSummary } from "@/lib/chat-collaboration";
 import { insertMention as insertMentionText, mentionedUserIds, mentionSearch } from "@/lib/chat-mentions";
@@ -399,8 +399,7 @@ interface ChatPanelProps {
   connectionStatus: ConnectionStatus;
   unreadCount: number;
   onSendMessage: (text: string, type: MessageType, options?: ChatMessageOptions) => void | Promise<void>;
-  onUploadAttachment?: (file: File) => Promise<ChatAttachment>;
-  onDiscardAttachment?: (attachment: ChatAttachment) => Promise<void>;
+  attachmentDraft?: WebChatAttachmentDraft;
   onEditMessage?: (messageId: string, text: string, expectedEditTime: number) => Promise<void>;
   onDeleteMessage?: (messageId: string, expectedEditTime: number) => Promise<void>;
   mentionMembers?: ChatMemberSummary[];
@@ -452,8 +451,7 @@ export function ChatPanel({
   liveStatus,
   allowOperationalMessages = true,
   headerActions,
-  onUploadAttachment,
-  onDiscardAttachment,
+  attachmentDraft,
   attachmentAccessToken,
   onEditMessage,
   onDeleteMessage,
@@ -486,8 +484,9 @@ export function ChatPanel({
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [openImage, setOpenImage] = useState<{ name: string; url: string } | null>(null);
-  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
-  const [uploadingCount, setUploadingCount] = useState(0);
+  const attachmentWork = useSyncExternalStore(attachmentDraft?.subscribe ?? noAttachmentSubscription, attachmentDraft?.getSnapshot ?? emptyAttachmentSnapshot, emptyAttachmentSnapshot);
+  const pendingAttachments = attachmentWork.flatMap(work => work.state === "ready" ? [work.attachment] : []);
+  const attachmentsBlocked = attachmentWork.some(work => work.state !== "ready");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [messageActionError, setMessageActionError] = useState<string | null>(null);
@@ -516,18 +515,8 @@ export function ChatPanel({
   const pinTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const mountedAtRef = useRef(Date.now());
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingAttachmentsRef = useRef<ChatAttachment[]>([]);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
-  useEffect(() => {
-    pendingAttachmentsRef.current = pendingAttachments;
-  }, [pendingAttachments]);
-
-  useEffect(() => () => {
-    for (const attachment of pendingAttachmentsRef.current) {
-      void onDiscardAttachment?.(attachment).catch(() => undefined);
-    }
-  }, [onDiscardAttachment]);
 
   useEffect(() => {
     if (!focusedMessageId) return;
@@ -702,7 +691,7 @@ export function ChatPanel({
 
   const sendingMessage = useRef(false);
   const handleSend = async () => {
-    if (uploadingCount > 0 || sendingMessage.current) return;
+    if ((!editingMessage && attachmentsBlocked) || sendingMessage.current) return;
     if (!inputText.trim() && pendingAttachments.length === 0) return;
     onTypingChange?.(false);
     if (editingMessage) {
@@ -723,15 +712,16 @@ export function ChatPanel({
     const submittedText = inputText;
     sendingMessage.current = true;
     try {
-      await onSendMessage(inputText.trim(), messageType, {
+      const enqueue = (attachments: typeof pendingAttachments) => onSendMessage(inputText.trim(), messageType, {
         replyTo: replyTarget ? { messageId: replyTarget.id, senderName: replyTarget.senderName, text: replyTarget.text } : undefined,
-        attachments: pendingAttachments.length ? pendingAttachments : undefined,
+        attachments: attachments.length ? attachments : undefined,
         mentionedUserIds: mentionedUserIds(inputText, mentionMembers),
       });
+      if (attachmentDraft) await attachmentDraft.handoff(enqueue);
+      else await enqueue([]);
       setInputText(current => current === submittedText ? "" : current);
       setReplyingTo(null);
-      pendingAttachmentsRef.current = [];
-      setPendingAttachments([]);
+
       setMessageType("text");
       setMessageActionError(null);
       textareaRef.current?.focus();
@@ -768,11 +758,7 @@ export function ChatPanel({
   const beginEdit = (message: ChatMessage) => {
     setEditingMessage(message);
     setReplyingTo(null);
-    for (const attachment of pendingAttachmentsRef.current) {
-      void onDiscardAttachment?.(attachment).catch(() => undefined);
-    }
-    pendingAttachmentsRef.current = [];
-    setPendingAttachments([]);
+
     setInputText(message.text);
     textareaRef.current?.focus();
   };
@@ -808,18 +794,15 @@ export function ChatPanel({
     textareaRef.current?.focus();
   };
 
-  const handleFiles = async (event: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []).slice(0, Math.max(0, 6 - pendingAttachments.length));
+  const handleFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
     event.target.value = "";
-    if (!onUploadAttachment || files.length === 0) return;
+    if (!attachmentDraft || files.length === 0) return;
     setUploadError(null);
-    setUploadingCount((count) => count + files.length);
-    const results = await Promise.allSettled(files.map(onUploadAttachment));
-    const uploaded = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
-    setPendingAttachments((current) => [...current, ...uploaded].slice(0, 6));
-    const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-    if (failed) setUploadError(failed.reason instanceof Error ? failed.reason.message : "Some files could not be uploaded");
-    setUploadingCount((count) => Math.max(0, count - files.length));
+    for (const file of files) {
+      try { attachmentDraft.add(file, file.name); }
+      catch (error) { setUploadError(error instanceof Error ? error.message : "Attachment could not be added"); break; }
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1041,7 +1024,8 @@ export function ChatPanel({
         </div>
       )}
 
-      {mutations.length > 0 && <section aria-label="Message changes" className="min-h-20 max-h-48 shrink overflow-x-hidden overflow-y-auto border-t border-board-border">
+      {(mutations.length > 0 || notifications.length > 0 || (attachmentWork.length > 0 && !editingMessage)) && <div aria-label="Chat recovery" className="min-h-20 max-h-48 shrink overflow-x-hidden overflow-y-auto">
+      {mutations.length > 0 && <section aria-label="Message changes" className="border-t border-board-border">
         {mutations.map(item => <div key={item.command.requestId} role={item.state === "sending" ? "status" : "alert"} className="space-y-2 border-b border-board-border px-4 py-3 text-sm text-amber-200">
           <p className="break-words">{item.state === "sending" ? "Confirming message change…" : item.state === "unknown" ? item.error : chatMutationOutcomeMessage(item.result)}</p>
           <p className="break-words text-xs text-board-muted">{chatMutationSummary(item.command.operation).slice(0, 140)}</p>
@@ -1051,7 +1035,7 @@ export function ChatPanel({
         </div>)}
       </section>}
 
-      {notifications.length > 0 && <section aria-label="Crew notification delivery" className="min-h-20 max-h-48 shrink overflow-x-hidden overflow-y-auto border-t border-board-border">
+      {notifications.length > 0 && <section aria-label="Crew notification delivery" className="border-t border-board-border">
           {notifications.map(item => <div key={item.command.requestId} role={item.status === "failed" ? "alert" : "status"} className="space-y-2 border-b border-board-border px-4 py-3 text-sm text-amber-200">
             <p className="break-words">{item.command.kind === "message" ? "Message delivered." : "Reaction saved."} {item.status === "pending" ? "Sending crew notifications…" : "Crew notifications were not confirmed. Retry notifications without repeating the chat action."}</p>
             <p className="break-words text-xs text-board-muted">{item.label.slice(0, 120)}</p>
@@ -1059,6 +1043,21 @@ export function ChatPanel({
             {item.status === "failed" && onRetryNotifications && <button type="button" className="ml-2 min-h-11 rounded-lg border border-board-border px-3" onClick={() => onRetryNotifications(item.command.requestId)}>Retry notifications</button>}
           </div>)}
       </section>}
+
+          {attachmentWork.length > 0 && !editingMessage && (
+            <div className="border-b border-board-border/70 px-3 py-2" aria-label="Draft attachments">
+              {attachmentWork.map(work => (
+                <div key={work.id} data-testid={`chat-attachment-${work.id}`} className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-board-border bg-board-card p-2 text-xs">
+                  <FileText className="h-4 w-4 shrink-0 text-fire-300" />
+                  <div className="min-w-0 flex-1"><p className="break-all text-board-text">{work.name}</p><p className="text-board-muted">{attachmentStateLabel(work)} · {new Date(work.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p></div>
+                  {(work.state === "upload-failed" || work.state === "remove-failed") && <p role="alert" className="w-full break-words text-red-300">{work.error}</p>}
+                  {(work.state === "upload-failed" || work.state === "remove-failed") && <button type="button" className="min-h-11 rounded-lg border border-board-border px-3 text-board-text" aria-label={`${work.state === "remove-failed" ? "Retry removing" : "Retry uploading"} ${work.name}`} onClick={() => attachmentDraft?.retry(work.id)}>{work.state === "remove-failed" ? "Retry removal" : "Retry upload"}</button>}
+                  {work.state !== "removing" && work.state !== "remove-failed" && work.state !== "sending" && <button type="button" className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-board-border text-board-muted hover:text-board-text" aria-label={`Remove ${work.name}`} onClick={() => attachmentDraft?.remove(work.id)}><X className="h-4 w-4" /></button>}
+                </div>
+              ))}
+            </div>
+          )}
+      </div>}
 
       {/* Input area */}
       <div className="min-w-0 shrink-0 border-t border-board-border bg-board-bg/40 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3">
@@ -1078,39 +1077,25 @@ export function ChatPanel({
               <button type="button" onClick={() => setReplyingTo(null)} className="rounded p-1 text-board-muted hover:bg-board-border hover:text-board-text" aria-label="Cancel reply"><X className="h-3.5 w-3.5" /></button>
             </div>
           )}
-          {(pendingAttachments.length > 0 || uploadingCount > 0) && (
-            <div className="flex gap-2 overflow-x-auto border-b border-board-border/70 px-3 py-2 modern-scrollbar">
-              {pendingAttachments.map((attachment) => (
-                <div key={attachment.id} className="flex min-w-0 max-w-52 shrink-0 items-center gap-2 rounded-lg border border-board-border bg-board-card px-2.5 py-2">
-                  {attachment.mimeType.startsWith("image/") ? <ImageIcon className="h-4 w-4 shrink-0 text-sky-300" /> : <FileText className="h-4 w-4 shrink-0 text-fire-300" />}
-                  <span className="min-w-0 flex-1 truncate text-[10px] text-board-text">{attachment.name}</span>
-                  <button type="button" onClick={() => {
-                    setPendingAttachments((items) => items.filter((item) => item.id !== attachment.id));
-                    void onDiscardAttachment?.(attachment).catch((error) => setUploadError(error instanceof Error ? error.message : "Attachment could not be removed"));
-                  }} className="text-board-muted hover:text-board-text" aria-label={`Remove ${attachment.name}`}><X className="h-3 w-3" /></button>
-                </div>
-              ))}
-              {Array.from({ length: uploadingCount }, (_, index) => <div key={`uploading-${index}`} className="flex h-9 w-24 shrink-0 items-center justify-center gap-2 rounded-lg border border-board-border bg-board-card text-[10px] text-board-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" />Uploading</div>)}
-            </div>
-          )}
           <div className="flex flex-wrap items-center gap-y-1 border-b border-board-border/70 px-2 py-1.5">
             {allowOperationalMessages && !editingMessage ? (
               <MessageTypeSelector value={messageType} onChange={setMessageType} />
             ) : (
               <span className="px-2 py-1 text-[10px] font-medium text-board-muted">{editingMessage ? "Edit message" : "Guest message"}</span>
             )}
-            <span className="ml-auto px-2 text-[9px] text-board-muted/55">{pendingAttachments.length}/6 files</span>
+            <span className="ml-auto px-2 text-[9px] text-board-muted/55">{attachmentWork.length}/6 files</span>
             {onVotePoll && !editingMessage ? <button type="button" onClick={() => setPollOpen((open) => !open)} className="rounded-md p-1.5 text-board-muted hover:bg-board-border hover:text-sky-300" aria-label="Create poll" title="Create poll"><BarChart3 className="h-3.5 w-3.5" /></button> : null}
           </div>
           <div className="flex items-end gap-2 p-2">
-          {onUploadAttachment && !editingMessage && (
+          {attachmentDraft && !editingMessage && (
             <>
               <input ref={fileInputRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif,image/avif,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx" onChange={handleFiles} className="hidden" />
-              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={pendingAttachments.length >= 6 || uploadingCount > 0} className="mb-0.5 shrink-0 rounded-lg p-2.5 text-board-muted transition hover:bg-board-border/70 hover:text-board-text disabled:cursor-not-allowed disabled:opacity-40" aria-label="Attach photos or documents" title="Attach photos or documents"><Paperclip className="h-4 w-4" /></button>
+              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={attachmentWork.length >= 6} className="mb-0.5 min-h-11 min-w-11 shrink-0 rounded-lg p-2.5 text-board-muted transition hover:bg-board-border/70 hover:text-board-text disabled:cursor-not-allowed disabled:opacity-40" aria-label="Attach photos or documents" title="Attach photos or documents"><Paperclip className="h-4 w-4" /></button>
             </>
           )}
           <textarea
             ref={textareaRef}
+            aria-label={`Message ${title}`}
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -1119,7 +1104,7 @@ export function ChatPanel({
                 ? "Camera 2 wide..."
                 : messageType === "alert"
                   ? "Alert message..."
-                  : "Message the production team…"
+                  : "Message…"
             }
             rows={1}
             className={cn(
@@ -1130,10 +1115,10 @@ export function ChatPanel({
           <button
             type="button"
             onClick={handleSend}
-            disabled={(!inputText.trim() && pendingAttachments.length === 0) || uploadingCount > 0 || Boolean(editingMessage && blockedMessages.has(editingMessage.id))}
+            disabled={(!inputText.trim() && pendingAttachments.length === 0) || (!editingMessage && attachmentsBlocked) || Boolean(editingMessage && blockedMessages.has(editingMessage.id))}
             className={cn(
               "mb-0.5 min-h-11 min-w-11 shrink-0 rounded-lg p-2.5 shadow-sm transition-all touch-manipulation",
-              (inputText.trim() || pendingAttachments.length > 0) && uploadingCount === 0
+              (inputText.trim() || pendingAttachments.length > 0) && (editingMessage || !attachmentsBlocked)
                 ? "bg-fire-500 text-black hover:bg-fire-400"
                 : "bg-board-border text-board-muted cursor-not-allowed",
             )}
@@ -1160,4 +1145,19 @@ export function ChatPanel({
       {ConfirmDialogEl}
     </div>
   );
+}
+
+const noAttachmentWork: ChatAttachmentWork[] = [];
+const emptyAttachmentSnapshot = () => noAttachmentWork;
+const noAttachmentSubscription = () => () => {};
+function attachmentStateLabel(work: ChatAttachmentWork): string {
+  switch (work.state) {
+    case "preparing": return "Preparing";
+    case "uploading": return "Uploading";
+    case "ready": return "Ready to send";
+    case "sending": return "Adding to message";
+    case "upload-failed": return "Upload not confirmed";
+    case "removing": return "Removing";
+    case "remove-failed": return "Removal not confirmed";
+  }
 }

@@ -1,3 +1,4 @@
+import type { ChatUploadSpec } from "@showpilot/shared/chat-attachment";
 import { proPresenterOutputResultSchema, proPresenterOutputSnapshotSchema, type ProPresenterOutputCommand } from "@showpilot/shared/propresenter-output";
 import { proPresenterReplySchema, type ProPresenterCommand } from "@showpilot/shared/propresenter-command";
 import { chatInviteReplySchema, type ChatInviteCommand } from "./chat-pass-recovery";
@@ -48,7 +49,6 @@ import {
   getNativeCookieHeader,
 } from "@/lib/auth-transport";
 import { SHOWPILOT_URL } from "@/lib/env";
-import { withUploadTimeout } from "./upload-timeout";
 import {
   getStoredRundownPin,
   orgIdFromPinProtectedPath,
@@ -1111,41 +1111,27 @@ export async function getMobileChatUnread(orgId: string) {
 }
 
 export async function uploadMobileChatAttachment(input: {
-  orgId: string;
-  roomId: string;
-  uri: string;
-  name?: string | null;
-}) {
-  return withUploadTimeout(async (signal) => {
-    const form = new FormData();
-    if (Platform.OS === "web") {
-      const fileResponse = await expoFetch(input.uri, { signal });
-      if (!fileResponse.ok)
-        throw new Error("The selected attachment could not be opened.");
-      const file = await fileResponse.blob();
-      if (file.size === 0) throw new Error("The selected attachment is empty.");
-      if (file.size > 15 * 1024 * 1024) throw new Error("Choose an attachment smaller than 15 MB.");
-      form.append("file", file, input.name?.trim() || "attachment");
-    } else {
-      const file = new File(input.uri);
-      if (!file.exists || file.size === 0)
-        throw new Error("The selected attachment could not be opened.");
-      if (file.size > 15 * 1024 * 1024) throw new Error("Choose an attachment smaller than 15 MB.");
-      form.append("file", file);
-    }
-    const response = await authenticatedFetch(
-      `/api/chat/${encodeURIComponent(input.orgId)}/upload?room=${encodeURIComponent(input.roomId)}`,
-      { method: "POST", body: form, signal },
-    );
-    return chatAttachmentSchema.parse(await response.json());
-  });
+  orgId: string; roomId: string; userId: string; spec: ChatUploadSpec; body: Blob;
+}, signal: AbortSignal): Promise<unknown> {
+  const form = new FormData();
+  form.append("file", input.body, input.spec.name);
+  const query = new URLSearchParams({ room: input.roomId, expectedUserId: input.userId,
+    uploadId: input.spec.uploadId, sha256: input.spec.sha256, name: input.spec.name });
+  const response = await authenticatedFetch(`/api/chat/${encodeURIComponent(input.orgId)}/upload?${query}`, { method: "POST", body: form, signal });
+  return response.json();
+}
+
+export async function cancelMobileChatUpload(input: { orgId: string; roomId: string; userId: string; spec: ChatUploadSpec }, signal: AbortSignal): Promise<void> {
+  const query = new URLSearchParams({ room: input.roomId, expectedUserId: input.userId });
+  await authenticatedFetch(`/api/chat/${encodeURIComponent(input.orgId)}/cancel-upload?${query}`, { method: "POST", body: JSON.stringify(input.spec), signal });
 }
 
 export async function downloadMobileChatAttachment(
-  attachment: MobileChatAttachment,
+  attachment: MobileChatAttachment, signal: AbortSignal,
 ) {
-  const response = await authenticatedFetch(attachment.url);
+  const response = await authenticatedFetch(attachment.url, { signal });
   const bytes = new Uint8Array(await response.arrayBuffer());
+  if (signal.aborted) throw new Error("Attachment opening cancelled");
   const safeName =
     attachment.name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 120) ||
     "attachment";

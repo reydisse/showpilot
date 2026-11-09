@@ -33,7 +33,9 @@
     "./propresenter-output": "./src/propresenter-output.ts",
     "./chat-notification": "./src/chat-notification.ts",
     "./chat-mutation": "./src/chat-mutation.ts",
-    "./chat-mutation-tracker": "./src/chat-mutation-tracker.ts"
+    "./chat-mutation-tracker": "./src/chat-mutation-tracker.ts",
+    "./chat-attachment": "./src/chat-attachment.ts",
+    "./chat-attachment-draft": "./src/chat-attachment-draft.ts"
   },
   "dependencies": {
     "zod": "4.4.3"

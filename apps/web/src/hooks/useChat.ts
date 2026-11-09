@@ -1,8 +1,9 @@
+import { getChatAttachmentDraft, type WebChatAttachmentDraft } from "@/lib/chat-attachment-draft";
 import type { ChatNotificationWork } from "@/lib/chat-notifications";
 import type { ChatMutationWork } from "@showpilot/shared/chat-mutation-tracker";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createBrowserId } from "@/lib/browser-id";
-import type { ChatAdapter, ChatAttachment, ChatGatewayStatus, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
+import type { ChatAdapter, ChatGatewayStatus, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
 import { NativeChatAdapter } from "@/lib/adapters/native-chat-adapter";
 import { chatOutboxIdentity } from "@/lib/chat-outbox";
 
@@ -28,8 +29,7 @@ interface UseChatReturn {
   guestAccessRevoked: boolean;
   messages: ChatMessage[];
   sendMessage: (text: string, type?: MessageType, options?: ChatMessageOptions) => Promise<void>;
-  uploadAttachment: (file: File) => Promise<ChatAttachment>;
-  discardAttachment: (attachment: ChatAttachment) => Promise<void>;
+  attachmentDraft?: WebChatAttachmentDraft;
   editMessage: (messageId: string, text: string, expectedEditTime: number) => Promise<void>;
   deleteMessage: (messageId: string, expectedEditTime: number) => Promise<void>;
   votePoll: (messageId: string, optionId: string, expectedOptionId: string | null) => Promise<void>;
@@ -196,31 +196,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     await adapter.setReaction(messageId, emoji, active);
   }, [getAdapter]);
 
-  const uploadAttachment = useCallback(async (file: File): Promise<ChatAttachment> => {
-    const formData = new FormData();
-    formData.set("file", file);
-    const params = new URLSearchParams({ room: roomId });
-    if (guestToken) params.set("guestToken", guestToken);
-    const response = await fetch(`/api/chat/${encodeURIComponent(orgId)}/upload?${params}`, {
-      method: "POST",
-      body: formData,
-    });
-    if (!response.ok) {
-      const message = await response.text().catch(() => "");
-      throw new Error(message || "Upload failed");
-    }
-    return response.json() as Promise<ChatAttachment>;
-  }, [guestToken, orgId, roomId]);
-
-  const discardAttachment = useCallback(async (attachment: ChatAttachment): Promise<void> => {
-    const target = new URL(attachment.url, window.location.origin);
-    if (guestToken) target.searchParams.set("guestToken", guestToken);
-    const response = await fetch(target, { method: "DELETE" });
-    if (!response.ok && response.status !== 404) {
-      const message = await response.text().catch(() => "");
-      throw new Error(message || "Attachment could not be removed");
-    }
-  }, [guestToken]);
+  const attachmentDraft = useMemo(() => getChatAttachmentDraft({ orgId, roomId, currentUserId, guestToken }), [orgId, roomId, currentUserId, guestToken]);
 
   const resetUnread = useCallback(() => {
     const adapter = getAdapter();
@@ -264,7 +240,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
   }, [getAdapter, view.guestAccessRevoked]);
 
   return {
-    ...view, retryMutation, dismissMutation, retryNotifications, retryConnection, sendMessage, uploadAttachment, discardAttachment, editMessage, deleteMessage, votePoll,
+    ...view, retryMutation, dismissMutation, retryNotifications, retryConnection, sendMessage, attachmentDraft, editMessage, deleteMessage, votePoll,
     setReaction, resetUnread, setTyping, markRead, loadOlderMessages, retryQueuedMessage, cancelQueuedMessage,
   };
 }

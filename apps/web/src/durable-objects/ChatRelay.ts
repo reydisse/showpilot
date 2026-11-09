@@ -1,4 +1,6 @@
 import { chatRoomClearSchema, chatClearReceiptSchema, type ChatRoomClear } from "@/lib/chat-history-clear-contract";
+import { chatUploadSpecSchema } from "@showpilot/shared/chat-attachment";
+import { ChatAttachmentStorageError, cancelChatUpload, chatUploadFileKey, reserveChatUpload, chatFileIsDeleted, eraseChatAttachment } from "@/lib/chat-attachment-storage.server";
 import { chatEditTime, chatMutationCommandSchema, chatMutationResultSchema, type ChatMutationCommand, type ChatMutationResult } from "@showpilot/shared/chat-mutation";
 import { runRouteLoad } from "@/lib/route-load-deadlines";
 import { chatPassIsRevoked } from "@/lib/chat-pass-revocation.server";
@@ -835,10 +837,61 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       return Response.json({ ok: true, message });
     }
 
-    if (url.pathname === "/attachment-reference" && request.method === "GET") {
-      if (url.searchParams.get("access") !== "write") return new Response("Unauthorized", { status: 401 });
+    if (url.pathname === "/internal/attachment-state" && request.method === "GET") {
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) return new Response("Unauthorized", { status: 401 });
       const attachmentUrl = url.searchParams.get("url") ?? "";
-      return Response.json({ referenced: this.attachmentIsReferenced(attachmentUrl) });
+      const resolved = this.attachmentStorageKey({ id: "", name: "", url: attachmentUrl, mimeType: "", size: 0 }, this.orgId);
+      if (!resolved) return new Response("Invalid attachment", { status: 400 });
+      return Response.json({ deleted: this.attachmentWasDeleted(resolved.id) });
+    }
+
+    if (url.pathname === "/internal/cancel-upload" && request.method === "POST") {
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) return new Response("Unauthorized", { status: 401 });
+      const input: unknown = await request.json().catch(() => null);
+      if (!isRecord(input) || typeof input.ownerId !== "string" || !input.ownerId || input.ownerId.length > 220) return new Response("Invalid upload cancellation", { status: 400 });
+      const parsed = chatUploadSpecSchema.safeParse(input.spec);
+      if (!parsed.success) return new Response("Invalid upload identity", { status: 400 });
+      const spec = parsed.data;
+      const owner = { orgId: this.orgId, roomId: this.roomId, ownerId: input.ownerId };
+      try {
+        return await runRouteLoad(async () => {
+          // Bind the ID before reserving its deletion. Another actor cannot
+          // cancel an existing upload or change its name/room/checksum.
+          await reserveChatUpload(this.env.STORAGE, owner, spec);
+          if (this.attachmentKeyIsReferenced(chatUploadFileKey(owner.orgId, spec), new Set())) return new Response("This file is attached to a message", { status: 409 });
+          this.ctx.storage.sql.exec("INSERT OR IGNORE INTO chat_deleted_attachments(id) VALUES(?)", spec.uploadId);
+          await cancelChatUpload(this.env.STORAGE, owner, spec);
+          return new Response(null, { status: 204 });
+        }, undefined, 5_000);
+      } catch (error) {
+        reportRelayError(this.ctx, this.env.DB, this.orgId, "chat_attachment_cleanup", error);
+        return new Response(error instanceof ChatAttachmentStorageError ? error.message : "Attachment removal was not confirmed. Retry removing this attachment.",
+          { status: error instanceof ChatAttachmentStorageError ? error.status : 503 });
+      }
+    }
+
+    if (url.pathname === "/internal/discard-attachment" && request.method === "POST") {
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) return new Response("Unauthorized", { status: 401 });
+      const input: unknown = await request.json().catch(() => null);
+      if (!isRecord(input) || typeof input.url !== "string" || typeof input.ownerId !== "string" || !input.ownerId || input.ownerId.length > 220) return new Response("Invalid attachment removal", { status: 400 });
+      const ownerId = input.ownerId;
+      const resolved = this.attachmentStorageKey({ id: "", name: "", url: input.url, mimeType: "", size: 0 }, this.orgId);
+      if (!resolved) return new Response("Invalid attachment", { status: 400 });
+      try {
+        return await runRouteLoad(async () => {
+          const object = await this.env.STORAGE.head(resolved.key);
+          if (!object) return new Response(null, { status: 404 });
+          if (object.customMetadata?.uploadedBy !== ownerId || (object.customMetadata?.roomId ?? "production") !== this.roomId) return new Response("Only the uploader can remove this file", { status: 403 });
+          // No await between reading live references and reserving deletion.
+          if (this.attachmentKeyIsReferenced(resolved.key, new Set())) return new Response("This file is attached to a message", { status: 409 });
+          this.ctx.storage.sql.exec("INSERT OR IGNORE INTO chat_deleted_attachments(id) VALUES(?)", resolved.id);
+          await eraseChatAttachment(this.env.STORAGE, object);
+          return new Response(null, { status: 204 });
+        }, undefined, 5_000);
+      } catch (error) {
+        reportRelayError(this.ctx, this.env.DB, this.orgId, "chat_attachment_cleanup", error);
+        return new Response("Attachment removal was not confirmed. Retry removing this attachment.", { status: 503 });
+      }
     }
 
     if (url.pathname === "/unread" && request.method === "GET") {
@@ -1090,7 +1143,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       if (!match || decodeURIComponent(match[1]) !== orgId) return null;
       const id = decodeURIComponent(match[2]);
       const name = decodeURIComponent(match[3]);
-      if (!id || !name) return null;
+      if (!id || id === "_uploads" || !name) return null;
       return {
         key: `orgs/${orgId}/chat/${id}/${name}`,
         id,
@@ -1115,7 +1168,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       const resolved = this.attachmentStorageKey(attachment, session.orgId);
       if (!resolved || this.attachmentWasDeleted(resolved.id)) return null;
       const object = await this.env.STORAGE.head(resolved.key);
-      if (!object || this.attachmentWasDeleted(resolved.id)
+      if (!object || chatFileIsDeleted(object) || object.customMetadata?.kind === "chat-upload-claim" || this.attachmentWasDeleted(resolved.id)
         || object.customMetadata?.uploadedBy !== expectedUploader
         || (object.customMetadata?.roomId ?? "production") !== session.roomId) return null;
       return {
@@ -1133,6 +1186,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     attachments: NonNullable<ChatMessage["attachments"]>,
     ownerUserId: string,
     excludedMessageIds: Set<string>,
+    physicalErasure = false,
   ): Promise<number> {
     if (!this.env.STORAGE) return 0;
     const candidateKeys = new Set(attachments.flatMap((attachment) => {
@@ -1145,6 +1199,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     for (const key of candidateKeys) {
       const object = await this.env.STORAGE.head(key);
       if (!object || object.customMetadata?.uploadedBy !== ownerUserId) continue;
+      if (chatFileIsDeleted(object) && !physicalErasure) continue;
       // Re-read after the last await. Reserving the immutable file ID and
       // checking references are synchronous with respect to message commits.
       if (this.attachmentKeyIsReferenced(key, excludedMessageIds)) continue;
@@ -1152,7 +1207,8 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       const resolved = attachment && this.attachmentStorageKey(attachment, this.orgId);
       if (!resolved) continue;
       this.ctx.storage.sql.exec("INSERT OR IGNORE INTO chat_deleted_attachments(id) VALUES(?)", resolved.id);
-      await this.env.STORAGE.delete(key);
+      if (physicalErasure) await this.env.STORAGE.delete(key);
+      else await eraseChatAttachment(this.env.STORAGE, object);
       deleted += 1;
     }
     return deleted;
@@ -1181,20 +1237,6 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       }
     }
 
-    return false;
-  }
-
-  private attachmentIsReferenced(url: string): boolean {
-    const rows = this.ctx.storage.sql.exec<{ payload: string }>("SELECT payload FROM chat_messages").toArray();
-    for (const row of rows) {
-      try {
-        const message = JSON.parse(row.payload) as ChatMessage;
-        if (!message.deletedAt && message.attachments?.some((attachment) => attachment.url === url)) return true;
-      } catch {
-        // Fail closed: an unreadable retained row may still reference it.
-        return true;
-      }
-    }
     return false;
   }
 
@@ -1231,6 +1273,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       authoredAttachments,
       userId,
       authoredIds,
+      true,
     );
 
     // Object cleanup yields. Never restore the earlier snapshot over edits or
