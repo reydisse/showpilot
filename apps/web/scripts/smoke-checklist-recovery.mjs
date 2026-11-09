@@ -4,7 +4,10 @@ import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { withLocalSmokeFixture } from './local-smoke-fixture.mjs';
 import { poll, withRealBrowser } from './real-browser-fixture.mjs';
-const names=['getChecklistEntries','getSmartChecklistDraft','mutateChecklist'];
+// The live bar also reads during this rehearsal. Drain its real RPC response
+// before handing it to the client, just like the faulted Checklist responses:
+// Wrangler's local ProxyWorker can exit if a streamed response is interrupted.
+const names=['getChecklistEntries','getSmartChecklistDraft','mutateChecklist','getActiveRundownTarget'];
 const ids={}; const assets=resolve(import.meta.dirname,'../dist/server/assets');
 for(const file of (await readdir(assets)).filter(file=>file.endsWith('.js'))){
   const source=await readFile(resolve(assets,file),'utf8');
