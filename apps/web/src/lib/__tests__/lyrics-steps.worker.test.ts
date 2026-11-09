@@ -4,7 +4,7 @@ import { afterEach, expect, it } from "vitest";
 import { timecodeFixture } from "@/test/timecode-fixtures";
 import { seedRelayMember } from "@/test/relay-fixtures";
 import type { AutomationEvent, TimecodeState } from "@/types/timecode";
-import { lyricsReviewState } from "@/lib/lyrics-control";
+import { lyricsReviewState } from "@showpilot/shared";
 import { buildSongAutomationEvents } from "@/lib/song-cues";
 
 afterEach(abortAllDurableObjects);

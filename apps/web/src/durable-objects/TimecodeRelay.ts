@@ -40,7 +40,8 @@ import { z } from "zod";
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMECODE_COMMANDS, TIMECODE_FEED_STALL_MS as FEED_STALL_MS } from "@/types/timecode";
 import { automationPayloadProblem } from "@/lib/automation-payload";
 import { resolveLyricsStep } from "@/lib/lyrics-step.server";
-import { lyricsControlSchema, lyricsReviewMatches } from "@/lib/lyrics-control";
+import { lyricsControlSchema } from "@/lib/lyrics-control";
+import { lyricsReviewMatches } from "@showpilot/shared";
 import { automationTimecodeSchema, automationEventChangesSchema, automationEditReviewSchema, automationEditReviewMatches } from "@/lib/automation-edit";
 import { withOperationTimeout } from "@/lib/operation-timeout";
 import { NamedTimerStore } from "@/lib/named-timer-store.server";
@@ -1152,6 +1153,74 @@ export class TimecodeRelay extends DurableObject {
     });
   }
 
+  private async controlLyrics(payload: Record<string, unknown> | undefined, sessionId: string | undefined): Promise<TimecodeEditReceipt | undefined> {
+    const requestId = payload?.requestId;
+    if (requestId !== undefined && (typeof requestId !== "string" || !z.uuid().safeParse(requestId).success))
+      throw new TimecodeCommandRejection("Use a new request identity to review the lyrics change.");
+    const key = typeof requestId === "string" ? `lyrics-control:${requestId}` : null;
+    const fingerprint = key ? await scopedTokenDigest(JSON.stringify(payload)) : null;
+    const owner = this.controlOwner(), target = this.target;
+    const claim = owner?.attachment.authClaim;
+    if (this.retired || !target || !claim || owner.attachment.sessionId !== sessionId)
+      throw new TimecodeCommandRejection("Claim timecode control before changing lyrics.");
+    const identity = { orgId: target.orgId, userId: claim.userId, requestId: typeof requestId === "string" ? requestId : "" };
+    const prior = key ? await this.ctx.storage.get<TimecodeEditRecord>(key) : undefined;
+    const parsed = lyricsControlSchema.safeParse(payload);
+    const current = this.state.lyrics;
+    let failure: { outcome: "conflict" | "rejected"; message: string } | null = null;
+    let next: LyricsDisplayState | null = null;
+    if (!prior) {
+      if (!parsed.success || key && (!parsed.data.showId || !parsed.data.serviceDate) || !key && (parsed.data.showId || parsed.data.serviceDate))
+        failure = { outcome: "rejected", message: "Review the displayed lyrics and selected show before changing the section." };
+      else if (key && (parsed.data.showId !== target.showId || parsed.data.serviceDate !== target.serviceDate))
+        failure = { outcome: "conflict", message: "The selected show changed. Review its current date and lyrics." };
+      else if (!current || !lyricsReviewMatches(current, parsed.data.expected))
+        failure = { outcome: "conflict", message: "Lyrics changed. Review the current section before trying again." };
+      else {
+        // Remote song/authority reads stay outside the local commit so Stop and
+        // newer lyrics can interrupt them. A result is never installed late.
+        const deadline = Date.now() + 5_000;
+        try {
+          next = parsed.data.operation === "clear" ? null : await withOperationTimeout(
+            resolveLyricsStep(this.env.DB, this.orgId, current, parsed.data.operation), 5_000, "Song sections could not load in time. Try again.");
+          const allowed = await withOperationTimeout(hasLivePermissionAuthority(this.env.DB, claim, "timecode:access"),
+            Math.max(1, deadline - Date.now()), "Lyrics permission check timed out.");
+          if (!allowed) throw new Error("Timecode access changed. Sign in and check your permissions.");
+          if (Date.now() >= deadline) throw new Error("The lyrics change timed out. Review the display before trying again.");
+        } catch (error) { failure = { outcome: "rejected", message: error instanceof Error ? error.message : "Song sections could not load." }; }
+      }
+    }
+    const result = await this.ctx.blockConcurrencyWhile(async (): Promise<TimecodeEditReceipt | TimecodeCommandRejection | undefined> => {
+      if (this.retired || this.controlOwner()?.socket !== owner.socket || this.target?.showId !== target.showId || this.target?.serviceDate !== target.serviceDate)
+        return new TimecodeCommandRejection("Lyrics or timecode control changed. Review the display before trying again.");
+      const saved = key ? await this.ctx.storage.get<TimecodeEditRecord>(key) : undefined;
+      if (saved) return saved.receipt.userId === claim.userId && saved.fingerprint === fingerprint ? saved.receipt
+        : { ...identity, outcome: "conflict", message: "This request identity belongs to a different lyrics change." };
+      const reject = async (outcome: "conflict" | "rejected", message: string) => {
+        const receipt: TimecodeEditReceipt = { ...identity, outcome, message };
+        if (key && fingerprint) await this.ctx.storage.put(key, { fingerprint, receipt } satisfies TimecodeEditRecord);
+        return receipt;
+      };
+      if (failure) return reject(failure.outcome, failure.message);
+      if (this.state.lyrics !== current) return reject("conflict", "Lyrics changed while the section was loading. Review the current display.");
+      const state: TimecodeState = { ...this.state, lyrics: next ? { ...next, manual: true } : null };
+      const receipt: TimecodeEditReceipt = { ...identity, outcome: "applied" };
+      await this.ctx.storage.transaction(async storage => {
+        await storage.put({ timecode: { state, events: this.events, deviceTimings: this.deviceTimings, target } satisfies TimecodeSnapshot,
+          clock: this.clockSnapshot(state), ...(key && fingerprint ? { [key]: { fingerprint, receipt } satisfies TimecodeEditRecord } : {}) });
+      });
+      this.state = state; this.hasSnapshot = true; this.lastPersistedAt = Date.now();
+      await this.scheduleAlarm();
+      if (state.lyrics) this.broadcastLyrics(state.lyrics); else this.broadcast({ type: "lyrics-clear" });
+      this.broadcastState();
+      return key ? receipt : undefined;
+    });
+    // Business rejection must not reset the Durable Object's input gate.
+    if (result instanceof TimecodeCommandRejection) throw result;
+    if (!key && result) throw new TimecodeCommandRejection(result.message ?? "The lyrics change was rejected.");
+    return result;
+  }
+
   private async controlCues(payload: Record<string, unknown> | undefined, sessionId: string | undefined): Promise<TimecodeEditReceipt> {
     const id = payload?.requestId;
     if (typeof id !== "string" || !z.uuid().safeParse(id).success)
@@ -1686,31 +1755,8 @@ export class TimecodeRelay extends DurableObject {
         break;
       }
 
-      case "control-lyrics": {
-        const parsed = lyricsControlSchema.safeParse(payload);
-        if (!parsed.success) throw new TimecodeCommandRejection("Review the displayed lyrics before changing the section.");
-        const current = this.state.lyrics;
-        if (!current || !lyricsReviewMatches(current, parsed.data.expected)) throw new TimecodeCommandRejection("Lyrics changed. Review the current section before trying again.");
-        const owner = this.controlOwner();
-        const claim = owner?.attachment.authClaim;
-        if (!claim || owner.attachment.sessionId !== sessionId) throw new TimecodeCommandRejection("Claim timecode control before changing lyrics.");
-        const deadline = Date.now() + 5_000;
-        let next: LyricsDisplayState | null;
-        try {
-          next = parsed.data.operation === "clear" ? null : await withOperationTimeout(
-            resolveLyricsStep(this.env.DB, this.orgId, current, parsed.data.operation), 5_000, "Song sections could not load in time. Try again.");
-          const allowed = await withOperationTimeout(hasLivePermissionAuthority(this.env.DB, claim, "timecode:access"),
-            Math.max(1, deadline - Date.now()), "Lyrics permission check timed out.");
-          if (!allowed) throw new Error("Timecode access changed. Sign in and check your permissions.");
-        } catch (error) { throw new TimecodeCommandRejection(error instanceof Error ? error.message : "The song section could not load."); }
-        if (Date.now() >= deadline || this.retired || this.controlOwner()?.socket !== owner.socket
-          || this.state.lyrics !== current) throw new TimecodeCommandRejection("Lyrics or timecode control changed. Review the display before trying again.");
-        this.state.lyrics = next ? { ...next, manual: true } : null;
-        await this.persist();
-        if (this.state.lyrics) this.broadcastLyrics(this.state.lyrics); else this.broadcast({ type: "lyrics-clear" });
-        this.broadcastState();
-        break;
-      }
+      case "control-lyrics":
+        return await this.controlLyrics(payload, sessionId);
 
       case "clear-lyrics":
         this.state.lyrics = null;

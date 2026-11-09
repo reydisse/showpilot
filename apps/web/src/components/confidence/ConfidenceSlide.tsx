@@ -1,3 +1,4 @@
+import { startTextFit, advanceTextFit } from "@showpilot/shared";
 import {
   createContext,
   useContext,
@@ -79,19 +80,12 @@ export function ConfidenceSlide({
     const fit = (element: HTMLElement, maximum: number) => {
       const parent = element.parentElement;
       if (!parent || !parent.clientHeight) return;
-      let low = 1;
-      let high = maximum;
-      while (high - low > 0.25) {
-        const size = (low + high) / 2;
-        element.style.fontSize = `${size}px`;
-        if (
-          element.scrollHeight <= parent.clientHeight &&
-          element.scrollWidth <= parent.clientWidth
-        )
-          low = size;
-        else high = size;
+      let search = startTextFit(maximum);
+      while (!search.done) {
+        element.style.fontSize = `${search.size}px`;
+        search = advanceTextFit(search, element.scrollHeight <= parent.clientHeight && element.scrollWidth <= parent.clientWidth);
       }
-      element.style.fontSize = `${low}px`;
+      element.style.fontSize = `${search.size}px`;
     };
     const fitAll = () => {
       if (!area.clientWidth || !area.clientHeight) return;

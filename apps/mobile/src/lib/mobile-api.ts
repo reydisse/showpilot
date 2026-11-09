@@ -1,3 +1,4 @@
+import { lyricsControlReplySchema, type MobileLyricsControl } from "./timecode-lyrics-recovery";
 import { cueEditReplySchema, type CueEditCommand } from "./timecode-cue-edit-recovery";
 import { mobileCueControlReplySchema, type MobileCueControl } from "./timecode-cue-control-recovery";
 import { mobileGateReplySchema, type MobileGateCommand } from "./timecode-automation-recovery";
@@ -2364,4 +2365,12 @@ export async function getMobileCueMedia(orgId: string, cursor: string | null, si
   const query = new URLSearchParams(); if (cursor) query.set("cursor", cursor);
   const response = await authenticatedFetch(`/api/media/${encodeURIComponent(orgId)}?${query}`, { signal });
   return z.object({ assets: z.array(z.object({ id: z.string(), name: z.string(), etag: z.string() })), cursor: z.string().nullable() }).parse(await response.json());
+}
+
+export async function controlMobileTimecodeLyrics(input: MobileLyricsControl, signal: AbortSignal) {
+  const { orgId, requestId, showId, serviceDate, operation, expected } = input;
+  const payload = { requestId, showId, serviceDate, operation, expected };
+  const response = await authenticatedFetch(`/api/timecode/${encodeURIComponent(orgId)}/command?showId=${encodeURIComponent(input.showId)}`,
+    { method: "POST", signal, body: JSON.stringify({ action: "control-lyrics", payload }) }, [400, 409]);
+  return lyricsControlReplySchema.parse(await response.json());
 }

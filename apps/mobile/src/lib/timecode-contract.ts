@@ -48,6 +48,9 @@ export const timecodeStateSchema = z.object({
       lyrics: z.string(),
       nextLabel: z.string(),
       updatedAt: z.number(),
+      revision: z.string().optional(),
+      generationKey: z.string().optional(),
+      manual: z.boolean().optional(),
     })
     .nullable()
     .default(null),
