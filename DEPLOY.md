@@ -9601,3 +9601,67 @@ Parent #288 repair: 8f2a31c191287f5ee725f655240bd436aa31c416, CI run 42595830192
 its exact-head CI must pass before opening this successor PR.
 Logs: /tmp/showpilot-webchat-{full4,unit5,ui6,tsc1,shared1,build2,native1,browser3}.log.
 Screenshots: /tmp/showpilot-webchat-{message,notification}-{320,768,1440}.png.
+
+### 2026-11-09: recover chat edits, deletes, reactions and poll votes
+
+On `fix/chat-mutation-receipts`, a shared command contract and retained tracker
+replace blind chat mutations in web and native clients. Each command captures
+actor, organization, room, message, request ID, deadline and the original edit or
+vote state. The relay commits the message and receipt in one SQLite transaction.
+Recovery returns that receipt and the current projection; it cannot toggle a
+reaction again, overwrite a later edit, restore an earlier vote or delete again.
+First deliveries expire; membership is rechecked before returning a receipt.
+
+Unconfirmed work survives navigation within the running app, has an eight-second
+acknowledgement deadline, and blocks another mutation on that message until its
+outcome is recovered. The panel shows the captured action, timestamp and retry or
+review controls. Captured edit versions and newer drafts are preserved. Web row
+actions are visible and 44px; native message actions have a labeled 44px button
+that works with the keyboard. Native reaction pickers close on submission so they
+cannot cover pending status or failure. Recovery areas scroll and shrink to keep
+the web composer reachable at 320x568.
+
+Deletion is durable before attachment cleanup starts. Cleanup has a five-second
+bound and its own recovery state. A persistent opaque file-ID marker prevents a
+concurrent attachment validation from saving a reference to a deleted file, and
+live references are checked after the last storage await. Account deletion
+includes mutation receipts and pending attachment cleanup; it rereads current
+messages before scrubbing so cleanup cannot restore an old snapshot. History
+clearing erases stored edit drafts and prevents replay from storing them again.
+
+Validation: full web suite passed 3,377 unit + 1,760 Worker = 5,137 tests. One
+existing automation regression initially failed because it used the old delete
+protocol; it now verifies the same no-resurrection invariant with the new command.
+The 28 ChatRelay tests include stale versions, actor/room/org mismatch, expiry,
+altered retries, revoked membership, eviction, independent reactions, receipt
+erasure, failed R2 cleanup and a delayed attachment validation. The race fixture
+runs inside the Durable Object context to avoid a cross-context Workers runtime
+crash. After responsive adjustments, 20 ChatPanel tests passed; native recovery
+and tracker tests passed 56/56. Web/shared/native typechecks passed.
+
+Web production build passed at 542,252 raw / 171,037 gzip bytes under unchanged
+budgets. Native verification exported iOS, Android and web and passed Expo Doctor
+18/18 and polling boundaries; Hermes bundles were 6,068,609 / 6,067,776 bytes.
+These exports and the compiled native web rehearsal are not physical-device
+proof. A subsequent cleanup removed only a redundant callback dependency.
+
+Both `smoke-web-chat-mutations.mjs` and `smoke-native-chat-mutations.mjs` passed
+against built clients, real disposable authentication and ChatRelay. They lose
+actual replies after commit, navigate rooms and recover the exact original
+commands. Web covers edit/reaction/delete recovery; native covers edit/reaction
+recovery and keyboard message actions. At 320x568, 768x1024 and 1440x900, recovery
+controls are reachable and at least 44px with no horizontal overflow. Screenshots
+were inspected. The web rehearsal caught the short-screen composer clipping,
+which was fixed before rerunning. The native rehearsal waits for the room picker
+to finish closing before operating the next modal and passed twice consecutively.
+
+Compatibility: old blind mutation frames return an explicit update-required
+error. Coordinate server and app updates. Retained recovery is in memory and does
+not survive browser reload or process termination. Attachment uploads/discards,
+native media preparation and the remaining product-wide UX audit are still open.
+Phase 2 remains 67/79; twenty necessary Markdown files remain. No deployment,
+release, remote migration or real organization data change.
+Parent #289: a24ebe86b130b3802d581bd6a53a5dd35b8bca0e, both CI checks green.
+Logs: /tmp/showpilot-chat-mutations-{full2,worker5,unit2,ui3,tsc5,shared2,build2,native3,native-unit3,native-tsc4,browser2,native-browser6}.log.
+Screenshots: /tmp/showpilot-web-mutation-{edit,delete}-{320,768,1440}.png and
+/tmp/showpilot-native-mutation-{edit,reaction}-{320,768,1440}.png.

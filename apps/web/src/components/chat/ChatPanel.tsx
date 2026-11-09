@@ -1,3 +1,5 @@
+import { chatEditTime, chatMutationSummary, chatMutationOutcomeMessage } from "@showpilot/shared/chat-mutation";
+import { ChatMutationTrackedError, type ChatMutationWork } from "@showpilot/shared/chat-mutation-tracker";
 import type { ChatNotificationWork } from "@/lib/chat-notifications";
 import { connectionLabel } from "@/lib/connection-state";
 import { useState, useRef, useEffect, useMemo, useCallback, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
@@ -170,10 +172,11 @@ function ChatMessageRow({
   isSeen = false,
   currentUserId,
   onVotePoll,
-  onToggleReaction,
+  onSetReaction,
   onOpenImage,
   onRetryQueued,
   onCancelQueued,
+  mutationPending = false,
 }: {
   message: ChatMessage;
   isPinned?: boolean;
@@ -185,11 +188,12 @@ function ChatMessageRow({
   attachmentAccessToken?: string;
   isSeen?: boolean;
   currentUserId?: string;
-  onVotePoll?: (messageId: string, optionId: string) => Promise<void>;
-  onToggleReaction?: (messageId: string, emoji: string) => Promise<void>;
+  onVotePoll?: (messageId: string, optionId: string, expectedOptionId: string | null) => Promise<void>;
+  onSetReaction?: (messageId: string, emoji: string, active: boolean) => Promise<void>;
   onOpenImage?: (image: { name: string; url: string }) => void;
   onRetryQueued?: (messageId: string) => void;
   onCancelQueued?: (messageId: string) => void;
+  mutationPending?: boolean;
 }) {
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [customReaction, setCustomReaction] = useState("");
@@ -288,7 +292,7 @@ function ChatMessageRow({
               const total = message.poll!.options.reduce((sum, item) => sum + item.voterIds.length, 0);
               const selected = Boolean(currentUserId && option.voterIds.includes(currentUserId));
               const percent = total ? Math.round(option.voterIds.length / total * 100) : 0;
-              return <button key={option.id} type="button" disabled={!onVotePoll} onClick={() => void onVotePoll?.(message.id, option.id)} className={cn("relative flex w-full overflow-hidden rounded-lg border px-3 py-2 text-left text-[11px] transition", selected ? "border-sky-400/45 text-sky-200" : "border-board-border text-board-text hover:border-board-muted/50", !onVotePoll && "cursor-default")}><span className="absolute inset-y-0 left-0 bg-sky-400/10" style={{ width: `${percent}%` }} /><span className="relative min-w-0 flex-1 truncate">{option.text}</span><span className="relative ml-2 tabular-nums text-board-muted">{option.voterIds.length} · {percent}%</span></button>;
+              return <button key={option.id} type="button" disabled={!onVotePoll || mutationPending} onClick={() => void onVotePoll?.(message.id, option.id, message.poll?.options.find(item => currentUserId && item.voterIds.includes(currentUserId))?.id ?? null)} className={cn("relative flex min-h-11 w-full overflow-hidden rounded-lg border px-3 py-2 text-left text-xs transition disabled:opacity-50", selected ? "border-sky-400/45 text-sky-200" : "border-board-border text-board-text hover:border-board-muted/50", !onVotePoll && "cursor-default")}><span className="absolute inset-y-0 left-0 bg-sky-400/10" style={{ width: `${percent}%` }} /><span className="relative min-w-0 flex-1 truncate">{option.text}</span><span className="relative ml-2 tabular-nums text-board-muted">{option.voterIds.length} · {percent}%</span></button>;
             })}</div>
             <p className="mt-2 text-[9px] text-board-muted">{message.poll.options.reduce((sum, option) => sum + option.voterIds.length, 0)} votes</p>
           </div>
@@ -328,12 +332,12 @@ function ChatMessageRow({
           </div>
         ) : null}
         </div>
-        {!message.deletedAt && onToggleReaction ? (
+        {!message.deletedAt && onSetReaction ? (
           <div className={cn("mt-1 flex flex-wrap items-center gap-1", isOwn && "justify-end")}>
             {(message.reactions ?? []).filter((reaction) => reaction.userIds.length > 0).map((reaction) => {
               const emoji = reaction.emoji;
               const active = Boolean(currentUserId && reaction?.userIds.includes(currentUserId));
-              return <button key={emoji} type="button" onClick={() => void onToggleReaction(message.id, emoji)} className={cn("rounded-full border px-1.5 py-0.5 text-[10px] transition", active ? "border-fire-500/40 bg-fire-500/10 text-board-text" : "border-board-border text-board-muted hover:text-board-text")} aria-label={`React ${emoji}`}>{emoji} {reaction.userIds.length}</button>;
+              return <button key={emoji} type="button" disabled={mutationPending} onClick={() => void onSetReaction(message.id, emoji, !active)} className={cn("min-h-11 min-w-11 rounded-full border px-3 py-2 text-xs transition disabled:opacity-50", active ? "border-fire-500/40 bg-fire-500/10 text-board-text" : "border-board-border text-board-muted hover:text-board-text")} aria-label={`React ${emoji}`}>{emoji} {reaction.userIds.length}</button>;
             })}
           </div>
         ) : null}
@@ -346,18 +350,18 @@ function ChatMessageRow({
         <ExternalDeliveryStatus delivery={message.externalDelivery} alignRight={isOwn} />
         {message.delivery ? <div role={message.delivery === "failed" ? "alert" : "status"} className={cn("mt-1 flex flex-wrap items-center gap-2 px-2 text-xs", isOwn && "justify-end", message.delivery === "failed" ? "text-red-300" : "text-board-muted")}><span>{message.delivery === "waiting" ? "Waiting for connection" : message.delivery === "sending" ? "Sending…" : message.deliveryError ?? "Not sent"}</span>{message.delivery === "failed" && onRetryQueued ? <button type="button" onClick={() => onRetryQueued(message.id)} className="min-h-11 rounded-lg border border-board-border px-3 font-semibold text-fire-300 hover:underline">Retry send</button> : null}{onCancelQueued ? <button type="button" onClick={() => onCancelQueued(message.id)} className="min-h-11 rounded-lg border border-board-border px-3 hover:text-board-text hover:underline">Remove local copy</button> : null}</div> : null}
         {!message.deletedAt && !message.delivery && <div className={cn(
-          "z-10 mt-1 flex max-w-full shrink-0 self-start rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition [@media(hover:hover)]:absolute [@media(hover:hover)]:bottom-5 [@media(hover:hover)]:mt-0 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100",
-          isOwn ? "self-end [@media(hover:hover)]:right-1" : "[@media(hover:hover)]:right-1",
+          "relative z-10 mt-1 flex max-w-full shrink-0 self-start rounded-md border border-board-border bg-board-card text-board-muted shadow-sm",
+          isOwn && "self-end",
         )}>
-        {onReply && <button type="button" onClick={() => onReply(message)} className="touch-manipulation p-2 transition hover:bg-board-border/60 hover:text-fire-300 sm:p-1.5" aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
-        {onToggleReaction && <button type="button" onClick={() => setReactionPickerOpen((open) => !open)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Choose reaction" title="Choose reaction"><Smile className="h-3.5 w-3.5" /></button>}
-        {isOwn && onEdit && <button type="button" onClick={() => onEdit(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
-        {isOwn && onDelete && <button type="button" onClick={() => onDelete(message)} className="touch-manipulation border-l border-board-border p-2 transition hover:bg-red-500/10 hover:text-red-300 sm:p-1.5" aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
+        {onReply && <button type="button" onClick={() => onReply(message)} className="min-h-11 min-w-11 touch-manipulation p-2 transition hover:bg-board-border/60 hover:text-fire-300 sm:p-1.5" aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
+        {onSetReaction && <button type="button" disabled={mutationPending} onClick={() => setReactionPickerOpen((open) => !open)} className="min-h-11 min-w-11 touch-manipulation border-l border-board-border p-2 transition disabled:opacity-50 hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Choose reaction" title="Choose reaction"><Smile className="h-3.5 w-3.5" /></button>}
+        {isOwn && onEdit && <button type="button" disabled={mutationPending} onClick={() => onEdit(message)} className="min-h-11 min-w-11 touch-manipulation border-l border-board-border p-2 transition disabled:opacity-50 hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
+        {isOwn && onDelete && <button type="button" disabled={mutationPending} onClick={() => onDelete(message)} className="min-h-11 min-w-11 touch-manipulation border-l border-board-border p-2 transition disabled:opacity-50 hover:bg-red-500/10 hover:text-red-300 sm:p-1.5" aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
         {reactionPickerOpen && <div className="absolute right-0 top-full z-20 mt-1 w-[min(17rem,calc(100vw-2rem))] rounded-lg border border-board-border bg-board-card p-2 shadow-xl">
-          <div className="grid max-h-40 grid-cols-6 gap-1 overflow-y-auto">{MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" onClick={() => { setReactionPickerOpen(false); void onToggleReaction?.(message.id, emoji); }} className="rounded-md p-1.5 text-base hover:bg-board-border/60" aria-label={`React ${emoji}`}>{emoji}</button>)}</div>
-          <form className="mt-2 flex gap-1 border-t border-board-border pt-2" onSubmit={(event) => { event.preventDefault(); if (!isEmojiReaction(customReaction)) return; setReactionPickerOpen(false); setCustomReaction(""); void onToggleReaction?.(message.id, customReaction); }}>
-            <input aria-label="Type or paste any emoji" value={customReaction} onChange={(event) => setCustomReaction(event.target.value)} maxLength={32} placeholder="Any emoji" className="min-w-0 flex-1 rounded-md border border-board-border bg-board-bg px-2 py-1 text-xs text-board-text outline-none focus:border-fire-400/50" />
-            <button type="submit" disabled={!isEmojiReaction(customReaction)} className="rounded-md bg-fire-500 px-2 text-xs font-semibold text-black disabled:opacity-40">Add</button>
+          <div className="grid max-h-60 grid-cols-5 gap-1 overflow-y-auto">{MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" disabled={mutationPending} onClick={() => { setReactionPickerOpen(false); void onSetReaction?.(message.id, emoji, !message.reactions?.some(item => item.emoji === emoji && currentUserId && item.userIds.includes(currentUserId))); }} className="min-h-11 min-w-11 rounded-md p-1.5 text-base hover:bg-board-border/60 disabled:opacity-50" aria-label={`React ${emoji}`}>{emoji}</button>)}</div>
+          <form className="mt-2 flex gap-1 border-t border-board-border pt-2" onSubmit={(event) => { event.preventDefault(); if (mutationPending || !isEmojiReaction(customReaction)) return; setReactionPickerOpen(false); setCustomReaction(""); void onSetReaction?.(message.id, customReaction, !message.reactions?.some(item => item.emoji === customReaction && currentUserId && item.userIds.includes(currentUserId))); }}>
+            <input aria-label="Type or paste any emoji" value={customReaction} onChange={(event) => setCustomReaction(event.target.value)} maxLength={32} placeholder="Any emoji" className="min-h-11 min-w-0 flex-1 rounded-md border border-board-border bg-board-bg px-2 py-1 text-xs text-board-text outline-none focus:border-fire-400/50" />
+            <button type="submit" disabled={mutationPending || !isEmojiReaction(customReaction)} className="min-h-11 min-w-11 rounded-md bg-fire-500 px-2 text-xs font-semibold text-black disabled:opacity-40">Add</button>
           </form>
         </div>}
         </div>}
@@ -397,8 +401,8 @@ interface ChatPanelProps {
   onSendMessage: (text: string, type: MessageType, options?: ChatMessageOptions) => void | Promise<void>;
   onUploadAttachment?: (file: File) => Promise<ChatAttachment>;
   onDiscardAttachment?: (attachment: ChatAttachment) => Promise<void>;
-  onEditMessage?: (messageId: string, text: string) => Promise<void>;
-  onDeleteMessage?: (messageId: string) => Promise<void>;
+  onEditMessage?: (messageId: string, text: string, expectedEditTime: number) => Promise<void>;
+  onDeleteMessage?: (messageId: string, expectedEditTime: number) => Promise<void>;
   mentionMembers?: ChatMemberSummary[];
   onClose?: () => void;
   className?: string;
@@ -413,8 +417,8 @@ interface ChatPanelProps {
   typingUsers?: ChatTypingState[];
   onTypingChange?: (typing: boolean) => void;
   seenThrough?: number;
-  onVotePoll?: (messageId: string, optionId: string) => Promise<void>;
-  onToggleReaction?: (messageId: string, emoji: string) => Promise<void>;
+  onVotePoll?: (messageId: string, optionId: string, expectedOptionId: string | null) => Promise<void>;
+  onSetReaction?: (messageId: string, emoji: string, active: boolean) => Promise<void>;
   focusedMessageId?: string;
   gatewayStatus?: ChatGatewayStatus;
   hydrated?: boolean;
@@ -425,6 +429,9 @@ interface ChatPanelProps {
   loadingOlderMessages?: boolean;
   olderMessagesError?: string | null;
   onLoadOlderMessages?: () => Promise<void>;
+  mutations?: ChatMutationWork[];
+  onRetryMutation?: (requestId: string) => void;
+  onDismissMutation?: (requestId: string) => void;
   notifications?: ChatNotificationWork[];
   onRetryNotifications?: (requestId: string) => void;
   onRetryQueuedMessage?: (messageId: string) => void;
@@ -455,7 +462,7 @@ export function ChatPanel({
   onTypingChange,
   seenThrough,
   onVotePoll,
-  onToggleReaction,
+  onSetReaction,
   focusedMessageId,
   gatewayStatus,
   hydrated = true,
@@ -466,6 +473,9 @@ export function ChatPanel({
   loadingOlderMessages = false,
   olderMessagesError,
   onLoadOlderMessages,
+  mutations = [],
+  onRetryMutation,
+  onDismissMutation,
   notifications = [],
   onRetryNotifications,
   onRetryQueuedMessage,
@@ -481,6 +491,15 @@ export function ChatPanel({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [messageActionError, setMessageActionError] = useState<string | null>(null);
+  const blockedMessages = new Set(mutations.filter(item => item.state !== "settled" || item.result.cleanup !== "complete").map(item => item.command.messageId));
+  const voteSafely: NonNullable<ChatPanelProps["onVotePoll"]> = async (...args) => {
+    try { await onVotePoll?.(...args); setMessageActionError(null); }
+    catch (error) { setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "Vote was not confirmed. Recover the original change."); }
+  };
+  const reactSafely: NonNullable<ChatPanelProps["onSetReaction"]> = async (...args) => {
+    try { await onSetReaction?.(...args); setMessageActionError(null); }
+    catch (error) { setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "Reaction was not confirmed. Recover the original change."); }
+  };
   const [pollOpen, setPollOpen] = useState(false);
   const [pollQuestion, setPollQuestion] = useState("");
   const [pollOptions, setPollOptions] = useState(["", ""]);
@@ -689,12 +708,14 @@ export function ChatPanel({
     if (editingMessage) {
       if (inputText.trim() && onEditMessage) {
         const messageId = editingMessage.id;
-        const nextText = inputText.trim();
-        void onEditMessage(messageId, nextText).then(() => {
-          setEditingMessage(null);
-          setInputText("");
+        const submittedText = inputText;
+        const nextText = submittedText.trim();
+        sendingMessage.current = true;
+        void onEditMessage(messageId, nextText, chatEditTime(editingMessage)).then(() => {
+          setEditingMessage(current => current === editingMessage ? null : current);
+          setInputText(current => current === submittedText ? "" : current);
           setMessageActionError(null);
-        }).catch((error) => setMessageActionError(error instanceof Error ? error.message : "Could not edit message"));
+        }).catch((error) => setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "Could not edit message")).finally(() => { sendingMessage.current = false; });
       }
       return;
     }
@@ -770,10 +791,10 @@ export function ChatPanel({
     });
     if (!confirmed) return;
     try {
-      await onDeleteMessage(message.id);
+      await onDeleteMessage(message.id, chatEditTime(message));
       setMessageActionError(null);
     } catch (error) {
-      setMessageActionError(error instanceof Error ? error.message : "Could not delete message");
+      setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "Could not delete message");
     }
   };
 
@@ -993,7 +1014,7 @@ export function ChatPanel({
                   <span className="h-px flex-1 bg-board-border/70" />
                 </div>
               )}
-              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={beginReply} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} onToggleReaction={onToggleReaction} onOpenImage={setOpenImage} onRetryQueued={onRetryQueuedMessage} onCancelQueued={onCancelQueuedMessage ? id => void removeQueuedMessage(id) : undefined} />
+              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={beginReply} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} mutationPending={blockedMessages.has(msg.id)} onVotePoll={onVotePoll ? voteSafely : undefined} onSetReaction={onSetReaction ? reactSafely : undefined} onOpenImage={setOpenImage} onRetryQueued={onRetryQueuedMessage} onCancelQueued={onCancelQueuedMessage ? id => void removeQueuedMessage(id) : undefined} />
             </div>
           );
           })}
@@ -1020,7 +1041,17 @@ export function ChatPanel({
         </div>
       )}
 
-      {notifications.length > 0 && <section aria-label="Crew notification delivery" className="max-h-48 shrink-0 overflow-x-hidden overflow-y-auto border-t border-board-border">
+      {mutations.length > 0 && <section aria-label="Message changes" className="min-h-20 max-h-48 shrink overflow-x-hidden overflow-y-auto border-t border-board-border">
+        {mutations.map(item => <div key={item.command.requestId} role={item.state === "sending" ? "status" : "alert"} className="space-y-2 border-b border-board-border px-4 py-3 text-sm text-amber-200">
+          <p className="break-words">{item.state === "sending" ? "Confirming message change…" : item.state === "unknown" ? item.error : chatMutationOutcomeMessage(item.result)}</p>
+          <p className="break-words text-xs text-board-muted">{chatMutationSummary(item.command.operation).slice(0, 140)}</p>
+          <time dateTime={new Date(item.at).toISOString()}>{new Date(item.at).toLocaleTimeString()}</time>
+          {item.state !== "sending" && (item.state === "unknown" || item.result.cleanup !== "complete") && onRetryMutation && <button type="button" disabled={connectionStatus !== "connected"} className="ml-2 min-h-11 rounded-lg border border-board-border px-3 disabled:opacity-50" onClick={() => onRetryMutation(item.command.requestId)}>{item.state === "settled" ? "Retry attachment cleanup" : "Recover original change"}</button>}
+          {item.state === "settled" && item.result.cleanup === "complete" && onDismissMutation && <button type="button" className="ml-2 min-h-11 rounded-lg border border-board-border px-3" onClick={() => onDismissMutation(item.command.requestId)}>Dismiss result</button>}
+        </div>)}
+      </section>}
+
+      {notifications.length > 0 && <section aria-label="Crew notification delivery" className="min-h-20 max-h-48 shrink overflow-x-hidden overflow-y-auto border-t border-board-border">
           {notifications.map(item => <div key={item.command.requestId} role={item.status === "failed" ? "alert" : "status"} className="space-y-2 border-b border-board-border px-4 py-3 text-sm text-amber-200">
             <p className="break-words">{item.command.kind === "message" ? "Message delivered." : "Reaction saved."} {item.status === "pending" ? "Sending crew notifications…" : "Crew notifications were not confirmed. Retry notifications without repeating the chat action."}</p>
             <p className="break-words text-xs text-board-muted">{item.label.slice(0, 120)}</p>
@@ -1039,7 +1070,7 @@ export function ChatPanel({
           </div>
         )}
         <div className="overflow-hidden rounded-xl border border-board-border/90 bg-board-bg/55 shadow-[0_12px_32px_rgba(0,0,0,0.18)] transition focus-within:border-fire-500/45 focus-within:ring-2 focus-within:ring-fire-500/10">
-          {editingMessage && <div className="flex items-center gap-3 border-b border-board-border/70 bg-sky-500/[0.045] px-3 py-2"><Pencil className="h-3.5 w-3.5 text-sky-300" /><div className="min-w-0 flex-1"><p className="text-[10px] font-semibold text-sky-300">Editing message</p><p className="truncate text-[10px] text-board-muted">Changes update for everyone in this room.</p></div><button type="button" onClick={() => { setEditingMessage(null); setInputText(""); }} className="rounded p-1 text-board-muted hover:bg-board-border hover:text-board-text" aria-label="Cancel edit"><X className="h-3.5 w-3.5" /></button></div>}
+          {editingMessage && <div className="flex items-center gap-3 border-b border-board-border/70 bg-sky-500/[0.045] px-3 py-2"><Pencil className="h-3.5 w-3.5 text-sky-300" /><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-sky-300">Editing message</p><p className="truncate text-xs text-board-muted">Changes update for everyone in this room.</p></div><button type="button" onClick={() => { setEditingMessage(null); setInputText(""); }} className="min-h-11 min-w-11 rounded p-2 text-board-muted hover:bg-board-border hover:text-board-text" aria-label="Cancel edit"><X className="h-3.5 w-3.5" /></button></div>}
           {replyingTo && (
             <div className="flex items-center gap-3 border-b border-board-border/70 bg-fire-500/[0.045] px-3 py-2">
               <Reply className="h-3.5 w-3.5 shrink-0 text-fire-300" />
@@ -1099,7 +1130,7 @@ export function ChatPanel({
           <button
             type="button"
             onClick={handleSend}
-            disabled={(!inputText.trim() && pendingAttachments.length === 0) || uploadingCount > 0}
+            disabled={(!inputText.trim() && pendingAttachments.length === 0) || uploadingCount > 0 || Boolean(editingMessage && blockedMessages.has(editingMessage.id))}
             className={cn(
               "mb-0.5 min-h-11 min-w-11 shrink-0 rounded-lg p-2.5 shadow-sm transition-all touch-manipulation",
               (inputText.trim() || pendingAttachments.length > 0) && uploadingCount === 0

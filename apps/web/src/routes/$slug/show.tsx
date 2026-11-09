@@ -264,7 +264,7 @@ function ChatPanel({
     uploadAttachment,
     discardAttachment,
     votePoll,
-    toggleReaction,
+    setReaction,
     connectionStatus,
     connectionUpdatedAt,
     retryConnection,
@@ -277,7 +277,7 @@ function ChatPanel({
     loadingOlderMessages,
     olderMessagesError,
     loadOlderMessages,
-    notifications, retryNotifications,
+    mutations, retryMutation, dismissMutation, notifications, retryNotifications,
     retryQueuedMessage,
     cancelQueuedMessage,
   } = useChat({
@@ -318,11 +318,12 @@ function ChatPanel({
         loadingOlderMessages={loadingOlderMessages}
         olderMessagesError={olderMessagesError}
         onLoadOlderMessages={loadOlderMessages}
-        notifications={notifications} onRetryNotifications={retryNotifications}
+        mutations={mutations} onRetryMutation={retryMutation} onDismissMutation={dismissMutation}
+          notifications={notifications} onRetryNotifications={retryNotifications}
         onRetryQueuedMessage={retryQueuedMessage}
         onCancelQueuedMessage={cancelQueuedMessage}
         onVotePoll={votePoll}
-        onToggleReaction={toggleReaction}
+        onSetReaction={setReaction}
         typingUsers={typingUsers}
         onTypingChange={setTyping}
         title="Team Chat"

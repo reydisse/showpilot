@@ -26,7 +26,7 @@ function setup(notify = vi.fn(async input => ({ ...input, notified: 1 }))) {
   const mount = (initialProps = props) => renderHook(p => hook(p.org, p.room, p.user), { wrapper, initialProps });
   const result = mount();
   const flush = () => act(async () => { await vi.advanceTimersByTimeAsync(0); });
-  const hydrate = async (messages = []) => { await flush(); await act(async () => { sockets.at(-1).open(); sockets.at(-1).receive({ type: "hydrate", messages }); await vi.advanceTimersByTimeAsync(0); }); };
+  const hydrate = async (messages = []) => { await flush(); await act(async () => { sockets.at(-1).open(); sockets.at(-1).receive({ type: "hydrate", serverTime: Date.now(), messages }); await vi.advanceTimersByTimeAsync(0); }); };
   return { ...result, mount, sockets, transport, fetch, notify, client, props, flush, hydrate,
     background: async state => act(async () => { app.currentState = state; for(const listener of listeners) listener(state); }) };
 }
@@ -123,7 +123,7 @@ it("keeps auth errors until a complete hydration and does not reconnect in the b
 });
 it("rejects malformed history rather than declaring an empty room ready", async () => {
   const f = setup(); await f.flush();
-  await act(async () => f.sockets[0].receive({ type: "hydrate", messages: [{ id: "bad" }] }));
+  await act(async () => f.sockets[0].receive({ type: "hydrate", serverTime: Date.now(), messages: [{ id: "bad" }] }));
   expect(f.result.current.hydrated).toBe(false); expect(f.result.current.lastError).toMatch(/invalid history/);
   expect(f.sockets[0].readyState).toBe(Socket.CLOSED);
 });
@@ -171,18 +171,18 @@ it.each(["hydrate", "room"])("cancels an older page on %s and cannot restore cle
   const f = setup(); await f.hydrate(Array.from({ length: 2000 }, (_, i) => message(String(i)))); let finish;
   f.fetch.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   let pending; await act(async () => { pending = f.result.current.loadOlder(); });
-  if(operation === "hydrate") await act(async () => f.sockets[0].receive({ type: "hydrate", messages: [], historyCleared: true }));
+  if(operation === "hydrate") await act(async () => f.sockets[0].receive({ type: "hydrate", serverTime: Date.now(), messages: [], historyCleared: true }));
   else { f.rerender({ ...f.props, room: "planning" }); await f.hydrate(); }
   await act(async () => finish(new Response(JSON.stringify({ messages: [message("stale")], nextCursor: null })))); await pending;
   expect(f.result.current.messages).toEqual([]); expect(f.result.current.loadingOlder).toBe(false);
 });
 it("requires hydration for edits and cleans pending mutation timers on errors and disconnect", async () => {
   const f = setup(); await f.flush(); await act(async () => f.sockets[0].open());
-  await expect(f.result.current.editMessage("msg", "Edited")).rejects.toThrow("not ready");
+  await expect(f.result.current.editMessage("msg", "Edited", 1)).rejects.toThrow("not ready");
   await f.hydrate(); f.sockets[0].sendError = true;
-  await expect(f.result.current.editMessage("msg", "Edited")).rejects.toThrow("could not send");
-  f.sockets[0].sendError = false; const result = f.result.current.deleteMessage("msg");
-  const failed = expect(result).rejects.toThrow("disconnected"); await act(async () => f.sockets[0].close()); await failed;
+  await expect(f.result.current.editMessage("msg", "Edited", 1)).rejects.toThrow("Socket write failed");
+  f.sockets[0].sendError = false; const result = f.result.current.deleteMessage("another-message", 1);
+  const failed = expect(result).rejects.toThrow("not confirmed"); await act(async () => f.sockets[0].close()); await failed;
   await act(async () => vi.advanceTimersByTimeAsync(8001)); expect(f.result.current.status).not.toBe("connected");
 });
 it("keeps live edits, reactions, typing and read receipts after hydration", async () => {
@@ -194,9 +194,9 @@ it("keeps live edits, reactions, typing and read receipts after hydration", asyn
     f.result.current.setTyping(true); f.result.current.markRead(50);
   });
   expect(f.result.current.messages[0].text).toBe("Edited"); expect(f.result.current.typingUsers).toHaveLength(1); expect(f.result.current.readReceipts.crew).toBe(50);
-  let mutation; await act(async () => { mutation = f.result.current.toggleReaction("message", "👍"); });
-  const sent = f.sockets[0].sent.at(-1); expect(sent).toMatchObject({ type: "reaction", emoji: "👍" });
-  await act(async () => f.sockets[0].receive({ type: "mutation-result", requestId: sent.requestId, ok: true })); await mutation;
+  let mutation; await act(async () => { mutation = f.result.current.setReaction("message", "👍", true); });
+  const sent = f.sockets[0].sent.at(-1); expect(sent).toMatchObject({ type: "mutation", command: { operation: { kind: "reaction", emoji: "👍", active: true } } });
+  await act(async () => f.sockets[0].receive({ type: "mutation-result", result: { command: sent.command, outcome: "applied", cleanup: "complete", at: Date.now() } })); await mutation;
   await act(async () => vi.advanceTimersByTimeAsync(3501)); expect(f.result.current.typingUsers).toEqual([]);
 });
 it("clears a socket-write error when that same message is acknowledged", async () => {
@@ -277,22 +277,58 @@ it("uses the poll question in notification delivery", async () => {
 it("retries a saved reaction notification without toggling the reaction again", async () => {
   const notify = vi.fn().mockRejectedValueOnce(new Error("Inbox failed")).mockImplementation(async input => ({ ...input, notified: 1 }));
   const f = setup(notify); await f.hydrate([message("crew-message", { senderId: "crew", senderName: "Crew" })]);
-  let pending; await act(async () => { pending = f.result.current.toggleReaction("crew-message", "👍"); });
+  let pending; await act(async () => { pending = f.result.current.setReaction("crew-message", "👍", true); });
   const sent = f.sockets[0].sent.at(-1);
   await act(async () => {
     f.sockets[0].receive({ type: "message-edited", message: message("crew-message", { senderId: "crew", senderName: "Crew", reactions: [{ emoji: "👍", userIds: ["operator"] }] }) });
-    f.sockets[0].receive({ type: "mutation-result", requestId: sent.requestId, ok: true });
+    f.sockets[0].receive({ type: "mutation-result", result: { command: sent.command, outcome: "applied", cleanup: "complete", at: Date.now() } });
     await pending;
   }); await f.flush();
-  expect(f.result.current.outbox[0]).toMatchObject({ kind: "notification-failed", id: sent.requestId });
-  expect(notify.mock.calls[0][0]).toEqual({ kind: "reaction", orgId: "org", userId: "operator", roomId: "production", messageId: "crew-message", requestId: sent.requestId, targetUserId: "crew", emoji: "👍" });
-  await act(async () => f.result.current.retryNotifications(sent.requestId)); await f.flush();
+  expect(f.result.current.outbox[0]).toMatchObject({ kind: "notification-failed", id: sent.command.requestId });
+  expect(notify.mock.calls[0][0]).toEqual({ kind: "reaction", orgId: "org", userId: "operator", roomId: "production", messageId: "crew-message", requestId: sent.command.requestId, targetUserId: "crew", emoji: "👍" });
+  await act(async () => f.result.current.retryNotifications(sent.command.requestId)); await f.flush();
   expect(f.result.current.outbox).toEqual([]); expect(f.sockets[0].sent).toHaveLength(1);
   expect(notify.mock.calls[1][0]).toEqual(notify.mock.calls[0][0]);
 });
 it.each(["removed", "self"])("does not notify a %s reaction", async kind => {
   const f = setup(); await f.hydrate([message("target", { senderId: kind === "self" ? "operator" : "crew", reactions: kind === "self" ? [{ emoji: "👍", userIds: ["operator"] }] : [] })]);
-  let pending; await act(async () => { pending = f.result.current.toggleReaction("target", "👍"); });
-  await act(async () => { f.sockets[0].receive({ type: "mutation-result", requestId: f.sockets[0].sent.at(-1).requestId, ok: true }); await pending; });
+  let pending; await act(async () => { pending = f.result.current.setReaction("target", "👍", kind !== "removed"); });
+  await act(async () => { f.sockets[0].receive({ type: "mutation-result", result: { command: f.sockets[0].sent.at(-1).command, outcome: "applied", cleanup: "complete", at: Date.now() } }); await pending; });
   expect(f.notify).not.toHaveBeenCalled(); expect(f.result.current.outbox).toEqual([]);
+});
+
+it.each(["edit", "delete", "reaction", "vote"])("recovers the exact native %s after navigation without replaying a new action", async kind => {
+  const f = setup(); await f.hydrate([message()]);
+  const actions = {
+    edit: () => f.result.current.editMessage("message", "Captured edit", 1),
+    delete: () => f.result.current.deleteMessage("message", 1),
+    reaction: () => f.result.current.setReaction("message", "👍", true),
+    vote: () => f.result.current.votePoll("message", "option-2", "option-1"),
+  };
+  let pending;
+  await act(async () => { pending = actions[kind]().catch(error => error); });
+  const original = f.sockets[0].sent.find(frame => frame.type === "mutation");
+  expect(original.command.operation.kind).toBe(kind);
+  await act(async () => vi.advanceTimersByTimeAsync(8001));
+  expect(await pending).toBeInstanceOf(Error);
+  expect(f.result.current.mutations).toMatchObject([{ command: original.command, state: "unknown" }]);
+  await act(async () => f.rerender({ ...f.props, room: "planning" })); await f.hydrate();
+  expect(f.result.current.mutations).toEqual([]);
+  await act(async () => f.rerender(f.props)); await f.hydrate([message()]);
+  expect(f.result.current.mutations).toMatchObject([{ command: original.command, state: "unknown" }]);
+  expect(f.sockets.at(-1).sent).toEqual([]);
+  await act(async () => f.result.current.retryMutation(original.command.requestId));
+  expect(f.sockets.at(-1).sent).toEqual([original]);
+  await act(async () => f.sockets.at(-1).receive({ type: "mutation-result", result: { command: original.command, outcome: "applied", at: Date.now(), cleanup: "complete" } }));
+  expect(f.result.current.mutations).toMatchObject([{ state: "settled", result: { outcome: "applied" } }]);
+  await act(async () => f.result.current.dismissMutation(original.command.requestId));
+  expect(f.result.current.mutations).toEqual([]);
+});
+
+it("blocks a second native action while the original mutation outcome is unknown", async () => {
+  const f = setup(); await f.hydrate([message()]); let pending;
+  await act(async () => { pending = f.result.current.editMessage("message", "Draft", 1).catch(error => error); });
+  await act(async () => vi.advanceTimersByTimeAsync(8001)); await pending;
+  await expect(f.result.current.deleteMessage("message", 1)).rejects.toThrow("Recover the original");
+  expect(f.sockets[0].sent.filter(frame => frame.type === "mutation")).toHaveLength(1);
 });

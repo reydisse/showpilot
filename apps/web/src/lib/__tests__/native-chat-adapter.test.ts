@@ -35,7 +35,7 @@ describe("NativeChatAdapter recovery and history", () => {
       const socket = FakeWebSocket.instances.at(-1)!;
       socket.open(); await opening;
       expect(adapter.connectionStatus()).toBe("connecting");
-      socket.receive({ type: "hydrate", messages: [], readReceipts: {} });
+      socket.receive({ type: "hydrate", serverTime: Date.now(), messages: [], readReceipts: {} });
       expect(adapter.connectionStatus()).toBe("connected");
     } finally { adapter.disconnect(); }
   });
@@ -52,11 +52,11 @@ describe("NativeChatAdapter recovery and history", () => {
       expect(adapter.connectionStatus()).toBe("reconnecting");
       await vi.advanceTimersByTimeAsync(1_000);
       expect(FakeWebSocket.instances).toHaveLength(2);
-      old.receive({ type: "hydrate", messages: [], readReceipts: {} });
+      old.receive({ type: "hydrate", serverTime: Date.now(), messages: [], readReceipts: {} });
       old.onclose?.({ code: 1006, reason: "Late close" });
       expect(adapter.connectionStatus()).toBe("reconnecting");
       const replacement = FakeWebSocket.instances.at(-1)!;
-      replacement.open(); replacement.receive({ type: "hydrate", messages: [], readReceipts: {} });
+      replacement.open(); replacement.receive({ type: "hydrate", serverTime: Date.now(), messages: [], readReceipts: {} });
       expect(adapter.connectionStatus()).toBe("connected");
     } finally { adapter.disconnect(); vi.useRealTimers(); }
   });
@@ -77,11 +77,11 @@ describe("NativeChatAdapter recovery and history", () => {
       const current = FakeWebSocket.instances.at(-1)!;
       current.open();
       expect(adapter.connectionStatus()).toBe("reconnecting");
-      old.receive({ type: "hydrate", messages: [], readReceipts: {} });
+      old.receive({ type: "hydrate", serverTime: Date.now(), messages: [], readReceipts: {} });
       old.close();
       expect(adapter.connectionStatus()).toBe("reconnecting");
       expect(current.sent).toEqual([]);
-      current.receive({ type: "hydrate", messages: [], readReceipts: {} });
+      current.receive({ type: "hydrate", serverTime: Date.now(), messages: [], readReceipts: {} });
       expect(adapter.connectionStatus()).toBe("connected");
       expect(current.sent.map(frame => JSON.parse(frame)).filter(frame => frame.type === "message")).toHaveLength(1);
       current.receive({ type: "history", messages: [], readReceipts: {} });
@@ -116,7 +116,7 @@ describe("NativeChatAdapter recovery and history", () => {
     const connected = adapter.connect();
     const socket = FakeWebSocket.instances.at(-1)!;
     socket.open(); await connected;
-    socket.receive({ type: "hydrate", messages: [{ id: "new", orgId: "org-1", senderName: "Ada", text: "New", type: "text", timestamp: 200 }], readReceipts: {} });
+    socket.receive({ type: "hydrate", serverTime: Date.now(), messages: [{ id: "new", orgId: "org-1", senderName: "Ada", text: "New", type: "text", timestamp: 200 }], readReceipts: {} });
     let finish!: (response: Response) => void;
     const fetcher = vi.fn().mockImplementationOnce(() => new Promise<Response>(resolve => { finish = resolve; }))
       .mockResolvedValueOnce(Response.json({ messages: [], nextCursor: null }));
@@ -140,7 +140,7 @@ describe("NativeChatAdapter recovery and history", () => {
     const connected = adapter.connect();
     const socket = FakeWebSocket.instances.at(-1)!;
     socket.open(); await connected;
-    socket.receive({ type: "hydrate", messages: [{ id: "new", orgId: "org-1", senderName: "Ada", text: "New", type: "text", timestamp: 200 }], readReceipts: {} });
+    socket.receive({ type: "hydrate", serverTime: Date.now(), messages: [{ id: "new", orgId: "org-1", senderName: "Ada", text: "New", type: "text", timestamp: 200 }], readReceipts: {} });
     let finish!: (response: Response) => void;
     const fetcher = vi.fn(() => new Promise<Response>(resolve => { finish = resolve; }));
     vi.stubGlobal("fetch", fetcher);
@@ -170,7 +170,7 @@ describe("NativeChatAdapter recovery and history", () => {
     const socket = FakeWebSocket.instances.at(-1)!;
     socket.open();
     await connected;
-    socket.receive({ type: "hydrate", messages: [], readReceipts: {} });
+    socket.receive({ type: "hydrate", serverTime: Date.now(), messages: [], readReceipts: {} });
     expect(socket.sent.some((frame) => JSON.parse(frame).clientMessageId === messageId)).toBe(true);
     expect(outboxSnapshots.at(-1)).toMatchObject([{ id: messageId, delivery: "sending" }]);
 
@@ -185,7 +185,7 @@ describe("NativeChatAdapter recovery and history", () => {
     const socket = FakeWebSocket.instances.at(-1)!;
     socket.open();
     await connected;
-    socket.receive({ type: "hydrate", messages: [{ id: "new", orgId: "org-1", senderName: "Ada", text: "New", type: "text", timestamp: 200 }], readReceipts: {} });
+    socket.receive({ type: "hydrate", serverTime: Date.now(), messages: [{ id: "new", orgId: "org-1", senderName: "Ada", text: "New", type: "text", timestamp: 200 }], readReceipts: {} });
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ messages: [{ id: "old", orgId: "org-1", senderName: "Ben", text: "Old", type: "text", timestamp: 100 }], nextCursor: null }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -229,7 +229,7 @@ describe("web chat message and notification confirmation", () => {
   async function open(userId = "actor", room = "production") {
     const adapter = new NativeChatAdapter(orgId, undefined, room, `user-${userId}`, userId); adapters.push(adapter);
     const connected = adapter.connect(); const socket = FakeWebSocket.instances.at(-1)!;
-    socket.open(); await connected; socket.receive({ type: "hydrate", messages: [], readReceipts: {} });
+    socket.open(); await connected; socket.receive({ type: "hydrate", serverTime: Date.now(), messages: [], readReceipts: {} });
     return { adapter, socket };
   }
   const confirmed = (id: string, more = {}) => ({ id, orgId, senderId: "actor", senderName: "Ada", text: "Fixture message", type: "text", timestamp: Date.now(), ...more });
@@ -335,14 +335,47 @@ describe("web chat message and notification confirmation", () => {
     fetcher.mockResolvedValueOnce(new Response("Unavailable", { status: 503 }));
     const { adapter, socket } = await open(); const id = crypto.randomUUID();
     socket.receive({ type: "message", message: confirmed(id, { senderId: "crew", senderName: "Crew" }) });
-    const changing = adapter.toggleReaction(id, "👍");
+    const changing = adapter.setReaction(id, "👍", true);
     const mutation = JSON.parse(socket.sent.at(-1)!);
     socket.receive({ type: "message-edited", message: confirmed(id, { senderId: "crew", senderName: "Crew", reactions: [{ emoji: "👍", userIds: ["actor"] }] }) });
-    socket.receive({ type: "mutation-result", requestId: mutation.requestId, ok: true });
+    socket.receive({ type: "mutation-result", result: { command: mutation.command, outcome: "applied", cleanup: "complete", at: Date.now() } });
     await changing; await vi.advanceTimersByTimeAsync(1);
     let work: import("../chat-notifications").ChatNotificationWork[] = []; adapter.onNotifications(value => { work = value; });
-    expect(work).toMatchObject([{ status: "failed", command: { kind: "reaction", requestId: mutation.requestId } }]);
-    adapter.retryNotifications(mutation.requestId); await vi.advanceTimersByTimeAsync(1);
+    expect(work).toMatchObject([{ status: "failed", command: { kind: "reaction", requestId: mutation.command.requestId } }]);
+    adapter.retryNotifications(mutation.command.requestId); await vi.advanceTimersByTimeAsync(1);
     expect(socket.sent).toHaveLength(1); expect(fetcher).toHaveBeenCalledTimes(2); expect(work).toEqual([]);
   });
+});
+
+it.each(["edit", "delete", "reaction", "vote"] as const)("retains web %s recovery across adapter replacement with the same request identity", async kind => {
+  vi.useFakeTimers(); vi.stubGlobal("WebSocket", FakeWebSocket);
+  const org = `web-mutation-${kind}`, user = "mutation-operator";
+  const old = new NativeChatAdapter(org, undefined, "production", user, user);
+  const current = new NativeChatAdapter(org, undefined, "production", user, user);
+  const message = { id: "message", senderId: user, senderName: "Operator", text: "Original", type: "text", timestamp: 1 };
+  const open = async (adapter: NativeChatAdapter) => {
+    const connecting = adapter.connect(), socket = FakeWebSocket.instances.at(-1)!;
+    socket.open(); await connecting;
+    socket.receive({ type: "hydrate", serverTime: 100000, messages: [message], readReceipts: {} });
+    return socket;
+  };
+  try {
+    const socket = await open(old);
+    const actions = { edit: () => old.editMessage("message", "Captured edit", 1), delete: () => old.deleteMessage("message", 1),
+      reaction: () => old.setReaction("message", "👍", true), vote: () => old.votePoll("message", "option-2", "option-1") };
+    const pending = actions[kind]().catch(error => error);
+    const original = JSON.parse(socket.sent[0]);
+    expect(original.command.expiresAt).toBe(110000);
+    await vi.advanceTimersByTimeAsync(8001); expect(await pending).toBeInstanceOf(Error);
+    old.disconnect(); const replacement = await open(current);
+    let work: import("@showpilot/shared/chat-mutation-tracker").ChatMutationWork[] = [];
+    const release = current.onMutations(value => { work = value; });
+    expect(work).toMatchObject([{ command: original.command, state: "unknown" }]);
+    expect(replacement.sent).toEqual([]);
+    current.retryMutation(original.command.requestId);
+    expect(replacement.sent.map(frame => JSON.parse(frame))).toEqual([original]);
+    replacement.receive({ type: "mutation-result", result: { command: original.command, outcome: "applied", at: 105000, cleanup: "complete" } });
+    expect(work).toMatchObject([{ state: "settled", result: { outcome: "applied" } }]);
+    current.dismissMutation(original.command.requestId); expect(work).toEqual([]); release();
+  } finally { old.disconnect(); current.disconnect(); vi.unstubAllGlobals(); vi.useRealTimers(); }
 });
