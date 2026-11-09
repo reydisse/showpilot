@@ -1,6 +1,6 @@
 import { PageBreadcrumb } from "@/components/ui/PageBreadcrumb";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Archive,
   ArrowLeft,
@@ -10,6 +10,8 @@ import {
   Search,
 } from "lucide-react";
 import { PageSkeleton } from "@/components/ui/Skeleton";
+import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
+import { parseIncidentTimestamp } from "@/lib/incident-time";
 import { getIncidentHistory } from "@/lib/incident-history";
 
 const DEFAULTS = {
@@ -26,7 +28,7 @@ const DEFAULTS = {
 
 export const Route = createFileRoute("/$slug/production/incidents-history")({
   validateSearch: (search: Record<string, unknown>) => ({
-    query: typeof search.query === "string" ? search.query : "",
+    query: typeof search.query === "string" ? search.query.slice(0, 200) : "",
     status:
       search.status === "open" || search.status === "resolved"
         ? search.status
@@ -36,21 +38,22 @@ export const Route = createFileRoute("/$slug/production/incidents-history")({
     )
       ? (String(search.severity) as "low" | "medium" | "high" | "critical")
       : "all",
-    category: typeof search.category === "string" ? search.category : "",
-    assignee: typeof search.assignee === "string" ? search.assignee : "",
+    category: typeof search.category === "string" ? search.category.slice(0, 100) : "",
+    assignee: typeof search.assignee === "string" ? search.assignee.slice(0, 200) : "",
     from: typeof search.from === "string" ? search.from : "",
     to: typeof search.to === "string" ? search.to : "",
     sort:
       search.sort === "oldest" || search.sort === "severity"
         ? search.sort
         : "newest",
-    page: Math.max(1, Number(search.page) || 1),
+    page: Number.isSafeInteger(Number(search.page)) && Number(search.page) > 0
+      ? Math.min(10_000, Number(search.page)) : 1,
   }),
   loaderDeps: ({ search }) => search,
   pendingMs: 800,
   pendingMinMs: 100,
   pendingComponent: () => <PageSkeleton />,
-  loader: async ({ context, deps }) => {
+  loader: async ({ context, deps, abortController }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(
       context.role,
@@ -59,6 +62,7 @@ export const Route = createFileRoute("/$slug/production/incidents-history")({
       context.orgId,
     );
     return getIncidentHistory({
+      signal: abortController.signal,
       data: {
         orgId: context.orgId,
         query: deps.query || undefined,
@@ -83,20 +87,21 @@ function IncidentHistoryPage() {
   const { slug } = Route.useParams();
   const navigate = useNavigate({ from: Route.fullPath });
   const [queryDraft, setQueryDraft] = useState(search.query);
+  const timeZone = useDeviceTimeZone();
   const pages = Math.max(1, Math.ceil(result.total / result.pageSize));
-  const update = (patch: Partial<typeof search>) =>
-    void navigate({ search: { ...search, ...patch, page: patch.page ?? 1 } });
+  const update = useCallback((patch: Partial<typeof search>) =>
+    void navigate({ search: (current) => ({ ...current, ...patch, page: patch.page ?? 1 }) }), [navigate]);
 
   useEffect(() => setQueryDraft(search.query), [search.query]);
   useEffect(() => {
     if (queryDraft === search.query) return;
     const timeout = setTimeout(() => update({ query: queryDraft }), 350);
     return () => clearTimeout(timeout);
-  }, [queryDraft, search.query]);
+  }, [queryDraft, search.query, update]);
 
   return (
-    <div className="h-full overflow-auto">
-      <header className="sticky top-0 z-10 border-b border-board-border bg-board-bg/90 px-4 py-3 backdrop-blur-xl md:px-6">
+    <div className="h-full overflow-auto [overflow-wrap:anywhere]">
+      <header className="border-b border-board-border bg-board-bg/90 px-4 py-3 backdrop-blur-xl md:px-6">
         <div className="flex flex-wrap items-center gap-3">
           <PageBreadcrumb current="History">
             <Link activeOptions={{ exact: true }}
@@ -114,25 +119,28 @@ function IncidentHistoryPage() {
             <h1 className="text-base font-semibold text-board-text">
               Incident history
             </h1>
-            <p className="text-[11px] text-board-muted">
+            <p className="text-xs text-board-muted">
               Search and review every reported production issue
             </p>
           </div>
-          <span className="ml-auto text-xs tabular-nums text-board-muted">
+          <span className="ml-auto min-h-11 min-w-11 rounded-lg px-3 outline-none focus-visible:ring-2 focus-visible:ring-fire-500 text-xs tabular-nums text-board-muted">
             {result.total} result{result.total === 1 ? "" : "s"}
           </span>
         </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(180px,1fr)_120px_120px_140px_140px_140px]">
-          <label className="relative">
-            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-board-muted" />
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <label className="relative min-w-0">
+            <span className="sr-only">Search incident history</span>
+            <Search className="absolute left-3 top-3.5 h-3.5 w-3.5 text-board-muted" />
             <input
+              maxLength={200}
               value={queryDraft}
               onChange={(e) => setQueryDraft(e.target.value)}
               placeholder="Search issues, people, categories…"
-              className="w-full rounded-lg border border-board-border bg-board-card py-2 pl-9 pr-3 text-xs text-board-text outline-none focus:border-fire-500/50"
+              className="min-h-11 w-full rounded-lg border border-board-border bg-board-card py-2 pl-9 pr-3 text-xs text-board-text outline-none focus:border-fire-500/50"
             />
           </label>
           <Filter
+            label="Status"
             value={search.status}
             onChange={(value) =>
               update({ status: value as typeof search.status })
@@ -140,6 +148,7 @@ function IncidentHistoryPage() {
             options={["all", "open", "resolved"]}
           />
           <Filter
+            label="Severity"
             value={search.severity}
             onChange={(value) =>
               update({ severity: value as typeof search.severity })
@@ -147,9 +156,10 @@ function IncidentHistoryPage() {
             options={["all", "critical", "high", "medium", "low"]}
           />
           <select
+            aria-label="Category"
             value={search.category}
             onChange={(e) => update({ category: e.target.value })}
-            className="rounded-lg border border-board-border bg-board-card px-3 py-2 text-xs text-board-text outline-none focus:border-fire-500/50"
+            className="min-h-11 min-w-0 rounded-lg border border-board-border bg-board-card px-3 py-2 text-xs text-board-text outline-none focus:border-fire-500/50"
           >
             <option value="">All categories</option>
             {result.categories.map((category) => (
@@ -157,12 +167,15 @@ function IncidentHistoryPage() {
             ))}
           </select>
           <input
+            aria-label="Assignee"
+            maxLength={200}
             value={search.assignee}
             onChange={(e) => update({ assignee: e.target.value })}
             placeholder="Assignee"
-            className="rounded-lg border border-board-border bg-board-card px-3 py-2 text-xs text-board-text outline-none focus:border-fire-500/50"
+            className="min-h-11 min-w-0 rounded-lg border border-board-border bg-board-card px-3 py-2 text-xs text-board-text outline-none focus:border-fire-500/50"
           />
           <Filter
+            label="Sort history"
             value={search.sort}
             onChange={(value) => update({ sort: value as typeof search.sort })}
             options={["newest", "oldest", "severity"]}
@@ -171,20 +184,24 @@ function IncidentHistoryPage() {
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <input
             type="date"
+            aria-label="From date"
+            max={search.to || undefined}
             value={search.from}
             onChange={(e) => update({ from: e.target.value })}
-            className="w-auto rounded-lg border border-board-border bg-board-card px-3 py-2 text-xs text-board-text outline-none"
+            className="min-h-11 min-w-0 max-w-full rounded-lg border border-board-border bg-board-card px-3 py-2 text-xs text-board-text outline-none"
           />
-          <span className="text-[10px] text-board-muted">to</span>
+          <span className="text-xs text-board-muted">to</span>
           <input
             type="date"
+            aria-label="To date"
+            min={search.from || undefined}
             value={search.to}
             onChange={(e) => update({ to: e.target.value })}
-            className="w-auto rounded-lg border border-board-border bg-board-card px-3 py-2 text-xs text-board-text outline-none"
+            className="min-h-11 min-w-0 max-w-full rounded-lg border border-board-border bg-board-card px-3 py-2 text-xs text-board-text outline-none"
           />
           <button
-            onClick={() => void navigate({ search: DEFAULTS })}
-            className="ml-auto text-[11px] text-board-muted hover:text-board-text"
+            onClick={() => { setQueryDraft(""); void navigate({ search: DEFAULTS }); }}
+            className="ml-auto min-h-11 min-w-11 rounded-lg px-3 outline-none focus-visible:ring-2 focus-visible:ring-fire-500 text-xs text-board-muted hover:text-board-text"
           >
             Clear filters
           </button>
@@ -199,14 +216,15 @@ function IncidentHistoryPage() {
                 to="/$slug/production/incidents"
                 params={{ slug }}
                 search={{ incident: incident.id, date: incident.serviceDate, show: incident.showId ?? undefined }}
-                className="grid gap-2 border-t border-board-border/70 p-4 first:border-t-0 hover:bg-board-bg/55 md:grid-cols-[110px_minmax(0,1fr)_150px]"
+                className="grid gap-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fire-500 border-t border-board-border/70 p-4 first:border-t-0 hover:bg-board-bg/55 md:grid-cols-[110px_minmax(0,1fr)_150px]"
               >
                 <div>
                   <p className="text-xs font-medium text-board-text">
                     {incident.serviceDate}
                   </p>
-                  <p className="mt-1 text-[10px] text-board-muted">
-                    {new Date(incident.timestamp).toLocaleTimeString([], {
+                  <p className="mt-1 text-xs text-board-muted">
+                    {parseIncidentTimestamp(incident.timestamp).toLocaleTimeString("en-US", {
+                      timeZone,
                       hour: "2-digit",
                       minute: "2-digit",
                     })}
@@ -215,31 +233,31 @@ function IncidentHistoryPage() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span
-                      className={`text-[9px] font-semibold uppercase ${incident.status === "open" ? "text-red-400" : "text-green-400"}`}
+                      className={`text-xs font-semibold uppercase ${incident.status === "open" ? "text-red-400" : "text-green-400"}`}
                     >
                       {incident.status}
                     </span>
-                    <span className="text-[9px] uppercase text-board-muted">
+                    <span className="text-xs uppercase text-board-muted">
                       {incident.severity}
                     </span>
-                    <span className="text-[9px] text-board-muted">
+                    <span className="text-xs text-board-muted">
                       {incident.category}
                     </span>
                   </div>
                   <p className="mt-1 text-sm text-board-text">
                     {incident.description}
                   </p>
-                  <p className="mt-1 text-[10px] text-board-muted">
+                  <p className="mt-1 text-xs text-board-muted">
                     Reported by {incident.reportedBy || "Unknown"}
                   </p>
                 </div>
                 <div className="md:text-right">
-                  <p className="text-[11px] text-board-text">
+                  <p className="text-xs text-board-text">
                     {incident.assignedName || "Unassigned"}
                   </p>
-                  <p className="mt-1 inline-flex items-center gap-1 text-[10px] text-board-muted">
+                  <p className="mt-1 inline-flex items-center gap-1 text-xs text-board-muted">
                     <MessageCircle className="h-3 w-3" />
-                    {incident.commentCount}
+                    {incident.commentCount} {incident.commentCount === 1 ? "comment" : "comments"}
                   </p>
                 </div>
               </Link>
@@ -264,7 +282,7 @@ function IncidentHistoryPage() {
               onClick={() => update({ page: result.page - 1 })}
               aria-label="Previous incident page"
               title="Previous incident page"
-              className="rounded-lg border border-board-border p-2 text-board-muted disabled:opacity-30"
+              className="min-h-11 min-w-11 rounded-lg border border-board-border p-2 outline-none focus-visible:ring-2 focus-visible:ring-fire-500 text-board-muted disabled:opacity-30"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -277,7 +295,7 @@ function IncidentHistoryPage() {
               onClick={() => update({ page: result.page + 1 })}
               aria-label="Next incident page"
               title="Next incident page"
-              className="rounded-lg border border-board-border p-2 text-board-muted disabled:opacity-30"
+              className="min-h-11 min-w-11 rounded-lg border border-board-border p-2 outline-none focus-visible:ring-2 focus-visible:ring-fire-500 text-board-muted disabled:opacity-30"
             >
               <ChevronRight className="h-4 w-4" />
             </button>
@@ -289,23 +307,26 @@ function IncidentHistoryPage() {
 }
 
 function Filter({
+  label,
   value,
   onChange,
   options,
 }: {
+  label: string;
   value: string;
   onChange: (value: string) => void;
   options: string[];
 }) {
   return (
     <select
+      aria-label={label}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="rounded-lg border border-board-border bg-board-card px-3 py-2 text-xs text-board-text outline-none focus:border-fire-500/50"
+      className="min-h-11 min-w-0 rounded-lg border border-board-border bg-board-card px-3 py-2 text-xs text-board-text outline-none focus:border-fire-500/50"
     >
       {options.map((option) => (
         <option key={option} value={option}>
-          {option[0].toUpperCase() + option.slice(1)}
+          {option === "all" ? `All ${label === "Status" ? "statuses" : "severities"}` : option[0].toUpperCase() + option.slice(1)}
         </option>
       ))}
     </select>
