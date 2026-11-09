@@ -7,6 +7,25 @@ const scope = z.object({
   requestId: z.string().min(1).max(64),
   expectedRevision: z.number().int().nonnegative(),
 });
+export const rundownItemFieldsSchema = z
+  .object({
+    title: z.string().trim().min(1).max(500),
+    type: z.enum([
+      "segment",
+      "song",
+      "header",
+      "prayer",
+      "announcement",
+      "offering",
+      "custom",
+    ]),
+    duration: z.number().int().min(0).max(604800000),
+    notes: z.string().max(20000),
+    assignee: z.string().max(500),
+    cue: z.string().max(2000),
+    hardStop: z.boolean(),
+  })
+  .strict();
 export const rundownChangeCommandSchema = z.discriminatedUnion("action", [
   scope
     .extend({
@@ -22,6 +41,26 @@ export const rundownChangeCommandSchema = z.discriminatedUnion("action", [
     .strict(),
   scope.extend({ action: z.literal("clear-all") }).strict(),
   scope.extend({ action: z.literal("reset") }).strict(),
+  scope
+    .extend({
+      action: z.literal("add-item"),
+      itemId: z.string().min(1).max(128),
+      fields: rundownItemFieldsSchema,
+    })
+    .strict(),
+  scope
+    .extend({
+      action: z.literal("update-item"),
+      itemId: z.string().min(1).max(128),
+      fields: rundownItemFieldsSchema,
+    })
+    .strict(),
+  scope
+    .extend({
+      action: z.literal("reorder"),
+      order: z.array(z.string().min(1).max(128)).min(1).max(10000),
+    })
+    .strict(),
 ]);
 export const rundownChangeReplySchema = z.object({
   orgId: z.string(),
