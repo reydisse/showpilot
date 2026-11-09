@@ -1,10 +1,46 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { AutomationEventEditor } from "../AutomationEventEditor";
 import type { NewAutomationEvent } from "@/hooks/useTimecode";
 
 afterEach(cleanup);
 const format = { frameRate: 30, dropFrame: "ndf" } as const;
+
+it.each([
+  { action: "rundown-goto-item", field: "Rundown item", payload: { itemId: "target" }, label: "Jump to Message" },
+  { action: "lighting-blackout", field: "Lighting device", payload: { deviceId: "target" }, label: "Blackout Message" },
+])("saves a named $action target without raw JSON", async ({ action, field, payload, label }) => {
+  const save = vi.fn(async (_event: NewAutomationEvent) => {});
+  const loadTargets = vi.fn(async () => [{ id: "target", label: "Message" }]);
+  render(<AutomationEventEditor connected format={format} onAdd={save} loadTargets={loadTargets} />);
+  fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: action } });
+  expect(screen.getByRole("button", { name: "Add Event" })).toHaveProperty("disabled", true);
+  await screen.findByRole("option", { name: "1. Message" });
+  fireEvent.change(screen.getByLabelText(field), { target: { value: "target" } });
+  expect(document.querySelector("textarea")).toBeNull();
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
+  expect(save.mock.calls[0][0]).toMatchObject({ action, label, payload });
+  expect(loadTargets).toHaveBeenCalledWith(action);
+});
+
+it("does not show stale targets after a keyed show change or a failed refresh", async () => {
+  let release: (options: { id: string; label: string }[]) => void = () => {};
+  const oldLoad = () => new Promise<{ id: string; label: string }[]>(resolve => { release = resolve; });
+  const newLoad = vi.fn(async () => { throw new Error("Target list unavailable"); });
+  const onAdd = vi.fn(async (_event: NewAutomationEvent) => {});
+  const view = render(<AutomationEventEditor key="first-show" connected format={format} onAdd={onAdd} loadTargets={oldLoad} />);
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "rundown-goto-item" } });
+  view.rerender(<AutomationEventEditor key="second-show" connected format={format} onAdd={onAdd} loadTargets={newLoad} />);
+  fireEvent.change(screen.getByRole("combobox"), { target: { value: "rundown-goto-item" } });
+  await screen.findByText("Target list unavailable");
+  await act(async () => release([{ id: "old", label: "Old show" }]));
+  expect(screen.queryByRole("option", { name: /Old show/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "Add Event" })).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByRole("button", { name: "Retry loading targets" }));
+  await waitFor(() => expect(newLoad).toHaveBeenCalledTimes(2));
+  expect(onAdd).not.toHaveBeenCalled();
+});
 
 it("offers a named prop cue and preserves its fields when saving fails", async () => {
   const save = vi.fn(async (_event: NewAutomationEvent) => { throw new Error("Relay disconnected"); });

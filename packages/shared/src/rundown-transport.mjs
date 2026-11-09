@@ -2,6 +2,9 @@
 export function parseRundownTransport(action, payload) {
   const value = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
   switch (action) {
+    case 'timer-goto':
+      return typeof value.itemId === 'string' && value.itemId.trim() && value.itemId.length <= 200
+        ? { type: action, itemId: value.itemId.trim() } : null;
     case 'timer-start':
       if (value.itemId !== undefined && (typeof value.itemId !== 'string' || !value.itemId)) return null;
       return { type: action, ...(value.itemId === undefined ? {} : { itemId: value.itemId }) };
@@ -29,6 +32,7 @@ export function applyRundownTransport(state, command, now) {
   const markLive = item => { item.status='live'; if (!item.actualStart) item.actualStart=iso; };
   const markComplete = item => { item.status='complete'; if (!item.actualEnd) item.actualEnd=iso; };
   switch (command.type) {
+    case 'timer-goto':
     case 'timer-start': {
       const id = command.itemId ?? timer.currentItemId;
       const selected = items.find(item=>item.id===id);
@@ -38,7 +42,9 @@ export function applyRundownTransport(state, command, now) {
         if (previous) markComplete(previous);
       }
       markLive(selected);
-      timer=playing(selected,timer.pausedAt ? timer.elapsed : 0);
+      if (command.type === 'timer-goto') { selected.actualStart=iso; selected.actualEnd=null; }
+      const resume = command.type === 'timer-start' && timer.currentItemId === id && timer.playback === 'pause';
+      timer=playing(selected,resume ? timer.elapsed : 0);
       break;
     }
     case 'timer-resume':

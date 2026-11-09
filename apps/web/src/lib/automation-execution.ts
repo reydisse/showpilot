@@ -10,6 +10,7 @@ export function automationOutput(event: AutomationEvent): string {
     case "lyrics-clear": return "lyrics";
     case "rundown-advance":
     case "rundown-start-item":
+    case "rundown-goto-item":
     case "rundown-previous":
     case "rundown-pause":
     case "rundown-resume":
@@ -24,7 +25,8 @@ export function automationOutput(event: AutomationEvent): string {
     case "pp-clear-props":
     case "pp-trigger-clear": return "propresenter";
     case "device-action":
-    case "lighting-scene": {
+    case "lighting-scene":
+    case "lighting-blackout": {
       const id = event.timingDeviceId ?? automationDeviceId(event);
       return `device:${id ?? "unresolved"}`;
     }

@@ -32,7 +32,8 @@ import { automationDispatchFrame, deviceTimingForEvent, MAX_AUTOMATION_LEAD_MS, 
 import { startPositionProblem, timecodeStartPositionSchema } from "@/lib/timecode-start";
 import { z } from "zod";
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMECODE_COMMANDS, TIMECODE_FEED_STALL_MS as FEED_STALL_MS } from "@/types/timecode";
-import { proPresenterPayloadProblem, runProPresenterCue } from "@/lib/automation-propresenter";
+import { automationPayloadProblem } from "@/lib/automation-payload";
+import { runProPresenterCue } from "@/lib/automation-propresenter";
 import { AutomationExecutor, automationOutput } from "@/lib/automation-execution";
 import { cueReviewMatches, nextAutomationEvent } from "@/lib/automation-cues";
 import { emptyMidiController, midiControllerSchema, type MidiControllerSnapshot } from "@/lib/midi-controller";
@@ -51,6 +52,7 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
   "lower-third-clear",
   "rundown-advance",
   "rundown-start-item",
+  "rundown-goto-item",
   "rundown-previous",
   "rundown-pause",
   "rundown-resume",
@@ -60,6 +62,7 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
   "stage-clear",
   "device-action",
   "lighting-scene",
+  "lighting-blackout",
   "lyrics-goto",
   "lyrics-clear",
   "pp-trigger-slide",
@@ -1021,7 +1024,7 @@ export class TimecodeRelay extends DurableObject {
           typeof event.label !== "string" || event.label.length > 200 ||
           !event.payload || typeof event.payload !== "object"
         ) break;
-        const problem = proPresenterPayloadProblem(event.action, event.payload);
+        const problem = automationPayloadProblem(event);
         if (problem) throw new TimecodeCommandRejection(problem);
         event.id = event.id || crypto.randomUUID();
         if (this.events.some((existing) => existing.id === event.id)) {
@@ -1087,7 +1090,7 @@ export class TimecodeRelay extends DurableObject {
             valid = false;
             break;
           }
-          const problem = proPresenterPayloadProblem(candidate.action, candidate.payload);
+          const problem = automationPayloadProblem({ action: candidate.action, payload: candidate.payload, targetDeviceId: candidate.targetDeviceId });
           if (problem) throw new TimecodeCommandRejection(problem);
           const next: AutomationEvent = {
             ...(candidate as AutomationEvent),
@@ -1130,7 +1133,7 @@ export class TimecodeRelay extends DurableObject {
           const updates = parsed.data;
           if (updates.triggerTimecode && !isValidTimecode(updates.triggerTimecode, this.state.format)) break;
           const candidate = { ...this.events[idx], ...updates };
-          const problem = proPresenterPayloadProblem(candidate.action, candidate.payload);
+          const problem = automationPayloadProblem(candidate);
           if (problem) throw new TimecodeCommandRejection(problem);
           Object.assign(this.events[idx], updates);
           // Recalculate triggerFrame if timecode changed
@@ -1402,7 +1405,7 @@ export class TimecodeRelay extends DurableObject {
     };
 
     const executeRundownCommand = async (
-      action: "timer-start" | "timer-next" | "timer-prev" | "timer-pause" | "timer-resume" | "timer-stop" | "timer-adjust" | "stage-message" | "stage-clear",
+      action: "timer-goto" | "timer-start" | "timer-next" | "timer-prev" | "timer-pause" | "timer-resume" | "timer-stop" | "timer-adjust" | "stage-message" | "stage-clear",
       type: string,
       payload?: Record<string, unknown>,
     ) => {
@@ -1476,13 +1479,15 @@ export class TimecodeRelay extends DurableObject {
       const status = await relay.getBridgeStatus();
       assertCanDispatch();
       if (!status.bridgeOnline) throw new Error("Venue Bridge is offline.");
+      const installationId = status.activeInstallation?.installationId;
+      if (!installationId) throw new Error("Venue Bridge installation is unavailable.");
       if (!status.connectedTargets.includes(resolved.target)) {
         const connected = await relay.dispatchBridgeMessage({
           type: "connect-device",
           protocol: resolved.protocol,
           target: resolved.target,
           settings: resolved.connectionSettings,
-        }, { source: "automation", actorUserId: this.controlOwner()?.attachment.authClaim?.userId ?? null, executionId: event.executionId ?? event.id });
+        }, { source: "automation", actorUserId: this.controlOwner()?.attachment.authClaim?.userId ?? null, executionId: event.executionId ?? event.id }, installationId);
         assertCanDispatch();
         if (!connected.success) {
           throw new Error(connected.error ?? `Could not connect to ${resolved.deviceName}.`);
@@ -1494,7 +1499,7 @@ export class TimecodeRelay extends DurableObject {
         protocol: resolved.protocol,
         target: resolved.target,
         command: resolved.command,
-      }, { source: "automation", actorUserId: this.controlOwner()?.attachment.authClaim?.userId ?? null, executionId: event.executionId ?? event.id });
+      }, { source: "automation", actorUserId: this.controlOwner()?.attachment.authClaim?.userId ?? null, executionId: event.executionId ?? event.id }, installationId);
       signal.throwIfAborted();
       if (!result.success) throw new Error(result.error ?? `Command to ${resolved.deviceName} failed.`);
       logResult(event.action, "success", `${event.label} acknowledged by ${resolved.deviceName}.`);
@@ -1521,6 +1526,7 @@ export class TimecodeRelay extends DurableObject {
 
       case "rundown-advance":
       case "rundown-start-item":
+      case "rundown-goto-item":
       case "rundown-previous":
       case "rundown-pause":
       case "rundown-resume":
@@ -1531,6 +1537,7 @@ export class TimecodeRelay extends DurableObject {
         const actions = {
           "rundown-advance": "timer-next",
           "rundown-start-item": "timer-start",
+          "rundown-goto-item": "timer-goto",
           "rundown-previous": "timer-prev",
           "rundown-pause": "timer-pause",
           "rundown-resume": "timer-resume",
@@ -1545,6 +1552,7 @@ export class TimecodeRelay extends DurableObject {
 
       case "device-action":
       case "lighting-scene":
+      case "lighting-blackout":
         await executeDeviceCommand();
         break;
 
