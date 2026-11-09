@@ -1,7 +1,7 @@
 import { proPresenterOutputResultSchema, proPresenterOutputSnapshotSchema, type ProPresenterOutputCommand } from "@showpilot/shared/propresenter-output";
 import { proPresenterReplySchema, type ProPresenterCommand } from "@showpilot/shared/propresenter-command";
 import { chatInviteReplySchema, type ChatInviteCommand } from "./chat-pass-recovery";
-import { chatNotificationResultSchema, type ChatNotificationCommand } from "./chat-notification";
+import { chatNotificationResultSchema, type ChatNotificationCommand } from "@showpilot/shared/chat-notification";
 import { lyricsControlReplySchema, type MobileLyricsControl } from "./timecode-lyrics-recovery";
 import { cueEditReplySchema, type CueEditCommand } from "./timecode-cue-edit-recovery";
 import { mobileCueControlReplySchema, type MobileCueControl } from "./timecode-cue-control-recovery";

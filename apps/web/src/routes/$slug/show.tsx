@@ -277,6 +277,7 @@ function ChatPanel({
     loadingOlderMessages,
     olderMessagesError,
     loadOlderMessages,
+    notifications, retryNotifications,
     retryQueuedMessage,
     cancelQueuedMessage,
   } = useChat({
@@ -317,6 +318,7 @@ function ChatPanel({
         loadingOlderMessages={loadingOlderMessages}
         olderMessagesError={olderMessagesError}
         onLoadOlderMessages={loadOlderMessages}
+        notifications={notifications} onRetryNotifications={retryNotifications}
         onRetryQueuedMessage={retryQueuedMessage}
         onCancelQueuedMessage={cancelQueuedMessage}
         onVotePoll={votePoll}

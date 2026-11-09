@@ -30,7 +30,8 @@
       "import": "./src/local-rundown.mjs"
     },
     "./propresenter-command": "./src/propresenter-command.ts",
-    "./propresenter-output": "./src/propresenter-output.ts"
+    "./propresenter-output": "./src/propresenter-output.ts",
+    "./chat-notification": "./src/chat-notification.ts"
   },
   "dependencies": {
     "zod": "4.4.3"

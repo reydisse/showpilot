@@ -1,3 +1,4 @@
+import { chatNotifications, type ChatNotificationWork } from "../chat-notifications";
 import type {
   ChatAdapter,
   ChatMessage,
@@ -9,7 +10,7 @@ import type {
   ConnectionStatus,
   MessageType,
 } from "./chat-adapter";
-import { createBrowserId } from "@/lib/browser-id";
+import { createBrowserId, createBrowserRequestId } from "@/lib/browser-id";
 import { readChatOutbox, writeChatOutbox, type ChatOutboxItem } from "@/lib/chat-outbox";
 
 /**
@@ -43,6 +44,7 @@ export class NativeChatAdapter implements ChatAdapter {
   private gatewayStatusListeners = new Set<(status: ChatGatewayStatus) => void>();
   private gatewayStatus: ChatGatewayStatus | null = null;
   private messageQueue: ChatOutboxItem[] = [];
+  private deliveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private outboxListeners = new Set<(messages: ChatMessage[]) => void>();
   private pendingHistory: { controller: AbortController; promise: Promise<HistoryPage> } | null = null;
   private historyCursor: { timestamp: number; id: string } | null = null;
@@ -52,7 +54,7 @@ export class NativeChatAdapter implements ChatAdapter {
   private attemptedConnection = false;
   private handshakeTimer: ReturnType<typeof setTimeout> | null = null;
   private messageHistory: ChatMessage[] = [];
-  private pendingMutations = new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+  private pendingMutations = new Map<string, { payload: { type: string; messageId: string; emoji?: string }; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(orgId: string, private guest?: { token: string; name: string; onRevoked?: () => void }, private roomId = "production", private outboxIdentity = "unscoped", private currentUserId?: string) {
     this.orgId = orgId;
@@ -108,7 +110,7 @@ export class NativeChatAdapter implements ChatAdapter {
               // Initial history hydration from the ChatRelay Durable Object
               this.messageHistory = data.messages;
               for (const msg of data.messages) {
-                this.acknowledgeQueued(msg.id);
+                this.acknowledgeQueued(msg);
                 this.notifyListeners(msg);
               }
               const oldest = data.messages[0];
@@ -128,19 +130,31 @@ export class NativeChatAdapter implements ChatAdapter {
               this.setStatus("connected");
               if (!wasReady) this.flushQueue();
             } else if ((data.type === "message" || data.type === "message-edited" || data.type === "message-deleted") && data.message) {
-              this.acknowledgeQueued(data.message.id);
+              this.acknowledgeQueued(data.message);
               const existingIndex = this.messageHistory.findIndex((message) => message.id === data.message.id);
               if (existingIndex >= 0) this.messageHistory[existingIndex] = data.message;
               else this.messageHistory.push(data.message);
               this.notifyListeners(data.message);
             } else if (data.type === "error" && typeof data.messageId === "string") {
+              clearTimeout(this.deliveryTimers.get(data.messageId)); this.deliveryTimers.delete(data.messageId);
               this.updateQueued(data.messageId, { status: "failed", error: typeof data.error === "string" ? data.error : "Message was not accepted" });
             } else if (data.type === "mutation-result" && data.requestId) {
               const pending = this.pendingMutations.get(data.requestId);
               if (pending) {
                 clearTimeout(pending.timer);
                 this.pendingMutations.delete(data.requestId);
-                if (data.ok) pending.resolve();
+                if (data.ok === true) {
+                  const target = this.messageHistory.find(message => message.id === pending.payload.messageId);
+                  const emoji = pending.payload.emoji;
+                  if (pending.payload.type === "reaction" && emoji && this.currentUserId && target?.senderId && target.senderId !== this.currentUserId
+                    && target.reactions?.some(reaction => reaction.emoji === emoji && reaction.userIds.includes(this.currentUserId!))) {
+                    chatNotifications({ orgId: this.orgId, userId: this.currentUserId, roomId: this.roomId }).submit({
+                      kind: "reaction", orgId: this.orgId, userId: this.currentUserId, roomId: this.roomId,
+                      messageId: target.id, requestId: data.requestId, targetUserId: target.senderId, emoji,
+                    }, `Reaction ${emoji} to ${target.senderName}'s message`);
+                  }
+                  pending.resolve();
+                }
                 else pending.reject(new Error(data.error || "Message update failed"));
               }
             } else if (data.type === "typing" && typeof data.name === "string" && typeof data.typing === "boolean") {
@@ -173,6 +187,7 @@ export class NativeChatAdapter implements ChatAdapter {
             this.guest.onRevoked?.();
           }
           this.ws = null;
+          this.clearDeliveryTimers();
           this.messageQueue = this.messageQueue.map((item) => item.status === "sending" ? { ...item, status: "waiting" } : item);
           this.persistAndNotifyOutbox();
           this.setStatus(this.intentionalClose ? "disconnected" : "reconnecting");
@@ -259,6 +274,7 @@ export class NativeChatAdapter implements ChatAdapter {
       this.ws = null;
     }
     this.setStatus("disconnected");
+    this.clearDeliveryTimers();
     this.messageQueue = this.messageQueue.map((item) => item.status === "sending" ? { ...item, status: "waiting" } : item);
     this.persistAndNotifyOutbox();
     for (const pending of this.pendingMutations.values()) {
@@ -276,6 +292,8 @@ export class NativeChatAdapter implements ChatAdapter {
     options?: ChatMessageOptions,
   ): Promise<void> {
     const id = options?.clientMessageId ?? createBrowserId();
+    if (this.messageQueue.length >= 50 && !this.messageQueue.some(item => item.id === id))
+      throw new Error("The chat queue is full. Resolve a queued message before sending another; your draft has not been sent.");
     const payload: ChatOutboxItem = { id, orgId: this.orgId, roomId: this.roomId, ...(this.currentUserId ? { senderId: this.currentUserId } : {}), text, type: this.guest ? "text" : type, senderName, ...(senderRole ? { senderRole } : {}), options: { ...options, clientMessageId: id }, createdAt: Date.now(), status: "waiting" };
     if (!this.messageQueue.some((item) => item.id === id)) this.messageQueue.push(payload);
     this.persistAndNotifyOutbox();
@@ -348,12 +366,13 @@ export class NativeChatAdapter implements ChatAdapter {
 
   retryOutbox(messageId: string): void {
     const item = this.messageQueue.find((candidate) => candidate.id === messageId);
-    if (!item) return;
+    if (!item || item.status === "sending") return;
     this.updateQueued(messageId, { status: "waiting", error: undefined });
     if (this.ws?.readyState === WebSocket.OPEN) this.sendQueued({ ...item, status: "waiting", error: undefined });
   }
 
   cancelOutbox(messageId: string): void {
+    clearTimeout(this.deliveryTimers.get(messageId)); this.deliveryTimers.delete(messageId);
     this.messageQueue = this.messageQueue.filter((item) => item.id !== messageId);
     this.persistAndNotifyOutbox();
   }
@@ -366,13 +385,13 @@ export class NativeChatAdapter implements ChatAdapter {
 
   private sendMutation(payload: { type: "edit" | "delete" | "vote" | "reaction"; messageId: string; text?: string; optionId?: string; emoji?: string }): Promise<void> {
     if (this.status !== "connected" || !this.ws || this.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Chat has not confirmed this room. Reconnect and try again."));
-    const requestId = createBrowserId();
+    const requestId = createBrowserRequestId();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingMutations.delete(requestId);
         reject(new Error("The message update timed out. Please try again."));
       }, 8000);
-      this.pendingMutations.set(requestId, { resolve, reject, timer });
+      this.pendingMutations.set(requestId, { payload, resolve, reject, timer });
       this.ws!.send(JSON.stringify({ ...payload, requestId }));
     });
   }
@@ -430,17 +449,49 @@ export class NativeChatAdapter implements ChatAdapter {
     this.persistAndNotifyOutbox();
   }
 
-  private acknowledgeQueued(id: string) {
-    if (!this.messageQueue.some((item) => item.id === id)) return;
-    this.messageQueue = this.messageQueue.filter((item) => item.id !== id);
+  private acknowledgeQueued(message: ChatMessage) {
+    const item = this.messageQueue.find(candidate => candidate.id === message.id);
+    if (!item || message.orgId !== this.orgId || (this.currentUserId && message.senderId !== this.currentUserId)) return;
+    clearTimeout(this.deliveryTimers.get(item.id)); this.deliveryTimers.delete(item.id);
+    if (!this.guest && this.currentUserId) {
+      chatNotifications({ orgId: this.orgId, userId: this.currentUserId, roomId: this.roomId }).submit({
+        kind: "message", orgId: this.orgId, userId: this.currentUserId, roomId: this.roomId,
+        messageId: item.id, requestId: createBrowserRequestId(), text: (item.text || item.options?.poll?.question || "").trim().slice(0, 4000),
+        mentionedUserIds: item.options?.mentionedUserIds ?? [],
+      }, item.text || item.options?.poll?.question || "Shared attachment");
+    }
+    this.messageQueue = this.messageQueue.filter(candidate => candidate.id !== item.id);
     this.persistAndNotifyOutbox();
+  }
+
+  onNotifications(callback: (work: ChatNotificationWork[]) => void): () => void {
+    if (!this.currentUserId || this.guest) { callback([]); return () => {}; }
+    return chatNotifications({ orgId: this.orgId, userId: this.currentUserId, roomId: this.roomId }).subscribe(callback);
+  }
+  retryNotifications(requestId: string) {
+    if (this.currentUserId && !this.guest) chatNotifications({ orgId: this.orgId, userId: this.currentUserId, roomId: this.roomId }).retry(requestId);
+  }
+
+  private clearDeliveryTimers() {
+    for (const timer of this.deliveryTimers.values()) clearTimeout(timer);
+    this.deliveryTimers.clear();
   }
 
   private sendQueued(item: ChatOutboxItem) {
     if (this.status !== "connected" || !this.ws || this.ws.readyState !== WebSocket.OPEN || item.status === "failed") return;
+    clearTimeout(this.deliveryTimers.get(item.id));
     this.updateQueued(item.id, { status: "sending", error: undefined });
-    this.ws.send(JSON.stringify({ type: "identify", name: item.senderName, role: item.senderRole }));
-    this.ws.send(JSON.stringify({ type: "message", orgId: this.orgId, text: item.text, messageType: item.type, name: item.senderName, role: item.senderRole, replyTo: item.options?.replyTo, attachments: item.options?.attachments, poll: item.options?.poll, clientMessageId: item.id }));
+    this.deliveryTimers.set(item.id, setTimeout(() => {
+      this.deliveryTimers.delete(item.id);
+      this.updateQueued(item.id, { status: "failed", error: "Delivery was not confirmed. Retry the original message to check without creating a duplicate." });
+    }, 8_000));
+    try {
+      this.ws.send(JSON.stringify({ type: "identify", name: item.senderName, role: item.senderRole }));
+      this.ws.send(JSON.stringify({ type: "message", orgId: this.orgId, text: item.text, messageType: item.type, name: item.senderName, role: item.senderRole, replyTo: item.options?.replyTo, attachments: item.options?.attachments, poll: item.options?.poll, clientMessageId: item.id }));
+    } catch {
+      clearTimeout(this.deliveryTimers.get(item.id)); this.deliveryTimers.delete(item.id);
+      this.updateQueued(item.id, { status: "failed", error: "Message delivery was not confirmed. Reconnect and retry the original message." });
+    }
   }
 
   private flushQueue() {
