@@ -1,8 +1,14 @@
+import { useState, type ComponentProps } from "react";
+import { ChatComposer } from "@showpilot/shared/chat-composer";
 import { ChatAttachmentDraft } from "@showpilot/shared/chat-attachment-draft";
 import type { ChatAttachment } from "@showpilot/shared/chat-attachment";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { ChatPanel } from "../ChatPanel";
+import { ChatPanel as Panel } from "../ChatPanel";
+function ChatPanel(props: Omit<ComponentProps<typeof Panel>, "composer"> & { composer?: ChatComposer<ChatMessage> }) {
+  const [local] = useState(() => new ChatComposer<ChatMessage>());
+  return <Panel {...props} composer={props.composer ?? local} />;
+}
 import type { ChatMessage } from "@/lib/adapters/chat-adapter";
 
 let triggerResize = () => {};
@@ -423,3 +429,58 @@ function attachmentFixture(attachment: ChatAttachment, upload: () => Promise<Cha
     upload, cancel: () => cancel(attachment),
   });
 }
+
+it("restores the unsent message when an edit is cancelled", () => {
+  render(<ChatPanel messages={[messages[1]]} currentUserId="me" connectionStatus="connected" unreadCount={0} onSendMessage={vi.fn()} onEditMessage={vi.fn()} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Unsent announcement" } });
+  fireEvent.click(screen.getByRole("button", { name: "Edit message" }));
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "First reply");
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Edited reply" } });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel edit" }));
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "Unsent announcement");
+});
+
+it("keeps newer poll changes when the preceding poll finishes queueing", async () => {
+  let resolve!: () => void;
+  const onSendMessage = vi.fn(() => new Promise<void>(done => { resolve = done; }));
+  render(<ChatPanel messages={[]} connectionStatus="connected" unreadCount={0} onSendMessage={onSendMessage} onVotePoll={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Create poll" }));
+  fireEvent.change(screen.getByPlaceholderText("Ask a question"), { target: { value: "Ready?" } });
+  fireEvent.change(screen.getByPlaceholderText("Option 1"), { target: { value: "Yes" } });
+  fireEvent.change(screen.getByPlaceholderText("Option 2"), { target: { value: "Wait" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send poll" }));
+  fireEvent.change(screen.getByPlaceholderText("Ask a question"), { target: { value: "Ready for soundcheck?" } });
+  await act(async () => resolve());
+  expect(screen.getByPlaceholderText("Ask a question")).toHaveProperty("value", "Ready for soundcheck?");
+});
+
+it("restores message, reply and poll drafts after the panel unmounts", () => {
+  const composer = new ChatComposer<ChatMessage>();
+  const props = { composer, messages, connectionStatus: "connected" as const, unreadCount: 0, onSendMessage: vi.fn(), onVotePoll: vi.fn(), currentUserId: "me" };
+  const view = render(<ChatPanel {...props} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Return to this" } });
+  fireEvent.click(screen.getAllByRole("button", { name: "Reply to Alex" })[0]);
+  fireEvent.click(screen.getByRole("button", { name: "Create poll" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Question" }), { target: { value: "Soundcheck?" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Option 1" }), { target: { value: "Ready" } });
+  view.unmount();
+  const other = render(<ChatPanel {...props} composer={new ChatComposer()} title="Planning Room" />);
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "");
+  expect(screen.queryByRole("region", { name: "Poll draft" })).toBeNull();
+  other.unmount(); render(<ChatPanel {...props} />);
+  expect(screen.getByRole("textbox", { name: "Message Production Chat" })).toHaveProperty("value", "Return to this");
+  expect(screen.getByText("Replying to Alex")).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "Question" })).toHaveProperty("value", "Soundcheck?");
+  expect(screen.getByRole("textbox", { name: "Option 1" })).toHaveProperty("value", "Ready");
+});
+
+it("restores the earlier unsent text after saving an edit", async () => {
+  const edit = vi.fn().mockResolvedValue(undefined);
+  render(<ChatPanel messages={[messages[1]]} currentUserId="me" connectionStatus="connected" unreadCount={0} onSendMessage={vi.fn()} onEditMessage={edit} />);
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Next announcement" } });
+  fireEvent.click(screen.getByRole("button", { name: "Edit message" }));
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Correction" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save message" }));
+  await waitFor(() => expect(screen.getByRole("textbox")).toHaveProperty("value", "Next announcement"));
+  expect(edit).toHaveBeenCalledWith("reply", "Correction", 2);
+});

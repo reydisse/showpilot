@@ -45,12 +45,12 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
         await check(`(()=>{const n=document.querySelector('aside'),r=n?.getBoundingClientRect();return r&&(innerWidth<1024?n.getAttribute('aria-hidden')==='true'&&r.right<=1:Math.abs(r.width-240)<1&&Math.abs(r.left)<1);})()`,`sidebar ${width}`);
         await check(point(control(button)),`recovery ${width}`);
         assert.equal(await evaluate("document.documentElement.scrollWidth<=innerWidth+1"),true);
+        await writeFile(`/tmp/showpilot-web-attachment-${kind}-${width}.png`,Buffer.from((await page("Page.captureScreenshot",{format:"png"})).data,"base64"));
         const heading=await evaluate(`(()=>{const n=${panel},h=n.firstElementChild,r=n.getBoundingClientRect(),b=h.getBoundingClientRect();return {panelTop:r.top,headerTop:b.top,headerBottom:b.bottom,scroll:n.scrollTop};})()`);
         assert.ok(heading.headerTop>=heading.panelTop-1,`unclipped chat heading ${width}: ${JSON.stringify(heading)}`);
         assert.equal(await evaluate(`(()=>{const group=document.querySelector('[aria-label="Chat recovery"]'),name=group?.querySelector('[data-testid^="chat-attachment-"] p'),g=group?.getBoundingClientRect(),n=name?.getBoundingClientRect();return g&&n&&n.top>=g.top-1&&n.bottom<=g.bottom+1;})()`),true,`visible attachment filename ${width}`);
         const bounds=await evaluate(`(()=>{const r=${panel}.querySelector('textarea').getBoundingClientRect();return {top:r.top,bottom:r.bottom};})()`);
         assert.ok(bounds.top>=0&&bounds.bottom<=height,`visible composer ${width}`);
-        await writeFile(`/tmp/showpilot-web-attachment-${kind}-${width}.png`,Buffer.from((await page("Page.captureScreenshot",{format:"png"})).data,"base64"));
       }
     };
     await page("Emulation.setDeviceMetricsOverride",{width:1440,height:900,deviceScaleFactor:1,mobile:false});
