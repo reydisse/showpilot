@@ -7,6 +7,7 @@ import {
   Lightbulb,
   Monitor,
   Play,
+  Pause,
   Globe,
   CheckCircle2,
   AlertCircle,
@@ -16,7 +17,7 @@ import type { AutomationEvent, TimecodeState } from "@/types/timecode";
 import { framesToTimecode, timecodeToString } from "@/lib/timecode";
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { cueReviewState, cueReviewMatches, nextAutomationEvent } from "@/lib/automation-cues";
+import { cueReviewState, cueReviewMatches, nextAutomationEvent, compareAutomationCues } from "@/lib/automation-cues";
 
 interface AutomationTimelineProps {
   events: AutomationEvent[];
@@ -46,6 +47,8 @@ const ACTION_ICONS: Record<string, React.ElementType> = {
   "rundown-adjust": Clock,
   "stage-message": Monitor,
   "crew-message": Monitor,
+  "triggers-disable": Pause,
+  "triggers-enable": Play,
   "stage-clear": Monitor,
   "lighting-scene": Lightbulb,
   "lighting-blackout": Lightbulb,
@@ -75,6 +78,8 @@ const ACTION_COLORS: Record<string, string> = {
   "rundown-stop": "text-fire-500 bg-fire-500/10 border-fire-500/20",
   "rundown-adjust": "text-fire-500 bg-fire-500/10 border-fire-500/20",
   "stage-message": "text-sky-400 bg-sky-500/10 border-sky-500/20",
+  "triggers-disable": "text-amber-300 bg-amber-500/10 border-amber-500/20",
+  "triggers-enable": "text-amber-300 bg-amber-500/10 border-amber-500/20",
   "crew-message": "text-sky-400 bg-sky-500/10 border-sky-500/20",
   "stage-clear": "text-sky-400 bg-sky-500/10 border-sky-500/20",
   "lighting-scene": "text-yellow-400 bg-yellow-500/10 border-yellow-500/20",
@@ -108,7 +113,7 @@ export function AutomationTimeline({
   const currentFrame = state?.totalFrames ?? 0;
   const dropFrame = state?.format.dropFrame === "df";
   const [confirmation, setConfirmation] = useState<{ kind: "delete" | "refire" | "rearm"; event: AutomationEvent } | { kind: "reset" } | null>(null);
-  const ordered = [...events].sort((a, b) => scheduledDispatchFrame(a) - scheduledDispatchFrame(b));
+  const ordered = [...events].sort(compareAutomationCues);
   const missed = (event: AutomationEvent) => event.enabled && !event.fired && !event.skipped
     && event.executionStatus !== "dispatching" && event.executionStatus !== "failed"
     && scheduledDispatchFrame(event) + event.toleranceFrames < currentFrame;

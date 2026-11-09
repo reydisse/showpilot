@@ -1,5 +1,9 @@
-import type { AutomationEvent } from "@/types/timecode";
+import type { AutomationActionType, AutomationEvent } from "@/types/timecode";
 import { automationDeviceId } from "./automation-timing";
+
+export function isTriggerControlAction(action: AutomationActionType): action is "triggers-disable" | "triggers-enable" {
+  return action === "triggers-disable" || action === "triggers-enable";
+}
 
 /** Actions sharing an output stay ordered; unrelated outputs can run together. */
 export function automationOutput(event: AutomationEvent): string {
@@ -21,6 +25,8 @@ export function automationOutput(event: AutomationEvent): string {
     case "stage-message":
     case "stage-clear": return "rundown";
     case "crew-message": return "production-chat";
+    case "triggers-disable":
+    case "triggers-enable": return "automation-control";
     case "pp-trigger-slide":
     case "pp-trigger-next":
     case "pp-trigger-previous":

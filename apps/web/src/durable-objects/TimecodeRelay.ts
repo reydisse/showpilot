@@ -37,8 +37,8 @@ import { resolveLyricsStep } from "@/lib/lyrics-step.server";
 import { crewMessagePayloadSchema } from "@/lib/crew-message";
 import { chatRelayKey } from "@/lib/chat-relay-key";
 import { runProPresenterCue } from "@/lib/automation-propresenter";
-import { AutomationExecutor, automationOutput } from "@/lib/automation-execution";
-import { cueReviewMatches, nextAutomationEvent } from "@/lib/automation-cues";
+import { AutomationExecutor, automationOutput, isTriggerControlAction } from "@/lib/automation-execution";
+import { cueReviewMatches, nextAutomationEvent, automationControlPriority } from "@/lib/automation-cues";
 import { emptyMidiController, midiControllerSchema, type MidiControllerSnapshot } from "@/lib/midi-controller";
 
 interface Env {
@@ -63,6 +63,8 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
   "rundown-adjust",
   "stage-message",
   "crew-message",
+  "triggers-disable",
+  "triggers-enable",
   "stage-clear",
   "device-action",
   "lighting-scene",
@@ -159,7 +161,7 @@ interface FormatCandidate { format: TimecodeFormat; count: number; receivedAt: n
 interface BridgeFeed { source?: "mtc" | "ltc-bridge"; timecode: TimecodeValue; format: TimecodeFormat; receivedAt: number }
 /** Small durable journal; never rewrite the full event timeline at feed rate. */
 interface ClockSnapshot {
-  state: Pick<TimecodeState, "timecode" | "display" | "totalFrames" | "format" | "source" | "running" | "serverTime" | "signal" | "triggersEnabled" | "automationHold" | "incomingFormat">;
+  state: Pick<TimecodeState, "timecode" | "display" | "totalFrames" | "format" | "source" | "running" | "serverTime" | "signal" | "triggersEnabled" | "automaticCuesEnabled" | "automationHold" | "incomingFormat">;
   previousFeedFrame: number | null;
   masterSessionId: string | null;
   expectedFeedSince: number | null;
@@ -190,6 +192,7 @@ export class TimecodeRelay extends DurableObject {
     format: { frameRate: 30, dropFrame: "ndf" },
     running: false,
     triggersEnabled: true,
+    automaticCuesEnabled: true,
     serverTime: Date.now(),
     totalFrames: 0,
     lyrics: null,
@@ -229,6 +232,7 @@ export class TimecodeRelay extends DurableObject {
         this.state = {
           ...stored.state,
           triggersEnabled: stored.state.triggersEnabled ?? true,
+          automaticCuesEnabled: stored.state.automaticCuesEnabled ?? true,
           running: false,
           serverTime: Date.now(),
           lyrics: stored.state.lyrics ?? null,
@@ -273,8 +277,8 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private clockSnapshot(): ClockSnapshot {
-    const { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automationHold, incomingFormat } = this.state;
-    return { state: { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automationHold, incomingFormat },
+    const { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automaticCuesEnabled, automationHold, incomingFormat } = this.state;
+    return { state: { timecode, display, totalFrames, format, source, running, serverTime, signal, triggersEnabled, automaticCuesEnabled, automationHold, incomingFormat },
       previousFeedFrame: this.previousFeedFrame, masterSessionId: this.masterSessionId,
       expectedFeedSince: this.expectedFeedSince, bridgeFeed: this.bridgeFeed, bridgeTransport: this.bridgeTransport, formatCandidate: this.formatCandidate };
   }
@@ -514,6 +518,7 @@ export class TimecodeRelay extends DurableObject {
         format: { frameRate: 30, dropFrame: "ndf" },
         running: false,
         triggersEnabled: true,
+        automaticCuesEnabled: true,
         serverTime: Date.now(),
         totalFrames: 0,
         lyrics: null,
@@ -1200,6 +1205,12 @@ export class TimecodeRelay extends DurableObject {
         break;
       }
 
+      case "resume-automatic-cues":
+        this.applyAutomaticCueGate(true);
+        await this.persist();
+        this.broadcastState();
+        break;
+
       case "set-event-enabled": {
         if (typeof payload?.id !== "string" || typeof payload.enabled !== "boolean") break;
         const event = this.events.find((candidate) => candidate.id === payload.id);
@@ -1307,6 +1318,15 @@ export class TimecodeRelay extends DurableObject {
 
   // ─── Automation Engine ──────────────────────────────────
 
+  private applyAutomaticCueGate(enabled: boolean): void {
+    if (enabled && (!this.state.triggersEnabled || this.state.automationHold || this.state.incomingFormat)) {
+      throw new TimecodeCommandRejection("Enable automation and resolve its safety holds before resuming automatic cues.");
+    }
+    if (!enabled) this.automationGeneration++;
+    this.state.automaticCuesEnabled = enabled;
+    if (enabled) this.previousFeedFrame = this.state.totalFrames;
+  }
+
   private async evaluateEvents(previousFrame: number | null, totalFrames: number): Promise<boolean> {
     if (!this.state.triggersEnabled || !this.state.running) return false;
     const due: { event: AutomationEvent; dispatchFrame: number }[] = [];
@@ -1328,8 +1348,14 @@ export class TimecodeRelay extends DurableObject {
     }
     // A feed may cross several cues whose lead times reverse nominal order.
     // Reserve shared outputs in dispatch order, matching Next and the timeline.
-    due.sort((a, b) => a.dispatchFrame - b.dispatchFrame);
-    const executions = due.map(({ event }) => this.runEvent(event, true));
+    // Controls apply synchronously before reserving subsequent outputs. At the
+    // same frame, enable precedes disable, so disable wins and blocks output.
+    due.sort((a, b) => a.dispatchFrame - b.dispatchFrame || automationControlPriority(a.event.action) - automationControlPriority(b.event.action));
+    const executions: Promise<void>[] = [];
+    for (const { event } of due) {
+      if (this.state.automaticCuesEnabled === false && !isTriggerControlAction(event.action)) continue;
+      executions.push(this.runEvent(event, true));
+    }
     await Promise.allSettled(executions);
     return executions.length > 0;
   }
@@ -1344,6 +1370,13 @@ export class TimecodeRelay extends DurableObject {
     const generation = this.automationGeneration;
     delete event.executionError;
     try {
+      // A trigger barrier must take effect before the first await: another feed
+      // can arrive while persistence is pending. The safety gate stays separate.
+      const control = isTriggerControlAction(event.action);
+      if (control) {
+        this.assertAutomationDispatch(event, requiresLiveFeed, generation);
+        this.applyAutomaticCueGate(event.action === "triggers-enable");
+      }
       // Reserve output order before the first await. Persist the dispatch
       // before external effects so restart recovery can detect uncertainty.
       await this.executor.run(
@@ -1352,7 +1385,8 @@ export class TimecodeRelay extends DurableObject {
         async (signal) => {
           await this.persist();
           this.broadcastEvents();
-          await this.executeEventAction(event, signal, requiresLiveFeed, generation, startedAt + 10000);
+          if (control) { signal.throwIfAborted(); this.broadcastState(); }
+          else await this.executeEventAction(event, signal, requiresLiveFeed, generation, startedAt + 10000);
         },
       );
       event.fired = true;
@@ -1383,20 +1417,27 @@ export class TimecodeRelay extends DurableObject {
     this.broadcastState();
   }
 
+  private assertAutomationDispatch(event: AutomationEvent, requiresLiveFeed: boolean, generation: number): void {
+    if (requiresLiveFeed && generation !== this.automationGeneration) {
+      throw new AutomationCancelled("Automation changed after this cue was queued.");
+    }
+    const lastFeed = this.state.signal?.lastFeedAt ?? this.expectedFeedSince;
+    if (requiresLiveFeed && (!this.state.running || (lastFeed !== null && Date.now() - lastFeed >= FEED_STALL_MS))) {
+      throw new AutomationCancelled("Timecode signal lost before dispatch.");
+    }
+    if (this.retired || !this.target || !this.state.triggersEnabled || !event.enabled || event.skipped || !this.events.includes(event)) {
+      throw new AutomationCancelled("Automation was disabled or removed before dispatch.");
+    }
+    if (requiresLiveFeed && this.state.automaticCuesEnabled === false && !isTriggerControlAction(event.action)) {
+      throw new AutomationCancelled("Automatic cues were paused before dispatch.");
+    }
+  }
+
   private async executeEventAction(event: AutomationEvent, signal: AbortSignal, requiresLiveFeed: boolean, generation: number, deadline: number): Promise<void> {
     const env = this.env as unknown as Env;
     const assertCanDispatch = () => {
       signal.throwIfAborted();
-      if (requiresLiveFeed && generation !== this.automationGeneration) {
-        throw new AutomationCancelled("Automation changed after this cue was queued.");
-      }
-      const lastFeed = this.state.signal?.lastFeedAt ?? this.expectedFeedSince;
-      if (requiresLiveFeed && (!this.state.running || (lastFeed !== null && Date.now() - lastFeed >= FEED_STALL_MS))) {
-        throw new AutomationCancelled("Timecode signal lost before dispatch.");
-      }
-      if (this.retired || !this.target || !this.state.triggersEnabled || !event.enabled || event.skipped || !this.events.includes(event)) {
-        throw new AutomationCancelled("Automation was disabled or removed before dispatch.");
-      }
+      this.assertAutomationDispatch(event, requiresLiveFeed, generation);
     };
     assertCanDispatch();
     const actionSummary = sanitizePayloadSummary({
@@ -1565,6 +1606,10 @@ export class TimecodeRelay extends DurableObject {
         await executeRundownCommand(actions[event.action], event.action, event.payload);
         break;
       }
+
+      case "triggers-disable":
+      case "triggers-enable":
+        throw new Error("Trigger controls must execute before reserving external outputs.");
 
       case "crew-message": {
         const authority = this.controlOwner()?.attachment.authClaim;
