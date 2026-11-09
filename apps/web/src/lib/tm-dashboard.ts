@@ -112,19 +112,20 @@ export const getTmDashboard = createServerFn({ method: "GET" })
       activeShowId: settingMap["active-show-id"],
       activeServiceDate: settingMap["active-service-date"],
     });
+    if (data.showId && !targetShow) throw new Error("Show not found");
     const serviceDate = targetShow?.serviceDate ?? data.serviceDate ?? today;
     const showId = targetShow?.id;
 
     const [
       rundownRow,
-      incidents,
+      incidentRows,
       equipment,
       entries,
       destinations,
       liveInputs,
       devices,
       rosterDuty,
-      checklistTemplateCount,
+      checklistTemplates,
       rundownItemCount,
       rosterInUse,
     ] =
@@ -138,9 +139,8 @@ export const getTmDashboard = createServerFn({ method: "GET" })
         prisma.checklistEntry.findMany({
           where: { orgId, ...(showId ? { showId } : { serviceDate }) },
           select: {
-            id: true,
+            templateId: true,
             checked: true,
-            template: { select: { label: true, category: true } },
           },
         }),
         prisma.streamDestination.findMany({
@@ -158,8 +158,8 @@ export const getTmDashboard = createServerFn({ method: "GET" })
         // The same weekly rota the PM dashboard reads. One source, so the
         // two pages can never name different people on duty.
         loadRosterDuty(orgId, serviceDate),
-        prisma.checklistTemplate.count({ where: { orgId } }),
-        prisma.rundownItem.count({ where: { orgId, ...(showId ? { showId } : { serviceDate }) } }),
+        prisma.checklistTemplate.findMany({ where: { orgId }, select: { id: true, label: true, category: true } }),
+        prisma.rundownItem.count({ where: { orgId, type: { not: "header" }, ...(showId ? { showId } : { serviceDate }) } }),
         countRosterAssignments(orgId),
       ]);
 
@@ -180,12 +180,14 @@ export const getTmDashboard = createServerFn({ method: "GET" })
       now,
     );
 
+    const checkedByTemplate = new Map(entries.map(entry => [entry.templateId, entry.checked]));
     const snapshot: TmSnapshot = {
       serviceDate,
       now,
       phase,
       viewerId: viewer.userId,
-      incidents,
+      incidents: incidentRows.slice(0, OPEN_FAULT_LIMIT),
+      incidentsTruncated: incidentRows.length > OPEN_FAULT_LIMIT,
       equipment: equipment.map((row) => ({
         id: row.id,
         name: row.name,
@@ -193,19 +195,17 @@ export const getTmDashboard = createServerFn({ method: "GET" })
         status: row.status,
         nextServiceMs: row.nextService ? new Date(row.nextService).getTime() : null,
       })),
-      checklist: entries.map((row) => ({
-        id: row.id,
-        label: row.template?.label ?? "",
-        category: row.template?.category ?? "general",
-        checked: row.checked,
+      checklist: checklistTemplates.map((row) => ({
+        id: row.id, label: row.label, category: row.category,
+        checked: checkedByTemplate.get(row.id) ?? false,
       })),
       streamDestinations: destinations.map((row) => ({
         id: row.id,
         name: row.name,
         platform: row.platform,
         enabled: row.enabled,
-        // Stream Connect gives an output id once the destination is
-        // actually wired up. No id means configured but not connected.
+        // This is a saved output link, not current provider telemetry.
+        // Live operations confirms the actual output status.
         connected: Boolean(row.cfOutputId) && !row.cfOutputId.startsWith("pending:"),
       })),
       liveInputs: liveInputs.map((row) => ({
@@ -228,7 +228,8 @@ export const getTmDashboard = createServerFn({ method: "GET" })
         { key: "pm" as const, label: "Production", name: rosterDuty.pm?.name ?? null },
         { key: "tm" as const, label: "Tech", name: rosterDuty.tm?.name ?? null },
       ],
-      checklistTemplateCount,
+      checklistTemplateCount: checklistTemplates.length,
+      checklistEntryCount: entries.length,
       rundownItemCount,
       rosterInUse,
     };
@@ -274,8 +275,8 @@ export const getTmDashboard = createServerFn({ method: "GET" })
         name: row.name,
         platform: row.platform,
         enabled: row.enabled,
-        // Stream Connect gives an output id once the destination is
-        // actually wired up. No id means configured but not connected.
+        // This is a saved output link, not current provider telemetry.
+        // Live operations confirms the actual output status.
         connected: Boolean(row.cfOutputId) && !row.cfOutputId.startsWith("pending:"),
       })),
       members: assignableMembers
@@ -289,23 +290,10 @@ export const getTmDashboard = createServerFn({ method: "GET" })
     };
   });
 
-/**
- * Has this org ever used the weekly rota?
- *
- * Raw D1 because roster_assignment predates the generated client in some
- * environments, and a missing table must read as "not in use" rather
- * than break the page — the same defensive read loadRosterDuty does.
- */
+/** A failed roster read must not hide an unstaffed duty slot. */
 async function countRosterAssignments(orgId: string): Promise<boolean> {
-  try {
-    const row = await getD1()
-      .prepare(`SELECT 1 AS present FROM roster_assignment WHERE orgId = ? LIMIT 1`)
-      .bind(orgId)
-      .first<{ present: number }>();
-    return Boolean(row);
-  } catch {
-    return false;
-  }
+  const row = await getD1().prepare(`SELECT 1 AS present FROM roster_assignment WHERE orgId = ? LIMIT 1`).bind(orgId).first<{ present: number }>();
+  return Boolean(row);
 }
 
 /**
@@ -327,13 +315,13 @@ async function loadOpenFaults(orgId: string): Promise<TmIncident[]> {
       await getD1()
         .prepare(
           `SELECT i.id, category, severity, description, reportedBy, serviceDate,
-                  timestamp, status, assignedTo, assignedName, acknowledgedAt, r.revision
+                  timestamp, status, assignedTo, assignedName, acknowledgedAt, assignedAt, r.revision
              FROM incident i JOIN incident_management_revision r ON r.orgId=i.orgId AND r.incidentId=i.id
             WHERE i.orgId = ? AND status <> 'resolved'
-            ORDER BY timestamp DESC
+            ORDER BY CASE lower(severity) WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC, timestamp DESC
             LIMIT ?`,
         )
-        .bind(orgId, OPEN_FAULT_LIMIT)
+        .bind(orgId, OPEN_FAULT_LIMIT + 1)
         .all<{
           id: string;
           revision: number;
@@ -347,6 +335,7 @@ async function loadOpenFaults(orgId: string): Promise<TmIncident[]> {
           assignedTo: string | null;
           assignedName: string | null;
           acknowledgedAt: string | null;
+          assignedAt: string | null;
         }>()
     ).results ?? [];
 
@@ -362,14 +351,14 @@ async function loadOpenFaults(orgId: string): Promise<TmIncident[]> {
     status: row.status,
     assignedTo: row.assignedTo,
     assignedName: row.assignedName ?? "",
+    assignedAt: row.assignedAt ? new Date(row.assignedAt).getTime() : null,
     acknowledgedAt: row.acknowledgedAt ? new Date(row.acknowledgedAt).getTime() : null,
   }));
 }
 
 /**
  * The rundown row carries the scheduled start the phase is derived from.
- * Accessed defensively for the same reason rundown.ts does it — some
- * generated clients in the wild predate the model.
+ * Database failures propagate to the dashboard retry boundary.
  */
 async function loadRundownMeta(
   orgId: string,
@@ -380,8 +369,7 @@ async function loadRundownMeta(
   scheduledCallTime: string | null;
   status: string;
 } | null> {
-  try {
-    const row = await getD1()
+  const row = await getD1()
       .prepare(
         `SELECT scheduledStartTime, scheduledCallTime, status FROM rundown WHERE orgId = ? AND ${showId ? "id = ?" : "serviceDate = ?"}`,
       )
@@ -401,7 +389,4 @@ async function loadRundownMeta(
         : null,
       status: row.status,
     };
-  } catch {
-    return null;
-  }
 }

@@ -11,12 +11,12 @@ const buttonClass =
   "min-h-11 min-w-11 px-3 rounded-lg border border-board-border text-sm disabled:opacity-50";
 const names: Record<string, string> = {
   overview: "System overview",
-  "signal-path": "Signal path",
+  "signal-path": "Stream setup",
   workspace: "Incident workspace",
   operations: "Live operations",
   prep: "Before the service",
   faults: "Incidents",
-  "all-clear": "All clear",
+  "all-clear": "Recorded checks clear",
 };
 function Order({ layout }: { layout: TmDashboardLayout }) {
   return (

@@ -43,6 +43,7 @@ export interface TmIncident {
   status: string;
   assignedTo: string | null;
   assignedName: string;
+  assignedAt: number | null;
   /** Epoch ms, or null when claimed but never acknowledged. */
   acknowledgedAt: number | null;
 }
@@ -61,7 +62,7 @@ export interface TmStreamDestination {
   name: string;
   platform: string;
   enabled: boolean;
-  /** Whether Cloudflare Stream Connect has an output for it. */
+  /** A saved output link; this does not confirm current provider health. */
   connected: boolean;
 }
 
@@ -101,6 +102,7 @@ export interface TmSnapshot {
   /** The signed-in tech, so the queue can say which faults are theirs. */
   viewerId: string;
   incidents: TmIncident[];
+  incidentsTruncated: boolean;
   equipment: TmEquipment[];
   checklist: TmChecklistItem[];
   streamDestinations: TmStreamDestination[];
@@ -114,6 +116,7 @@ export interface TmSnapshot {
   duty: TmDutyOfficer[];
   /** How many pre-service checks the org has defined at all. */
   checklistTemplateCount: number;
+  checklistEntryCount: number;
   /** Items in the running order for this service. */
   rundownItemCount: number;
   /**
@@ -178,6 +181,7 @@ export interface PrepItem {
 export interface TmDashboardModel {
   phase: ServicePhase;
   faults: Fault[];
+  incidentsTruncated: boolean;
   openCount: number;
   mineCount: number;
   unownedCount: number;
@@ -187,6 +191,7 @@ export interface TmDashboardModel {
   devices: TmDevice[];
   duty: TmDutyOfficer[];
   prep: PrepItem[];
+  readiness: Health;
 }
 
 // ─── Faults ──────────────────────────────────────────────────
@@ -194,7 +199,7 @@ export interface TmDashboardModel {
 const SEVERITY_RANK: Record<Severity, number> = { critical: 0, warning: 1, info: 2 };
 
 function severityOf(raw: string): Severity {
-  if (raw === "high") return "critical";
+  if (raw === "high" || raw === "critical") return "critical";
   if (raw === "medium") return "warning";
   return "info";
 }
@@ -217,7 +222,7 @@ export function deriveFaults(snapshot: TmSnapshot): Fault[] {
       const stale =
         claimed &&
         incident.acknowledgedAt === null &&
-        snapshot.now - incident.reportedAt > STALE_ACK_MS;
+        snapshot.now - (incident.assignedAt ?? incident.reportedAt) > STALE_ACK_MS;
 
       return {
         id: incident.id,
@@ -251,7 +256,7 @@ export function deriveFaults(snapshot: TmSnapshot): Fault[] {
 // ─── Signal path ─────────────────────────────────────────────
 
 /**
- * Whether the service is reaching the internet.
+ * Saved stream setup. Live operations owns current input/output telemetry.
  *
  * Returns a null status when the org has never configured streaming.
  * That is not a fault and must not be rendered as one — a church that
@@ -263,41 +268,16 @@ export function deriveSignalPath(snapshot: TmSnapshot): SignalPath {
     return { status: null, detail: "", inputs: [], destinations: [] };
   }
 
-  const inputs = snapshot.liveInputs.map((input) => ({
-    id: input.id,
-    name: input.name,
-    ok: input.status === "connected" || input.status === "live",
-    label: input.status,
-  }));
-
-  const enabled = snapshot.streamDestinations.filter((destination) => destination.enabled);
-  const destinations = enabled.map((destination) => ({
-    id: destination.id,
-    name: destination.name,
-    ok: destination.connected,
-    label: destination.connected ? destination.platform : "not connected",
-  }));
-
-  // Before call time an encoder that is not yet live is normal — someone
-  // simply has not switched it on. Only from call onwards is it a fault.
-  const judgeInputs = snapshot.phase === "call" || snapshot.phase === "live";
-  const deadInputs = judgeInputs ? inputs.filter((input) => !input.ok) : [];
-  const deadDestinations = destinations.filter((destination) => !destination.ok);
-
-  let status: Health = "ok";
-  let detail = "";
-  if (enabled.length === 0) {
-    status = "fail";
-    detail = `${snapshot.streamDestinations.length} destinations configured, none enabled`;
-  } else if (deadDestinations.length > 0) {
-    status = "fail";
-    detail = `${deadDestinations.map((d) => d.name).join(", ")} not connected`;
-  } else if (deadInputs.length > 0) {
-    status = "warn";
-    detail = `${deadInputs.map((i) => i.name).join(", ")} not live`;
-  } else {
-    detail = `${enabled.length} destination${enabled.length === 1 ? "" : "s"} live`;
-  }
+  // This snapshot contains saved configuration, not current provider telemetry.
+  // The independent Live operations controls confirm input/output status.
+  const inputs = snapshot.liveInputs.map(input => ({ id: input.id, name: input.name, ok: true, label: "Configured input" }));
+  const enabled = snapshot.streamDestinations.filter(destination => destination.enabled);
+  const destinations = enabled.map(destination => ({ id: destination.id, name: destination.name, ok: true, label: "Selected for Go Live" }));
+  const status: Health = enabled.length === 0 ? "fail" : inputs.length === 0 ? "warn" : "ok";
+  const detail = enabled.length === 0
+    ? `${snapshot.streamDestinations.length} destinations configured, none selected for Go Live`
+    : inputs.length === 0 ? "Choose a live input before Go Live"
+    : `${enabled.length} destination${enabled.length === 1 ? "" : "s"} selected for Go Live. Check Live operations for current output status.`;
 
   return { status, detail, inputs, destinations };
 }
@@ -400,7 +380,7 @@ export function derivePrep(
       actionLabel: "Add checks",
       actionPath: "production/checklist",
     });
-  } else if (snapshot.checklist.length === 0) {
+  } else if (snapshot.checklistEntryCount === 0) {
     out.push({
       id: "prep:checklist-not-started",
       severity: "warning",
@@ -453,7 +433,7 @@ export function derivePrep(
     out.push({
       id: "prep:lingering-faults",
       severity: "warning",
-      title: `${lingering.length === 1 ? "1 fault" : `${lingering.length} faults`} open more than a week`,
+      title: `${lingering.length === 1 ? "1 incident" : `${lingering.length} incidents`} open more than a week`,
       detail: `Oldest is ${days} days old — fix before the ${terms.event}, not during it`,
       actionLabel: "Review",
       actionPath: "production/incidents",
@@ -469,18 +449,22 @@ export function deriveTmDashboard(
   snapshot: TmSnapshot,
   terms: WorkspaceTerms = resolveTerms("church"),
 ): TmDashboardModel {
-  const faults = deriveFaults(snapshot);
+  const faults = deriveFaults(snapshot), checks = deriveChecks(snapshot), equipmentFaults = deriveEquipmentFaults(snapshot), prep = derivePrep(snapshot, terms), signalPath = deriveSignalPath(snapshot);
+  const readiness: Health = faults.some(fault => fault.severity === "critical") || equipmentFaults.some(item => item.status === "out-of-service") || prep.some(item => item.severity === "critical") || signalPath.status === "fail"
+    ? "fail" : faults.length || equipmentFaults.length || prep.length || checks.some(check => check.outstanding > 0) || signalPath.status === "warn" ? "warn" : "ok";
   return {
+    readiness,
+    incidentsTruncated: snapshot.incidentsTruncated,
     phase: snapshot.phase,
     faults,
     openCount: faults.length,
     mineCount: faults.filter((fault) => fault.ownership === "mine").length,
     unownedCount: faults.filter((fault) => fault.ownership === "unassigned" || fault.stale).length,
-    signalPath: deriveSignalPath(snapshot),
-    checks: deriveChecks(snapshot),
-    equipmentFaults: deriveEquipmentFaults(snapshot),
+    signalPath,
+    checks,
+    equipmentFaults,
     devices: deriveDevices(snapshot),
     duty: snapshot.duty,
-    prep: derivePrep(snapshot, terms),
+    prep,
   };
 }

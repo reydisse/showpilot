@@ -300,7 +300,7 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
                       : "text-green-400"
                 }`}
               >
-                {model.openCount}
+                {model.openCount}{model.incidentsTruncated ? "+" : ""}
               </p>
               <p className="text-xs text-board-muted mt-1">
                 {model.unownedCount > 0
@@ -355,7 +355,7 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
               ),
             },
             "signal-path": {
-              title: "Signal path",
+              title: "Stream setup",
               content: (
                 <>
                   {banners.map((widget) => (
@@ -380,29 +380,18 @@ function HealthOverview({ model }: { model: TmWidgetModel["model"] }) {
     (total, check) => total + check.outstanding,
     0,
   );
-  const signalBad = model.signalPath.status === "fail";
-  const overall =
-    critical > 0 || signalBad || model.unownedCount > 0
-      ? "Critical"
-      : model.openCount > 0 || checksLeft > 0
-        ? "Degraded"
-        : "Nominal";
-  const tone =
-    overall === "Critical"
-      ? "text-red-400"
-      : overall === "Degraded"
-        ? "text-yellow-400"
-        : "text-green-400";
+  const overall = model.readiness === "fail" ? "Needs attention" : model.readiness === "warn" ? "Review" : "Checks clear";
+  const tone = model.readiness === "fail" ? "text-red-400" : model.readiness === "warn" ? "text-yellow-400" : "text-green-400";
   const metrics = [
-    { label: "System state", value: overall, icon: ShieldCheck, tone },
+    { label: "Readiness", value: overall, icon: ShieldCheck, tone },
     {
-      label: "Critical incidents",
+      label: model.incidentsTruncated ? "Critical incidents shown" : "Critical incidents",
       value: String(critical),
       icon: AlertTriangle,
       tone: critical ? "text-red-400" : "text-board-text",
     },
     {
-      label: "My queue",
+      label: model.incidentsTruncated ? "My incidents shown" : "My queue",
       value: String(model.mineCount),
       icon: UserRoundCheck,
       tone: model.mineCount ? "text-fire-400" : "text-board-text",

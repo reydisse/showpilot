@@ -73,6 +73,7 @@ function snapshot(overrides: Partial<PmSnapshot> = {}): PmSnapshot {
     upcoming: [],
     assignments: [],
     openItems: [],
+    openItemsTruncated: false,
     recent: [],
     onFloor: [],
     onFloorTotal: 0,
@@ -1238,4 +1239,17 @@ describe("scheduling is not scored until the org uses it", () => {
     expect(factor?.status).toBe("fail");
     expect(factor?.detail).toBe("1 position unfilled");
   });
+});
+
+it("does not keep resolved incidents in readiness, departments or the attention queue", () => {
+  const model = derivePmDashboard(snapshot({ incidents: [{ id: "resolved", category: "audio", severity: "high", description: "Fixed earlier", reportedBy: "Operator", status: "resolved" }] }));
+  expect(model.readiness.factors.find(factor => factor.id === "incidents")).toMatchObject({ status: "ok", detail: "None open" });
+  expect(model.attention.some(item => item.id === "incident:resolved")).toBe(false);
+  expect(model.departments.find(item => item.key === "audio")?.detail).not.toBe("Fixed earlier");
+});
+it("treats critical severity consistently across readiness, departments and attention", () => {
+  const model = derivePmDashboard(snapshot({ incidents: [{ id: "critical", category: "audio", severity: "critical", description: "Critical fault", reportedBy: "Operator", status: "open" }] }));
+  expect(model.readiness.factors.find(factor => factor.id === "incidents")?.status).toBe("fail");
+  expect(model.attention.find(item => item.id === "incident:critical")?.severity).toBe("critical");
+  expect(model.departments.find(item => item.key === "audio")?.status).toBe("fail");
 });

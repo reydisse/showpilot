@@ -983,6 +983,7 @@ const openItemsWidget: PmWidget = {
         </Link>
       }
     >
+      {model.openItemsTruncated ? <p className="text-xs text-board-muted">Showing six highest-priority incidents. Review the incident log for the rest.</p> : null}
       <ul>
         {model.openItems.map((entry) => (
           <li
@@ -991,7 +992,7 @@ const openItemsWidget: PmWidget = {
           >
             <StatusDot
               status={
-                entry.severity === "high"
+                entry.severity === "high" || entry.severity === "critical"
                   ? "fail"
                   : entry.severity === "medium"
                     ? "warn"
@@ -1003,7 +1004,7 @@ const openItemsWidget: PmWidget = {
                 {entry.description}
               </p>
               <p className="text-xs leading-snug text-board-muted">
-                {entry.category} ·{" "}
+                {entry.severity} · {entry.category} ·{" "}
                 {entry.ageDays === 0 ? "today" : `${entry.ageDays}d ago`}
               </p>
             </div>

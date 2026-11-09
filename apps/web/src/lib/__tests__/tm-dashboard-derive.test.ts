@@ -37,6 +37,7 @@ function incident(overrides: Partial<TmIncident> & { id: string }): TmIncident {
     assignedTo: null,
     assignedName: "",
     acknowledgedAt: null,
+    assignedAt: null,
     ...overrides,
   };
 }
@@ -48,6 +49,7 @@ function snapshot(overrides: Partial<TmSnapshot> = {}): TmSnapshot {
     phase: "live",
     viewerId: VIEWER,
     incidents: [],
+    incidentsTruncated: false,
     equipment: [],
     checklist: [],
     streamDestinations: [],
@@ -56,6 +58,7 @@ function snapshot(overrides: Partial<TmSnapshot> = {}): TmSnapshot {
     streamingConfigured: true,
     duty: [],
     checklistTemplateCount: 0,
+    checklistEntryCount: overrides.checklist?.length ?? 0,
     rundownItemCount: 0,
     rosterInUse: false,
     ...overrides,
@@ -213,19 +216,13 @@ describe("deriveSignalPath", () => {
       }),
     );
     expect(path.status).toBe("fail");
-    expect(path.detail).toContain("none enabled");
+    expect(path.detail).toContain("none selected");
   });
 
-  it("fails when an enabled destination is not connected", () => {
-    const path = deriveSignalPath(
-      snapshot({
-        streamDestinations: [
-          { id: "d1", name: "YouTube", platform: "youtube", enabled: true, connected: false },
-        ],
-      }),
-    );
-    expect(path.status).toBe("fail");
-    expect(path.detail).toContain("YouTube");
+  it("does not treat an unlinked output as failed when Go Live can create it", () => {
+    const path = deriveSignalPath(snapshot({ liveInputs: [{ id: "input", name: "Encoder", status: "idle" }], streamDestinations: [{ id: "d1", name: "YouTube", platform: "youtube", enabled: true, connected: false }] }));
+    expect(path.status).toBe("ok");
+    expect(path.detail).toContain("selected for Go Live");
   });
 
   it("ignores an idle encoder before call time", () => {
@@ -243,7 +240,7 @@ describe("deriveSignalPath", () => {
     expect(path.status).toBe("ok");
   });
 
-  it("warns about an idle encoder once the crew is on site", () => {
+  it("leaves live encoder checks to telemetry instead of judging a cached status", () => {
     const path = deriveSignalPath(
       snapshot({
         phase: "call",
@@ -253,8 +250,8 @@ describe("deriveSignalPath", () => {
         ],
       }),
     );
-    expect(path.status).toBe("warn");
-    expect(path.detail).toContain("Booth");
+    expect(path.status).toBe("ok");
+    expect(path.detail).toContain("current output status");
   });
 });
 
@@ -462,4 +459,25 @@ describe("on duty", () => {
     );
     expect(prep).toHaveLength(0);
   });
+});
+
+it("keeps critical incidents critical instead of downgrading them to information", () => {
+  expect(deriveFaults(snapshot({ incidents: [incident({ id: "critical", severity: "critical" })] }))[0].severity).toBe("critical");
+});
+it("does not describe stored destination configuration as a live broadcast", () => {
+  const path = deriveSignalPath(snapshot({ phase: "planning", streamingConfigured: true,
+    liveInputs: [{ id: "input", name: "Encoder", status: "idle" }],
+    streamDestinations: [{ id: "destination", name: "Destination", platform: "custom", enabled: true, connected: true }],
+  }));
+  expect(path.detail).not.toMatch(/destinations? live/);
+});
+
+it("ages a claim from its assignment time rather than the old report", () => {
+  const fault = deriveFaults(snapshot({ incidents: [incident({ id: "old", assignedTo: "other", reportedAt: NOW - 86400000, assignedAt: NOW })] }))[0];
+  expect(fault.stale).toBe(false);
+});
+it("never calls unresolved equipment or outstanding checks clear", () => {
+  const base = { streamingConfigured: false, rundownItemCount: 1, checklistTemplateCount: 1 };
+  expect(deriveTmDashboard(snapshot({ ...base, equipment: [{ id: "broken", name: "Console", category: "audio", status: "out-of-service", nextServiceMs: null }] })).readiness).toBe("fail");
+  expect(deriveTmDashboard(snapshot({ ...base, checklist: [{ id: "check", label: "Check", category: "audio", checked: false }] })).readiness).toBe("warn");
 });
