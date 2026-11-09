@@ -62,7 +62,9 @@ export function CsvImportSection({
           </p>
         </div>
 
+        <label htmlFor="crew-csv" className="block text-sm font-medium text-board-text">Crew CSV</label>
         <textarea
+          id="crew-csv"
           value={csv}
           onChange={(e) => {
             setCsv(e.target.value);
@@ -76,7 +78,7 @@ export function CsvImportSection({
           className="w-full px-4 py-3 rounded-xl bg-board-card border border-board-border text-sm font-mono text-board-text placeholder:text-board-muted/40 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 resize-y"
         />
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <input
             ref={fileInputRef}
             type="file"
@@ -91,16 +93,16 @@ export function CsvImportSection({
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-board-muted border border-board-border hover:text-board-text hover:bg-board-border/50 transition-colors"
+            className="flex min-h-11 min-w-11 max-w-full items-center gap-2 px-4 py-2 rounded-lg text-sm text-board-muted border border-board-border hover:text-board-text hover:bg-board-border/50 transition-colors"
           >
             <FileUp className="w-4 h-4" />
-            {fileName ?? "Upload .csv"}
+            <span className="min-w-0 break-all">{fileName ?? "Upload .csv"}</span>
           </button>
           <button
             type="button"
             onClick={handleImport}
             disabled={importing || !csv.trim()}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fire-500 text-white hover:bg-fire-600 disabled:opacity-50 disabled:pointer-events-none transition-colors"
+            className="flex min-h-11 min-w-11 max-w-full items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-fire-500 text-white hover:bg-fire-600 disabled:opacity-50 disabled:pointer-events-none transition-colors"
           >
             <Upload className="w-4 h-4" />
             {importing ? "Importing..." : "Import"}

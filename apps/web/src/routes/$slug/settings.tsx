@@ -765,6 +765,7 @@ function RundownPinSettings({
               autoComplete="new-password"
               value={pin}
               onChange={(event) => setPin(event.target.value.replace(/\D/gu, "").slice(0, 8))}
+              aria-label={enabled ? "New PIN" : "PIN"}
               placeholder="4 to 8 digits"
               className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-2.5 text-board-text outline-none transition-colors placeholder:text-board-muted/50 focus:border-fire-500"
             />
@@ -776,6 +777,7 @@ function RundownPinSettings({
               autoComplete="new-password"
               value={confirmation}
               onChange={(event) => setConfirmation(event.target.value.replace(/\D/gu, "").slice(0, 8))}
+              aria-label="Confirm PIN"
               placeholder="Repeat PIN"
               className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-2.5 text-board-text outline-none transition-colors placeholder:text-board-muted/50 focus:border-fire-500"
             />

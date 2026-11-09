@@ -745,6 +745,7 @@ function SongStudioPage() {
                       ) : null}
                       <input
                         readOnly={!canManage || locked}
+                        aria-label={`Section ${index + 1} name`}
                         value={section.label}
                         onChange={(event) =>
                           setSections((current) =>
@@ -780,6 +781,7 @@ function SongStudioPage() {
                     </div>
                     <textarea
                       readOnly={!canManage || locked}
+                      aria-label={`Section ${index + 1} lyrics`}
                       value={section.lyrics}
                       onChange={(event) =>
                         setSections((current) =>
@@ -1074,6 +1076,7 @@ function SongStudioPage() {
                 </div>
                 <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                   <select
+                    aria-label="Cue output"
                     value={target}
                     onChange={(event) =>
                       setTarget(event.target.value as typeof target)
