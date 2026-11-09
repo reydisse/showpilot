@@ -55,6 +55,17 @@ it("retries the same apply after failure and preserves newer preview edits", asy
   expect(requests[2].input.expectedValue).toBe(requests[0].input.value);
   await act(async () => acknowledge(2));
 });
+it("acknowledges adding an upcoming color without leaving a false unsaved draft", async () => {
+  const { onApplied } = setup();
+  fireEvent.change(screen.getByLabelText("Upcoming text color"), { target: { value: "#33ccff" } });
+  fireEvent.click(screen.getByRole("button", { name: "Apply to screens" }));
+  await flush();
+  expect(JSON.parse(requests[0].input.value).lyrics.nextColor).toBe("#33ccff");
+  await act(async () => acknowledge(0));
+  expect(onApplied).toHaveBeenCalledWith(requests[0].input.value);
+  expect(screen.getByText("Applied. Open screens will update within a few seconds.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Apply to screens" }).hasAttribute("disabled")).toBe(true);
+});
 it("bounds a stalled apply and ignores its late acknowledgement", async () => {
   vi.useFakeTimers(); const { onApplied } = setup();
   fireEvent.click(screen.getByLabelText("Show upcoming lyric"));

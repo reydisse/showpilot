@@ -1,3 +1,5 @@
+import { TimecodeLyricsPreview } from "@/components/timecode-lyrics-preview";
+import { useTimecodeLyricsControls } from "@/hooks/use-timecode-lyrics-controls";
 import { TimecodeCueEditor } from "@/components/timecode-cue-editor";
 import { TimecodeCueFields } from "@/components/timecode-cue-fields";
 import { useTimecodeCueEdit } from "@/hooks/use-timecode-cue-edit";
@@ -19,7 +21,7 @@ import { Page } from "@/components/page";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
 import { useTimecodeCueSave } from "@/hooks/use-timecode-cue-save";
 import { useTimecodeRelay } from "@/hooks/use-timecode-relay";
-import { controlMobileTimecodeCues, createMobileTimecodeCue, editMobileTimecodeCue, editMobileTimecodeClock, editMobileTimecodeAutomation, getMobileTimecode, getMobileTimecodeShows } from "@/lib/mobile-api";
+import { controlMobileTimecodeLyrics, controlMobileTimecodeCues, createMobileTimecodeCue, editMobileTimecodeCue, editMobileTimecodeClock, editMobileTimecodeAutomation, getMobileTimecode, getMobileTimecodeShows } from "@/lib/mobile-api";
 import type { MobileTimecodeShow } from "@/lib/timecode-contract";
 import { createThemedStyles, fontFamily } from "@/theme/tokens";
 
@@ -98,8 +100,13 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
     state: data?.state, events: data?.events ?? [], send: controlMobileTimecodeCues,
     refresh: async signal => { if (!await relay.refresh() || signal.aborted) throw new Error("The current cues could not refresh. Retry their refresh."); },
   });
+  const lyricsControls = useTimecodeLyricsControls({ orgId, userId: actorId, ...target }, {
+    active: true, canSend: canControl && !cueSave.locked && !clockEdit.locked && !gate.locked && !cueEdit.locked && !cueControls.locked,
+    state: data?.state, send: controlMobileTimecodeLyrics,
+    refresh: async signal => { if (!await relay.refresh() || signal.aborted) throw new Error("The current lyrics could not refresh. Retry the refresh."); },
+  });
   const cueAttempt = cueControls.attempt;
-  const canSaveEdit = canControl && !cueSave.locked && !clockEdit.locked && !gate.locked && !cueControls.locked;
+  const canSaveEdit = canControl && !cueSave.locked && !clockEdit.locked && !gate.locked && !cueControls.locked && !lyricsControls.locked;
   const canEdit = canSaveEdit && !cueEdit.locked;
 
   return (
@@ -166,9 +173,8 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
         <AppField label="Set timecode" value={clockEdit.draft.timecode} editable={!clockEdit.locked} onChangeText={clockEdit.update} autoCapitalize="characters" placeholder="00:00:00:00" />
         <AppButton label="Set relay time" variant="secondary" disabled={!canEdit || data?.state.running} onPress={() => clockEdit.prepare("seek")} />
       </OperationsPanel>
-      {data?.state.lyrics ? (
-        <OperationsPanel title={data.state.lyrics.songTitle} detail={data.state.lyrics.sectionLabel}><View style={styles.lyricsPreview}><Text style={styles.lyricsText}>{data.state.lyrics.lyrics.split(/\r?\n/).filter(Boolean).slice(0, 4).join("\n")}</Text><Text style={styles.lyricsNext}>{data.state.lyrics.nextLabel ? `NEXT · ${data.state.lyrics.nextLabel}` : "END OF SONG"}</Text></View></OperationsPanel>
-      ) : null}
+      <TimecodeLyricsPreview lyrics={data?.state.lyrics ?? null} controls={lyricsControls} showName={show.name}
+        connected={relay.status === "connected"} />
       <OperationsPanel title="Source and format" detail="This device can generate internal freerun. MTC, LTC, rundown, and network sources remain visible here when supplied by the desktop or bridge.">
         <Text style={styles.saveText}>{data?.state.source.replaceAll("-", " ")} · {data?.state.format.frameRate} fps {data?.state.format.dropFrame.toUpperCase()}{relay.isMaster ? " · This device is master" : ""}</Text>
         <View style={styles.buttonRow}>
@@ -208,7 +214,7 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
         {draft.format ? <Text style={styles.saveText}>Cue time reviewed at {draft.format.frameRate} fps {draft.format.dropFrame.toUpperCase()}.</Text> : null}
         {formatChanged ? <><OperationsError message="The show's frame rate changed. Review the cue time before using the current format." /><AppButton label="Use current frame rate" variant="secondary" disabled={cueSave.locked} onPress={cueSave.reviewFormat} /></> : null}
         <TimecodeCueFields scope={{ orgId, userId: actorId, showId: show.id }} draft={draft} update={cueSave.update} disabled={cueSave.locked || cueEdit.locked} onValid={setCueValid} />
-        <AppButton label="Add automation event" disabled={!canControl || cueSave.locked || cueEdit.locked || gate.locked || cueControls.locked || clockEdit.locked || formatChanged || !cueValid} onPress={cueSave.save} />
+        <AppButton label="Add automation event" disabled={!canControl || cueSave.locked || cueEdit.locked || gate.locked || cueControls.locked || clockEdit.locked || lyricsControls.locked || formatChanged || !cueValid} onPress={cueSave.save} />
         </> : null}
       </OperationsPanel>
     </Page>
@@ -220,7 +226,4 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   saveText: { color: colors.text, fontFamily, fontSize: 13, lineHeight: 19 },
   buttonRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   button: { flex: 1, minWidth: 80 },
-  lyricsPreview: { gap: 16, borderRadius: 18, backgroundColor: colors.black, paddingHorizontal: 18, paddingVertical: 28 },
-  lyricsText: { color: colors.white, fontFamily, fontSize: 24, lineHeight: 31, fontWeight: "800", textAlign: "center" },
-  lyricsNext: { color: colors.textMuted, fontFamily, fontSize: 12, fontWeight: "800", letterSpacing: 0.8 },
 }));

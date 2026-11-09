@@ -39,15 +39,29 @@ export class TestRundownRelay extends RundownRelay {
   releaseBatch(): void { this.batchGate.release?.(); }
 }
 export class TestTimecodeRelay extends TimecodeRelay {
-  private readonly queries: { count: number };
+  private readonly queries: { count: number; lyricsDelay: number; lyricsLookups: number };
 
   constructor(ctx: DurableObjectState, bindings: Cloudflare.Env) {
-    const queries = { count: 0 };
+    const queries = { count: 0, lyricsDelay: 0, lyricsLookups: 0 };
     const database = new Proxy(bindings.DB, {
       get(target, property) {
         if (property === "prepare") return (sql: string) => {
           queries.count += 1;
-          return target.prepare(sql);
+          const statement = target.prepare(sql);
+          if (!sql.includes("FROM song_section AS section JOIN song")) return statement;
+          const wrap = (statement: D1PreparedStatement): D1PreparedStatement => new Proxy(statement, {
+            get(target, property) {
+              if (property === "bind") return (...values: unknown[]) => wrap(target.bind(...values));
+              if (property === "all") return async () => {
+                queries.lyricsLookups++;
+                if (queries.lyricsDelay) await new Promise(resolve => setTimeout(resolve, queries.lyricsDelay));
+                return target.all();
+              };
+              const value: unknown = Reflect.get(target, property, target);
+              return typeof value === "function" ? value.bind(target) : value;
+            },
+          });
+          return wrap(statement);
         };
         const value: unknown = Reflect.get(target, property, target);
         return typeof value === "function" ? value.bind(target) : value;
@@ -58,6 +72,8 @@ export class TestTimecodeRelay extends TimecodeRelay {
   }
 
   getQueryCount(): number { return this.queries.count; }
+  setLyricsLookupDelay(milliseconds: number): void { this.queries.lyricsDelay = milliseconds; }
+  getLyricsLookupCount(): number { return this.queries.lyricsLookups; }
 }
 
 // Fault injection exists only in the isolated Worker test entrypoint.

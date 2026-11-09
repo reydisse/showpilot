@@ -1,25 +1,15 @@
+import { lyricsReviewState, type LyricsOperation } from "@showpilot/shared";
 import { z } from "zod";
 import type { LyricsDisplayState } from "@/types/timecode";
 
 export const lyricsOperationSchema = z.enum(["next", "previous", "clear"]);
-export type LyricsOperation = z.infer<typeof lyricsOperationSchema>;
 export const lyricsReviewSchema = z.object({
   songId: z.string(), sectionId: z.string(), updatedAt: z.number(),
   revision: z.string().nullable(), generationKey: z.string().nullable(),
 }).strict();
-export const lyricsControlSchema = z.object({ operation: lyricsOperationSchema, expected: lyricsReviewSchema }).strict();
-
-export function lyricsReviewState(lyrics: LyricsDisplayState) {
-  return { songId: lyrics.songId, sectionId: lyrics.sectionId, updatedAt: lyrics.updatedAt,
-    revision: lyrics.revision ?? null, generationKey: lyrics.generationKey ?? null };
-}
-export function lyricsReviewMatches(lyrics: LyricsDisplayState | null, expected: z.infer<typeof lyricsReviewSchema>): boolean {
-  if (!lyrics) return false;
-  const current = lyricsReviewState(lyrics);
-  return current.songId === expected.songId && current.sectionId === expected.sectionId
-    && current.updatedAt === expected.updatedAt && current.revision === expected.revision
-    && current.generationKey === expected.generationKey;
-}
+export const lyricsControlSchema = z.object({ operation: lyricsOperationSchema, expected: lyricsReviewSchema,
+  requestId: z.uuid().optional(), showId: z.string().min(1).optional(), serviceDate: z.string().min(1).optional(),
+}).strict();
 
 export async function requestLyricsControl(args: {
   orgId: string; showId: string; operation: LyricsOperation; lyrics: LyricsDisplayState; signal: AbortSignal;

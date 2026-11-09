@@ -5,6 +5,7 @@ import {
   CONFIDENCE_LAYOUT_KEY,
   CONFIDENCE_FONTS,
   DEFAULT_CONFIDENCE_LAYOUT,
+  confidenceLayoutSchema,
   readConfidenceLayout,
   type ConfidenceLayout,
   type ConfidenceSlideData,
@@ -90,7 +91,9 @@ export function ConfidenceSection({
   const saving = writes.saveState.kind === "saving";
   const [feedback, setFeedback] = useState("");
   const style = draft[tab];
-  const dirty = JSON.stringify(draft) !== applied;
+  // Parsing fixes field order when an optional color is added to an older layout.
+  const draftValue = JSON.stringify(confidenceLayoutSchema.parse(draft));
+  const dirty = draftValue !== applied;
   const change = (patch: Partial<ConfidenceLayout["lyrics"]>) =>
     setDraft((value) => ({ ...value, [tab]: { ...value[tab], ...patch } }));
 
@@ -103,7 +106,7 @@ export function ConfidenceSection({
   }
   async function apply() {
     setFeedback("");
-    const value = JSON.stringify(draft);
+    const value = draftValue;
     if (await writes.saveSetting(CONFIDENCE_LAYOUT_KEY, value)) confirmed(value);
   }
   async function retry(key: string) {
@@ -116,8 +119,8 @@ export function ConfidenceSection({
   async function resolveConflict(key: string, choice: "saved" | "mine") {
     const failure = writes.saveState.kind === "error" ? writes.saveState.failures.find(item => item.key === key) : null;
     if (!failure) return false;
-    const value = choice === "saved" ? failure.currentValue ?? undefined : JSON.stringify(draft);
-    if (choice === "mine") writes.editSetting(key, JSON.stringify(draft));
+    const value = choice === "saved" ? failure.currentValue ?? undefined : draftValue;
+    if (choice === "mine") writes.editSetting(key, draftValue);
     const success = await writes.resolveConflict(key, choice);
     if (success) {
       confirmed(value);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { requestLyricsControl, type LyricsOperation } from "@/lib/lyrics-control";
+import { requestLyricsControl } from "@/lib/lyrics-control";
+import { type LyricsOperation } from "@showpilot/shared";
 import type { LyricsDisplayState } from "@/types/timecode";
 
 export function useLyricsCommands(options: {
