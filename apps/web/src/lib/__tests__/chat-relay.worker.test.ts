@@ -1,9 +1,11 @@
+import { chatMutationResultSchema, type ChatMutationOperation } from "@showpilot/shared/chat-mutation";
 import { seedRelayMember } from "@/test/relay-fixtures";
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects, evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await abortAllDurableObjects();
 });
 
@@ -52,7 +54,207 @@ async function openChat(orgId: string, roomId = "production", expectEmpty = true
   return { stub, socket: response.webSocket, hydration: hydrationFrame, url };
 }
 
+function makeMutationFrame(orgId: string, messageId: string, operation: ChatMutationOperation, roomId = "production") {
+  return { type: "mutation", command: { orgId, userId: "user-1", roomId, messageId, requestId: crypto.randomUUID(), expiresAt: Date.now() + 10000, operation } };
+}
+
 describe("ChatRelay threads", () => {
+  it("recovers the original reaction acknowledgement without toggling it off", async () => {
+    const orgId = "reaction-receipt-org";
+    const { stub, socket, url } = await openChat(orgId);
+    const messageId = crypto.randomUUID();
+    const sent = nextFrame(socket, "message");
+    socket.send(JSON.stringify({ type: "message", text: "Ready", clientMessageId: messageId }));
+    await sent;
+    const command = { orgId, userId: "user-1", roomId: "production", requestId: crypto.randomUUID(), messageId, expiresAt: Date.now() + 10000, operation: { kind: "reaction", emoji: "👍", active: true } };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = nextFrame(socket, "mutation-result");
+      socket.send(JSON.stringify({ type: "mutation", command }));
+      await expect(result).resolves.toMatchObject({ result: { outcome: "applied", command } });
+    }
+    const response = await stub.fetch(url("/history"));
+    const history = await response.json<{ messages: Array<{ id: string; reactions?: unknown }> }>();
+    expect(history.messages.find(message => message.id === messageId)?.reactions).toEqual([{ emoji: "👍", userIds: ["user-1"] }]);
+    socket.close();
+  });
+
+  it("does not replay an acknowledged edit over a later edit", async () => {
+    const orgId = "edit-receipt-org";
+    const { stub, socket, url } = await openChat(orgId);
+    const messageId = crypto.randomUUID();
+    const sent = nextFrame(socket, "message");
+    socket.send(JSON.stringify({ type: "message", text: "Original", clientMessageId: messageId }));
+    const original = (await sent).message as { timestamp: number };
+    const first = { orgId, userId: "user-1", roomId: "production", requestId: crypto.randomUUID(), messageId, expiresAt: Date.now() + 10000, operation: { kind: "edit", text: "First edit", expectedEditTime: original.timestamp } };
+    const applied = nextFrame(socket, "mutation-result");
+    socket.send(JSON.stringify({ type: "mutation", command: first }));
+    const receipt = (await applied).result as { at: number };
+    const later = { ...first, requestId: crypto.randomUUID(), operation: { kind: "edit", text: "Later edit", expectedEditTime: receipt.at } };
+    for (const command of [later, first]) {
+      const result = nextFrame(socket, "mutation-result");
+      socket.send(JSON.stringify({ type: "mutation", command }));
+      await expect(result).resolves.toMatchObject({ result: { outcome: command === first ? "superseded" : "applied", command } });
+    }
+    const response = await stub.fetch(url("/history"));
+    const history = await response.json<{ messages: Array<{ id: string; text: string }> }>();
+    expect(history.messages.find(message => message.id === messageId)?.text).toBe("Later edit");
+    socket.close();
+  });
+
+  it("recovers a completed delete instead of reporting it as a failed deletion", async () => {
+    const orgId = "delete-receipt-org";
+    const { socket } = await openChat(orgId);
+    const messageId = crypto.randomUUID();
+    const sent = nextFrame(socket, "message");
+    socket.send(JSON.stringify({ type: "message", text: "Remove me", clientMessageId: messageId }));
+    const original = (await sent).message as { timestamp: number };
+    const command = { orgId, userId: "user-1", roomId: "production", requestId: crypto.randomUUID(), messageId, expiresAt: Date.now() + 10000, operation: { kind: "delete", expectedEditTime: original.timestamp } };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = nextFrame(socket, "mutation-result");
+      socket.send(JSON.stringify({ type: "mutation", command }));
+      await expect(result).resolves.toMatchObject({ result: { outcome: "applied", command } });
+    }
+    socket.close();
+  });
+
+  it.each(["edit", "delete"] as const)("rejects a stale %s without overwriting a newer edit", async kind => {
+    const orgId = `stale-${kind}-org`, { socket, stub, url } = await openChat(orgId);
+    const messageId = crypto.randomUUID();
+    const sent = nextFrame(socket, "message");
+    socket.send(JSON.stringify({ type: "message", text: "Original", clientMessageId: messageId }));
+    const original = (await sent).message as { timestamp: number };
+    const updated = nextFrame(socket, "mutation-result");
+    socket.send(JSON.stringify(makeMutationFrame(orgId, messageId, { kind: "edit", text: "Newer", expectedEditTime: original.timestamp })));
+    await expect(updated).resolves.toMatchObject({ result: { outcome: "applied" } });
+    const stale = nextFrame(socket, "mutation-result");
+    socket.send(JSON.stringify(makeMutationFrame(orgId, messageId, kind === "edit"
+      ? { kind, text: "Old draft", expectedEditTime: original.timestamp } : { kind, expectedEditTime: original.timestamp })));
+    await expect(stale).resolves.toMatchObject({ result: { outcome: "conflict" } });
+    expect(await (await stub.fetch(url("/history"))).json()).toMatchObject({ messages: [{ id: messageId, text: "Newer" }] });
+    socket.close();
+  });
+
+  it("persists expired first deliveries and rejects altered retries", async () => {
+    const orgId = "expired-mutation-org", { socket, stub, url } = await openChat(orgId);
+    const messageId = crypto.randomUUID(), sent = nextFrame(socket, "message");
+    socket.send(JSON.stringify({ type: "message", text: "Original", clientMessageId: messageId })); await sent;
+    const frame = makeMutationFrame(orgId, messageId, { kind: "reaction", emoji: "👍", active: true });
+    frame.command.expiresAt = Date.now() - 1;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = nextFrame(socket, "mutation-result"); socket.send(JSON.stringify(frame));
+      await expect(result).resolves.toMatchObject({ result: { outcome: "expired" } });
+    }
+    const altered = nextFrame(socket, "mutation-error");
+    socket.send(JSON.stringify({ ...frame, command: { ...frame.command, expiresAt: Date.now() + 10000 } }));
+    await expect(altered).resolves.toMatchObject({ error: expect.stringContaining("altered") });
+    expect(await (await stub.fetch(url("/history"))).json()).toMatchObject({ messages: [{ id: messageId, text: "Original" }] });
+    socket.close();
+  });
+
+  it.each(["orgId", "roomId", "userId"] as const)("rejects a mutation from another %s before storing a receipt", async field => {
+    const orgId = `scope-${field}-org`, { socket, stub } = await openChat(orgId);
+    const frame = makeMutationFrame(orgId, crypto.randomUUID(), { kind: "reaction", emoji: "👍", active: true });
+    frame.command[field] = "another";
+    const result = nextFrame(socket, "mutation-error"); socket.send(JSON.stringify(frame));
+    await expect(result).resolves.toMatchObject({ type: "mutation-error" });
+    expect(await runInDurableObject(stub, (_instance, ctx) => ctx.storage.sql.exec("SELECT * FROM chat_mutation_receipts").toArray())).toEqual([]);
+    socket.close();
+  });
+
+  it("recovers receipts after object eviction without undoing a later poll choice", async () => {
+    const orgId = "evicted-vote-org", { socket, stub, url } = await openChat(orgId);
+    const messageId = crypto.randomUUID(), sent = nextFrame(socket, "message");
+    socket.send(JSON.stringify({ type: "message", text: "Vote", clientMessageId: messageId, poll: { question: "Ready?", options: [{ text: "Yes" }, { text: "No" }] } }));
+    const message = (await sent).message as { poll: { options: Array<{ id: string }> } };
+    const [first, second] = message.poll.options;
+    const frame = makeMutationFrame(orgId, messageId, { kind: "vote", optionId: first.id, expectedOptionId: null });
+    for (const change of [frame, makeMutationFrame(orgId, messageId, { kind: "vote", optionId: second.id, expectedOptionId: first.id })]) {
+      const result = nextFrame(socket, "mutation-result"); socket.send(JSON.stringify(change));
+      await expect(result).resolves.toMatchObject({ result: { outcome: "applied" } });
+    }
+    socket.close(); await evictDurableObject(stub);
+    const reopened = await openChat(orgId, "production", false);
+    const recovered = nextFrame(reopened.socket, "mutation-result"); reopened.socket.send(JSON.stringify(frame));
+    await expect(recovered).resolves.toMatchObject({ result: { outcome: "superseded" } });
+    expect(await (await stub.fetch(url("/history"))).json()).toMatchObject({ messages: [{ poll: { options: [{ id: first.id, voterIds: [] }, { id: second.id, voterIds: ["user-1"] }] } }] });
+    reopened.socket.close();
+  });
+
+  it("checks current membership before revealing a saved receipt", async () => {
+    const orgId = "revoked-mutation-org", { socket } = await openChat(orgId);
+    const messageId = crypto.randomUUID(), sent = nextFrame(socket, "message");
+    socket.send(JSON.stringify({ type: "message", text: "Original", clientMessageId: messageId })); await sent;
+    const frame = makeMutationFrame(orgId, messageId, { kind: "reaction", emoji: "👍", active: true });
+    const result = nextFrame(socket, "mutation-result"); socket.send(JSON.stringify(frame)); await result;
+    await env.DB.prepare("DELETE FROM member WHERE organizationId=? AND userId=?").bind(orgId, "user-1").run();
+    const received: unknown[] = [];
+    socket.addEventListener("message", event => received.push(JSON.parse(String(event.data))));
+    const closed = new Promise<number>(resolve => socket.addEventListener("close", event => resolve(event.code), { once: true }));
+    socket.send(JSON.stringify(frame));
+    expect(await closed).toBe(4403); expect(received).toEqual([]);
+  });
+
+  it("preserves other members' reactions and rejects edits by a non-owner", async () => {
+    const orgId = "independent-reactions-org", first = await openChat(orgId);
+    const messageId = crypto.randomUUID(), sent = nextFrame(first.socket, "message");
+    first.socket.send(JSON.stringify({ type: "message", text: "Original", clientMessageId: messageId }));
+    const original = (await sent).message as { timestamp: number };
+    const second = await openChat(orgId, "production", false, "user-2");
+    for (const [socket, userId] of [[first.socket, "user-1"], [second.socket, "user-2"]] as const) {
+      const frame = makeMutationFrame(orgId, messageId, { kind: "reaction", emoji: "👍", active: true }); frame.command.userId = userId;
+      const result = nextFrame(socket, "mutation-result"); socket.send(JSON.stringify(frame)); await result;
+    }
+    const forged = makeMutationFrame(orgId, messageId, { kind: "edit", text: "Forged", expectedEditTime: original.timestamp }); forged.command.userId = "user-2";
+    const denied = nextFrame(second.socket, "mutation-result"); second.socket.send(JSON.stringify(forged));
+    await expect(denied).resolves.toMatchObject({ result: { outcome: "not-owner" } });
+    expect(await (await first.stub.fetch(first.url("/history"))).json()).toMatchObject({ messages: [{ text: "Original", reactions: [{ emoji: "👍", userIds: ["user-1", "user-2"] }] }] });
+    first.socket.close(); second.socket.close();
+  });
+
+  it("rejects legacy blind mutations with an actionable update message", async () => {
+    const { socket } = await openChat("legacy-mutation-org");
+    for (const type of ["edit", "delete", "reaction", "vote"]) {
+      const result = nextFrame(socket, "mutation-result"); socket.send(JSON.stringify({ type, requestId: "old-client", messageId: "missing" }));
+      await expect(result).resolves.toMatchObject({ ok: false, error: expect.stringContaining("Update ShowPilot") });
+    }
+    socket.close();
+  });
+
+  it("removes private edit receipts when an account is deleted", async () => {
+    const orgId = "receipt-erasure-org", { socket, stub } = await openChat(orgId);
+    const messageId = crypto.randomUUID(), sent = nextFrame(socket, "message");
+    socket.send(JSON.stringify({ type: "message", text: "Original", clientMessageId: messageId }));
+    const original = (await sent).message as { timestamp: number };
+    const edited = nextFrame(socket, "mutation-result");
+    socket.send(JSON.stringify(makeMutationFrame(orgId, messageId, { kind: "edit", text: "Private edited content", expectedEditTime: original.timestamp })));
+    expect(chatMutationResultSchema.parse((await edited).result).outcome).toBe("applied");
+    expect(await runInDurableObject(stub, (_instance, ctx) => ctx.storage.sql.exec("SELECT result FROM chat_mutation_receipts").toArray())).toHaveLength(1);
+    const response = await stub.fetch(new Request("https://chat.test/internal/delete-user-data", { method: "POST",
+      headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET }, body: JSON.stringify({ userId: "user-1" }) }));
+    expect(response.status).toBe(200);
+    expect(await runInDurableObject(stub, (_instance, ctx) => ctx.storage.sql.exec("SELECT * FROM chat_mutation_receipts").toArray())).toEqual([]);
+    socket.close();
+  });
+
+  it("erases saved edit drafts when chat history is cleared", async () => {
+    const orgId = "clear-edit-receipt-org", { socket, stub } = await openChat(orgId);
+    const messageId = crypto.randomUUID(), sent = nextFrame(socket, "message");
+    socket.send(JSON.stringify({ type: "message", text: "Original", clientMessageId: messageId }));
+    const original = (await sent).message as { timestamp: number };
+    const frame = makeMutationFrame(orgId, messageId, { kind: "edit", text: "Private old draft", expectedEditTime: original.timestamp });
+    const edited = nextFrame(socket, "mutation-result"); socket.send(JSON.stringify(frame)); await edited;
+    const requestId = crypto.randomUUID();
+    await env.DB.prepare("INSERT INTO chat_history_clear_receipt(orgId,actorId,requestId,confirmName,claimId,cutoff,rooms) VALUES(?,?,?,?,?,?,?)")
+      .bind(orgId, "user-1", requestId, orgId, crypto.randomUUID(), Date.now(), JSON.stringify(["production"])).run();
+    expect(await stub.clearHistory({ orgId, roomId: "production", requestId, confirmName: orgId, deadline: Date.now() + 10000,
+      authority: { orgId, userId: "user-1", sessionId: "user-1-session" } })).toEqual({ cleared: true });
+    expect(await runInDurableObject(stub, (_instance, ctx) => ctx.storage.sql.exec("SELECT * FROM chat_mutation_receipts").toArray())).toEqual([]);
+    const replay = nextFrame(socket, "mutation-result"); socket.send(JSON.stringify(frame));
+    await expect(replay).resolves.toMatchObject({ result: { outcome: "not-found" } });
+    expect(await runInDurableObject(stub, (_instance, ctx) => ctx.storage.sql.exec("SELECT * FROM chat_mutation_receipts").toArray())).toEqual([]);
+    socket.close();
+  });
+
   it("counts incoming unread messages and clears them after a read receipt", async () => {
     const { stub, socket } = await openChat("unread-count-org");
     const mine = nextFrame(socket, "message");
@@ -117,7 +319,7 @@ describe("ChatRelay threads", () => {
       httpMetadata: { contentType: "text/plain" },
       customMetadata: { uploadedBy: "user-1", roomId: "production" },
     });
-    const { socket } = await openChat(orgId);
+    const { stub, socket, url: roomUrl } = await openChat(orgId);
     const messageIds = [crypto.randomUUID(), crypto.randomUUID()];
     for (const messageId of messageIds) {
       const received = nextFrame(socket, "message");
@@ -134,10 +336,70 @@ describe("ChatRelay threads", () => {
 
     for (const [index, messageId] of messageIds.entries()) {
       const result = nextFrame(socket, "mutation-result");
-      socket.send(JSON.stringify({ type: "delete", messageId, requestId: `delete-${index}` }));
-      await expect(result).resolves.toMatchObject({ ok: true });
+      const history = await (await stub.fetch(roomUrl("/history"))).json<{ messages: Array<{ id: string; timestamp: number }> }>();
+      const original = history.messages.find(message => message.id === messageId);
+      if (!original) throw new Error("Missing stored attachment message");
+      socket.send(JSON.stringify(makeMutationFrame(orgId, messageId, { kind: "delete", expectedEditTime: original.timestamp })));
+      await expect(result).resolves.toMatchObject({ result: { outcome: "applied", cleanup: "complete" } });
       expect(Boolean(await env.STORAGE.head(key))).toBe(index === 0);
     }
+    socket.close();
+  });
+
+  it("commits deletion before failed object cleanup and retries only cleanup", async () => {
+    const orgId = "failed-cleanup-org", key = `orgs/${orgId}/chat/cleanup-file/notes.txt`;
+    const attachment = { id: "cleanup-file", name: "notes.txt", url: `/api/chat-file/${orgId}/cleanup-file/notes.txt`, mimeType: "text/plain", size: 5 };
+    await env.STORAGE.put(key, "notes", { customMetadata: { uploadedBy: "user-1", roomId: "production" } });
+    const { socket, stub, url } = await openChat(orgId);
+    const messageId = crypto.randomUUID(), sent = nextFrame(socket, "message");
+    socket.send(JSON.stringify({ type: "message", text: "Notes", clientMessageId: messageId, attachments: [attachment] }));
+    const original = (await sent).message as { timestamp: number };
+    const remove = vi.spyOn(Object.getPrototypeOf(env.STORAGE), "delete").mockRejectedValueOnce(new Error("R2 unavailable"));
+    const frame = makeMutationFrame(orgId, messageId, { kind: "delete", expectedEditTime: original.timestamp });
+    const failed = nextFrame(socket, "mutation-result"); socket.send(JSON.stringify(frame));
+    const first = chatMutationResultSchema.parse((await failed).result);
+    expect(first).toMatchObject({ outcome: "applied", cleanup: "failed" });
+    expect(remove).toHaveBeenCalledWith(key);
+    expect(await (await stub.fetch(url("/history"))).json()).toMatchObject({ messages: [{ id: messageId, deletedAt: first.at, text: "" }] });
+    expect(await env.STORAGE.head(key)).not.toBeNull();
+    const blocked = nextFrame(socket, "error");
+    socket.send(JSON.stringify({ type: "message", text: "Reuse pending deletion", clientMessageId: crypto.randomUUID(), attachments: [attachment] }));
+    await expect(blocked).resolves.toMatchObject({ error: expect.stringContaining("attached file was deleted") });
+    remove.mockRestore();
+    const recovered = nextFrame(socket, "mutation-result"); socket.send(JSON.stringify(frame));
+    expect(chatMutationResultSchema.parse((await recovered).result)).toMatchObject({ outcome: "applied", cleanup: "complete", at: first.at });
+    expect(await env.STORAGE.head(key)).toBeNull();
+    socket.close();
+  });
+
+  it("rejects attachment validation that finishes after deletion reserved the file", async () => {
+    const orgId = "attachment-validation-race-org", key = `orgs/${orgId}/chat/race-file/notes.txt`;
+    const attachment = { id: "race-file", name: "notes.txt", url: `/api/chat-file/${orgId}/race-file/notes.txt`, mimeType: "text/plain", size: 5 };
+    await env.STORAGE.put(key, "notes", { customMetadata: { uploadedBy: "user-1", roomId: "production" } });
+    const { socket, stub, url } = await openChat(orgId);
+    const messageId = crypto.randomUUID(), sent = nextFrame(socket, "message");
+    socket.send(JSON.stringify({ type: "message", text: "Notes", clientMessageId: messageId, attachments: [attachment] }));
+    const original = (await sent).message as { timestamp: number };
+    const newMessageId = crypto.randomUUID(), rejected = nextFrame(socket, "error");
+    const deleted = nextFrame(socket, "mutation-result");
+    await runInDurableObject(stub, async (instance, ctx) => {
+      const cachedObject = await env.STORAGE.head(key);
+      let release: () => void = () => { throw new Error("Validation was not held"); };
+      let started: () => void = () => {};
+      const waiting = new Promise<void>(resolve => { started = resolve; });
+      const held = new Promise<R2Object | null>(resolve => { release = () => resolve(cachedObject); });
+      const head = vi.spyOn(Object.getPrototypeOf(env.STORAGE), "head").mockImplementationOnce(() => { started(); return held; });
+      const serverSocket = ctx.getWebSockets()[0];
+      const sending = instance.webSocketMessage(serverSocket, JSON.stringify({ type: "message", text: "Delayed attachment", clientMessageId: newMessageId, attachments: [attachment] }));
+      try {
+        await waiting;
+        await instance.webSocketMessage(serverSocket, JSON.stringify(makeMutationFrame(orgId, messageId, { kind: "delete", expectedEditTime: original.timestamp })));
+      } finally { release(); await sending; head.mockRestore(); }
+    });
+    await expect(deleted).resolves.toMatchObject({ result: { outcome: "applied", cleanup: "complete" } });
+    await expect(rejected).resolves.toMatchObject({ messageId: newMessageId, error: expect.stringContaining("attached file was deleted") });
+    const history = await (await stub.fetch(url("/history"))).json<{ messages: Array<{ id: string }> }>();
+    expect(history.messages.map(message => message.id)).not.toContain(newMessageId);
     socket.close();
   });
 
@@ -146,17 +408,17 @@ describe("ChatRelay threads", () => {
     const messageId = crypto.randomUUID();
     const sent = nextFrame(member.socket, "message");
     member.socket.send(JSON.stringify({ type: "message", text: "Member original", clientMessageId: messageId }));
-    await sent;
+    const original = (await sent).message as { timestamp: number };
     const response = await member.stub.fetch(new Request(`https://chat.test/internal/guest-ws?orgId=guest-ownership-org&room=production&userId=user-1&name=Guest&role=Guest&guestTokenHash=sha256:${"a".repeat(64)}&guestExpiresAt=${Date.now() + 60000}`, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } }));
     if (!response.webSocket) throw new Error("Missing guest socket");
     const guest = response.webSocket;
     const hydration = nextFrame(guest, "hydrate"); guest.accept(); await hydration;
-    const denied = nextFrame(guest, "mutation-result");
-    guest.send(JSON.stringify({ type: "edit", messageId, requestId: "guest-edit", text: "Forged edit" }));
-    await expect(denied).resolves.toMatchObject({ ok: false });
+    const denied = nextFrame(guest, "mutation-error");
+    guest.send(JSON.stringify(makeMutationFrame("guest-ownership-org", messageId, { kind: "edit", text: "Forged edit", expectedEditTime: original.timestamp })));
+    await expect(denied).resolves.toMatchObject({ type: "mutation-error" });
     const allowed = nextFrame(member.socket, "mutation-result");
-    member.socket.send(JSON.stringify({ type: "edit", messageId, requestId: "member-edit", text: "Member updated" }));
-    await expect(allowed).resolves.toMatchObject({ ok: true });
+    member.socket.send(JSON.stringify(makeMutationFrame("guest-ownership-org", messageId, { kind: "edit", text: "Member updated", expectedEditTime: original.timestamp })));
+    await expect(allowed).resolves.toMatchObject({ result: { outcome: "applied" } });
     guest.close(); member.socket.close();
   });
 
@@ -432,25 +694,25 @@ describe("ChatRelay threads", () => {
     expect(hydratedMessages.some((message) => message.id === oldId)).toBe(false);
 
     for (const mutation of [
-      { type: "reaction", requestId: "reaction-old", messageId: oldId, emoji: "👍" },
-      { type: "vote", requestId: "vote-old", messageId: oldId, optionId: "placeholder" },
+      makeMutationFrame(orgId, oldId, { kind: "reaction", emoji: "👍", active: true }, roomId),
+      makeMutationFrame(orgId, oldId, { kind: "vote", optionId: "placeholder", expectedOptionId: null }, roomId),
     ]) {
-      if (mutation.type === "vote") {
+      if (mutation.command.operation.kind === "vote") {
         const historyResponse = await firstConnection.stub.fetch(new Request(
           `https://chat.test/history?orgId=${orgId}&room=${roomId}&limit=10&beforeTimestamp=${oldMessage.timestamp + 1}&beforeId=%EF%BF%BF`,
         ));
         const history = await historyResponse.json<{ messages: Array<{ id: string; poll?: { options: Array<{ id: string }> } }> }>();
         const stored = history.messages.find((message) => message.id === oldId);
-        mutation.optionId = stored?.poll?.options[0]?.id ?? "missing";
+        mutation.command.operation.optionId = stored?.poll?.options[0]?.id ?? "missing";
       }
       const result = nextFrame(socket, "mutation-result");
       socket.send(JSON.stringify(mutation));
-      await expect(result).resolves.toMatchObject({ type: "mutation-result", requestId: mutation.requestId, ok: true });
+      await expect(result).resolves.toMatchObject({ type: "mutation-result", result: { command: mutation.command, outcome: "applied" } });
     }
 
     const editResult = nextFrame(socket, "mutation-result");
-    socket.send(JSON.stringify({ type: "edit", requestId: "edit-old", messageId: oldId, text: "Updated old message" }));
-    await expect(editResult).resolves.toMatchObject({ type: "mutation-result", requestId: "edit-old", ok: true });
+    socket.send(JSON.stringify(makeMutationFrame(orgId, oldId, { kind: "edit", text: "Updated old message", expectedEditTime: oldMessage.timestamp }, roomId)));
+    await expect(editResult).resolves.toMatchObject({ type: "mutation-result", result: { outcome: "applied" } });
 
     const historyResponse = await firstConnection.stub.fetch(new Request(
       `https://chat.test/history?orgId=${orgId}&room=${roomId}&limit=10&beforeTimestamp=${oldMessage.timestamp + 1}&beforeId=%EF%BF%BF`,

@@ -40,7 +40,7 @@ function ChatPage() {
   const roomAvailable = roomId === "production" || roomId === "planning" || Boolean(dmMember);
   const roomTitle = roomId === "planning" ? "Planning Room" : dmMember ? dmMember.name : roomId === "production" ? "Production Chat" : "Conversation unavailable";
   const roomSubtitle = roomId === "planning" ? "Plan together before the show" : dmMember ? `Direct message · ${dmMember.role}` : "Crew channel";
-  const { notifications, retryNotifications, messages, sendMessage, uploadAttachment, discardAttachment, editMessage, deleteMessage, votePoll, toggleReaction, connectionStatus, connectionUpdatedAt, retryConnection, unreadCount, typingUsers, setTyping, readReceipts, gatewayStatus, hydrated, markRead, hasOlderMessages, loadingOlderMessages, olderMessagesError, loadOlderMessages, retryQueuedMessage, cancelQueuedMessage } = useChat({ orgId: roomAvailable ? orgId : "", roomId, isVisible: true, senderName: userName, senderRole: userRole, currentUserId: userId });
+  const { mutations, retryMutation, dismissMutation, notifications, retryNotifications, messages, sendMessage, uploadAttachment, discardAttachment, editMessage, deleteMessage, votePoll, setReaction, connectionStatus, connectionUpdatedAt, retryConnection, unreadCount, typingUsers, setTyping, readReceipts, gatewayStatus, hydrated, markRead, hasOlderMessages, loadingOlderMessages, olderMessagesError, loadOlderMessages, retryQueuedMessage, cancelQueuedMessage } = useChat({ orgId: roomAvailable ? orgId : "", roomId, isVisible: true, senderName: userName, senderRole: userRole, currentUserId: userId });
   const rundown = useRundownSync(orgId, serviceDate, showId);
   const liveItem = rundown.timer.playback === "play"
     ? rundown.items.find((item) => item.id === rundown.timer.currentItemId)?.title ?? null
@@ -94,13 +94,14 @@ function ChatPage() {
           loadingOlderMessages={loadingOlderMessages}
           olderMessagesError={olderMessagesError}
           onLoadOlderMessages={loadOlderMessages}
+          mutations={mutations} onRetryMutation={retryMutation} onDismissMutation={dismissMutation}
           notifications={notifications} onRetryNotifications={retryNotifications}
           onRetryQueuedMessage={retryQueuedMessage}
           onCancelQueuedMessage={cancelQueuedMessage}
           onEditMessage={editMessage}
           onDeleteMessage={deleteMessage}
           onVotePoll={votePoll}
-          onToggleReaction={toggleReaction}
+          onSetReaction={setReaction}
           mentionMembers={members.filter((member) => member.userId !== userId)}
           focusedMessageId={focusedMessageId}
           currentUserName={userName}

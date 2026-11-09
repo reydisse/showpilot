@@ -1,4 +1,5 @@
 import type { ChatNotificationWork } from "@/lib/chat-notifications";
+import type { ChatMutationWork } from "@showpilot/shared/chat-mutation-tracker";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { createBrowserId } from "@/lib/browser-id";
 import type { ChatAdapter, ChatAttachment, ChatGatewayStatus, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
@@ -19,6 +20,9 @@ interface UseChatOptions {
 }
 
 interface UseChatReturn {
+  mutations: ChatMutationWork[];
+  retryMutation: (requestId: string) => void;
+  dismissMutation: (requestId: string) => void;
   notifications: ChatNotificationWork[];
   retryNotifications: (requestId: string) => void;
   guestAccessRevoked: boolean;
@@ -26,10 +30,10 @@ interface UseChatReturn {
   sendMessage: (text: string, type?: MessageType, options?: ChatMessageOptions) => Promise<void>;
   uploadAttachment: (file: File) => Promise<ChatAttachment>;
   discardAttachment: (attachment: ChatAttachment) => Promise<void>;
-  editMessage: (messageId: string, text: string) => Promise<void>;
-  deleteMessage: (messageId: string) => Promise<void>;
-  votePoll: (messageId: string, optionId: string) => Promise<void>;
-  toggleReaction: (messageId: string, emoji: string) => Promise<void>;
+  editMessage: (messageId: string, text: string, expectedEditTime: number) => Promise<void>;
+  deleteMessage: (messageId: string, expectedEditTime: number) => Promise<void>;
+  votePoll: (messageId: string, optionId: string, expectedOptionId: string | null) => Promise<void>;
+  setReaction: (messageId: string, emoji: string, active: boolean) => Promise<void>;
   connectionStatus: ConnectionStatus;
   connectionUpdatedAt: number;
   retryConnection: () => void;
@@ -55,13 +59,13 @@ function createAdapter(orgId: string, guest: ConstructorParameters<typeof Native
 }
 
 type ChatView = Pick<UseChatReturn,
-  "notifications" | "guestAccessRevoked" | "messages" | "connectionStatus" | "connectionUpdatedAt" | "unreadCount" |
+  "mutations" | "notifications" | "guestAccessRevoked" | "messages" | "connectionStatus" | "connectionUpdatedAt" | "unreadCount" |
   "typingUsers" | "readReceipts" | "hydrated" | "openingReadThrough" |
   "gatewayStatus" | "hasOlderMessages" | "loadingOlderMessages" | "olderMessagesError">;
 
 function emptyView(enabled: boolean): ChatView {
   return {
-    notifications: [], guestAccessRevoked: false, messages: [], connectionStatus: enabled ? "connecting" : "disabled", connectionUpdatedAt: 0,
+    mutations: [], notifications: [], guestAccessRevoked: false, messages: [], connectionStatus: enabled ? "connecting" : "disabled", connectionUpdatedAt: 0,
     unreadCount: 0, typingUsers: [], readReceipts: {}, hydrated: false, openingReadThrough: null,
     gatewayStatus: { platform: null, status: enabled ? "connecting" : "disabled" },
     hasOlderMessages: false, loadingOlderMessages: false, olderMessagesError: null,
@@ -137,11 +141,12 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
         .sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id)),
     })));
     const unsubNotifications = adapter.onNotifications?.(notifications => update(adapter, current => ({ ...current, notifications })));
+    const unsubMutations = adapter.onMutations?.(mutations => update(adapter, current => ({ ...current, mutations })));
     void adapter.connect().catch(() => { /* Adapter reports errors and manages reconnects. */ });
     return () => {
       adapterRef.current = null;
       unsubMessage(); unsubStatus?.(); unsubTyping?.(); unsubReadReceipt?.();
-      unsubHydrated?.(); unsubGatewayStatus?.(); unsubOutbox?.(); unsubNotifications?.();
+      unsubHydrated?.(); unsubGatewayStatus?.(); unsubOutbox?.(); unsubNotifications?.(); unsubMutations?.();
       for (const timer of typingTimers.values()) clearTimeout(timer);
       adapter.disconnect();
     };
@@ -167,28 +172,28 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     [getAdapter, guestToken, orgId, roomId, userName, userRole],
   );
 
-  const editMessage = useCallback(async (messageId: string, text: string) => {
+  const editMessage = useCallback(async (messageId: string, text: string, expectedEditTime: number) => {
     const adapter = getAdapter();
     if (!adapter?.editMessage) throw new Error("Chat is not ready to edit this message. Reconnect and retry.");
-    await adapter.editMessage(messageId, text);
+    await adapter.editMessage(messageId, text, expectedEditTime);
   }, [getAdapter]);
 
-  const deleteMessage = useCallback(async (messageId: string) => {
+  const deleteMessage = useCallback(async (messageId: string, expectedEditTime: number) => {
     const adapter = getAdapter();
     if (!adapter?.deleteMessage) throw new Error("Chat is not ready to delete this message. Reconnect and retry.");
-    await adapter.deleteMessage(messageId);
+    await adapter.deleteMessage(messageId, expectedEditTime);
   }, [getAdapter]);
 
-  const votePoll = useCallback(async (messageId: string, optionId: string) => {
+  const votePoll = useCallback(async (messageId: string, optionId: string, expectedOptionId: string | null) => {
     const adapter = getAdapter();
     if (!adapter?.votePoll) throw new Error("Chat is not ready to record this vote. Reconnect and retry.");
-    await adapter.votePoll(messageId, optionId);
+    await adapter.votePoll(messageId, optionId, expectedOptionId);
   }, [getAdapter]);
 
-  const toggleReaction = useCallback(async (messageId: string, emoji: string) => {
+  const setReaction = useCallback(async (messageId: string, emoji: string, active: boolean) => {
     const adapter = getAdapter();
-    if (!adapter?.toggleReaction) throw new Error("Reactions are available in ShowPilot chat");
-    await adapter.toggleReaction(messageId, emoji);
+    if (!adapter?.setReaction) throw new Error("Reactions are available in ShowPilot chat");
+    await adapter.setReaction(messageId, emoji, active);
   }, [getAdapter]);
 
   const uploadAttachment = useCallback(async (file: File): Promise<ChatAttachment> => {
@@ -247,6 +252,8 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     }
   }, [getAdapter, hasOlderMessages, loadingOlderMessages, update]);
   const retryNotifications = useCallback((requestId: string) => getAdapter()?.retryNotifications?.(requestId), [getAdapter]);
+  const retryMutation = useCallback((requestId: string) => getAdapter()?.retryMutation?.(requestId), [getAdapter]);
+  const dismissMutation = useCallback((requestId: string) => getAdapter()?.dismissMutation?.(requestId), [getAdapter]);
   const retryQueuedMessage = useCallback((messageId: string) => getAdapter()?.retryOutbox?.(messageId), [getAdapter]);
   const cancelQueuedMessage = useCallback((messageId: string) => getAdapter()?.cancelOutbox?.(messageId), [getAdapter]);
   const retryConnection = useCallback(() => {
@@ -257,7 +264,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
   }, [getAdapter, view.guestAccessRevoked]);
 
   return {
-    ...view, retryNotifications, retryConnection, sendMessage, uploadAttachment, discardAttachment, editMessage, deleteMessage, votePoll,
-    toggleReaction, resetUnread, setTyping, markRead, loadOlderMessages, retryQueuedMessage, cancelQueuedMessage,
+    ...view, retryMutation, dismissMutation, retryNotifications, retryConnection, sendMessage, uploadAttachment, discardAttachment, editMessage, deleteMessage, votePoll,
+    setReaction, resetUnread, setTyping, markRead, loadOlderMessages, retryQueuedMessage, cancelQueuedMessage,
   };
 }

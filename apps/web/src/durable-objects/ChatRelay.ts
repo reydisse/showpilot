@@ -1,9 +1,10 @@
 import { chatRoomClearSchema, chatClearReceiptSchema, type ChatRoomClear } from "@/lib/chat-history-clear-contract";
+import { chatEditTime, chatMutationCommandSchema, chatMutationResultSchema, type ChatMutationCommand, type ChatMutationResult } from "@showpilot/shared/chat-mutation";
+import { runRouteLoad } from "@/lib/route-load-deadlines";
 import { chatPassIsRevoked } from "@/lib/chat-pass-revocation.server";
 import { reportRelayError } from "@/lib/operational-errors.server";
 import { DurableObject } from "cloudflare:workers";
 import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh, socketAuthorityClaim } from "@/lib/socket-read-authority.server";
-import { isEmojiReaction } from "@showpilot/shared";
 import { scrubDeletedUserFromChat } from "@/lib/chat-account-deletion";
 import { objectionableContentReason } from "@/lib/user-content-safety";
 import { crewMessageDeliverySchema, type CrewMessageDelivery, type CrewMessageResult } from "@/lib/crew-message";
@@ -158,6 +159,14 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         PRIMARY KEY (actor_id,request_id)
       )`);
       ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS chat_cleared_messages (id TEXT PRIMARY KEY)");
+      // File IDs are immutable upload identities. Keep only the opaque ID so a
+      // delayed attachment validation cannot reuse a file being deleted.
+      ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS chat_deleted_attachments (id TEXT PRIMARY KEY)");
+      ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS chat_mutation_receipts (
+        actor_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+        result TEXT NOT NULL, attachments TEXT, cleanup_state TEXT NOT NULL,
+        PRIMARY KEY (actor_id, request_id)
+      )`);
       ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS chat_automation_receipts (
         execution_id TEXT PRIMARY KEY,
         fingerprint TEXT NOT NULL,
@@ -276,6 +285,117 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     const messages = [...this.recentMessages];
     messages[index] = message;
     this.recentMessages = messages;
+  }
+
+  private mutationReceipt(command: ChatMutationCommand) {
+    return this.ctx.storage.sql.exec<{ fingerprint: string; result: string; attachments: string | null; cleanup_state: ChatMutationResult["cleanup"] }>(
+      "SELECT fingerprint,result,attachments,cleanup_state FROM chat_mutation_receipts WHERE actor_id=? AND request_id=?",
+      command.userId, command.requestId,
+    ).toArray()[0];
+  }
+
+  private mutationStillCurrent(command: ChatMutationCommand, result: ChatMutationResult, message: ChatMessage | null): boolean {
+    if (!message) return false;
+    const operation = command.operation;
+    switch (operation.kind) {
+      case "delete": return message.deletedAt === result.at;
+      case "edit": return !message.deletedAt && message.editedAt === result.at && message.text === operation.text;
+      case "reaction": return !message.deletedAt && Boolean(message.reactions?.some(reaction => reaction.emoji === operation.emoji && reaction.userIds.includes(command.userId))) === operation.active;
+      case "vote": return !message.deletedAt && Boolean(message.poll?.options.some(option => option.id === operation.optionId && option.voterIds.includes(command.userId)));
+    }
+  }
+
+  private async recoverMutationCleanup(command: ChatMutationCommand): Promise<ChatMutationResult["cleanup"]> {
+    const receipt = this.mutationReceipt(command);
+    if (!receipt || receipt.cleanup_state === "complete" || !receipt.attachments) return "complete";
+    // Deletion and its receipt are already durable. A retry can only repeat
+    // idempotent object cleanup, never replace a later version of the message.
+    try {
+      const attachments: NonNullable<ChatMessage["attachments"]> = JSON.parse(receipt.attachments);
+      await runRouteLoad(() => this.deleteOwnedUnreferencedAttachments(attachments, command.userId, new Set([command.messageId])), undefined, 5_000);
+      this.ctx.storage.sql.exec("UPDATE chat_mutation_receipts SET cleanup_state='complete' WHERE actor_id=? AND request_id=?", command.userId, command.requestId);
+    } catch (error) {
+      this.ctx.storage.sql.exec("UPDATE chat_mutation_receipts SET cleanup_state='failed' WHERE actor_id=? AND request_id=? AND cleanup_state<>'complete'", command.userId, command.requestId);
+      reportRelayError(this.ctx, this.env.DB, this.orgId, "chat_attachment_cleanup", error);
+    }
+    return this.mutationReceipt(command)?.cleanup_state ?? "failed";
+  }
+
+  private async applyMessageMutation(ws: WebSocket, session: ChatSession, input: unknown) {
+    const parsed = chatMutationCommandSchema.safeParse(input);
+    if (!parsed.success || session.kind !== "member" || parsed.data.orgId !== session.orgId || parsed.data.roomId !== session.roomId || parsed.data.userId !== session.userId) {
+      ws.send(JSON.stringify({ type: "mutation-error", requestId: isRecord(input) ? input.requestId : undefined, error: "The account or conversation changed. Return to the original account and conversation." }));
+      return;
+    }
+    const command = parsed.data, fingerprint = JSON.stringify(command);
+    let receipt = this.mutationReceipt(command);
+    if (!receipt && this.wasCleared(command.messageId)) {
+      // Cleared identities cannot be reused. Report their absence without
+      // storing an old edit draft back into erased chat history.
+      ws.send(JSON.stringify({ type: "mutation-result", result: { command, outcome: "not-found", at: Date.now(), cleanup: "complete" } }));
+      return;
+    }
+    if (receipt && receipt.fingerprint !== fingerprint) {
+      ws.send(JSON.stringify({ type: "mutation-error", requestId: command.requestId, error: "The original message change was altered. Recover the original request." }));
+      return;
+    }
+    if (!receipt) {
+      const current = this.findMessage(command.messageId), operation = command.operation;
+      const at = Math.max(Date.now(), current ? chatEditTime(current) + 1 : 0);
+      let outcome: ChatMutationResult["outcome"] = "applied";
+      let next: ChatMessage | null = null;
+      if (command.expiresAt <= Date.now() || command.expiresAt > Date.now() + 15_000) outcome = "expired";
+      else if (!current || current.deletedAt) outcome = "not-found";
+      else if ((operation.kind === "edit" || operation.kind === "delete") && current.senderId !== session.userId) outcome = "not-owner";
+      else {
+        switch (operation.kind) {
+          case "edit":
+          case "delete":
+            if (chatEditTime(current) !== operation.expectedEditTime) outcome = "conflict";
+            else next = operation.kind === "edit" ? { ...current, text: operation.text, editedAt: at }
+              : { ...current, text: "", attachments: undefined, poll: undefined, deletedAt: at, editedAt: undefined };
+            break;
+          case "reaction": {
+            const active = Boolean(current.reactions?.some(reaction => reaction.emoji === operation.emoji && reaction.userIds.includes(session.userId)));
+            if (active === operation.active) { outcome = "conflict"; break; }
+            const reactions = (current.reactions ?? []).map(reaction => reaction.emoji === operation.emoji
+              ? { ...reaction, userIds: operation.active ? [...reaction.userIds, session.userId] : reaction.userIds.filter(id => id !== session.userId) } : reaction).filter(reaction => reaction.userIds.length);
+            if (operation.active && !reactions.some(reaction => reaction.emoji === operation.emoji)) reactions.push({ emoji: operation.emoji, userIds: [session.userId] });
+            next = { ...current, reactions }; break;
+          }
+          case "vote": {
+            if (!current.poll?.options.some(option => option.id === operation.optionId)) { outcome = "invalid-option"; break; }
+            const selected = current.poll.options.find(option => option.voterIds.includes(session.userId))?.id ?? null;
+            if (selected !== operation.expectedOptionId) { outcome = "conflict"; break; }
+            next = { ...current, poll: { ...current.poll, options: current.poll.options.map(option => ({ ...option,
+              voterIds: option.id === operation.optionId ? [...option.voterIds.filter(id => id !== session.userId), session.userId] : option.voterIds.filter(id => id !== session.userId),
+            })) } }; break;
+          }
+        }
+      }
+      const attachments = next && operation.kind === "delete" ? current?.attachments : undefined;
+      const result: ChatMutationResult = { command, outcome, at, cleanup: attachments?.length ? "pending" : "complete" };
+      this.ctx.storage.transactionSync(() => {
+        if (next) this.persistMessage(next);
+        this.ctx.storage.sql.exec("INSERT INTO chat_mutation_receipts(actor_id,request_id,fingerprint,result,attachments,cleanup_state) VALUES(?,?,?,?,?,?)",
+          session.userId, command.requestId, fingerprint, JSON.stringify(result), attachments?.length ? JSON.stringify(attachments) : null, result.cleanup);
+      });
+      if (next) {
+        const updated = next;
+        this.recentMessages = this.recentMessages.map(message => message.id === updated.id ? updated : message);
+        this.broadcast(JSON.stringify({ type: operation.kind === "delete" ? "message-deleted" : "message-edited", message: updated }));
+        if (operation.kind === "edit" || operation.kind === "delete") this.ctx.waitUntil(this.enqueueGatewayOperation(() => this.forwardExternalMutation(updated, operation.kind === "delete")).catch(() => undefined));
+      }
+      receipt = this.mutationReceipt(command);
+    }
+    if (!receipt) throw new Error("Message change receipt was not saved.");
+    const saved = chatMutationResultSchema.parse(JSON.parse(receipt.result));
+    const cleanup = await this.recoverMutationCleanup(command);
+    const current = this.findMessage(command.messageId);
+    const result: ChatMutationResult = { ...saved, cleanup, outcome: saved.outcome === "applied" && !this.mutationStillCurrent(command, saved, current) ? "superseded" : saved.outcome };
+    // Reconciliation sends the current projection, never the old receipt's copy.
+    if (current) ws.send(JSON.stringify({ type: current.deletedAt ? "message-deleted" : "message-edited", message: current }));
+    ws.send(JSON.stringify({ type: "mutation-result", result }));
   }
 
   private externalIdForNative(platform: ExternalChatPlatform, nativeId: string): string | null {
@@ -560,6 +680,9 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     if(!existing.length) {
       this.ctx.storage.transactionSync(()=>{
         this.ctx.storage.sql.exec("INSERT OR IGNORE INTO chat_cleared_messages(id) SELECT id FROM chat_messages WHERE timestamp<=?",receipt.cutoff);
+        // Edit recovery carries the original draft. Erasing history must erase
+        // those drafts too; a replay can only report the missing message.
+        this.ctx.storage.sql.exec("DELETE FROM chat_mutation_receipts WHERE json_extract(result,'$.command.operation.kind')='edit' AND json_extract(result,'$.command.messageId') IN (SELECT id FROM chat_messages WHERE timestamp<=?)", receipt.cutoff);
         this.ctx.storage.sql.exec("DELETE FROM chat_messages WHERE timestamp<=?",receipt.cutoff);
         this.ctx.storage.sql.exec("INSERT INTO chat_clear_receipts(actor_id,request_id,cutoff) VALUES(?,?,?)",command.authority.userId,command.requestId,receipt.cutoff);
         // Replies sent during a delayed clear keep their new text but not a quote of erased history.
@@ -668,6 +791,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       server.send(
         JSON.stringify({
           type: "hydrate",
+          serverTime: Date.now(),
           historyClearVersion: this.historyClearVersion(),
           messages: this.recentMessages,
           readReceipts: this.getReadReceipts(),
@@ -785,6 +909,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         clientMessageId?: string;
         messageId?: string;
         requestId?: string;
+        command?: unknown;
         optionId?: string;
         emoji?: string;
         typing?: boolean;
@@ -814,6 +939,16 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       }
 
       renewSocketReadLease(ws);
+      if (parsed.type === "mutation") {
+        try {
+          await this.applyMessageMutation(ws, session, parsed.command);
+        } catch (error) {
+          reportRelayError(this.ctx, this.env.DB, this.orgId, "chat_mutation", error);
+          ws.send(JSON.stringify({ type: "mutation-error", requestId: isRecord(parsed.command) ? parsed.command.requestId : undefined,
+            error: "The message change could not be confirmed. Recover the original request to check its result." }));
+        }
+        return;
+      }
       if (parsed.type === "typing") {
         this.broadcast(JSON.stringify({
           type: "typing",
@@ -878,6 +1013,13 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
           poll: this.cleanPoll(parsed.poll),
         };
 
+        if (Array.isArray(parsed.attachments) && parsed.attachments.some(attachment => {
+          const resolved = this.attachmentStorageKey(attachment, session.orgId);
+          return resolved && this.attachmentWasDeleted(resolved.id);
+        })) {
+          ws.send(JSON.stringify({ type: "error", messageId: clientMessageId, error: "An attached file was deleted. Remove it or upload it again before sending." }));
+          return;
+        }
         if (!message.text && !message.attachments?.length && !message.poll) return;
         if(this.wasCleared(clientMessageId)) {
           ws.send(JSON.stringify({type:"error",messageId:clientMessageId,error:"This message was cleared while it was being sent. Write a new message to send it again."}));
@@ -889,81 +1031,8 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         return;
       }
 
-      if (parsed.type === "vote") {
-        const respond = (ok: boolean, error?: string) => ws.send(JSON.stringify({ type: "mutation-result", requestId: parsed.requestId, ok, error }));
-        if (!session.userId || !parsed.messageId || !parsed.optionId || !parsed.requestId) { respond(false, "Sign in to vote"); return; }
-        const current = this.findMessage(parsed.messageId);
-        if (!current?.poll || current.deletedAt) { respond(false, "Poll no longer exists"); return; }
-        if (!current.poll.options.some((option) => option.id === parsed.optionId)) { respond(false, "Poll option not found"); return; }
-        const poll = {
-          ...current.poll,
-          options: current.poll.options.map((option) => ({
-            ...option,
-            voterIds: option.id === parsed.optionId
-              ? [...option.voterIds.filter((id) => id !== session.userId), session.userId!]
-              : option.voterIds.filter((id) => id !== session.userId),
-          })),
-        };
-        const updated = { ...current, poll };
-        this.storeUpdatedMessage(updated);
-        this.broadcast(JSON.stringify({ type: "message-edited", message: updated }));
-        respond(true);
-        return;
-      }
-
-      if (parsed.type === "reaction") {
-        const respond = (ok: boolean, error?: string) => ws.send(JSON.stringify({ type: "mutation-result", requestId: parsed.requestId, ok, error }));
-        const emoji = isEmojiReaction(parsed.emoji)
-          ? parsed.emoji
-          : null;
-        const userId = session.userId;
-        if (!userId || !parsed.messageId || !parsed.requestId || !emoji) { respond(false, "Invalid reaction"); return; }
-        const current = this.findMessage(parsed.messageId);
-        if (!current || current.deletedAt) { respond(false, "Message no longer exists"); return; }
-        const reactions = [...(current.reactions ?? [])];
-        const reactionIndex = reactions.findIndex((reaction) => reaction.emoji === emoji);
-        if (reactionIndex < 0) reactions.push({ emoji, userIds: [userId] });
-        else {
-          const active = reactions[reactionIndex].userIds.includes(userId);
-          const userIds = active ? reactions[reactionIndex].userIds.filter((id) => id !== userId) : [...reactions[reactionIndex].userIds, userId];
-          if (userIds.length) reactions[reactionIndex] = { ...reactions[reactionIndex], userIds };
-          else reactions.splice(reactionIndex, 1);
-        }
-        const updated = { ...current, reactions };
-        this.storeUpdatedMessage(updated);
-        this.broadcast(JSON.stringify({ type: "message-edited", message: updated }));
-        respond(true);
-        return;
-      }
-
-      if (parsed.type === "edit" || parsed.type === "delete") {
-        const respond = (ok: boolean, error?: string) => ws.send(JSON.stringify({ type: "mutation-result", requestId: parsed.requestId, ok, error }));
-        if (!session?.userId || !parsed.messageId || !parsed.requestId) { respond(false, "Invalid message update"); return; }
-        const current = this.findMessage(parsed.messageId);
-        if (!current) { respond(false, "Message no longer exists"); return; }
-        if (current.senderId !== session.userId) { respond(false, "You can only change your own messages"); return; }
-        if (current.deletedAt) { respond(false, "Message is already deleted"); return; }
-        if (parsed.type === "delete" && current.attachments?.length) {
-          try {
-            await this.deleteOwnedUnreferencedAttachments(
-              current.attachments,
-              session.userId,
-              new Set([current.id]),
-            );
-          } catch {
-            respond(false, "Attachment cleanup failed. Try deleting the message again.");
-            return;
-          }
-        }
-        const now = Date.now();
-        const updated: ChatMessage = parsed.type === "delete"
-          ? { ...current, text: "", attachments: undefined, poll: undefined, deletedAt: now, editedAt: undefined }
-          : { ...current, text: (parsed.text ?? "").trim().slice(0, 4000), editedAt: now };
-        if (parsed.type === "edit" && !updated.text) { respond(false, "Message cannot be empty"); return; }
-        this.storeUpdatedMessage(updated);
-        this.broadcast(JSON.stringify({ type: parsed.type === "delete" ? "message-deleted" : "message-edited", message: updated }));
-        respond(true);
-        this.ctx.waitUntil(this.enqueueGatewayOperation(() => this.forwardExternalMutation(updated, parsed.type === "delete")).catch(() => undefined));
+      if (["vote", "reaction", "edit", "delete"].includes(parsed.type)) {
+        ws.send(JSON.stringify({ type: "mutation-result", requestId: parsed.requestId, ok: false, error: "Update ShowPilot before changing messages. This version cannot safely recover message changes." }));
       }
     } catch {
       // Ignore malformed messages
@@ -1044,9 +1113,9 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     const clean = (await Promise.all(attachments.slice(0, 6).map(async (attachment) => {
       if (!attachment?.url) return null;
       const resolved = this.attachmentStorageKey(attachment, session.orgId);
-      if (!resolved) return null;
+      if (!resolved || this.attachmentWasDeleted(resolved.id)) return null;
       const object = await this.env.STORAGE.head(resolved.key);
-      if (!object
+      if (!object || this.attachmentWasDeleted(resolved.id)
         || object.customMetadata?.uploadedBy !== expectedUploader
         || (object.customMetadata?.roomId ?? "production") !== session.roomId) return null;
       return {
@@ -1072,7 +1141,28 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     }));
     if (!candidateKeys.size) return 0;
 
-    const liveKeys = new Set<string>();
+    let deleted = 0;
+    for (const key of candidateKeys) {
+      const object = await this.env.STORAGE.head(key);
+      if (!object || object.customMetadata?.uploadedBy !== ownerUserId) continue;
+      // Re-read after the last await. Reserving the immutable file ID and
+      // checking references are synchronous with respect to message commits.
+      if (this.attachmentKeyIsReferenced(key, excludedMessageIds)) continue;
+      const attachment = attachments.find(candidate => this.attachmentStorageKey(candidate, this.orgId)?.key === key);
+      const resolved = attachment && this.attachmentStorageKey(attachment, this.orgId);
+      if (!resolved) continue;
+      this.ctx.storage.sql.exec("INSERT OR IGNORE INTO chat_deleted_attachments(id) VALUES(?)", resolved.id);
+      await this.env.STORAGE.delete(key);
+      deleted += 1;
+    }
+    return deleted;
+  }
+
+  private attachmentWasDeleted(id: string): boolean {
+    return this.ctx.storage.sql.exec("SELECT id FROM chat_deleted_attachments WHERE id=?", id).toArray().length > 0;
+  }
+
+  private attachmentKeyIsReferenced(key: string, excludedMessageIds: Set<string>): boolean {
     const rows = this.ctx.storage.sql.exec<{ id: string; payload: string }>(
       "SELECT id, payload FROM chat_messages",
     ).toArray();
@@ -1083,23 +1173,15 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         if (message.deletedAt) continue;
         for (const attachment of message.attachments ?? []) {
           const resolved = this.attachmentStorageKey(attachment, message.orgId);
-          if (resolved) liveKeys.add(resolved.key);
+          if (resolved?.key === key) return true;
         }
       } catch {
         // An unreadable row cannot safely authorize deleting an object.
-        return 0;
+        return true;
       }
     }
 
-    let deleted = 0;
-    for (const key of candidateKeys) {
-      if (liveKeys.has(key)) continue;
-      const object = await this.env.STORAGE.head(key);
-      if (!object || object.customMetadata?.uploadedBy !== ownerUserId) continue;
-      await this.env.STORAGE.delete(key);
-      deleted += 1;
-    }
-    return deleted;
+    return false;
   }
 
   private attachmentIsReferenced(url: string): boolean {
@@ -1127,34 +1209,44 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
   }
 
   private async deleteUserData(userId: string): Promise<{ messagesDeleted: number; filesDeleted: number }> {
-    const rows = this.ctx.storage.sql.exec<{ id: string; payload: string }>(
+    const readMessages = () => this.ctx.storage.sql.exec<{ id: string; payload: string }>(
       "SELECT id, payload FROM chat_messages ORDER BY timestamp ASC, id ASC",
-    ).toArray();
-    const parsedRows = rows.flatMap((row) => {
+    ).toArray().flatMap((row) => {
       try {
         return [{ id: row.id, message: JSON.parse(row.payload) as ChatMessage }];
       } catch {
         return [];
       }
     });
-    const scrubbed = scrubDeletedUserFromChat(parsedRows.map(({ message }) => message), userId);
+    const scrubbed = scrubDeletedUserFromChat(readMessages().map(({ message }) => message), userId);
     const authoredIds = new Set(scrubbed.deleted.map((message) => message.id));
     const authoredAttachments = scrubbed.deleted.flatMap((message) => message.attachments ?? []);
+    // Deleted messages no longer contain attachments. Unfinished deletion
+    // receipts are the durable source for retrying their object cleanup.
+    const cleanupReceipts = this.ctx.storage.sql.exec<{ attachments: string }>(
+      "SELECT attachments FROM chat_mutation_receipts WHERE actor_id=? AND attachments IS NOT NULL AND cleanup_state<>'complete'", userId,
+    ).toArray();
+    for (const receipt of cleanupReceipts) authoredAttachments.push(...JSON.parse(receipt.attachments));
     const filesDeleted = await this.deleteOwnedUnreferencedAttachments(
       authoredAttachments,
       userId,
       authoredIds,
     );
 
-    for (const { id } of parsedRows) {
-      if (authoredIds.has(id)) {
-        this.ctx.storage.sql.exec("DELETE FROM chat_messages WHERE id = ?", id);
+    // Object cleanup yields. Never restore the earlier snapshot over edits or
+    // deletions that committed while it was running.
+    const latest = scrubDeletedUserFromChat(readMessages().map(({ message }) => message), userId);
+    this.ctx.storage.transactionSync(() => {
+      for (const message of latest.deleted) {
+        this.ctx.storage.sql.exec("DELETE FROM chat_messages WHERE id = ?", message.id);
+        this.ctx.storage.sql.exec("DELETE FROM chat_mutation_receipts WHERE json_extract(result,'$.command.messageId')=?", message.id);
       }
-    }
-    for (const message of scrubbed.messages) this.persistMessage(message);
-    this.ctx.storage.sql.exec("DELETE FROM chat_reads WHERE user_id = ?", userId);
-    this.recentMessages = scrubbed.messages.slice(-this.HYDRATION_MESSAGE_LIMIT);
-    return { messagesDeleted: scrubbed.deleted.length, filesDeleted };
+      for (const message of latest.messages) this.persistMessage(message);
+      this.ctx.storage.sql.exec("DELETE FROM chat_mutation_receipts WHERE actor_id=?", userId);
+      this.ctx.storage.sql.exec("DELETE FROM chat_reads WHERE user_id = ?", userId);
+    });
+    this.recentMessages = latest.messages.slice(-this.HYDRATION_MESSAGE_LIMIT);
+    return { messagesDeleted: latest.deleted.length, filesDeleted };
   }
 
   private async readMemberSession(url: URL): Promise<Extract<ChatSession, { kind: "member" }> | null> {

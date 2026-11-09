@@ -1,3 +1,4 @@
+import * as mutations from "@showpilot/shared/chat-mutation-tracker";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import ts from "typescript";
@@ -12,7 +13,7 @@ export function loadChatHook(transport, AppState, fetch, notifyMobileChat = asyn
   const code = ts.transpileModule(readFileSync(resolve(process.cwd(), "../mobile/src/hooks/use-chat-relay.ts"), "utf8"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  const modules = { react: React, "@tanstack/react-query": queries, "expo/fetch": { fetch }, "react-native": { AppState },
+  const modules = { "@showpilot/shared/chat-mutation-tracker": mutations, react: React, "@tanstack/react-query": queries, "expo/fetch": { fetch }, "react-native": { AppState },
     "@/lib/auth-transport": transport, "@/lib/chat-history": history, "@/lib/env": { SHOWPILOT_URL: "https://fixture.invalid" },
     "../lib/mobile-api": { notifyMobileChat }, "@showpilot/shared/chat-notification": notification, "../lib/request-deadline": deadline, "../lib/request-id": ids };
   const exported = {};
