@@ -354,3 +354,66 @@ it("closes late authentication after unmount and clears the attempt deadline", a
   await act(async () => vi.advanceTimersByTimeAsync(60000));
   expect(authenticate).toHaveBeenCalledTimes(1);
 });
+
+
+it("detects an open socket that stops replying after hydration", async () => {
+  const f = await fixture();
+  await act(async () => vi.advanceTimersByTimeAsync(20000));
+  const ping = f.socket.sent.at(-1);
+  expect(ping).toMatchObject({ type: "ping", id: expect.any(String) });
+  await act(async () => vi.advanceTimersByTimeAsync(8001));
+  expect(f.result.current.hydrated).toBe(false);
+  expect(f.result.current.lastError).toMatch(/stopped responding/i);
+  expect(f.socket.readyState).toBe(3);
+});
+it("accepts only the current heartbeat and cannot reuse an old reply", async () => {
+  const f = await fixture();
+  await act(async () => vi.advanceTimersByTimeAsync(20000));
+  const first = f.socket.sent.at(-1);
+  const pong = {type:"pong", id:first.id, showId:"show", serviceDate:"2026-11-08", revision:3};
+  await act(async () => f.socket.message(pong));
+  await act(async () => vi.advanceTimersByTimeAsync(20000));
+  expect(f.socket.sent.at(-1).id).not.toBe(first.id);
+  await act(async () => f.socket.message(pong));
+  await act(async () => vi.advanceTimersByTimeAsync(8001));
+  expect(f.result.current.hydrated).toBe(false);
+});
+it("reconnects if a heartbeat reveals a missed revision without applying a command", async () => {
+  const f = await fixture();
+  await act(async () => vi.advanceTimersByTimeAsync(20000));
+  await act(async () => f.socket.message({type:"pong", id:f.socket.sent.at(-1).id, showId:"show", serviceDate:"2026-11-08", revision:4}));
+  expect(f.result.current.hydrated).toBe(false);
+  expect(f.result.current.revision).toBe(3);
+  expect(f.result.current.lastError).toMatch(/missed|current state/i);
+  expect(f.socket.sent.filter(message => message.type === "command")).toEqual([]);
+});
+it.each(["wrong-show", "wrong-date", "bad-revision"])("rejects a matching heartbeat with %s", async kind => {
+  const f = await fixture();
+  await act(async () => vi.advanceTimersByTimeAsync(20000));
+  const pong = {type:"pong", id:f.socket.sent.at(-1).id, showId:"show", serviceDate:"2026-11-08", revision:3};
+  if(kind === "wrong-show") pong.showId = "other";
+  if(kind === "wrong-date") pong.serviceDate = "2026-11-09";
+  if(kind === "bad-revision") pong.revision = "unknown";
+  await act(async () => f.socket.message(pong));
+  expect(f.result.current.hydrated).toBe(false);
+});
+it("keeps a healthy idle socket and tolerates a newer state arriving before its matching pong", async () => {
+  const f = await fixture();
+  await act(async () => vi.advanceTimersByTimeAsync(20000));
+  const id = f.socket.sent.at(-1).id;
+  await act(async () => { hydrate(f.socket,4); f.socket.message({type:"pong",id,showId:"show",serviceDate:"2026-11-08",revision:3}); });
+  await act(async () => vi.advanceTimersByTimeAsync(8001));
+  expect(f.result.current.hydrated).toBe(true);
+  expect(f.result.current.revision).toBe(4);
+  expect(f.socket.readyState).toBe(1);
+});
+it("clears an old heartbeat deadline when an operator retries the connection", async () => {
+  const f = await fixture();
+  await act(async () => vi.advanceTimersByTimeAsync(20000));
+  await act(async () => f.result.current.retryConnection());
+  const current = sockets.at(-1);
+  await act(async () => { current.open(); hydrate(current); });
+  await act(async () => vi.advanceTimersByTimeAsync(8001));
+  expect(f.result.current.hydrated).toBe(true);
+  expect(current.readyState).toBe(1);
+});

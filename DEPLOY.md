@@ -8200,3 +8200,68 @@ fix/native-rundown-command-recovery. Run 42539873974 is pending; Rust passed
 4m55s. Reset is committed and pushed at 126e3e65. Its PR waits for #268's green
 head; later PRs remain held. Prepared bodies are /tmp/showpilot-native-reset-pr.txt
 and /tmp/showpilot-native-transport-pr.txt.
+
+
+### Phase 2 follow-up: native rundown heartbeat
+
+Six focused native regressions reproduced a socket staying hydrated after its
+initial state when replies stopped, accepting no fresh proof of liveness, and
+missing a newer revision. Four real-relay baseline cases also failed because
+pings had no reply or did not enforce display expiry. The native rundown now
+sends a unique bounded heartbeat ID every 20 seconds and waits at most eight
+seconds for its matching reply. A missing reply retires the connection, marks
+timing last known, disables controls and exposes Retry. A matching reply for the
+wrong show/date or an invalid revision also retires the connection. A revision
+newer than the last received snapshot reconnects for fresh state instead of
+claiming synchronization. Old replies cannot satisfy a newer heartbeat, and
+retiring/retrying/backgrounding clears the old deadline.
+
+RundownRelay returns only type, the bounded heartbeat ID, show ID, date and
+revision. It checks existing member read leases and display expiry first. No
+operator payload, PIN, session data or full state is echoed. Legacy pings without
+an ID remain one-way. Invalid IDs are ignored; heartbeats do not change rundown
+revision. The same behavior survives Durable Object eviction. Read-only fixtures
+prepare their room through a real authorized operator read before testing
+heartbeats: observe access intentionally cannot initialize/relabel a room.
+
+Twenty-nine native relay-hook tests pass, including eight new heartbeat cases.
+Six real-relay heartbeat cases pass, covering control/observe/display replies,
+eviction, invalid IDs, legacy pings, and expired member/display sessions. Full
+suite passes 350 unit files / 2,854 tests and 142 Worker files / 1,585 tests,
+4,439 total. Web typecheck 1, production build 1 and native verify 1 pass. Main
+client remains 549,593 raw / 173,783 gzip bytes within unchanged budgets. Native
+verification includes lint with 17 existing warnings, iOS/Android/web exports,
+Expo Doctor 18/18, API/release contracts and polling boundaries. Hermes is
+5,747,849 bytes on iOS / 5,746,985 on Android.
+
+The compiled Expo web rehearsal passes real isolated authentication, D1 and relay
+traffic at 320/768/1440px. It waits through two healthy idle heartbeat cycles on
+one socket, verifies matching distinct IDs, drops all incoming traffic after an
+external Pause, and verifies the deadline, disabled controls and frozen last-known
+clock. Explicit Retry loads that Pause, and a fresh operator Resume succeeds.
+Dropping only state broadcasts then advancing externally produces a missed-
+revision warning from a real heartbeat; Retry loads the new current item. No
+automatic transport command is sent during either recovery. The single Resume
+is the only client mutation. Zero runtime errors. Inspected final 320px silent-
+connection and missed-update screenshots. This is not a physical-device run.
+
+Rehearsal after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-rundown-heartbeat.mjs`.
+Evidence: /tmp/showpilot-native-heartbeat-{before,worker-before,unit1,worker1,worker2,full1,tsc1,build1,verify1,browser1}.log.
+Screenshots: /tmp/showpilot-native-heartbeat-{silent,missed}-{320,768,1440}.png.
+Deploy the matching relay backend before distributing a native build that expects
+heartbeat replies. No deployment, release or migration was performed here.
+
+Phase 2 remains 67/79. The rundown's post-hydration liveness gap is covered by
+this change; native Chat and Timecode connection lifecycles still need their own
+protocol/ownership audit. Read-only inspection found Timecode marks connected on
+socket open and can reuse its generator on reconnect; prove its expected show
+scope, ownership and failure behavior before changing it. Native item editor
+acknowledgement/draft recovery and ProPresenter command recovery also remain
+open. No broad gate closure or new Markdown file. Twenty necessary tracked
+Markdown files remain.
+
+Stack gate: #268 at 1f3139e4 is green in run 42539873974, web 15m20s and Rust
+4m55s. Draft Reset PR #269 is open at 126e3e65, based on
+fix/native-rundown-transport-safety. CI 42541348414 is pending. Connection recovery
+is pushed at 9d41c2d8 and its PR waits for #269's green head. Later PRs remain held.
