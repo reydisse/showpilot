@@ -1,3 +1,4 @@
+import { MidiAccessFixture, MidiInputFixture } from "@/test/midi-fixture";
 import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useTimecode } from "../useTimecode";
@@ -256,8 +257,8 @@ describe("timecode connection honesty", () => {
   });
 
   it("sends each actual MIDI observation once and keeps listening after signal loss", async () => {
-    const input: { id: string; onmidimessage: ((event: { data: Uint8Array }) => void) | null } = { id: "mtc", onmidimessage: null };
-    vi.stubGlobal("navigator", { requestMIDIAccess: async () => ({ inputs: new Map([[input.id, input]]) }) });
+    const input = new MidiInputFixture("mtc");
+    vi.stubGlobal("navigator", { requestMIDIAccess: async () => new MidiAccessFixture(input) });
     const { result } = hook();
     const socket = Socket.instances[0];
     act(() => hydrate(socket));
@@ -268,7 +269,7 @@ describe("timecode connection honesty", () => {
     });
     const midiFrame = (frame: number) => {
       const nibbles = [frame, 0, 0, 0, 0, 0, 0, 6];
-      nibbles.forEach((value, index) => input.onmidimessage?.({ data: new Uint8Array([0xf1, (index << 4) | value]) }));
+      nibbles.forEach((value, index) => input.send([0xf1, (index << 4) | value]));
     };
     const feeds = () => socket.sent.map(message => JSON.parse(message)).filter(message => message.action === "feed-tc");
     act(() => { midiFrame(1); vi.advanceTimersByTime(100); });
@@ -276,7 +277,6 @@ describe("timecode connection honesty", () => {
     act(() => vi.advanceTimersByTime(1000));
     expect(feeds()).toHaveLength(1);
     act(() => socket.receive({ type: "tc-update", state: { ...state, source: "mtc", running: false, signal: { status: "timecode-lost", lastFeedAt: 1 } } }));
-    expect(input.onmidimessage).not.toBeNull();
     expect(result.current.isMaster).toBe(true);
     act(() => { midiFrame(2); vi.advanceTimersByTime(100); });
     expect(feeds()).toHaveLength(2);

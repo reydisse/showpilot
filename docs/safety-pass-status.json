@@ -1097,8 +1097,13 @@
       "phase": "2",
       "section": "2.1 MIDI controller layer, separate from MTC (audit Phase 2 item 13; TC/M2, TC/M5)",
       "line": 189,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "Web MTC now observes MIDI statechange plus a 2s rescan, preserves selected ID/name/manufacturer through unplug/replug, drops partial pre-disconnect frames, and leaves other MIDI listeners intact. The selector retains disconnected selections and reports age of the last relay-received MTC frame.",
+        "pnpm --filter @showpilot/web test: 1403 unit tests and 379 real Worker tests passed; web tsc --noEmit and production build passed. midi-reconnect.test.ts covers event and polling recovery, ambiguous device identities, unrelated controller traffic, cancellation, cleanup, and invalid MIDI/SMPTE input. Selector tests cover permission retry, selection recovery and frame age.",
+        "node apps/web/scripts/smoke-midi-reconnect.mjs passed against the built app and disposable local D1: real login/control/relay; synthetic MIDI disconnect holds the clock with no stale feed, rescan recovers a changed ID, fresh frames resume, other listeners survive, Stop detaches; MIDI panel checked at 320/768/2560px.",
+        "Not complete: per-show controller mappings and their reconnect persistence are part of the remaining controller work; physical MIDI gear has not been exercised. Browser smoke simulates MIDI ports, not USB hardware or permission prompts."
+      ]
     },
     {
       "id": "97bee8d1f8775ad1",
