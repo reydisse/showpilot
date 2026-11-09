@@ -5957,11 +5957,13 @@ async function createMobileChatPass(request: Request, url: URL, env: MobileApiEn
   const session = await getAuth().api.getSession({ headers: request.headers, query: { disableCookieCache: true } });
   if (!session || session.user.id !== access.identity.userId) return json({ error: "Sign in to create a chat link." }, 401);
   const body = await readJson(request);
+  if (body?.expectedUserId !== undefined && body.expectedUserId !== session.user.id)
+    return json({ error: "The signed-in account changed. Return to the original account before retrying this link." }, 409);
   const parsed = chatPassCommandSchema.safeParse({ ...body, orgId: access.orgId, scope });
   if (!parsed.success) return json({ error: "Choose valid members and an expiry between 1 and 24 hours." }, 400);
   try {
     const pass = await issueChatPass(env.DB, env.KIOSK_SECRET, { userId: session.user.id, name: session.user.name }, parsed.data);
-    return json({ token: pass.token, expiresAt: pass.expiresAt, notifications: pass.notifications,
+    return json({ ...(parsed.data.requestId ? { orgId: access.orgId, userId: session.user.id, requestId: parsed.data.requestId, scope } : {}), token: pass.token, expiresAt: pass.expiresAt, notifications: pass.notifications,
       ...(scope === "planning-chat" ? { targetCount: pass.targetCount } : {}),
       joinUrl: `${url.origin}/join/chat/${scope === "planning-chat" ? "planning/" : ""}${encodeURIComponent(pass.token)}` });
   } catch (error) { return json({ error: chatPassCreationMessage(error) }, error instanceof ChatPassCreationError ? error.status : 503); }

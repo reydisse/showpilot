@@ -153,3 +153,17 @@ it("isolates a request identity by actor and workspace without granting foreign 
   await expect(issueChatPass(env.DB, env.KIOSK_SECRET, secondActor, { ...command, orgId })).rejects.toThrow("Only production leaders");
   await expect(createPlanningChatPass({ data: { ...command, targetUserIds: [crypto.randomUUID()] } })).rejects.toThrow("Every selected person");
 });
+
+it("mobile retries expose the authoritative actor and keep one grant after a lost reply", async () => {
+  const f = await fixture(); const requestId = crypto.randomUUID();
+  const call = (expectedUserId: string) => handleMobileApi(new Request(`https://app.showpilot.tech/api/mobile/v1/chat/passes/crew?orgId=${f.orgId}`, {
+    method: "POST", headers: { Cookie: request.cookie, "Content-Type": "application/json" },
+    body: JSON.stringify({ hours: 4, requestId, expectedUserId }),
+  }), { DB: env.DB, KIOSK_SECRET: env.KIOSK_SECRET });
+  const wrong = await call("previous-operator"); expect(wrong?.status).toBe(409); await wrong?.arrayBuffer();
+  expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM chat_pass_creation_receipt WHERE orgId=?").bind(f.orgId).first()).toEqual({ count: 0 });
+  const original = await call(f.id); expect(original?.status).toBe(200); const saved = await original?.json();
+  const retried = await call(f.id); expect(retried?.status).toBe(200); expect(await retried?.json()).toEqual(saved);
+  expect(saved).toMatchObject({ orgId: f.orgId, userId: f.id, requestId, scope: "crew-chat", notifications: { status: "not-needed" } });
+  expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM chat_pass_creation_receipt WHERE orgId=?").bind(f.orgId).first()).toEqual({ count: 1 });
+});
