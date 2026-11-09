@@ -1,5 +1,6 @@
 import { encryptSettingValue, maskSettingValue } from "./credential-settings.server";
 import { CREDENTIAL_MASK, isCredentialField } from "./credential-fields";
+import { EDITABLE_SETTING_KEYS, isEditableSettingKey, permissionForSettingKey } from "./editable-settings";
 import { CONFIDENCE_LAYOUT_KEY, confidenceLayoutSchema, readConfidenceLayout, DEFAULT_CONFIDENCE_LAYOUT, type ConfidenceLayout } from "@/lib/confidence-layout";
 import { WORKSPACE_SETTING_KEYS } from "@showpilot/shared";
 import { createServerFn } from "@tanstack/react-start";
@@ -34,14 +35,15 @@ import { refreshOrgReadAuthority } from "./relay-read-invalidation.server";
 export { appendWebhookEvent, sanitizePayloadSummary } from "@/lib/webhook-events";
 export type { WebhookEventInput, WebhookEventLogItem } from "@/lib/webhook-events";
 
-// AppSetting values can be JSON blobs (templates, rundown snapshots) —
-// bound generously but finitely.
+// Editable values include the confidence layout JSON; internal application
+// records in app_setting must use their own permission-checked commands.
 const settingKeySchema = z.string().min(1).max(100);
 const settingValueSchema = z.string().max(200_000);
 const genericSettingKeySchema = settingKeySchema.refine(
   (key) => key !== RUNDOWN_PIN_SETTING_KEY,
   "Use the dedicated rundown PIN control.",
-).refine(key => key !== "api-key", "Use Bridge installation credentials.").refine(key => !WORKSPACE_SETTING_KEYS.includes(key), "Use Workspace settings to change names and features.");
+).refine(key => key !== "api-key", "Use Bridge installation credentials.").refine(key => !WORKSPACE_SETTING_KEYS.includes(key), "Use Workspace settings to change names and features.")
+  .refine(isEditableSettingKey, "Choose a supported organization setting.");
 const rundownPinSchema = z.string().regex(/^\d{4,8}$/u, "PIN must contain 4 to 8 digits.");
 const rundownPinUpdateSchema = z.discriminatedUnion("action", [
   z.object({ orgId: idSchema, action: z.literal("set"), pin: rundownPinSchema }),
@@ -91,38 +93,6 @@ async function assertIntegrationPlanAllows(orgId: string, key: string, value: st
   await requirePlanFeature(orgId, "integrations");
 }
 
-function permissionForSettingKey(key: string): Permission {
-  if (key === "api-key") return "settings:api_keys";
-  if (key === "webhook-url") return "settings:webhooks";
-  if (key.startsWith("notify-")) return "settings:notifications";
-  if (key.startsWith("l3-")) return "settings:lowerthird_config";
-  if (
-    key === "chat-adapter" ||
-    key === "rundown-adapter" ||
-    key === "lyrics-output" ||
-    key.startsWith("slack-") ||
-    key.startsWith("mattermost-") ||
-    key.startsWith("teams-") ||
-    key.startsWith("discord-") ||
-    key.startsWith("ontime-") ||
-    key.startsWith("propresenter-") ||
-    key.startsWith("pco-") ||
-    key.startsWith("schedule-")
-  ) {
-    return "settings:integrations";
-  }
-  if (
-    key.startsWith("default-") ||
-    key === "clock-format" ||
-    key === "timezone-display" ||
-    key === "overtime-behavior"
-  ) {
-    return "settings:production_defaults";
-  }
-  if (key.startsWith("org-")) return "settings:organization";
-  return "settings:organization";
-}
-
 // ─── Org Settings (AppSetting table) ────────────────────────
 
 /** Operational defaults that are safe for every organization member. */
@@ -143,12 +113,12 @@ export const getManageableOrgSettings = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const role = await getOrgMemberRole(data.orgId);
     const settings = await getPrisma().appSetting.findMany({
-      where: { orgId: data.orgId },
+      where: { orgId: data.orgId, key: { in: EDITABLE_SETTING_KEYS } },
       select: { key: true, value: true },
     });
     return Object.fromEntries(
       settings
-        .filter((setting) => setting.key !== RUNDOWN_PIN_SETTING_KEY && setting.key !== "api-key")
+        .filter((setting) => isEditableSettingKey(setting.key))
         .filter((setting) => hasPermission(role, permissionForSettingKey(setting.key)))
         .map((setting) => [setting.key, maskSettingValue(setting.key, setting.value)]),
     );
