@@ -9339,3 +9339,60 @@ Screenshots: /tmp/showpilot-native-propresenter-{ready,clear-review,lost-reply,u
 Phase 2 remains 67/79. Twenty necessary tracked Markdown files remain; none added.
 Stack gate: #284 exact head 0ea5b60c1abe66b648a46fdbf13ea5aa518815a8 passed
 both jobs in CI run 42576928882 before this successor was opened.
+
+
+## Phase 2 web ProPresenter command recovery (2026-11-09)
+
+Web slide controls now use the same prepared, once-only command receipt as the
+native controls in #285. Previously, navigating away erased an uncertain result
+and another action generated a fresh Bridge command ID. A regression reproduced
+that loss before the fix (8 passed, 1 failed). The web hook now retains the original
+account/workspace/show/request identity in the signed-in query cache. Status
+checks read that receipt without sending another slide command. Navigation and
+show/target changes cannot erase uncertainty; account/workspace caches are
+isolated. Retention does not cover a full reload or application termination.
+
+Preparation/execution has a 20-second client deadline; status checks have a
+12-second deadline. Late preparation cannot execute after timeout, navigation,
+changed scope, lost control permission or disabled cue control. The existing
+server/Bridge reservations enforce expiry and duplicate rejection. The web RPC
+checks fresh account/session/PIN/control authority and delegates to BridgeRelay.
+The command schema moved into a direct shared-package export; all native/server
+callers migrated, and the former native-only module was removed.
+
+Clear now requires a visible confirmation that is invalidated if the account,
+show or target changes. Previous slide and Next slide remain single-click, with
+distinct labels and 44px minimum targets. Control-only operators can enable the
+local preview and use slide controls. Missing show identity explains why controls
+are disabled. The output toggle retains an uncertain result across navigation,
+but its server-side revision/recovery work remains outstanding.
+
+Verification: full web suite passed twice, 3,310 unit + 1,716 Worker = 5,026 tests.
+Real-auth Worker tests cover control-only access, strict input/actor/organization
+binding, revoked session/permission, removed shows and once-only dispatch. Web
+and shared typechecks, Bridge build and frozen offline install passed. Final web
+build: 542,230 raw / 171,089 gzip bytes under unchanged budgets. Native verification
+passed all three exports, Doctor 18/18, contracts and polling checks, with 18
+existing lint warnings and zero errors. Hermes remains 6,038,976 iOS / 6,038,080
+Android bytes. Formatting-only cleanup of the new confirmation test passed all
+three focused tests.
+
+The built-app rehearsal passed twice, including after the final scope changes:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-propresenter-feed-recovery.mjs`.
+It uses disposable auth/D1 and a protocol-compatible Bridge fixture with the real
+compiled reservation class. Lost replies after execution, failed read-only status
+checks, SPA navigation, uncertain Clear, Cancel and late preparation cause no
+additional slide commands. Existing feed retention/reconnection, import retry and
+kiosk error checks still pass. At 320x480, 768x1024 and 1440x900, confirmation and
+recovery targets are unobstructed, at least 44px and within the viewport; screenshots
+were inspected. This is not physical ProPresenter or native-device proof.
+
+Rollout still requires the receipt API and updated Desktop/Bridge from #285 before
+clients use these controls. No deployment, release, migration or real-org write
+was performed. Parent #285 exact head 0355f7bfe7a213848934c35c953f085c313c795d
+passed both CI jobs in run 42580714565 before this successor. Phase 2 remains
+67/79; these are partial proofs for product-wide requirements. Twenty necessary
+tracked Markdown files remain, with none added.
+
+Logs: /tmp/showpilot-webpp-{before,unit1,worker1,full1,full2,tsc2,tsc3,shared1,build1,build2,verify1,bridge-build1,install,controls2,controls3,browser1,browser2}.log.
+Screenshots: /tmp/showpilot-web-pp-{lost-reply,clear-review,uncertain}-{320,768,1440}.png.

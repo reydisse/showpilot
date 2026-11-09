@@ -1,7 +1,7 @@
 import type {
   ProPresenterCommand,
   ProPresenterReply,
-} from "../../../mobile/src/lib/propresenter-command";
+} from "@showpilot/shared/propresenter-command";
 import type { LiveRundownAuthorityClaim } from "./live-rundown-authority.server";
 import type { BridgeDispatchResult } from "../durable-objects/BridgeRelay";
 

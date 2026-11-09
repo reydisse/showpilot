@@ -28,6 +28,10 @@
     "./local-rundown": {
       "types": "./src/local-rundown.d.mts",
       "import": "./src/local-rundown.mjs"
-    }
+    },
+    "./propresenter-command": "./src/propresenter-command.ts"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
   }
 }

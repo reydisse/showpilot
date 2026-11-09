@@ -1,3 +1,4 @@
+import { ProPresenterSlideControls } from "@/components/rundown/ProPresenterSlideControls";
 import { runRouteLoad } from "@/lib/route-load-deadlines";
 import { VirtualRows } from "@/components/ui/virtual-rows";
 import { RundownClockCard, RundownOffset, RundownProgress, formatOperatorDuration as formatDuration } from "@/components/rundown/RundownClock";
@@ -869,13 +870,15 @@ function RundownPage() {
     onSlideChange: handlePPSlideChange,
   });
 
+  const ppCommandScope = JSON.stringify([user.id, orgId, serviceDate, showId, ppHost, ppPort, ppApiPort]);
   const ppCommands = useProPresenterCommands({
-    orgId, scope: JSON.stringify([orgId, serviceDate, showId, ppHost, ppPort, ppApiPort]),
-    canControlSlides: canControlRundown && syncConnected && pp.isStreaming,
+    orgId, userId: user.id, showId: showId ?? null, scope: ppCommandScope,
+    canCheckSlides: canControlRundown,
+    canControlSlides: canControlRundown && syncConnected && pp.isStreaming && ppCuesEnabled && !!ppApiPort,
     canChangeOutput: canEditRundown && syncConnected,
   });
   const ppOutputPending = ppCommands.pending?.kind === "output";
-  const ppControlsBlocked = ppCommands.pending !== null || ppCommands.failure !== null;
+  const ppControlsBlocked = ppCommands.blocked;
   const handleProPresenterCommand = (command: "next" | "previous" | "clear") => ppCommands.run({ kind: "slide", command });
 
   // Prefer the freshest confirmed preview from the rundown or the venue feed.
@@ -898,14 +901,14 @@ function RundownPage() {
   const ppIsConnected = pp.status === "connected" || (!ppEnabled && ppSource !== null);
 
   const togglePP = useCallback(() => {
-    if (!canEditRundown) return;
+    if (!canEditRundown && !canControlRundown) return;
     if (ppEnabled) {
       setPpEnabled(false);
       setPpCurrentSlide(null);
     } else {
       setPpEnabled(true);
     }
-  }, [canEditRundown, ppEnabled]);
+  }, [canEditRundown, canControlRundown, ppEnabled]);
 
   const togglePPOnKiosk = () => ppCommands.run({ kind: "output", enabled: !ppOnKiosk });
 
@@ -2085,7 +2088,7 @@ function RundownPage() {
                         ProPresenter
                       </p>
                     </div>
-                    {canEditRundown && (
+                    {(canEditRundown || canControlRundown) && (
                       <>
                         <Button variant="ghost"
                           onClick={togglePP}
@@ -2102,6 +2105,7 @@ function RundownPage() {
                           )}
                           {ppEnabled ? pp.isStreaming ? "Streaming" : "Reconnecting" : "Off"}
                         </Button>
+                        {canEditRundown && (
                         <Button variant="ghost"
                           onClick={togglePPOnKiosk}
                           disabled={ppControlsBlocked || !syncConnected}
@@ -2127,7 +2131,7 @@ function RundownPage() {
                             : ppOnKiosk
                               ? "On Kiosk"
                               : "Kiosk Off"}
-                        </Button>
+                        </Button>)}
                       </>
                     )}
                   </div>
@@ -2135,11 +2139,13 @@ function RundownPage() {
                   {ppCommands.failure && (
                     <div role="alert" aria-label="ProPresenter command confirmation" className="my-3 space-y-2 text-sm text-amber-200">
                       <p>{ppCommands.failure.message} <time dateTime={new Date(ppCommands.failure.occurredAt).toISOString()}>{new Date(ppCommands.failure.occurredAt).toLocaleTimeString()}</time></p>
-                      <Button type="button" variant="outline" className="min-h-11 h-auto whitespace-normal" onClick={ppCommands.acknowledgeReview}>I've checked the output</Button>
+                      {ppCommands.canCheck && <Button type="button" variant="outline" className="min-h-11 h-auto whitespace-normal" onClick={() => void ppCommands.checkStatus()}>Check command status</Button>}
+                      {ppCommands.canAcknowledge && <Button type="button" variant="outline" className="min-h-11 h-auto whitespace-normal" onClick={ppCommands.acknowledgeReview}>I've checked the output</Button>}
                     </div>
                   )}
+                  {ppCommands.previousContext && <p role="status" className="my-2 text-sm text-board-muted">This action started before the show or ProPresenter settings changed. Its result belongs to that earlier action.</p>}
                   {ppCommands.notice && <p role="status" aria-live="polite" className="my-2 text-sm text-green-400">{ppCommands.notice}</p>}
-                  {ppCommands.pending && <p role="status" aria-live="polite" className="my-2 text-sm text-board-muted">Waiting for ProPresenter confirmation…</p>}
+                  {ppCommands.pending && <p role="status" aria-live="polite" className="my-2 text-sm text-board-muted">{ppCommands.checking ? "Checking the original command status…" : "Waiting for ProPresenter confirmation…"}</p>}
 
                   {ppEnabled && (
                     <>
@@ -2170,55 +2176,15 @@ function RundownPage() {
                       <ReadFailureNotice error={pp.error && pp.errorAt !== null ? { message: pp.error, occurredAt: pp.errorAt } : null} refreshing={pp.refreshing} retry={pp.connect} label="Reconnect ProPresenter feed" />
 
                       {/* PP Control Buttons */}
-                      {canEditRundown &&
-                        (ppCuesEnabled && ppApiPort ? (
-                          <div className="mb-2">
-                            <div className="flex items-center gap-1.5">
-                              <Button variant="ghost"
-                                type="button"
-                                onClick={() =>
-                                  void handleProPresenterCommand("previous")
-                                }
-                                disabled={ppControlsBlocked || !canControlRundown || !syncConnected || !pp.isStreaming}
-                                className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-xs font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors disabled:cursor-wait disabled:opacity-50"
-                                title="Previous slide"
-                              >
-                                <SkipBack className="w-3 h-3" />
-                                Prev
-                              </Button>
-                              <Button variant="ghost"
-                                type="button"
-                                onClick={() =>
-                                  void handleProPresenterCommand("next")
-                                }
-                                disabled={ppControlsBlocked || !canControlRundown || !syncConnected || !pp.isStreaming}
-                                className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-board-border text-xs font-medium text-board-muted hover:bg-board-border hover:text-board-text transition-colors disabled:cursor-wait disabled:opacity-50"
-                                title="Next slide"
-                              >
-                                Next
-                                <SkipForward className="w-3 h-3" />
-                              </Button>
-                              <Button variant="ghost"
-                                type="button"
-                                onClick={() =>
-                                  void handleProPresenterCommand("clear")
-                                }
-                                disabled={ppControlsBlocked || !canControlRundown || !syncConnected || !pp.isStreaming}
-                                className="flex items-center gap-1 px-2 py-1 rounded-md bg-board-bg border border-red-500/30 text-xs font-medium text-red-400 hover:bg-red-500/10 hover:text-red-400 transition-colors ml-auto disabled:cursor-wait disabled:opacity-50"
-                                title="Clear slide layer"
-                              >
-                                <X className="w-3 h-3" />
-                                Clear
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-xs text-board-muted mb-2">
-                            {!ppCuesEnabled
-                              ? 'Enable "Send cues" in Settings → ProPresenter to control slides'
-                              : "Set API Port in Settings → ProPresenter to control slides"}
-                          </p>
-                        ))}
+                      {canControlRundown && (ppCuesEnabled && ppApiPort ? (
+                        <div className="mb-2"><ProPresenterSlideControls scope={ppCommandScope}
+                          disabled={ppControlsBlocked || !showId || !syncConnected || !pp.isStreaming}
+                          onCommand={command => void handleProPresenterCommand(command)} />
+                          {!showId && <p className="mt-2 text-xs text-board-muted">Open or create a show before controlling ProPresenter.</p>}
+                        </div>
+                      ) : <p className="text-xs text-board-muted mb-2">{!ppCuesEnabled
+                        ? 'Enable "Send cues" in Settings → ProPresenter to control slides'
+                        : "Set API Port in Settings → ProPresenter to control slides"}</p>)}
 
                       {/* Current slide preview */}
                       {activePpSlide && activePpSlide.text ? (

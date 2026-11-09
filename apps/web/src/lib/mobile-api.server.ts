@@ -840,7 +840,7 @@ async function controlMobileProPresenter(
 ): Promise<Response> {
   const access = await authorize(request, url, env.DB, ["rundown:control"]);
   if (access instanceof Response) return access;
-  const { proPresenterCommandSchema } = await import("../../../mobile/src/lib/propresenter-command");
+  const { proPresenterCommandSchema } = await import("@showpilot/shared/propresenter-command");
   const parsed = proPresenterCommandSchema.safeParse(await readJson(request));
   if (!parsed.success) return json({ error: "Update the app and review the original slide command." }, 400);
   const command = parsed.data;

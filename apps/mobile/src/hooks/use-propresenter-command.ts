@@ -5,7 +5,7 @@ import {
   proPresenterReplySchema,
   type ProPresenterCommand,
   type ProPresenterReply,
-} from "../lib/propresenter-command";
+} from "@showpilot/shared/propresenter-command";
 
 type Scope = Pick<ProPresenterCommand, "orgId" | "userId" | "showId">;
 export function useProPresenterCommand(

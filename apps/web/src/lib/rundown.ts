@@ -1,3 +1,4 @@
+import { proPresenterCommandSchema, type ProPresenterReply } from "@showpilot/shared/propresenter-command";
 import { getAuth } from "./auth";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPresentedRundownPin } from "./rundown-pin.server";
@@ -834,50 +835,22 @@ export const getProPresenterFeed = createServerFn({ method: "GET" })
     }
   });
 
-/** Send a ProPresenter command through the venue Bridge on the local network. */
+/** Prepare, execute once, or read the receipt of an operator's slide command. */
 export const sendProPresenterCommand = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      proPresenterTargetSchema.extend({
-        command: z.enum(["next", "previous", "clear"]),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
+  .inputValidator((data: unknown) => parseOrThrow(proPresenterCommandSchema.extend({ mode: z.enum(["prepare", "execute", "check"]) }), data))
+  .handler(async ({ data }): Promise<ProPresenterReply> => {
     const { user } = await assertRundownControlAccess(data.orgId);
-    const target = await readProPresenterTarget(data.orgId);
-    if (!target) return { ok: false, error: "Set the ProPresenter host first" };
-    if (!target.cuesEnabled) {
-      return {
-        ok: false,
-        error: "Enable ProPresenter cue control in Settings first",
-      };
-    }
-
-    try {
-      const connection = await connectConfiguredProPresenterBridge(
-        data.orgId,
-        target,
-        user.id,
-      );
-      if (!connection.ok) return connection;
-      const result = await connection.relay.dispatchBridgeMessage({
-        type: "command",
-        id: `web-pp-${crypto.randomUUID()}`,
-        protocol: "propresenter",
-        target: connection.bridgeTarget,
-        command: data.command,
-      }, { source: "operator", actorUserId: user.id });
-      return result.success
-        ? { ok: true }
-        : { ok: false, error: result.error ?? "ProPresenter command failed" };
-    } catch {
-      return {
-        ok: false,
-        error: "Venue Bridge could not complete the ProPresenter command",
-      };
-    }
+    if (user.id !== data.userId) throw new Error("Your account changed. Return to the original slide command.");
+    const headers = getRequestHeaders();
+    const session = await getAuth().api.getSession({ headers, query: { disableCookieCache: true } });
+    if (!session || session.user.id !== data.userId) throw new Error("Sign in again before controlling slides.");
+    const bindings = env as unknown as RundownRelayEnv;
+    if (!bindings.BRIDGE_RELAY) throw new Error("Slide control is unavailable.");
+    const { mode, ...command } = data;
+    return bindings.BRIDGE_RELAY.get(bindings.BRIDGE_RELAY.idFromName(data.orgId)).recoverProPresenterCommand(command, {
+      orgId: data.orgId, userId: session.user.id, sessionId: session.session.id,
+      rundownPin: getPresentedRundownPin(new Request("https://showpilot.local/slide-command", { headers }), data.orgId),
+    }, mode);
   });
 
 /** Test the configured ProPresenter connection from the venue Bridge. */
