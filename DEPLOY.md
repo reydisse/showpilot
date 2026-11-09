@@ -9469,3 +9469,24 @@ in run 42584267748 before this successor. Phase 2 remains 67/79. Twenty necessar
 tracked Markdown files remain; none added.
 Logs: /tmp/showpilot-output-{before,before-settings,unit3,unit4,worker4,worker7,full2,full3,tsc3,tsc4,shared1,build1,verify2,browser1}.log.
 Screenshots: /tmp/showpilot-native-propresenter-output-{review,lost,refresh-error}-{320,768,1440}.png.
+
+### Native output CI repair: one PIN verification per request (2026-11-09)
+
+Run 42588931063 failed the configured-TM-PIN test: a valid output command
+returned `expired` instead of `applied`. The mobile handler verified the same
+210,000-iteration PIN in its generic authorization and again in the shared output
+authority. On the coverage runner those two checks consumed the five-second
+command lifetime. The endpoint now checks identity first and delegates live
+permission/PIN verification to the shared output authority once. Typed access
+failures preserve the 401 PIN challenge and 403 denial. The transaction still
+checks the exact session, role/grant and PIN configuration; changing the PIN
+between verification and commit rejects the write. No hash work factor, command
+expiry, client timeout, or integration-test timeout was increased.
+
+Validation: full web suite passes 3,317 unit + 1,733 Worker = 5,050 tests.
+All 17 output Worker tests also pass under Istanbul coverage, including exact
+PIN-verification call counts and the new PIN-change-at-commit regression.
+Web typecheck and production build pass; main stays 542,230 raw / 171,089 gzip.
+The PIN boundary unit test now supplies a valid output command so it tests the
+PIN gate rather than an obsolete malformed payload. No deployment or release.
+Logs: /tmp/showpilot-output-ci-{pin1,full2,coverage1,tsc1,build1}.log.

@@ -17,6 +17,7 @@ import {
 } from "../propresenter-output.server";
 import { rundownRelayKey } from "../rundown-relay-key";
 import { hashRundownPin } from "../rundown-pin-crypto";
+import * as pinCrypto from "../rundown-pin-crypto";
 import { buildCompanionDeps } from "../companion-api";
 import { setProPresenterStageDisplayForOrg } from "../rundown";
 
@@ -42,7 +43,7 @@ vi.mock("@tanstack/react-start", () => {
     createServerOnlyFn: <T>(fn: T): T => fn,
   };
 });
-afterEach(() => abortAllDurableObjects());
+afterEach(() => { vi.restoreAllMocks(); return abortAllDurableObjects(); });
 let orgId = "",
   showId = "",
   userId = "",
@@ -449,6 +450,27 @@ it("records an invalid future deadline as terminal instead of allowing a later r
   });
   expect(await savedOutput()).toBeUndefined();
 });
+it("rejects a PIN configuration change between verification and the output commit", async () => {
+  const actor = await seedRelayMember(orgId, userId);
+  await env.DB.prepare("UPDATE member SET role='tm' WHERE organizationId=? AND userId=?").bind(orgId, userId).run();
+  // Independent existing 210,000-iteration hash for 2468; no reduced work factor.
+  await env.DB.prepare("INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,'rundown-pin',?)")
+    .bind(crypto.randomUUID(), orgId, "pbkdf2-sha256:210000:MDEyMzQ1Njc4OWFiY2RlZg:dn1Cq81hnTfBlkh2maxSEZ3GzIkOQC9w2mVohTIJ_uo").run();
+  const db = new Proxy(env.DB, {
+    get(target, property) {
+      if (property === "batch") return async (statements: D1PreparedStatement[]) => {
+        await target.prepare("UPDATE app_setting SET value='rotated-pin' WHERE orgId=? AND key='rundown-pin'").bind(orgId).run();
+        return target.batch(statements);
+      };
+      const value = Reflect.get(target, property);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  await expect(writeProPresenterOutput(db, {
+    orgId, userId, requestId: crypto.randomUUID(), expectedRevision: null, enabled: true, expiresAt: Date.now() + 5_000,
+  }, { ...actor, rundownPin: "2468" })).rejects.toThrow("access changed");
+  expect(await savedOutput()).toBeUndefined();
+});
 it("requires the configured TM PIN for both reads and writes", async () => {
   await env.DB.prepare(
     "UPDATE member SET role='tm' WHERE organizationId=? AND userId=?",
@@ -460,7 +482,9 @@ it("requires the configured TM PIN for both reads and writes", async () => {
   )
     .bind(crypto.randomUUID(), orgId, await hashRundownPin("2468"))
     .run();
+  const verify = vi.spyOn(pinCrypto, "verifyStoredRundownPin");
   expect((await call()).status).toBe(401);
+  expect(verify).toHaveBeenCalledTimes(1);
   const command = {
     orgId,
     userId,
@@ -470,14 +494,17 @@ it("requires the configured TM PIN for both reads and writes", async () => {
     expiresAt: Date.now() + 5_000,
   };
   expect((await call(command, env, "0000")).status).toBe(401);
+  expect(verify).toHaveBeenCalledTimes(2);
   expect(await call({ ...command, requestId: crypto.randomUUID(), expiresAt: Date.now() + 5_000 }, env, "2468")).toMatchObject({
     status: 200,
     body: { outcome: "applied" },
   });
+  expect(verify).toHaveBeenCalledTimes(3);
   expect(await call(undefined, env, "2468")).toMatchObject({
     status: 200,
     body: { enabled: true },
   });
+  expect(verify).toHaveBeenCalledTimes(4);
 }, 15_000); // Multiple real PBKDF2 checks, matching the Worker PIN crypto suite.
 it.each(["companion", "fallback"])(
   "advances the shared revision for the %s writer",
