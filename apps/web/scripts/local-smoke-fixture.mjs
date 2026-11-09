@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, nativeCueEditor = false, reportRecovery = false, personalAssignments = false, calendarNavigation = false, notificationInbox = false, desktopNotificationRecovery = false, notificationTimezoneRecovery = false, accountProfileRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false, timestampVersions = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, nativeCueEditor = false, reportRecovery = false, personalAssignments = false, calendarNavigation = false, notificationInbox = false, desktopNotificationRecovery = false, notificationTimezoneRecovery = false, accountProfileRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, chatDeliveryNotifications = false, invitationResponses = false, teamRecovery = false, streamOutputs = false, timestampVersions = false } = {}) {
   if (streamOutputs) {
     assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Stream status requires the isolated outbound handler");
     assert.equal(captureEmail, false, "Use separate fixtures for email and Stream status");
@@ -176,6 +176,10 @@ export async function withLocalSmokeFixture(check, { secondShow = false, nativeC
   INSERT INTO account (id,accountId,providerId,userId,password,issuer,updatedAt) VALUES ('smoke-second-account','smoke-second-operator','credential','smoke-second-operator','${passwordHash}','local:credential',CURRENT_TIMESTAMP);
   INSERT INTO member (id,organizationId,userId,role,createdAt) VALUES ('smoke-second-member','display-smoke','smoke-second-operator','${hiddenNavigation ? "tm" : secondOperatorMember ? "member" : "owner"}',CURRENT_TIMESTAMP);
   ` : ""}
+  ${chatDeliveryNotifications ? `
+  INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-third-operator','Third fixture operator','third@display-smoke.invalid',1,CURRENT_TIMESTAMP);
+  INSERT INTO member (id,organizationId,userId,role,createdAt) VALUES ('smoke-third-member','display-smoke','smoke-third-operator','owner',CURRENT_TIMESTAMP);
+  ` : ""}
   ${hiddenNavigation ? `
   UPDATE organization SET cloud_enabled=0 WHERE id='display-smoke';
   INSERT INTO app_setting(id,orgId,key,value) VALUES ('fixture-hidden-pin','display-smoke','rundown-pin','1842');
@@ -227,8 +231,10 @@ export async function withLocalSmokeFixture(check, { secondShow = false, nativeC
   INSERT INTO graphic_template (id,orgId,name,title,subtitle,updatedAt) VALUES ('smoke-graphic','display-smoke','Fixture','Fixture overlay title','Fixture subtitle',CURRENT_TIMESTAMP);
   `;
     if (teamRecovery) assert.ok(secondOperator && secondOperatorMember, "Team recovery needs a removable second fixture member");
-    if (chatNotificationFailure) assert.ok(secondOperator, "Chat notification failure needs the second fixture member");
-    const chatNotificationFault = chatNotificationFailure ? `CREATE TRIGGER fixture_chat_notification_failure BEFORE INSERT ON notification
+    if (chatNotificationFailure || chatDeliveryNotifications) assert.ok(secondOperator, "Chat notification failure needs the second fixture member");
+    const chatNotificationFault = chatDeliveryNotifications ? `CREATE TRIGGER fixture_chat_notification_failure BEFORE INSERT ON notification
+      WHEN NEW.orgId='display-smoke' AND NEW.userId='smoke-second-operator' AND NEW.type IN ('chat-group-message','chat-mention','chat-direct-message','chat-reaction')
+      BEGIN SELECT RAISE(ABORT, 'fixture notification failure'); END;` : chatNotificationFailure ? `CREATE TRIGGER fixture_chat_notification_failure BEFORE INSERT ON notification
       WHEN NEW.orgId='display-smoke' AND NEW.userId='smoke-second-operator' AND NEW.type='chat-planning-invite'
       BEGIN SELECT RAISE(ABORT, 'fixture notification failure'); END;` : "";
     const sqlPath = join(directory, "fixture.sql");
@@ -295,9 +301,14 @@ INSERT INTO device(id,orgId,name,category,adapterType,settings,enabled,createdAt
       return url.toString();
     };
     const restoreChatNotifications = async () => {
-      assert.ok(chatNotificationFailure, "Only the chat notification fixture can restore this fault");
+      assert.ok(chatNotificationFailure || chatDeliveryNotifications, "Only the chat notification fixture can restore this fault");
       await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state,
         "--command", "DROP TRIGGER fixture_chat_notification_failure");
+    };
+    const readDeliveredChatNotification = async () => {
+      assert.ok(chatDeliveryNotifications, "Only chat delivery fixtures can mark this notification read");
+      await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state,
+        "--command", "UPDATE notification SET readAt='2026-11-09T00:00:00.000Z',dismissed=1 WHERE orgId='display-smoke' AND userId='smoke-third-operator' AND type='chat-group-message'");
     };
     const removeInvitationMembership = async () => {
       assert.ok(invitationResponses, "Only invitation fixtures can remove this membership");
@@ -331,7 +342,7 @@ INSERT INTO device(id,orgId,name,category,adapterType,settings,enabled,createdAt
       assert.ok(captureEmail);
       return (await readFile(join(directory, "emails.jsonl"), "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
     };
-    await check({ insertInboxArrival, configureStreamOutputs, streamOutputRequests, streamOutputSnapshot, removeInvitationMembership, restoreChatNotifications, configureEmail, capturedEmails, origin, orgId, date, browser, pass, crewChatPass, planningChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, resetTokens: passwordReset ? resetTokens : undefined, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
+    await check({ readDeliveredChatNotification, insertInboxArrival, configureStreamOutputs, streamOutputRequests, streamOutputSnapshot, removeInvitationMembership, restoreChatNotifications, configureEmail, capturedEmails, origin, orgId, date, browser, pass, crewChatPass, planningChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, resetTokens: passwordReset ? resetTokens : undefined, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
   } catch (error) {
     // Configuration contains only disposable fixture secrets; redact them anyway.
     console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]").replaceAll(companionSecret, "[fixture secret]").replaceAll(encryptionSecret, "[fixture secret]"));

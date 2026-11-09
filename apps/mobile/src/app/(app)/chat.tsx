@@ -44,6 +44,7 @@ import {
 import { Page } from "@/components/page";
 import { ChatDeliveryStatus } from "@/components/chat-delivery-status";
 import { LoadingView } from "@/components/loading-view";
+import { useChatComposer } from "@/hooks/use-chat-composer";
 import { useChatRelay, type MobileChatMessage } from "@/hooks/use-chat-relay";
 import { useScreenFocus } from "@/hooks/use-screen-polling";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
@@ -60,8 +61,6 @@ import {
   getMobileChatMembers,
   getMobileContentSafety,
   getMobileRundown,
-  notifyMobileChatMessage,
-  notifyMobileChatReaction,
   reportMobileContent,
   uploadMobileChatAttachment,
   type MobileChatAttachment,
@@ -70,7 +69,6 @@ import {
 } from "@/lib/mobile-api";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
-type MessageType = "text" | "cue" | "alert";
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 function readableChatText(text: string) {
@@ -331,11 +329,9 @@ export default function ChatScreen() {
     enabled: Boolean(organization?.id),
     staleTime: 60_000,
   });
-  const [text, setText] = useState("");
-  const [messageType, setMessageType] = useState<MessageType>("text");
-  const [replyingTo, setReplyingTo] = useState<MobileChatMessage | null>(null);
-  const [editing, setEditing] = useState<MobileChatMessage | null>(null);
-  const [attachment, setAttachment] = useState<MobileChatAttachment | null>(null);
+  const composer = useChatComposer(session?.user.id, organization?.id, roomId);
+  const { text, messageType, replyingTo, editing, attachment, pollQuestion, pollOptions } = composer.draft;
+  const { setText, setMessageType, setReplyingTo, setEditing, setAttachment, setPollQuestion, setPollOptions } = composer;
   const [previewAttachment, setPreviewAttachment] = useState<MobileChatAttachment | null>(null);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -344,8 +340,6 @@ export default function ChatScreen() {
   const pendingToolRef = useRef<"photo" | "document" | "poll" | null>(null);
   const attachmentContextRef = useRef(0);
   const [pollOpen, setPollOpen] = useState(false);
-  const [pollQuestion, setPollQuestion] = useState("");
-  const [pollOptions, setPollOptions] = useState(["", ""]);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [roomPickerOpen, setRoomPickerOpen] = useState(false);
   const [roomSearch, setRoomSearch] = useState("");
@@ -363,14 +357,12 @@ export default function ChatScreen() {
   const stickToBottomRef = useRef(true);
   const userHasScrolledRef = useRef(false);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingNotificationsRef = useRef(new Map<string, { text: string; mentionedUserIds: string[] }>());
   useEffect(() => {
-    setAttachment(null);
     return () => {
       attachmentContextRef.current += 1;
       pendingToolRef.current = null;
     };
-  }, [organization?.id, roomId]);
+  }, [session?.user.id, organization?.id, roomId]);
   useEffect(() => {
     let active = true;
     void getNativeCookieHeader().then((headers) => {
@@ -418,12 +410,15 @@ export default function ChatScreen() {
     stickToBottomRef.current = true;
     userHasScrolledRef.current = false;
     setShowLatestButton(false);
-    setReplyingTo(null);
-    setEditing(null);
-    setAttachment(null);
     setToolsOpen(false);
-    pendingNotificationsRef.current.clear();
-  }, [roomId]);
+    setPollOpen(false);
+    setActionTarget(null);
+    setReactionTarget(null);
+    setPreviewAttachment(null);
+    setPreviewUri(null);
+    setPreviewLoading(false);
+    setShareOpen(false);
+  }, [session?.user.id, organization?.id, roomId]);
 
   const setRelayTyping = relay.setTyping;
   useEffect(() => () => {
@@ -441,22 +436,6 @@ export default function ChatScreen() {
     requestAnimationFrame(() => listRef.current?.scrollToIndex({ animated: true, index, viewPosition: 0.5 }));
   }, [displayMessages, focusedMessageId]);
 
-  useEffect(() => {
-    if (!organization) return;
-    for (const message of messages) {
-      const pending = pendingNotificationsRef.current.get(message.id);
-      if (!pending) continue;
-      pendingNotificationsRef.current.delete(message.id);
-      void notifyMobileChatMessage({
-        orgId: organization.id,
-        roomId,
-        text: pending.text,
-        mentionedUserIds: pending.mentionedUserIds,
-        messageId: message.id,
-      }).catch(() => undefined);
-    }
-  }, [messages, organization, roomId]);
-
   function updateText(value: string) {
     setText(value);
     relay.setTyping(Boolean(value.trim()));
@@ -464,20 +443,17 @@ export default function ChatScreen() {
     typingTimerRef.current = setTimeout(() => relay.setTyping(false), 2_500);
   }
 
-  function clearComposer() {
-    setText("");
-    setReplyingTo(null);
-    setEditing(null);
-    setAttachment(null);
-    setMessageType("text");
+  function clearComposer(submitted: typeof composer.draft) {
+    composer.clear(submitted);
     relay.setTyping(false);
   }
 
   async function submit() {
+    const submitted = composer.capture();
     if (editing) {
       try {
         await relay.editMessage(editing.id, text);
-        clearComposer();
+        clearComposer(submitted);
         await Haptics.selectionAsync();
       } catch (error) {
         Alert.alert("Message not edited", error instanceof Error ? error.message : "Try again.");
@@ -485,18 +461,17 @@ export default function ChatScreen() {
       return;
     }
     const replyTarget = replyingTo;
+    const mentionedUserIds = members
+      .filter((member) => new RegExp(`(^|\\s)@${member.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$|[.,!?])`, "i").test(text))
+      .map((member) => member.userId);
     const messageId = relay.send(text, messageType, {
+      mentionedUserIds,
       ...(replyTarget ? { replyTo: { messageId: replyTarget.id, senderName: replyTarget.senderName, text: replyTarget.text } } : {}),
       ...(attachment ? { attachments: [attachment] } : {}),
     });
     if (!messageId) return;
-    const cleanText = text;
-    const mentionedUserIds = members
-      .filter((member) => new RegExp(`(^|\\s)@${member.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$|[.,!?])`, "i").test(cleanText))
-      .map((member) => member.userId);
-    clearComposer();
+    clearComposer(submitted);
     await Haptics.selectionAsync();
-    pendingNotificationsRef.current.set(messageId, { text: cleanText, mentionedUserIds });
   }
 
   async function chooseAttachment() {
@@ -608,7 +583,6 @@ export default function ChatScreen() {
     setPollOpen(false);
     setPollQuestion("");
     setPollOptions(["", ""]);
-    pendingNotificationsRef.current.set(messageId, { text: question, mentionedUserIds: [] });
   }
 
   function selectMention(member: MobileChatMember) {
@@ -646,7 +620,7 @@ export default function ChatScreen() {
     setEditing(null);
     setReplyingTo(message);
     setActionTarget(null);
-  }, []);
+  }, [setEditing, setReplyingTo]);
 
   const confirmDelete = useCallback((message: MobileChatMessage) => {
     setActionTarget(null);
@@ -685,18 +659,14 @@ export default function ChatScreen() {
   }, [organization, safetyQuery]);
 
   const toggleReaction = useCallback(async (message: MobileChatMessage, emoji: MobileChatReactionEmoji) => {
-    const removing = Boolean(currentUserId && message.reactions?.some((reaction) => reaction.emoji === emoji && reaction.userIds.includes(currentUserId)));
     try {
       await mutateReaction(message.id, emoji);
       setReactionTarget(null);
       setCustomReaction("");
-      if (!removing && organization && message.senderId) {
-        void notifyMobileChatReaction({ orgId: organization.id, roomId, messageId: message.id, targetUserId: message.senderId, emoji }).catch(() => undefined);
-      }
     } catch (error) {
       Alert.alert("Reaction not saved", error instanceof Error ? error.message : "Try again.");
     }
-  }, [currentUserId, mutateReaction, organization, roomId]);
+  }, [mutateReaction]);
 
   const openMessageAttachment = useCallback((file: MobileChatAttachment) => {
     void openAttachment(file);
@@ -796,7 +766,7 @@ export default function ChatScreen() {
             initialNumToRender={18}
             maxToRenderPerBatch={12}
             windowSize={7}
-            ListHeaderComponent={<ChatDeliveryStatus key={`${session?.user.id}:${organization.id}:${roomId}`} items={relay.outbox} connected={relay.status === "connected"} retry={relay.retryMessage} discard={relay.discardMessage} />}
+            ListHeaderComponent={<ChatDeliveryStatus key={`${session?.user.id}:${organization.id}:${roomId}`} items={relay.outbox} connected={relay.status === "connected"} retry={relay.retryMessage} retryNotifications={relay.retryNotifications} discard={relay.discardMessage} />}
             ListFooterComponent={relay.hasOlder ? (<View>
               {relay.historyError ? <Text accessibilityRole="alert" style={styles.error}>{relay.historyError}</Text> : null}
               <Pressable accessibilityRole="button" accessibilityState={{ busy: relay.loadingOlder, disabled: relay.loadingOlder || relay.status !== "connected" }} disabled={relay.loadingOlder || relay.status !== "connected"} onPress={() => void relay.loadOlder()} style={({ pressed }) => [styles.olderButton, pressed && styles.pressed]}>

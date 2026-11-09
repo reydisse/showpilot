@@ -14,12 +14,12 @@ class Socket {
 const message = (id = "message", more = {}) => ({ id, senderId: "operator", senderName: "Operator", text: "Hello", type: "text", timestamp: 1, ...more });
 beforeEach(() => { vi.useFakeTimers(); vi.stubGlobal("WebSocket", Socket); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
-function setup() {
+function setup(notify = vi.fn(async input => ({ ...input, notified: 1 }))) {
   const sockets = [], listeners = new Set();
   const app = { currentState: "active", addEventListener: (_, listener) => { listeners.add(listener); return { remove: () => listeners.delete(listener) }; } };
   const transport = { createAuthenticatedWebSocket: vi.fn(async () => { const socket = new Socket(); sockets.push(socket); return socket; }),
     getNativeCookieHeader: vi.fn(async () => ({})), getAuthenticatedFetchCredentials: () => "include" };
-  const fetch = vi.fn(); const hook = loadChatHook(transport, app, fetch);
+  const fetch = vi.fn(); const hook = loadChatHook(transport, app, fetch, notify);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const props = { org: "org", room: "production", user: "operator" };
   const wrapper = ({ children }) => React.createElement(QueryClientProvider, { client }, children);
@@ -27,7 +27,7 @@ function setup() {
   const result = mount();
   const flush = () => act(async () => { await vi.advanceTimersByTimeAsync(0); });
   const hydrate = async (messages = []) => { await flush(); await act(async () => { sockets.at(-1).open(); sockets.at(-1).receive({ type: "hydrate", messages }); await vi.advanceTimersByTimeAsync(0); }); };
-  return { ...result, mount, sockets, transport, fetch, client, props, flush, hydrate,
+  return { ...result, mount, sockets, transport, fetch, notify, client, props, flush, hydrate,
     background: async state => act(async () => { app.currentState = state; for(const listener of listeners) listener(state); }) };
 }
 it("does not claim connected or flush a queued message before hydration", async () => {
@@ -205,4 +205,94 @@ it("clears a socket-write error when that same message is acknowledged", async (
   expect(f.result.current.lastError).toMatch(/could not send/); f.sockets[0].sendError = false;
   await act(async () => { f.result.current.retryMessage(id); f.sockets[0].receive({ type: "message", message: message(id) }); }); await f.flush();
   expect(f.result.current.outbox).toEqual([]); expect(f.result.current.lastError).toBeNull();
+});
+it("plans mention notifications before a fast acknowledgement and retries only notification delivery", async () => {
+  const notify = vi.fn().mockRejectedValueOnce(new Error("Inbox unavailable"))
+    .mockImplementation(async input => ({ ...input, notified: 1 }));
+  const f = setup(notify); await f.hydrate(); let id;
+  await act(async () => { id = f.result.current.send("@Crew ready?", "alert", { mentionedUserIds: ["crew"] }); });
+  expect(notify).not.toHaveBeenCalled();
+  await act(async () => f.sockets[0].receive({ type: "message", message: message(id) })); await f.flush();
+  expect(f.result.current.outbox[0]).toMatchObject({ kind: "notification-failed", error: "Inbox unavailable" });
+  expect(notify.mock.calls[0][0]).toEqual({ kind: "message", orgId: "org", userId: "operator", roomId: "production", messageId: id, requestId: id, text: "@Crew ready?", mentionedUserIds: ["crew"] });
+  await act(async () => f.result.current.retryMessage(id)); expect(f.sockets[0].sent).toHaveLength(1);
+  await act(async () => { f.result.current.retryNotifications(id); f.result.current.retryNotifications(id); }); await f.flush();
+  expect(notify).toHaveBeenCalledTimes(2); expect(notify.mock.calls[1][0]).toEqual(notify.mock.calls[0][0]);
+  expect(f.result.current.outbox).toEqual([]); expect(f.sockets[0].sent).toHaveLength(1);
+});
+it("bounds notification acknowledgement and ignores a late result during a newer retry", async () => {
+  let original, retry;
+  const notify = vi.fn().mockImplementationOnce(() => new Promise(resolve => { original = resolve; }))
+    .mockImplementationOnce(() => new Promise(resolve => { retry = resolve; }));
+  const f = setup(notify); await f.hydrate(); let id;
+  await act(async () => { id = f.result.current.send("Saved message"); f.sockets[0].receive({ type: "message", message: message(id) }); }); await f.flush();
+  expect(f.result.current.outbox[0].kind).toBe("notifying");
+  await act(async () => vi.advanceTimersByTimeAsync(15001));
+  expect(f.result.current.outbox[0].kind).toBe("notification-failed"); expect(notify.mock.calls[0][1].aborted).toBe(true);
+  await act(async () => f.result.current.retryNotifications(id));
+  await act(async () => original({ ...notify.mock.calls[0][0], notified: 1 })); await f.flush();
+  expect(f.result.current.outbox[0].kind).toBe("notifying");
+  await act(async () => retry({ ...notify.mock.calls[1][0], notified: 0 })); await f.flush();
+  expect(f.result.current.outbox).toEqual([]); expect(f.sockets[0].sent).toHaveLength(1);
+});
+it.each(["org", "room", "user"])("retains notification failure in its original %s through navigation", async field => {
+  let finish; const notify = vi.fn(() => new Promise((_resolve, reject) => { finish = reject; }));
+  const f = setup(notify); await f.hydrate(); let id;
+  await act(async () => { id = f.result.current.send("Original"); f.sockets[0].receive({ type: "message", message: message(id) }); });
+  f.rerender({ ...f.props, [field]: "other" }); await f.hydrate();
+  await act(async () => finish(new Error("Original inbox failed"))); await f.flush();
+  expect(f.result.current.outbox).toEqual([]);
+  f.rerender(f.props); await f.hydrate([message(id)]);
+  expect(f.result.current.outbox[0]).toMatchObject({ id, kind: "notification-failed", error: "Original inbox failed" });
+  expect(notify).toHaveBeenCalledTimes(1); expect(f.sockets.at(-1).sent).toEqual([]);
+});
+it("settles a notification after unmount without losing its failure", async () => {
+  const notify = vi.fn(() => new Promise(() => {})); const f = setup(notify); await f.hydrate(); let id;
+  await act(async () => { id = f.result.current.send("Pending"); f.sockets[0].receive({ type: "message", message: message(id) }); });
+  f.unmount(); await act(async () => vi.advanceTimersByTimeAsync(15001));
+  const next = f.mount(); await f.hydrate([message(id)]);
+  expect(next.result.current.outbox[0].kind).toBe("notification-failed"); expect(notify).toHaveBeenCalledTimes(1);
+});
+it.each(["orgId", "userId", "roomId", "messageId", "requestId"])("rejects a notification receipt for another %s", async field => {
+  const notify = vi.fn(async input => ({ ...input, [field]: field === "requestId" ? "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa" : "other", notified: 1 }));
+  const f = setup(notify); await f.hydrate(); let id;
+  await act(async () => { id = f.result.current.send("Mine"); f.sockets[0].receive({ type: "message", message: message(id) }); }); await f.flush();
+  expect(f.result.current.outbox[0]).toMatchObject({ kind: "notification-failed", error: expect.stringMatching(/another message or account/) });
+});
+it("does not notify a rejected or locally discarded send", async () => {
+  const f = setup(); await f.hydrate(); let rejected, discarded;
+  await act(async () => {
+    rejected = f.result.current.send("Rejected");
+    f.sockets[0].receive({ type: "error", messageId: rejected, error: "Not allowed" });
+    discarded = f.result.current.send("Removed tracking"); f.result.current.discardMessage(discarded);
+    f.sockets[0].receive({ type: "message", message: message(discarded) });
+  });
+  expect(f.notify).not.toHaveBeenCalled();
+});
+it("uses the poll question in notification delivery", async () => {
+  const f = setup(); await f.hydrate(); let id;
+  await act(async () => { id = f.result.current.send("", "text", { poll: { question: "Ready?", options: ["Yes", "No"] } }); f.sockets[0].receive({ type: "message", message: message(id) }); });
+  expect(f.notify.mock.calls[0][0]).toMatchObject({ text: "Ready?", messageId: id });
+});
+it("retries a saved reaction notification without toggling the reaction again", async () => {
+  const notify = vi.fn().mockRejectedValueOnce(new Error("Inbox failed")).mockImplementation(async input => ({ ...input, notified: 1 }));
+  const f = setup(notify); await f.hydrate([message("crew-message", { senderId: "crew", senderName: "Crew" })]);
+  let pending; await act(async () => { pending = f.result.current.toggleReaction("crew-message", "👍"); });
+  const sent = f.sockets[0].sent.at(-1);
+  await act(async () => {
+    f.sockets[0].receive({ type: "message-edited", message: message("crew-message", { senderId: "crew", senderName: "Crew", reactions: [{ emoji: "👍", userIds: ["operator"] }] }) });
+    f.sockets[0].receive({ type: "mutation-result", requestId: sent.requestId, ok: true });
+    await pending;
+  }); await f.flush();
+  expect(f.result.current.outbox[0]).toMatchObject({ kind: "notification-failed", id: sent.requestId });
+  expect(notify.mock.calls[0][0]).toEqual({ kind: "reaction", orgId: "org", userId: "operator", roomId: "production", messageId: "crew-message", requestId: sent.requestId, targetUserId: "crew", emoji: "👍" });
+  await act(async () => f.result.current.retryNotifications(sent.requestId)); await f.flush();
+  expect(f.result.current.outbox).toEqual([]); expect(f.sockets[0].sent).toHaveLength(1);
+  expect(notify.mock.calls[1][0]).toEqual(notify.mock.calls[0][0]);
+});
+it.each(["removed", "self"])("does not notify a %s reaction", async kind => {
+  const f = setup(); await f.hydrate([message("target", { senderId: kind === "self" ? "operator" : "crew", reactions: kind === "self" ? [{ emoji: "👍", userIds: ["operator"] }] : [] })]);
+  let pending; await act(async () => { pending = f.result.current.toggleReaction("target", "👍"); });
+  await act(async () => { f.sockets[0].receive({ type: "mutation-result", requestId: f.sockets[0].sent.at(-1).requestId, ok: true }); await pending; });
+  expect(f.notify).not.toHaveBeenCalled(); expect(f.result.current.outbox).toEqual([]);
 });
