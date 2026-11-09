@@ -1,3 +1,4 @@
+import { graphicControlSnapshotSchema, graphicControlResultSchema, type GraphicControlScope, type GraphicControlCommand } from "@showpilot/shared/graphic-control";
 import { runMobileOperation } from "./request-deadline";
 import type { ChatUploadSpec } from "@showpilot/shared/chat-attachment";
 import { proPresenterOutputResultSchema, proPresenterOutputSnapshotSchema, type ProPresenterOutputCommand } from "@showpilot/shared/propresenter-output";
@@ -742,24 +743,6 @@ const streamingSchema = z.object({
   ),
 });
 
-const graphicsSchema = z.object({
-  cloudEnabled: z.boolean(),
-  canConfigure: z.boolean(),
-  canTrigger: z.boolean(),
-  activeIds: z.array(z.string()),
-  templates: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      title: z.string(),
-      subtitle: z.string(),
-      style: z.string(),
-      createdAt: z.string(),
-      updatedAt: z.string(),
-    }),
-  ),
-});
-
 const dashboardSchema = z.object({
   kind: z.enum(["pm", "tm"]),
   show: mobileOperationalShowSchema.nullable(),
@@ -930,7 +913,6 @@ export type MobileCueSheet = z.infer<typeof cueSheetSchema>;
 export type MobileAsset = z.infer<typeof assetSchema>;
 export type MobileAssets = z.infer<typeof assetsSchema>;
 export type MobileStreaming = z.infer<typeof streamingSchema>;
-export type MobileGraphics = z.infer<typeof graphicsSchema>;
 export type MobileDashboard = z.infer<typeof dashboardSchema>;
 export type MobileReports = z.infer<typeof reportsSchema>;
 export type MobileAudio = z.infer<typeof audioSchema>;
@@ -1958,64 +1940,15 @@ export async function commandMobileDestination(input: {
   return okSchema.parse(await response.json());
 }
 
-export async function getMobileGraphics(
-  orgId: string,
-): Promise<MobileGraphics> {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/graphics?orgId=${encodeURIComponent(orgId)}`,
-  );
-  return graphicsSchema.parse(await response.json());
+export async function readMobileGraphicControl(scope: GraphicControlScope, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/graphics/control?${new URLSearchParams(scope)}`, { signal });
+  return graphicControlSnapshotSchema.parse(await response.json());
 }
-
-export interface MobileGraphicWrite {
-  orgId: string;
-  name: string;
-  title: string;
-  subtitle: string;
-}
-
-export async function createMobileGraphic(input: MobileGraphicWrite) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/graphics?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
-  );
-  return okSchema.extend({ id: z.string() }).parse(await response.json());
-}
-
-export async function updateMobileGraphic(
-  input: MobileGraphicWrite & { id: string },
-) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/graphics/${encodeURIComponent(input.id)}?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
-  );
-  return okSchema.parse(await response.json());
-}
-
-export async function commandMobileGraphic(input: {
-  orgId: string;
-  id?: string;
-  action: "toggle" | "clear" | "remove";
-}) {
-  const path = input.id
-    ? `/api/mobile/v1/graphics/${encodeURIComponent(input.id)}`
-    : "/api/mobile/v1/graphics";
-  const response = await authenticatedFetch(
-    `${path}?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
-  );
-  return okSchema
-    .extend({ activeIds: z.array(z.string()).optional() })
-    .parse(await response.json());
+export async function writeMobileGraphicControl(command: GraphicControlCommand, signal: AbortSignal, review = false) {
+  const response = await authenticatedFetch(`/api/mobile/v1/graphics/${review ? "review" : "control"}`, {
+    method: "POST", body: JSON.stringify(command), signal,
+  });
+  return graphicControlResultSchema.parse(await response.json());
 }
 
 export async function getMobileDashboard(
