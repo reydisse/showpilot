@@ -21,6 +21,7 @@ export const rundownChangeCommandSchema = z.discriminatedUnion("action", [
     })
     .strict(),
   scope.extend({ action: z.literal("clear-all") }).strict(),
+  scope.extend({ action: z.literal("reset") }).strict(),
 ]);
 export const rundownChangeReplySchema = z.object({
   orgId: z.string(),
