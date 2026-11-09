@@ -541,6 +541,41 @@ organization isolation, deleted sections, boundaries, disabling, the kill switch
 retry, reviewed re-fire and scoped clearing. Direct preview controls, keyboard
 and MIDI shortcuts, and the remaining Phase 2.6 work are still pending.
 
+### Timed crew messages
+
+`crew-message` posts a text cue to Production Chat. The editor has a labeled
+message field, limited to 4,000 characters. Stage messages remain a separate
+output. The receiving ChatRelay checks the controlling operator's current
+session, timecode and chat permissions, organization and show before saving.
+The sender name and role come from the database, not the event payload.
+
+ChatRelay commits the message and delivery receipt in one SQLite transaction.
+An ordinary retry preserves the execution ID, including after a timecode crash
+between the chat commit and acknowledgment. Retrying cannot duplicate the post
+or resurrect a deleted message. Editing the cue after delivery requires re-arm
+or confirmed Re-fire to create another post. Re-fire carries the reviewed
+execution ID; stale confirmations are rejected in both UI and relay.
+
+The cue acknowledges the durable Production Chat post. Forwarding to a linked
+Slack, Mattermost, Discord or Teams service is separate and uses the existing
+gateway. Cue messages now show pending, failed or sent delivery status, including
+configuration failures, and preserve line breaks. The ten-second automation
+deadline includes time spent queued; ChatRelay refuses expired deliveries before
+committing. Receipts store a content fingerprint, not another plaintext copy.
+
+After the web build, run `node apps/web/scripts/smoke-crew-message.mjs`. This uses
+disposable local accounts and actual editor, relay and Chat UI paths. It checks
+one post after Fire and ordinary Retry, a second post after confirmed Re-fire,
+unchanged Planning Chat and stage output, preserved lines and the editor at
+320px. Worker regressions also cover interrupted execution, concurrent delivery,
+hibernation, deletion, receipt conflicts, disabled cues, the kill switch,
+organization/session checks and linked-service configuration failures.
+
+The receipt table is created by ChatRelay on activation; it requires no D1
+migration. Deploy the matching web client and Worker so Re-fire can send the
+reviewed execution state. This change has local verification only; it does not
+confirm delivery through a real external chat service or deploy the catalog.
+
 ### Native configuration credential migration
 
 Desktop, Bridge Desktop and standalone Bridge now store both the installation

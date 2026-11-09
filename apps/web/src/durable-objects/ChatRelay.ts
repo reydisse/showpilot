@@ -3,10 +3,12 @@ import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, s
 import { isEmojiReaction } from "@showpilot/shared";
 import { scrubDeletedUserFromChat } from "@/lib/chat-account-deletion";
 import { objectionableContentReason } from "@/lib/user-content-safety";
+import { crewMessageDeliverySchema, type CrewMessageDelivery, type CrewMessageResult } from "@/lib/crew-message";
 import {
   externalChatPollInterval,
   fetchExternalChatHistory,
   loadExternalChatConfiguration,
+  ExternalChatConfigurationError,
   sendExternalChatMessage,
   updateExternalChatMessage,
   type ExternalChatMessage,
@@ -146,6 +148,11 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       )`);
       ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS chat_messages_timestamp_idx ON chat_messages(timestamp)");
       ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS chat_messages_timestamp_id_idx ON chat_messages(timestamp, id)");
+      ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS chat_automation_receipts (
+        execution_id TEXT PRIMARY KEY,
+        fingerprint TEXT NOT NULL,
+        message_id TEXT NOT NULL
+      )`);
       ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS chat_reads (
         user_id TEXT PRIMARY KEY,
         read_at INTEGER NOT NULL
@@ -305,7 +312,17 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
   private async forwardExternalMessage(message: ChatMessage): Promise<void> {
     if (this.roomId !== "production" || !this.orgId || message.external) return;
-    const config = await loadExternalChatConfiguration(this.env.DB, this.orgId, this.env.CREDENTIAL_ENCRYPTION_KEYS);
+    let config;
+    try {
+      config = await loadExternalChatConfiguration(this.env.DB, this.orgId, this.env.CREDENTIAL_ENCRYPTION_KEYS);
+    } catch (error) {
+      const detail = (error instanceof Error ? error.message : "Linked chat configuration is unavailable.").slice(0, 240);
+      if (error instanceof ExternalChatConfigurationError) {
+        this.updateExternalDelivery(message.id, { platform: error.platform, status: "failed", error: detail });
+      }
+      this.publishGatewayStatus({ type: "gateway-status", platform: error instanceof ExternalChatConfigurationError ? error.platform : null, status: "error", error: detail });
+      throw error;
+    }
     if (!config) return;
     this.updateExternalDelivery(message.id, { platform: config.platform, status: "pending" });
     const rootNativeId = message.threadRootId ?? message.replyTo?.messageId;
@@ -469,6 +486,57 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     for (const socket of this.ctx.getWebSockets()) this.getSession(socket);
     if (this.ctx.getWebSockets().length === 0) return;
     await this.enqueueGatewayOperation(() => this.syncAndScheduleExternalGateway());
+  }
+
+  /** Worker-only RPC. Public chat routes cannot choose automation identity. */
+  async postAutomationCue(input: CrewMessageDelivery): Promise<CrewMessageResult> {
+    const parsed = crewMessageDeliverySchema.safeParse(input);
+    if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid crew message delivery." };
+    const delivery = parsed.data;
+    const { authority, orgId } = delivery;
+    if (authority.orgId !== orgId) return { ok: false, error: "Crew message organization mismatch." };
+    const [canControl, canChat, actor, digest] = await Promise.all([
+      hasLivePermissionAuthority(this.env.DB, authority, "timecode:access"),
+      hasLivePermissionAuthority(this.env.DB, authority, "chat:access"),
+      this.env.DB.prepare(`SELECT user.name, member.role FROM member JOIN user ON user.id = member.userId
+        WHERE member.organizationId = ? AND member.userId = ?
+        AND EXISTS (SELECT 1 FROM rundown WHERE id = ? AND orgId = ?) LIMIT 1`)
+        .bind(orgId, authority.userId, delivery.showId, orgId).first<{ name: string; role: string }>(),
+      crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([delivery.showId, delivery.eventId, delivery.payload.message]))),
+    ]);
+    if (!canControl || !canChat || !actor) return { ok: false, error: "Crew messages require current timecode and chat access to this show's organization." };
+    await this.ensureHistoryLoaded();
+    if (delivery.deadline <= Date.now() || delivery.deadline > Date.now() + 10000) return { ok: false, error: "Crew message delivery expired. Review chat before retrying." };
+    if (!this.setContext(orgId, "production")) return { ok: false, error: "Crew messages can only post to this organization's Production Chat." };
+    const fingerprint = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+    const receipt = this.ctx.storage.sql.exec<{ fingerprint: string; message_id: string }>(
+      "SELECT fingerprint, message_id FROM chat_automation_receipts WHERE execution_id = ?", delivery.executionId,
+    ).toArray()[0];
+    if (receipt) {
+      if (receipt.fingerprint !== fingerprint) return { ok: false, error: "This delivery already posted different content. Review chat and re-arm the cue to send a new message." };
+      return { ok: true, messageId: receipt.message_id, duplicate: true };
+    }
+    const message: ChatMessage = {
+      id: `automation:${delivery.executionId}`,
+      orgId,
+      senderId: authority.userId,
+      senderName: `${actor.name} · Automation`,
+      senderRole: actor.role,
+      text: delivery.payload.message,
+      type: "cue",
+      roomId: "production",
+      timestamp: Date.now(),
+    };
+    // No await between duplicate check and commit. A lost reply is safe to retry,
+    // even after hibernation or after the original message was edited/deleted.
+    this.ctx.storage.transactionSync(() => {
+      this.persistMessage(message);
+      this.ctx.storage.sql.exec("INSERT INTO chat_automation_receipts (execution_id, fingerprint, message_id) VALUES (?, ?, ?)", delivery.executionId, fingerprint, message.id);
+    });
+    this.recentMessages = [...this.recentMessages, message].slice(-this.HYDRATION_MESSAGE_LIMIT);
+    this.broadcast(JSON.stringify({ type: "message", message }));
+    this.ctx.waitUntil(this.enqueueGatewayOperation(() => this.forwardExternalMessage(message)).catch(() => undefined));
+    return { ok: true, messageId: message.id, duplicate: false };
   }
 
   async fetch(request: Request): Promise<Response> {
