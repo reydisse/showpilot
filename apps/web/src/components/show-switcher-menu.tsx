@@ -37,7 +37,7 @@ export function ShowSwitcherMenu({
         <button
           type="button"
           disabled={disabled || shows.length === 0}
-          className="inline-flex min-h-9 max-w-[min(19rem,48vw)] items-center gap-2 rounded-lg border border-board-border bg-board-card px-3 text-xs font-medium text-board-text transition-colors hover:border-fire-500/40 disabled:opacity-45"
+          className="inline-flex min-h-11 max-w-[min(19rem,48vw)] items-center gap-2 rounded-lg border border-board-border bg-board-card px-3 text-xs font-medium text-board-text transition-colors hover:border-fire-500/40 disabled:opacity-45"
           aria-label="Choose show"
         >
           <CalendarDays className="h-3.5 w-3.5 shrink-0 text-board-muted" />
@@ -48,7 +48,7 @@ export function ShowSwitcherMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="max-h-[min(28rem,var(--radix-dropdown-menu-content-available-height))] w-[min(22rem,calc(100vw-2rem))] p-1.5">
-        <DropdownMenuLabel className="px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-board-muted">
+        <DropdownMenuLabel className="px-2 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-board-muted">
           Switch show
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
@@ -64,7 +64,7 @@ export function ShowSwitcherMenu({
                 <span className="block truncate text-xs font-semibold text-board-text">
                   {show.name || "Untitled show"}
                 </span>
-                <span className="mt-0.5 block truncate text-[10px] text-board-muted">
+                <span className="mt-0.5 block truncate text-xs text-board-muted">
                   {formatServicePickerLabel({ ...show, name: "" }, { timeZone })}
                 </span>
               </span>
