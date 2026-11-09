@@ -83,8 +83,18 @@ await withLocalSmokeFixture(async({origin,orgId,operatorCookie,stopServer,startS
     // Cancel has no write; confirmed removal survives its own retry and an old add.
     const beforeCancel=await evaluate('window.checklistCalls.mutateChecklist');await click('Remove Fixture camera from this service');await click('Cancel');assert.equal(await evaluate('window.checklistCalls.mutateChecklist'),beforeCancel);
     await mode('mutateChecklist','hold');await click('Remove Fixture camera from this service');await click('Remove');await failed('Retry checklist save');
+    // A confirmed delete must finish even when its following list refresh stalls.
+    await mode('getChecklistEntries','hold');
     await mode('mutateChecklist','normal');await click('Retry checklist save');
+    await failed('Retry checklist');
+    assert.equal(await evaluate(`document.body.textContent.includes('Change saved.')`),true);
+    assert.equal(await evaluate(`!!document.querySelector('button[aria-label="Retry checklist save"]')||document.body.textContent.includes('Saving checklist change')||document.body.textContent.includes('Loading checklist...')`),false);
+    const writesAfterDelete=await evaluate('window.checklistCalls.mutateChecklist');
+    await mode('getChecklistEntries','normal');await click('Retry checklist');
     await observe(()=>evaluate(`!document.querySelector('button[aria-label="Mark incomplete: Fixture camera"]')&&!document.querySelector('button[aria-label="Retry checklist save"]')`),'removed item');await release('mutateChecklist');
+    assert.equal(await evaluate('window.checklistCalls.mutateChecklist'),writesAfterDelete,'Retry after a confirmed delete only reads the list');
+    await release('getChecklistEntries');
+    console.log('Confirmed delete and stalled list refresh recover without another write');
     assert.equal(await evaluate(`(async()=>{const saved=window.checklistWrites[0];const response=await window.checklistOriginal(saved.input,{...saved.init,signal:new AbortController().signal});const text=await response.text();return response.ok&&text.includes('applied');})()`),true,'old add receives its original acknowledgement');
     await evaluate(`document.dispatchEvent(new Event('visibilitychange'));true`);
     await observe(()=>evaluate(`!document.querySelector('button[aria-label="Generate checklist from rundown"]').disabled`),'old add receipt acknowledged');
@@ -107,6 +117,7 @@ await withLocalSmokeFixture(async({origin,orgId,operatorCookie,stopServer,startS
     await mode('getChecklistEntries','hold');await click('Choose show');
     await observe(()=>evaluate(`!![...document.querySelectorAll('[role="menuitem"]')].find(node=>node.textContent.includes('Evening test show'))`),'show menu opens');
     await evaluate(`const item=[...document.querySelectorAll('[role="menuitem"]')].find(node=>node.textContent.includes('Evening test show'));if(!item)throw Error('Missing fixture show');item.click();true`);
+    await observe(()=>evaluate(`!document.querySelector('[data-slot="dropdown-menu-content"]')`),'show picker finishes closing');
     await failed('Retry checklist');assert.equal(await evaluate(`!!document.querySelector('button[aria-label^="Mark complete:"]')||document.body.textContent.includes('No checklist items for this date')||document.body.textContent.includes('Loading checklist...')`),false);
     for(const width of [320,768,1440]){
       await page('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:false});
@@ -121,6 +132,8 @@ await withLocalSmokeFixture(async({origin,orgId,operatorCookie,stopServer,startS
     await click('Choose show');
     await observe(()=>evaluate(`!![...document.querySelectorAll('[role="menuitem"]')].find(node=>node.textContent.includes('Display test show'))`),'return show menu');
     await evaluate(`[...document.querySelectorAll('[role="menuitem"]')].find(node=>node.textContent.includes('Display test show')).click();true`);
+    // The closing menu remains in the hit-test tree during its exit animation.
+    await observe(()=>evaluate(`!document.querySelector('[data-slot="dropdown-menu-content"]')`),'show picker finishes closing');
     await observe(()=>evaluate(`!!document.querySelector('button[aria-label^="Mark complete:"]')&&!document.querySelector('button[aria-label^="Mark complete:"]').disabled`),'return to saved checklist');
     for(const width of [320,768,1440]){
       await page('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:false});
@@ -133,7 +146,7 @@ await withLocalSmokeFixture(async({origin,orgId,operatorCookie,stopServer,startS
       if(width===320){await evaluate(`document.querySelector('button[aria-label^="Mark complete:"]').scrollIntoView({block:'center'});new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve(true))))`);const shot=await page('Page.captureScreenshot',{format:'png'});await writeFile('/tmp/showpilot-checklist-items-320.png',Buffer.from(shot.data,'base64'));}
     }
     assert.equal(await evaluate('window.checklistDocument'),documentId);assert.deepEqual(await evaluate('window.checklistErrors'),[]);
-    console.log(JSON.stringify({passed:true,fixtureProxyRestarts:proxyRestarts,lostWriteResponses:['toggle','category','delete','draft'],readRetryDoesNotWrite:true,oldAddCannotRecreate:true,draftNavigationWarning:true,showIsolation:true,retryWidths:[320,768,1440]}));
+    console.log(JSON.stringify({passed:true,fixtureProxyRestarts:proxyRestarts,lostWriteResponses:['toggle','category','delete','draft'],readRetryDoesNotWrite:true,deleteRefreshRecovery:true,oldAddCannotRecreate:true,draftNavigationWarning:true,showIsolation:true,retryWidths:[320,768,1440]}));
   });
   await stopServer();
   const entries=await queryFixture(`SELECT e.showId,t.label,e.revision,e.checked FROM checklist_entry e JOIN checklist_template t ON e.templateId=t.id WHERE e.orgId='${orgId}'`);
