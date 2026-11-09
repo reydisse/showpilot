@@ -9142,3 +9142,66 @@ title retained after closing and resuming the bounded editor. Browser2 and final
 
 Logs: /tmp/showpilot-item-{before,unit1,unit2,worker1,mobile-tsc1,full1,full2,full3,tsc1,build1,verify1,verify2,verify3,verify4,verify5,verify6,browser1,browser2,browser3}.log.
 Screenshots: /tmp/showpilot-native-item-{uncertain,review,long-title}-{320,768,1440}.png.
+
+### Phase 2: native stage-message drafts and outcome recovery (2026-11-09)
+
+The disposable browser regression reproduced an incoming relay message replacing
+an operator's unsent stage text. Native stage messages now keep a draft, including
+priority, per account/workspace/show for the signed-in app session. The current
+or last-known displayed message is separate. Incoming updates and navigation do
+not overwrite the draft. Explicit review precedes Send, Clear and replacing the
+draft with the current message; a changed rundown revision, date, actor, show,
+message or access invalidates that review. Clear preserves unsent text.
+
+Send and Clear use the authenticated mobile `/rundowns/:showId/stage` endpoint
+and the existing revision-checked RundownRelay single writer. The endpoint accepts
+only those two actions, derives edit/control authority from current permissions,
+and preserves control-only production-manager and edit-only grant access without
+granting item editing or timer control. The relay still verifies the live session
+and PIN. Unknown outcomes retain their original ID/message/revision with a
+15-second deadline and explicit retry; a refresh failure retries only the read.
+Duplicate retries cannot overwrite or clear a later operator's message. The
+existing bounded relay command history still applies: an old request outside
+that history conflicts against its original revision instead of replaying.
+Deploy the expanded mobile API contract before releasing this native client.
+No database migration or direct stage-message writer was introduced.
+
+Moved the existing stage-message encoder/decoder into `@showpilot/shared`, migrated
+both web callers and the codec test, and removed the old web module. Native and
+web now interpret the priority marker with the same functions. Native inputs and
+priority controls have explicit labels and checked state. An incoming 2,000-character
+message remains retained, but the editor explains its 1,980-character limit and
+blocks Send until shortened. This is navigation recovery in memory, not persistence
+through app termination or a claim that every physical display received an update.
+
+Verification: final full suite passed 3,279 unit + 1,702 Worker = 4,981 tests.
+The first full run exposed a new test fixture sharing a mutated revision between
+permission scenarios; independent per-test workspaces/shows fixed the fixture,
+with all permission assertions retained. Web and shared typechecks and the web
+production build passed. Main bundle: 542,230 raw / 171,073 gzip bytes, within
+unchanged budgets. Native verification passed typecheck, lint (18 existing
+warnings, zero errors), iOS/Android/web exports, Expo Doctor 18/18, contracts and
+polling checks. Hermes bundles: iOS 6,031,075 / Android 6,030,167 bytes.
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-stage-message.mjs`
+passed against exported Expo web with real disposable auth, D1 and RundownRelay.
+It covers the original incoming-update draft loss, navigation retention, explicit
+Send/Clear/Replace review, invalidated reviews, delayed accepted replies, identical
+send and clear retries, preservation of later messages, a held-before-delivery
+clear conflicting with another writer, separate refresh failure/retry, priority
+state, long messages and over-limit draft recovery. At 320x480, 768x1024 and
+1440x1000, action controls remain unobstructed and at least 44px, with no horizontal
+overflow. Browser1 exited zero and screenshots were inspected. This is exported-web
+behavior proof; physical iOS/Android behavior remains outside this rehearsal.
+
+Logs: /tmp/showpilot-stage-{before,unit1,worker1,route2,mobile-tsc1,full1,full2,tsc1,shared-tsc1,build1,verify1,browser1}.log.
+Screenshots: /tmp/showpilot-native-stage-{uncertain,clear-review,long-review,overlong}-{320,768,1440}.png.
+Phase 2 remains 67/79; the broad product-wide gates remain open. The native
+ProPresenter command path still creates a fresh relative-command ID per request,
+and its output toggle writes the org setting directly; those need separate
+outcome/retry work. Native export/share recovery also remains. No deployment,
+release, remote migration, external mail or real-org writes. Twenty necessary
+tracked Markdown files remain, with none added.
+Stack gate: #283 exact head c216a8fa7f2800617dd8203c7e0b9367086da7e6 passed
+both jobs in CI 42574525613 before this draft opens. This draft's exact-head CI
+must pass before another PR opens.

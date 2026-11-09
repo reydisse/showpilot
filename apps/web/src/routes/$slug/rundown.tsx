@@ -111,7 +111,7 @@ import {
 import { ShowOptionsModal } from "@/components/rundown/ShowOptionsModal";
 import { getServiceTiming, readPhaseSettings } from "@/lib/service-phase";
 import { ACTIVE_RUNDOWN_CHANGED_EVENT } from "@/components/layout/LiveRundownBar";
-import { decodeStageMessage, encodeStageMessage } from "@/lib/stage-message";
+import { decodeStageMessage, encodeStageMessage } from "@showpilot/shared";
 
 type ItemType =
   | "segment"
