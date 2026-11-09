@@ -1,3 +1,4 @@
+import { cueEditReplySchema, type CueEditCommand } from "./timecode-cue-edit-recovery";
 import { mobileCueControlReplySchema, type MobileCueControl } from "./timecode-cue-control-recovery";
 import { mobileGateReplySchema, type MobileGateCommand } from "./timecode-automation-recovery";
 import { timecodeClockReplySchema, type TimecodeClockCommand } from "./timecode-clock-recovery";
@@ -2331,4 +2332,35 @@ export async function commandMobileRundownChange(
     { method: "POST", signal, body: JSON.stringify(command) },
   );
   return rundownChangeReplySchema.parse(await response.json());
+}
+
+export async function editMobileTimecodeCue(input: CueEditCommand, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/timecode/${encodeURIComponent(input.orgId)}/command?showId=${encodeURIComponent(input.showId)}`,
+    { method: "POST", signal, body: JSON.stringify({ action: "update-event", payload: { requestId: input.requestId, id: input.id, updates: input.updates,
+      expected: input.expected, expectedFormat: input.expectedFormat, expectedServiceDate: input.serviceDate } }) }, [400, 409]);
+  return cueEditReplySchema.parse(await response.json());
+}
+
+const cueSongSummarySchema = z.object({ id: z.string(), title: z.string(), ppPresentationUuid: z.string().nullable() });
+const cueSectionSchema = z.object({ id: z.string(), label: z.string(), lyrics: z.string(), sourceSlideIndex: z.number().int().nullable() });
+const cueDeviceSchema = z.discriminatedUnion("actionSource", [
+  z.object({ id: z.string(), label: z.string(), category: z.string(), actionSource: z.literal("static"), actions: z.array(mobileDeviceActionSchema) }),
+  z.object({ id: z.string(), label: z.string(), category: z.string(), actionSource: z.literal("homeassistant") }),
+]);
+export async function getMobileCueDevices(orgId: string, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/timecode/choices?${new URLSearchParams({ orgId, kind: "devices" })}`, { signal });
+  return z.object({ devices: z.array(cueDeviceSchema) }).parse(await response.json()).devices;
+}
+export async function getMobileCueSongs(orgId: string, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/timecode/choices?${new URLSearchParams({ orgId, kind: "songs" })}`, { signal });
+  return z.object({ songs: z.array(cueSongSummarySchema) }).parse(await response.json()).songs;
+}
+export async function getMobileCueSections(orgId: string, songId: string, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/timecode/choices?${new URLSearchParams({ orgId, kind: "sections", songId })}`, { signal });
+  return cueSongSummarySchema.extend({ sections: z.array(cueSectionSchema) }).parse(await response.json());
+}
+export async function getMobileCueMedia(orgId: string, cursor: string | null, signal: AbortSignal) {
+  const query = new URLSearchParams(); if (cursor) query.set("cursor", cursor);
+  const response = await authenticatedFetch(`/api/media/${encodeURIComponent(orgId)}?${query}`, { signal });
+  return z.object({ assets: z.array(z.object({ id: z.string(), name: z.string(), etag: z.string() })), cursor: z.string().nullable() }).parse(await response.json());
 }

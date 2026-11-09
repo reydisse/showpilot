@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, reportRecovery = false, personalAssignments = false, calendarNavigation = false, notificationInbox = false, desktopNotificationRecovery = false, notificationTimezoneRecovery = false, accountProfileRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false, timestampVersions = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, nativeCueEditor = false, reportRecovery = false, personalAssignments = false, calendarNavigation = false, notificationInbox = false, desktopNotificationRecovery = false, notificationTimezoneRecovery = false, accountProfileRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false, timestampVersions = false } = {}) {
   if (streamOutputs) {
     assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Stream status requires the isolated outbound handler");
     assert.equal(captureEmail, false, "Use separate fixtures for email and Stream status");
@@ -235,7 +235,12 @@ export async function withLocalSmokeFixture(check, { secondShow = false, reportR
       INSERT INTO live_input(id,orgId,name,cfInputId) VALUES('smoke-input','display-smoke','Fixture ingest','fixture-input');
       ${(streamOutputs === "commands" ? ["alpha","beta"] : ["enabled","disabled","missing","pending"]).map(kind => `INSERT INTO stream_destination(id,orgId,name,platform,rtmpUrl,streamKey,enabled,cfOutputId,liveInputId) VALUES('smoke-${kind}','display-smoke','Fixture ${kind}','custom','rtmp://fixture.invalid/live','${streamOutputs === "commands" ? `fixture-${kind}-key` : "fixture-stream-key"}',1,'${streamOutputs === "commands" ? "" : kind === "pending" ? "pending:1:fixture" : `fixture-output-${kind}`}','${streamOutputs === "commands" ? "" : "smoke-input"}');`).join("\n")}
     ` : "";
-    await writeFile(sqlPath, `${schema}\n${seed}\n${timezoneUpgrade}\n${chatNotificationFault}\n${streamSeed}\n${inboxSeed}\n${desktopNotificationSeed}`);
+    await writeFile(sqlPath, `${schema}\n${seed}\n${nativeCueEditor ? `
+INSERT INTO song(id,orgId,title,ppPresentationUuid,createdAt,updatedAt) VALUES('smoke-song','display-smoke','Rehearsal song','fixture-presentation',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP);
+INSERT INTO song_section(id,songId,orgId,label,lyrics,sortOrder,sourceSlideIndex) VALUES('smoke-verse','smoke-song','display-smoke','Verse','First lyric line
+Second lyric line',0,0),('smoke-chorus','smoke-song','display-smoke','Chorus','Sing together',1,1);
+INSERT INTO device(id,orgId,name,category,adapterType,settings,enabled,createdAt,updatedAt) VALUES('smoke-switcher','display-smoke','Rehearsal switcher','video','atem','{"host":"10.0.0.10"}',1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP);
+` : ""}\n${timezoneUpgrade}\n${chatNotificationFault}\n${streamSeed}\n${inboxSeed}\n${desktopNotificationSeed}`);
     await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state, "--file", sqlPath);
     const startServer = async () => {
       worker = process.env.SHOWPILOT_SMOKE_RUNTIME === "miniflare"

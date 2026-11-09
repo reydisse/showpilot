@@ -1,7 +1,7 @@
 import { BaseDeviceModule } from "../base-module";
 import type { ModuleAction, ModuleFeedback, ModuleDefinition } from "../types";
 import { OBS_ACTIONS, OBS_FEEDBACKS, ACTION_TO_REQUEST } from "./obs-actions";
-import { findAndNormalizeAction } from "../action-params";
+import { findAndNormalizeAction } from "@showpilot/shared";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

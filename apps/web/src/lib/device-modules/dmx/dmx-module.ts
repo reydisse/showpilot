@@ -1,6 +1,6 @@
 import { BaseDeviceModule } from "../base-module";
 import { getSharedBridgeProxy } from "../bridge-proxy";
-import { findAndNormalizeAction } from "../action-params";
+import { findAndNormalizeAction } from "@showpilot/shared";
 import type {
   BridgeDeviceProtocol,
   ModuleAction,

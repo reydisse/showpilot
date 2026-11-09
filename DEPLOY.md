@@ -8671,3 +8671,74 @@ tracked Markdown files remain; no new Markdown was added.
 Stack gate: #275 head e24ddfac passed CI 42552555899 before opening this change's
 PR. This change is stacked on fix/native-timecode-automation-controls and remains
 a draft for owner review. Its own exact-head CI must pass before the next PR.
+
+## Phase 2: native Timecode structured cue editor and recoverable edits
+
+The native Timecode editor previously exposed raw JSON, offered only 19 of the
+web editor's 33 actions, and could not edit existing cues. It now uses the shared
+33-action catalog, typed message/timer/lower-third/webhook fields, and searchable
+device/action, song/section, rundown-item and media selectors. It exposes tolerance
+and cue lead, validates timecode inline, and offers both 29.97 fps NDF and DF.
+Choice requests have a 10-second bound, visible errors and explicit refresh/retry.
+Device choices reuse the web catalog reader; both Timecode and domain permissions
+are required. Device settings and credentials remain server-side. Device parameter
+normalization and the existing webhook URL boundary are shared without widening
+allowed destinations. All normalizer callers migrated; the obsolete web file was
+removed, and the shared executable sources remain inside the coverage gate.
+
+Existing cues can be edited without deleting, firing or re-arming them. Metadata
+edits preserve action details by default. Drafts and uncertain requests remain
+scoped by actor/org/show across navigation, not application termination. The inline
+editor focuses the label and hides the creation form while editing; global Stop
+and navigation remain accessible. Stale cue/revision/execution/format reviews block
+save and offer an explicit replacement of the draft with the current definition.
+The existing update-event command now supports immutable request receipts committed
+atomically with the definition. Same-request recovery preserves later edits and
+cannot resurrect a deleted cue. Legacy clients retain their response contract and
+field allowlist. Business rejections leave the room usable for the next command.
+Backend deployment is required before distributing this native build.
+
+Verification: final full suite passes 360 unit files / 3,109 tests and 149 Worker
+files / 1,669 tests, 4,778 total. New coverage includes 18 native edit-hook cases,
+48 structured-field cases, 17 edit-receipt Worker cases and four authenticated
+catalog Worker cases. The earlier coverage run on the final backend/shared logic
+passes 4,777 tests and all unchanged thresholds: Timecode 93.71% statements /
+93.62% branches / 92.52% functions / 95.55% lines; relays 87.14 / 85.18 / 91.11 /
+92.34; devices 64.55 / 49.88 / 62.90 / 67.19. Later native-only field-limit and
+layout refinements are covered by the final full suite and browser rehearsal.
+Web typecheck passes. Production build passes at 542,274 raw / 171,106 gzip bytes
+for the main client. Final native verification passes typecheck, lint (18 existing
+warnings, zero errors), iOS/Android/web exports, Expo Doctor 18/18, contracts and
+polling checks. Hermes bundles: 5,918,321 bytes iOS and 5,917,475 bytes Android.
+
+The compiled Expo web rehearsal uses disposable real authentication, D1 and
+TimecodeRelay. It creates stage-message, timer, ATEM, lyrics and ProPresenter cues
+through the new fields; checks inline invalid-time blocking and both fractional
+frame formats; bounds a lost device-catalog response and retries it; rejects a
+stale edit without losing its draft; explicitly reloads and saves a revised cue;
+recovers a lost edit reply after show navigation while preserving a newer edit;
+and retries a failed timeline refresh without resending the edit. It also checks
+a legacy rejection followed by a successful edit, no horizontal overflow at
+320/768/1440px, 44px minimum save/discard controls, and no runtime errors. The 320px
+and 1440px screenshots were inspected. This is not physical-device verification.
+
+The first Worker regression run reproduced missing recovery receipts. The broader
+legacy suite then exposed a concurrency-lock rejection resetting the input gate;
+business errors now leave the lock before being thrown, and all legacy tests pass.
+An initial coverage inventory failure identified the obsolete normalizer barrel;
+callers were migrated instead of exempting it or lowering thresholds. Browser
+rehearsal waits for the rendered editor and explicitly reclaims control after the
+injected refresh reconnect. No production state was involved in these failures.
+
+Reproduce after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-timecode-cue-editor.mjs`.
+Logs: /tmp/showpilot-native-cue-editor-{before,worker1,worker2,worker3,unit1,unit2,unit3,mobile-tsc1,mobile-tsc2,tsc1,tsc2,tsc3,coverage1,coverage2,full1,full2,build1,verify1,verify2,verify3,browser1,browser2,browser3,browser4}.log.
+Screenshots: /tmp/showpilot-native-cue-editor-{320,768,1440}.png.
+
+Phase 2 remains 67/79. Native timeline next/missed presentation, target summaries
+and lyrics preview controls remain open, alongside the other product-wide UX
+requirements. No deployment, release, remote migration, external mail or real-org
+changes. Twenty necessary tracked Markdown files remain; none were added.
+Stack gate: #276 head 9c7bfbc10818e62a10f7299052f17d677785c5ba passed CI
+42555671474 before opening this change's draft PR. Its own exact-head CI must pass
+before opening the next PR.

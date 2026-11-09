@@ -43,7 +43,7 @@ export function useTimecodeCueSave(scope: Scope, options: {
     const format = options.format;
     client.setQueryData<TimecodeCueDraft>(key, value => value && !value.format ? { ...value, format } : value);
   }, [client, key, options.active, options.format]);
-  function update(changes: Partial<Pick<TimecodeCueDraft, "label" | "timecode" | "action" | "payload">>) {
+  function update(changes: Partial<Pick<TimecodeCueDraft, "label" | "timecode" | "action" | "payload" | "tolerance" | "lead">>) {
     if (!requests.isActive() || attempt()) return;
     client.setQueryData<TimecodeCueDraft>(key, value => value ? { ...value, ...changes } : value);
     setIssue(null);

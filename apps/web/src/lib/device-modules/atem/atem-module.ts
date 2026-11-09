@@ -1,7 +1,7 @@
 import { BaseDeviceModule } from "../base-module";
 import { getSharedBridgeProxy } from "../bridge-proxy";
 import type { ModuleAction, ModuleFeedback, ModuleDefinition } from "../types";
-import { findAndNormalizeAction } from "../action-params";
+import { findAndNormalizeAction } from "@showpilot/shared";
 
 export const ATEM_ACTIONS: ModuleAction[] = [
   { id: "set_program_input", label: "Set Program Input", category: "switching", params: [
