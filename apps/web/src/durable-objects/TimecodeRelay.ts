@@ -1190,7 +1190,7 @@ export class TimecodeRelay extends DurableObject {
       }
 
       case "add-event":
-        return this.createCue(payload, sessionId);
+        return await this.createCue(payload, sessionId);
 
       case "replace-event-group": {
         if (payload?.requireStopped === true && this.state.running) break;

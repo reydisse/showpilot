@@ -8486,3 +8486,30 @@ No new Markdown file; twenty necessary tracked Markdown files remain.
 Stack gate: heartbeat #271 at ab5c6f09 passed run 42543651519. Draft native
 Timecode #272 at daa76f2d passed run 42545523831 (web and native Rust). This
 follow-up branches from fix/native-timecode-authority and is held for owner merge.
+
+
+### PR #273 coverage-gate correction (2026-11-08)
+
+Run 42547373079 at 1068e94b passed all tests but failed the Timecode coverage
+thresholds: branches 89.56% versus 90%, lines 94.91% versus 95%. The shared
+SMPTE validator had moved outside the coverage inventory. Coverage now follows
+shared Timecode source too, using absolute instrumentation paths and the same
+inventory in both pools. No threshold changed. An instrumentation probe confirms
+that the actual shared validator appears in the report with executed counters.
+
+Added seven real Worker cases for identical/conflicting cues from older timelines,
+removal after legacy adoption, rate-specific invalid labels, missing payloads and
+unusable identities. The malformed-request cases exposed unhandled immediate
+promise rejections despite the HTTP 400; awaiting createCue inside the command
+handler fixes that propagation. All 19 creation Worker tests now pass without
+those unhandled errors.
+
+Full coverage run 2 passes 2,900 unit and 1,608 Worker tests (4,508 total).
+Web typecheck 3 and build 2 pass; the client bundle remains within unchanged budgets.
+Timecode: statements 92.27%, branches 90.30%, functions 91.66%, lines 95.11%.
+Relays: 86.73%, 84.61%, 90.34%, 92.18%; devices: 64.55%, 49.88%, 62.90%, 67.19%,
+in that metric order. Coverage run 1 correctly rejected the missing shared file;
+the absolute-path probe and run 2 verify instrumentation and the gate itself.
+Logs: /tmp/showpilot-native-timecode-cue-{worker3,worker4,worker5,coverage1,coverage-probe,coverage2,tsc3,build2}.log.
+The next native clock-review work is retained on fix/native-timecode-clock-review
+and has no PR; the next PR remains gated on #273's corrected head passing CI.

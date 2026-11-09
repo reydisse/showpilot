@@ -11,7 +11,7 @@ const cue = () => ({ id: crypto.randomUUID(), label: "Review this cue", action: 
 async function fixture() {
   const room = await timecodeFixture();
   return { ...room,
-    command: async (action: string, payload: Record<string, unknown>) => {
+    command: async (action: string, payload?: Record<string, unknown>) => {
       const response = await room.stub.fetch(room.url("/command"), { method: "POST", body: JSON.stringify({ action, payload }) });
       return { status: response.status, body: await response.json() };
     },
@@ -106,4 +106,39 @@ it("echoes the requested sync identity in an authoritative snapshot", async () =
   });
   f.controlSocket!.send(JSON.stringify({ type: "sync", syncId }));
   expect(await response).toMatchObject({ syncId, showId: f.target.showId, events: [expect.objectContaining({ id: input.id })] });
+});
+
+it("adopts an identical cue from an older timeline and retains the receipt after removal", async () => {
+  const f = await fixture(), input = { ...cue(), sourceKey: "legacy-song" };
+  expect((await f.command("replace-event-group", { sourceKey: input.sourceKey, events: [input] })).status).toBe(200);
+  const original = (await f.events())[0];
+  expect(await f.command("add-event", input)).toMatchObject({ status: 200, body: { outcome: "applied" } });
+  expect(await f.events()).toEqual([original]);
+  await f.command("remove-event", { id: input.id });
+  await evictDurableObject(f.stub);
+  expect(await f.command("add-event", input)).toMatchObject({ status: 200, body: { outcome: "removed" } });
+  expect(await f.events()).toEqual([]);
+});
+it("rejects a new save that collides with different details from an older timeline", async () => {
+  const f = await fixture(), input = { ...cue(), sourceKey: "legacy-song" };
+  await f.command("replace-event-group", { sourceKey: input.sourceKey, events: [input] });
+  expect(await f.command("add-event", { ...input, label: "Changed draft" })).toMatchObject({ status: 409, body: { outcome: "conflict" } });
+  expect(await f.events()).toEqual([expect.objectContaining({ label: input.label })]);
+});
+it("rejects a label that is structurally valid but absent at the reviewed frame rate", async () => {
+  const f = await fixture(), input = cue(), format = { frameRate: 25, dropFrame: "ndf" };
+  await f.command("set-format", { format, expectedFormat: input.expectedFormat, confirmed: true });
+  expect(await f.command("add-event", { ...input, expectedFormat: format, triggerTimecode: { ...input.triggerTimecode, frames: 25 } }))
+    .toMatchObject({ status: 400, body: { outcome: "rejected", message: expect.stringContaining("frame rate") } });
+  expect(await f.events()).toEqual([]);
+});
+it("reports an absent cue payload instead of returning success", async () => {
+  const f = await fixture();
+  expect(await f.command("add-event")).toMatchObject({ status: 400, body: { ok: false, error: expect.stringContaining("Review the cue") } });
+  expect(await f.events()).toEqual([]);
+});
+it.each(["", "x".repeat(129), 12])("rejects an unusable creation identity %j without saving a cue", async id => {
+  const f = await fixture();
+  expect(await f.command("add-event", { ...cue(), id })).toMatchObject({ status: 400, body: { ok: false, error: expect.stringContaining("identity") } });
+  expect(await f.events()).toEqual([]);
 });
