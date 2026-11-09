@@ -42,6 +42,7 @@ import {
   type NativeSyntheticEvent,
 } from "react-native";
 import { Page } from "@/components/page";
+import { ChatDeliveryStatus } from "@/components/chat-delivery-status";
 import { LoadingView } from "@/components/loading-view";
 import { useChatRelay, type MobileChatMessage } from "@/hooks/use-chat-relay";
 import { useScreenFocus } from "@/hooks/use-screen-polling";
@@ -299,7 +300,7 @@ export default function ChatScreen() {
     ? requestedRoom
     : "production";
   const focusedMessageId = typeof params.message === "string" ? params.message : null;
-  const relay = useChatRelay(organization?.id, roomId);
+  const relay = useChatRelay(organization?.id, roomId, session?.user.id);
   const bootstrap = useMobileBootstrap();
   const openingShow = bootstrap.data?.shows[0];
   const canViewRundown = bootstrap.data?.identity.permissions.some((permission) => permission === "rundown:view" || permission === "rundown:control") ?? false;
@@ -778,7 +779,8 @@ export default function ChatScreen() {
             </Pressable>
             {membersQuery.data?.canInvite && !roomId.startsWith("dm:") ? <Pressable accessibilityRole="button" accessibilityLabel={roomId === "planning" ? "Share Planning Room" : "Invite guest crew"} onPress={() => { setSelectedShareMemberIds([]); setShareOpen(true); }} style={styles.shareButton}><Share2 color={colors.textMuted} size={18} /></Pressable> : null}
         </View>
-        {relay.lastError ? <Text style={styles.error}>{relay.lastError}</Text> : null}
+        {relay.lastError ? <Text accessibilityRole="alert" style={styles.error}>{relay.lastError}</Text> : null}
+        {relay.status !== "connected" || relay.lastError ? <AppButton label="Retry chat connection" variant="secondary" onPress={relay.retryConnection} /> : null}
         {relay.gatewayStatus.status === "error" ? <Text style={styles.error}>External chat sync: {relay.gatewayStatus.error ?? "connection failed"}</Text> : null}
         {isScreenFocused && liveRundownQuery.data ? <LiveChatStatus detail={liveRundownQuery.data} orgId={organization.id} /> : null}
         <View style={styles.listWrap}>
@@ -794,12 +796,14 @@ export default function ChatScreen() {
             initialNumToRender={18}
             maxToRenderPerBatch={12}
             windowSize={7}
-            ListFooterComponent={relay.hasOlder ? (
-              <Pressable accessibilityRole="button" accessibilityState={{ busy: relay.loadingOlder, disabled: relay.loadingOlder }} disabled={relay.loadingOlder} onPress={() => void relay.loadOlder()} style={({ pressed }) => [styles.olderButton, pressed && styles.pressed]}>
-                <Text style={styles.olderText}>{relay.loadingOlder ? "Loading earlier messages…" : "Load earlier messages"}</Text>
+            ListHeaderComponent={<ChatDeliveryStatus key={`${session?.user.id}:${organization.id}:${roomId}`} items={relay.outbox} connected={relay.status === "connected"} retry={relay.retryMessage} discard={relay.discardMessage} />}
+            ListFooterComponent={relay.hasOlder ? (<View>
+              {relay.historyError ? <Text accessibilityRole="alert" style={styles.error}>{relay.historyError}</Text> : null}
+              <Pressable accessibilityRole="button" accessibilityState={{ busy: relay.loadingOlder, disabled: relay.loadingOlder || relay.status !== "connected" }} disabled={relay.loadingOlder || relay.status !== "connected"} onPress={() => void relay.loadOlder()} style={({ pressed }) => [styles.olderButton, pressed && styles.pressed]}>
+                <Text style={styles.olderText}>{relay.loadingOlder ? "Loading earlier messages…" : relay.status !== "connected" ? "Reconnect to load earlier messages" : relay.historyError ? "Retry loading earlier messages" : "Load earlier messages"}</Text>
               </Pressable>
-            ) : null}
-            ListEmptyComponent={<Text style={styles.empty}>{relay.status === "connected" ? "No messages yet. Start the conversation." : "Connecting to this room…"}</Text>}
+            </View>) : null}
+            ListEmptyComponent={relay.outbox.length ? null : <Text style={styles.empty}>{relay.status === "connected" && relay.hydrated ? "No messages yet. Start the conversation." : relay.lastError ? "Chat history is unavailable. Retry the connection." : relay.status === "offline" ? "Chat is offline. Reconnect to load messages." : "Loading this room's history…"}</Text>}
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             onContentSizeChange={keepLatestMessageVisible}
             onLayout={keepLatestMessageVisible}
@@ -969,10 +973,10 @@ export default function ChatScreen() {
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.stage },
   roomHeader: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, borderBottomColor: colors.borderSoft, paddingBottom: 8 },
-  roomSwitcher: { minWidth: 0, flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
+  roomSwitcher: { minHeight: 44, minWidth: 0, flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
   roomCopy: { flex: 1, gap: 2 },
   roomTitle: { color: colors.text, fontFamily, fontSize: 16, fontWeight: "900", letterSpacing: -0.2 },
-  roomSubtitle: { color: colors.textMuted, fontFamily, fontSize: 11 },
+  roomSubtitle: { color: colors.textMuted, fontFamily, fontSize: 12 },
   connection: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
   connected: { color: colors.green },
   shareButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19, backgroundColor: colors.panelStrong },
@@ -1063,8 +1067,8 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   deliveryPending: { maxWidth: 260, color: colors.textMuted, fontFamily, fontSize: 11 },
   deliveryFailed: { maxWidth: 260, color: colors.red, fontFamily, fontSize: 11, lineHeight: 15 },
   empty: { color: colors.textMuted, fontFamily, fontSize: 13, lineHeight: 20, textAlign: "center", marginVertical: 50 },
-  olderButton: { alignSelf: "center", minHeight: 36, justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 14, marginBottom: 8 },
-  olderText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
+  olderButton: { alignSelf: "center", minHeight: 44, justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 14, marginBottom: 8 },
+  olderText: { color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "800" },
   typing: { color: colors.textMuted, fontFamily, fontSize: 11, fontStyle: "italic", marginBottom: 4 },
   composerContext: { flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: 1, borderTopColor: colors.borderSoft, paddingHorizontal: 6, paddingVertical: 7 },
   composerContextCopy: { flex: 1, gap: 2 },
@@ -1082,13 +1086,13 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   typeChoiceTextActive: { color: colors.amberText },
   pollTool: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "900" },
   composer: { flexDirection: "row", alignItems: "flex-end", gap: 8, marginHorizontal: -4, borderTopWidth: 1, borderTopColor: colors.borderSoft, paddingHorizontal: 4, paddingTop: 9 },
-  composerToolButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 21, backgroundColor: colors.panelStrong },
+  composerToolButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 21, backgroundColor: colors.panelStrong },
   composerTypeBadge: { height: 30, alignSelf: "center", justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft, paddingHorizontal: 8 },
   composerTypeBadgeAlert: { borderColor: colors.red, backgroundColor: colors.redSoft },
   composerTypeBadgeText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
   composerTypeBadgeTextAlert: { color: colors.red },
   input: { flex: 1, maxHeight: 110, minHeight: 42, borderRadius: 21, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, color: colors.text, fontFamily, fontSize: 14, lineHeight: 19, paddingHorizontal: 14, paddingVertical: 10 },
-  send: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 21, backgroundColor: colors.amber },
+  send: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 21, backgroundColor: colors.amber },
   imageViewer: { flex: 1, backgroundColor: colors.black },
   imageViewerHeader: { height: 72, flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 8, paddingBottom: 8, backgroundColor: colors.black },
   imageViewerButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: colors.panelStrong },
