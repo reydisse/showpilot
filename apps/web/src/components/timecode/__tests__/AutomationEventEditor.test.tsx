@@ -58,7 +58,7 @@ it("offers a named prop cue and preserves its fields when saving fails", async (
   expect(save.mock.calls[1][0].id).toBe(save.mock.calls[0][0].id);
 });
 
-it.each(["pp-trigger-previous", "pp-clear-props"])("saves %s without carrying stale JSON or prop details", async action => {
+it.each(["pp-trigger-previous", "pp-clear-props", "lyrics-next-section", "lyrics-previous-section"])("saves %s without carrying stale JSON or prop details", async action => {
   const save = vi.fn(async (_event: NewAutomationEvent) => {});
   render(<AutomationEventEditor connected format={format} onAdd={save} />);
   fireEvent.change(screen.getByPlaceholderText("00:05:00:00"), { target: { value: "00:00:10:00" } });

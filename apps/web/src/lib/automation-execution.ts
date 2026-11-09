@@ -7,6 +7,8 @@ export function automationOutput(event: AutomationEvent): string {
     case "lower-third-show":
     case "lower-third-clear": return "graphics";
     case "lyrics-goto":
+    case "lyrics-next-section":
+    case "lyrics-previous-section":
     case "lyrics-clear": return "lyrics";
     case "rundown-advance":
     case "rundown-start-item":

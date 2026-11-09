@@ -1298,8 +1298,12 @@
       "phase": "2",
       "section": "2.5 Automation event catalog completion (audit section d; agreed additions)",
       "line": 213,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "lyrics-next-section and lyrics-previous-section are supported by TimecodeRelay, the timeline and editor. They resolve from the current song/section against org-scoped D1 song_section sortOrder, independent of timed-cue order. They use the shared lyrics output queue, preserve generation ownership, send one replacement update without a clear, and fail visibly at boundaries or if the section disappears/changes during resolution.",
+        "Six real Worker tests cover saved/reordered sections, consecutive timed steps, no intermediate lyrics-clear message, first/last boundaries, absent/foreign/deleted songs or sections, kill switch, disabled cues, explicit retry, reviewed re-fire and scoped clearing. Editor cases verify both actions save empty payloads without stale JSON.",
+        "Local full web validation passed 1539 unit tests and 484 Worker tests, typecheck and the production build. smoke-lyrics-steps.mjs creates a song through Chromium, saves and fires both actions, then checks a separate confidence-display tab: the same lyric DOM element stays mounted through Verse -> Chorus -> Verse with preserved line breaks and no blank state. Editor screenshots at 320px fit. No production deployment. Phase 2.6 direct controls/keyboard/MIDI and remaining catalog actions stay pending."
+      ]
     },
     {
       "id": "1cd93b1d08336eb5",

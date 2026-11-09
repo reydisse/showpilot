@@ -114,6 +114,8 @@ export type AutomationActionType =
   | "lighting-scene"
   | "lighting-blackout"
   | "lyrics-goto"
+  | "lyrics-next-section"
+  | "lyrics-previous-section"
   | "lyrics-clear"
   | "pp-trigger-slide"
   | "pp-trigger-next"
