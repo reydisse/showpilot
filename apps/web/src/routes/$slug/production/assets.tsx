@@ -11,13 +11,9 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { EmptyState, EmptyStateButton } from "@/components/ui/empty-state";
-import { useRouter } from "@tanstack/react-router";
-import {
-  getEquipment,
-  addEquipment,
-  updateEquipment,
-  deleteEquipment,
-} from "@/lib/data";
+import { getEquipmentState } from "@/lib/equipment-commands";
+import { useEquipmentCommands } from "@/hooks/useEquipmentCommands";
+import { EquipmentRecovery } from "@/components/EquipmentRecovery";
 import {
   Dialog,
   DialogTrigger,
@@ -85,19 +81,27 @@ export const Route = createFileRoute("/$slug/production/assets")({
       context.slug,
       context.orgId,
     );
-    const equipment = await getEquipment({ data: { orgId: context.orgId } });
-    return {
-      equipment: equipment as EquipmentItem[],
-      orgId: context.orgId,
-      canManage: context.effectivePermissions.includes("assets:manage"),
-    };
+    return await getEquipmentState({ data: { orgId: context.orgId } });
   },
   component: AssetsPage,
 });
 
 function AssetsPage() {
-  const { equipment, orgId, canManage } = Route.useLoaderData();
-  const router = useRouter();
+  const control = useEquipmentCommands(Route.useLoaderData());
+  const { equipment, canManage } = control.read.data;
+  const locked = control.unavailable || control.unresolved;
+  const { addForm, editingItem, editForm } = control.draft;
+  const setAddForm = (value: typeof addForm) =>
+    control.setDrafts({ addForm: value });
+  const setEditingItem = (value: EquipmentItem | null) =>
+    control.setDrafts({ editingItem: value });
+  const setEditForm = (value: EquipmentDraft) =>
+    control.setDrafts({ editForm: value });
+  const currentEdit = equipment.find((item) => item.id === editingItem?.id);
+  const editConflict =
+    currentEdit && currentEdit.revision !== editingItem?.revision
+      ? currentEdit
+      : null;
 
   // Filter state
   const [search, setSearch] = useState("");
@@ -106,13 +110,10 @@ function AssetsPage() {
 
   // Add modal state
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addForm, setAddForm] = useState(BLANK_ADD_FORM);
-  const [adding, setAdding] = useState(false);
+  const adding = control.pending;
 
   // Edit inline state
-  const [editingItem, setEditingItem] = useState<EquipmentItem | null>(null);
-  const [editForm, setEditForm] = useState(BLANK_FORM);
-  const [editConflict, setEditConflict] = useState<EquipmentItem | null>(null);
+
   const [pageError, setPageError] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
     new Set(),
@@ -171,15 +172,11 @@ function AssetsPage() {
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!addForm.name.trim()) return;
-    setAdding(true);
-    try {
-      await addEquipment({ data: { orgId, ...addForm } });
-      setShowAddModal(false);
-      setAddForm(BLANK_ADD_FORM);
-      router.invalidate();
-    } finally {
-      setAdding(false);
-    }
+    const result = await control.send(
+      { kind: "create", fields: addForm, quantity: addForm.quantity },
+      `Add ${addForm.quantity} × ${addForm.name}`,
+    );
+    if (result?.outcome === "applied") setShowAddModal(false);
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
@@ -222,24 +219,19 @@ function AssetsPage() {
       setEditingItem(null);
       return;
     }
-    const result = await updateEquipment({
-      data: {
-        orgId,
+    const result = await control.send(
+      {
+        kind: "update",
         id: editingItem.id,
         expectedRevision: editingItem.revision,
         updates,
       },
-    });
-    if (!result.ok) {
-      setEditConflict(result.current);
+      `Update ${editingItem.name}`,
+    );
+    if (result?.outcome === "conflict")
       setPageError(
         "This asset changed on another device. Your draft is still here.",
       );
-      return;
-    }
-    setEditingItem(null);
-    setEditConflict(null);
-    router.invalidate();
   };
 
   const handleDelete = async (item: EquipmentItem) => {
@@ -249,20 +241,14 @@ function AssetsPage() {
       confirmLabel: "Delete",
     });
     if (!ok) return;
-    const result = await deleteEquipment({
-      data: { orgId, id: item.id, expectedRevision: item.revision },
-    });
-    if (!result.ok) {
-      setPageError(
-        "This asset changed on another device. Refresh and review it before deleting.",
-      );
-    }
-    router.invalidate();
+    await control.send(
+      { kind: "delete", id: item.id, expectedRevision: item.revision },
+      `Delete ${item.name}`,
+    );
   };
 
   const startEdit = (item: EquipmentItem) => {
     setEditingItem(item);
-    setEditConflict(null);
     setPageError("");
     setEditForm({
       name: item.name,
@@ -279,7 +265,7 @@ function AssetsPage() {
       open={showAddModal}
       onOpenChange={(open) => {
         setShowAddModal(open);
-        if (!open) setAddForm(BLANK_ADD_FORM);
+        if (!open && !control.unresolved) setAddForm(BLANK_ADD_FORM);
       }}
     >
       <div className="p-4 sm:p-6 max-w-5xl mx-auto [&_button]:min-h-11 [&_button]:min-w-11 [&_input]:min-h-11 [&_select]:min-h-11">
@@ -296,8 +282,8 @@ function AssetsPage() {
           {canManage ? (
             <DialogTrigger asChild>
               <button
+                disabled={locked}
                 onClick={() => {
-                  setAddForm(BLANK_ADD_FORM);
                   setShowAddModal(true);
                 }}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
@@ -320,6 +306,8 @@ function AssetsPage() {
             {pageError}
           </div>
         ) : null}
+
+        {!showAddModal && <EquipmentRecovery control={control} />}
 
         {/* Filter bar */}
         <div className="flex flex-wrap gap-2 mb-5">
@@ -438,150 +426,155 @@ function AssetsPage() {
                       >
                         {editingItem?.id === item.id ? (
                           <form onSubmit={handleUpdate} className="space-y-3">
-                            <div className="flex items-center justify-between">
-                              <h3 className="text-sm font-semibold text-board-text">
-                                Edit Item
-                              </h3>
-                              <button
-                                type="button"
-                                onClick={() => setEditingItem(null)}
-                                className="text-board-muted hover:text-board-text"
-                                aria-label={`Cancel editing ${item.name}`}
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                            <input
-                              aria-label="Equipment name"
-                              value={editForm.name}
-                              onChange={(e) =>
-                                setEditForm({
-                                  ...editForm,
-                                  name: e.target.value,
-                                })
-                              }
-                              placeholder="Equipment name..."
-                              className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
-                            />
-                            <div className="grid grid-cols-2 gap-2">
-                              <select
-                                aria-label="Equipment category"
-                                value={editForm.category}
-                                onChange={(e) =>
-                                  setEditForm({
-                                    ...editForm,
-                                    category: e.target.value,
-                                  })
-                                }
-                                className="min-w-0 px-2 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
-                              >
-                                {!isEquipmentCategory(editForm.category) ? (
-                                  <option value={editForm.category}>
-                                    {equipmentCategoryLabel(editForm.category)}
-                                  </option>
-                                ) : null}
-                                {EQUIPMENT_CATEGORIES.map((category) => (
-                                  <option key={category} value={category}>
-                                    {EQUIPMENT_CATEGORY_LABELS[category]}
-                                  </option>
-                                ))}
-                              </select>
-                              <select
-                                aria-label="Equipment status"
-                                value={editForm.status}
-                                onChange={(e) =>
-                                  setEditForm({
-                                    ...editForm,
-                                    status: e.target.value,
-                                  })
-                                }
-                                className="min-w-0 px-2 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
-                              >
-                                {!isEquipmentStatus(editForm.status) ? (
-                                  <option value={editForm.status}>
-                                    {equipmentStatusLabel(editForm.status)}
-                                  </option>
-                                ) : null}
-                                {EQUIPMENT_STATUSES.map((status) => (
-                                  <option key={status} value={status}>
-                                    {EQUIPMENT_STATUS_LABELS[status]}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <input
-                              aria-label="Location"
-                              value={editForm.location}
-                              onChange={(e) =>
-                                setEditForm({
-                                  ...editForm,
-                                  location: e.target.value,
-                                })
-                              }
-                              placeholder="Location..."
-                              className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
-                            />
-                            <input
-                              aria-label="Serial number"
-                              value={editForm.serialNumber}
-                              onChange={(e) =>
-                                setEditForm({
-                                  ...editForm,
-                                  serialNumber: e.target.value,
-                                })
-                              }
-                              placeholder="Serial number..."
-                              className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
-                            />
-                            <input
-                              aria-label="Notes"
-                              value={editForm.notes}
-                              onChange={(e) =>
-                                setEditForm({
-                                  ...editForm,
-                                  notes: e.target.value,
-                                })
-                              }
-                              placeholder="Notes..."
-                              className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
-                            />
-                            {editConflict ? (
-                              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-board-text">
-                                <p className="font-semibold text-amber-300">
-                                  Current saved version
-                                </p>
-                                <p className="mt-1 text-board-muted">
-                                  {equipmentCategoryLabel(
-                                    editConflict.category,
-                                  )}{" "}
-                                  · {equipmentStatusLabel(editConflict.status)}
-                                  {editConflict.location
-                                    ? ` · ${editConflict.location}`
-                                    : ""}
-                                </p>
-                                <p className="mt-1 whitespace-pre-wrap text-board-muted">
-                                  {editConflict.notes || "No saved notes"}
-                                </p>
+                            <fieldset disabled={locked} className="min-w-0 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <h3 className="text-sm font-semibold text-board-text">
+                                  Edit Item
+                                </h3>
                                 <button
                                   type="button"
-                                  onClick={() => startEdit(editConflict)}
-                                  className="mt-2 font-semibold text-amber-300 hover:text-amber-200"
+                                  onClick={() => setEditingItem(null)}
+                                  className="text-board-muted hover:text-board-text"
+                                  aria-label={`Cancel editing ${item.name}`}
                                 >
-                                  Load current version
+                                  <X className="w-4 h-4" />
                                 </button>
                               </div>
-                            ) : null}
-                            <button
-                              type="submit"
-                              disabled={!editForm.name.trim()}
-                              className="w-full px-3 py-2 rounded-xl font-semibold text-sm text-black disabled:opacity-50 transition-all"
-                              style={{
-                                background:
-                                  "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
-                              }}
-                            >
-                              Update
-                            </button>
+                              <input
+                                aria-label="Equipment name"
+                                value={editForm.name}
+                                onChange={(e) =>
+                                  setEditForm({
+                                    ...editForm,
+                                    name: e.target.value,
+                                  })
+                                }
+                                placeholder="Equipment name..."
+                                className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
+                              />
+                              <div className="grid grid-cols-2 gap-2">
+                                <select
+                                  aria-label="Equipment category"
+                                  value={editForm.category}
+                                  onChange={(e) =>
+                                    setEditForm({
+                                      ...editForm,
+                                      category: e.target.value,
+                                    })
+                                  }
+                                  className="min-w-0 px-2 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
+                                >
+                                  {!isEquipmentCategory(editForm.category) ? (
+                                    <option value={editForm.category}>
+                                      {equipmentCategoryLabel(
+                                        editForm.category,
+                                      )}
+                                    </option>
+                                  ) : null}
+                                  {EQUIPMENT_CATEGORIES.map((category) => (
+                                    <option key={category} value={category}>
+                                      {EQUIPMENT_CATEGORY_LABELS[category]}
+                                    </option>
+                                  ))}
+                                </select>
+                                <select
+                                  aria-label="Equipment status"
+                                  value={editForm.status}
+                                  onChange={(e) =>
+                                    setEditForm({
+                                      ...editForm,
+                                      status: e.target.value,
+                                    })
+                                  }
+                                  className="min-w-0 px-2 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
+                                >
+                                  {!isEquipmentStatus(editForm.status) ? (
+                                    <option value={editForm.status}>
+                                      {equipmentStatusLabel(editForm.status)}
+                                    </option>
+                                  ) : null}
+                                  {EQUIPMENT_STATUSES.map((status) => (
+                                    <option key={status} value={status}>
+                                      {EQUIPMENT_STATUS_LABELS[status]}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <input
+                                aria-label="Location"
+                                value={editForm.location}
+                                onChange={(e) =>
+                                  setEditForm({
+                                    ...editForm,
+                                    location: e.target.value,
+                                  })
+                                }
+                                placeholder="Location..."
+                                className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
+                              />
+                              <input
+                                aria-label="Serial number"
+                                value={editForm.serialNumber}
+                                onChange={(e) =>
+                                  setEditForm({
+                                    ...editForm,
+                                    serialNumber: e.target.value,
+                                  })
+                                }
+                                placeholder="Serial number..."
+                                className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
+                              />
+                              <input
+                                aria-label="Notes"
+                                value={editForm.notes}
+                                onChange={(e) =>
+                                  setEditForm({
+                                    ...editForm,
+                                    notes: e.target.value,
+                                  })
+                                }
+                                placeholder="Notes..."
+                                className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
+                              />
+                              {editConflict ? (
+                                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-board-text">
+                                  <p className="font-semibold text-amber-300">
+                                    Current saved version
+                                  </p>
+                                  <p className="mt-1 text-board-muted">
+                                    {equipmentCategoryLabel(
+                                      editConflict.category,
+                                    )}{" "}
+                                    ·{" "}
+                                    {equipmentStatusLabel(editConflict.status)}
+                                    {editConflict.location
+                                      ? ` · ${editConflict.location}`
+                                      : ""}
+                                  </p>
+                                  <p className="mt-1 whitespace-pre-wrap text-board-muted">
+                                    {editConflict.notes || "No saved notes"}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => startEdit(editConflict)}
+                                    className="mt-2 font-semibold text-amber-300 hover:text-amber-200"
+                                  >
+                                    Load current version
+                                  </button>
+                                </div>
+                              ) : null}
+                              <button
+                                type="submit"
+                                disabled={!editForm.name.trim()}
+                                className="w-full px-3 py-2 rounded-xl font-semibold text-sm text-black disabled:opacity-50 transition-all"
+                                style={{
+                                  background:
+                                    "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
+                                }}
+                              >
+                                Update
+                              </button>
+                            </fieldset>
                           </form>
                         ) : (
                           <div className="flex items-start gap-3">
@@ -612,6 +605,7 @@ function AssetsPage() {
                               <div className="flex shrink-0 gap-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/unit:opacity-100 focus-within:opacity-100">
                                 <button
                                   type="button"
+                                  disabled={locked}
                                   aria-label={`Edit unit ${unitIndex + 1}`}
                                   onClick={() => startEdit(item)}
                                   className="rounded-lg p-2 text-board-muted hover:bg-board-border hover:text-board-text"
@@ -620,6 +614,7 @@ function AssetsPage() {
                                 </button>
                                 <button
                                   type="button"
+                                  disabled={locked}
                                   aria-label={`Delete unit ${unitIndex + 1}`}
                                   onClick={() => handleDelete(item)}
                                   className="rounded-lg p-2 text-board-muted hover:bg-red-500/20 hover:text-red-400"
@@ -658,8 +653,8 @@ function AssetsPage() {
             action={
               canManage ? (
                 <EmptyStateButton
+                  disabled={locked}
                   onClick={() => {
-                    setAddForm(BLANK_ADD_FORM);
                     setShowAddModal(true);
                   }}
                 >
@@ -687,7 +682,7 @@ function AssetsPage() {
                 type="button"
                 onClick={() => {
                   setShowAddModal(false);
-                  setAddForm(BLANK_ADD_FORM);
+                  if (!control.unresolved) setAddForm(BLANK_ADD_FORM);
                 }}
                 className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
                 aria-label="Close add asset dialog"
@@ -698,154 +693,157 @@ function AssetsPage() {
             <DialogDescription className="sr-only">
               Add equipment to the asset inventory.
             </DialogDescription>
+            <EquipmentRecovery control={control} />
             <form onSubmit={handleAdd} className="space-y-4">
-              <div>
-                <label
-                  htmlFor="add-asset-name"
-                  className="block text-xs text-board-muted mb-1.5"
-                >
-                  Name{" "}
-                  <span aria-hidden="true" className="text-red-400">
-                    *
-                  </span>
-                </label>
-                <input
-                  type="text"
-                  id="add-asset-name"
-                  value={addForm.name}
-                  onChange={(e) =>
-                    setAddForm({ ...addForm, name: e.target.value })
-                  }
-                  placeholder="Equipment name..."
-                  autoFocus
-                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 transition-colors"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="add-asset-category"
-                  className="block text-xs text-board-muted mb-1.5"
-                >
-                  Type / Category
-                </label>
-                <select
-                  id="add-asset-category"
-                  value={addForm.category}
-                  onChange={(e) =>
-                    setAddForm({ ...addForm, category: e.target.value })
-                  }
-                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50 transition-colors"
-                >
-                  {EQUIPMENT_CATEGORIES.map((category) => (
-                    <option key={category} value={category}>
-                      {EQUIPMENT_CATEGORY_LABELS[category]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label
-                  htmlFor="add-asset-quantity"
-                  className="block text-xs text-board-muted mb-1.5"
-                >
-                  Number of units
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  id="add-asset-quantity"
-                  value={addForm.quantity}
-                  onChange={(e) =>
-                    setAddForm({
-                      ...addForm,
-                      quantity: Math.max(
-                        1,
-                        Math.min(100, Number(e.target.value) || 1),
-                      ),
-                    })
-                  }
-                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50 transition-colors"
-                />
-                <p className="mt-1 text-[10px] text-board-muted">
-                  Each unit can later have its own status, serial number,
-                  location, and notes.
-                </p>
-              </div>
-              <div>
-                <p
-                  id="add-asset-status"
-                  className="block text-xs text-board-muted mb-1.5"
-                >
-                  Status
-                </p>
-                <div
-                  role="group"
-                  aria-labelledby="add-asset-status"
-                  className="grid grid-cols-2 gap-2"
-                >
-                  {EQUIPMENT_STATUSES.map((s) => (
-                    <button
-                      key={s}
-                      aria-pressed={addForm.status === s}
-                      type="button"
-                      onClick={() => setAddForm({ ...addForm, status: s })}
-                      className={`flex-1 py-2 rounded-xl text-xs font-medium capitalize border transition-colors ${
-                        addForm.status === s
-                          ? s === "operational"
-                            ? "bg-green-500/20 text-green-400 border-green-500/40"
-                            : s === "broken"
-                              ? "bg-red-500/20 text-red-400 border-red-500/40"
-                              : "bg-board-border text-board-muted border-board-border"
-                          : "bg-board-bg text-board-muted/60 border-board-border hover:border-board-muted/40"
-                      }`}
-                    >
-                      {EQUIPMENT_STATUS_LABELS[s]}
-                    </button>
-                  ))}
+              <fieldset disabled={locked} className="min-w-0 space-y-4">
+                <div>
+                  <label
+                    htmlFor="add-asset-name"
+                    className="block text-xs text-board-muted mb-1.5"
+                  >
+                    Name{" "}
+                    <span aria-hidden="true" className="text-red-400">
+                      *
+                    </span>
+                  </label>
+                  <input
+                    type="text"
+                    id="add-asset-name"
+                    value={addForm.name}
+                    onChange={(e) =>
+                      setAddForm({ ...addForm, name: e.target.value })
+                    }
+                    placeholder="Equipment name..."
+                    autoFocus
+                    className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 transition-colors"
+                  />
                 </div>
-              </div>
-              <div>
-                <label
-                  htmlFor="add-asset-notes"
-                  className="block text-xs text-board-muted mb-1.5"
-                >
-                  Notes
-                </label>
-                <input
-                  type="text"
-                  id="add-asset-notes"
-                  value={addForm.notes}
-                  onChange={(e) =>
-                    setAddForm({ ...addForm, notes: e.target.value })
-                  }
-                  placeholder="Optional notes..."
-                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 transition-colors"
-                />
-              </div>
-              <div className="flex gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAddModal(false);
-                    setAddForm(BLANK_ADD_FORM);
-                  }}
-                  className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-sm text-board-muted hover:bg-board-border/50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={adding || !addForm.name.trim()}
-                  className="flex-1 px-4 py-2.5 rounded-xl font-semibold text-sm text-black disabled:opacity-50 transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
-                  }}
-                >
-                  {adding ? "Adding..." : "Add Asset"}
-                </button>
-              </div>
+                <div>
+                  <label
+                    htmlFor="add-asset-category"
+                    className="block text-xs text-board-muted mb-1.5"
+                  >
+                    Type / Category
+                  </label>
+                  <select
+                    id="add-asset-category"
+                    value={addForm.category}
+                    onChange={(e) =>
+                      setAddForm({ ...addForm, category: e.target.value })
+                    }
+                    className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50 transition-colors"
+                  >
+                    {EQUIPMENT_CATEGORIES.map((category) => (
+                      <option key={category} value={category}>
+                        {EQUIPMENT_CATEGORY_LABELS[category]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label
+                    htmlFor="add-asset-quantity"
+                    className="block text-xs text-board-muted mb-1.5"
+                  >
+                    Number of units
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    id="add-asset-quantity"
+                    value={addForm.quantity}
+                    onChange={(e) =>
+                      setAddForm({
+                        ...addForm,
+                        quantity: Math.max(
+                          1,
+                          Math.min(100, Number(e.target.value) || 1),
+                        ),
+                      })
+                    }
+                    className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50 transition-colors"
+                  />
+                  <p className="mt-1 text-[10px] text-board-muted">
+                    Each unit can later have its own status, serial number,
+                    location, and notes.
+                  </p>
+                </div>
+                <div>
+                  <p
+                    id="add-asset-status"
+                    className="block text-xs text-board-muted mb-1.5"
+                  >
+                    Status
+                  </p>
+                  <div
+                    role="group"
+                    aria-labelledby="add-asset-status"
+                    className="grid grid-cols-2 gap-2"
+                  >
+                    {EQUIPMENT_STATUSES.map((s) => (
+                      <button
+                        key={s}
+                        aria-pressed={addForm.status === s}
+                        type="button"
+                        onClick={() => setAddForm({ ...addForm, status: s })}
+                        className={`flex-1 py-2 rounded-xl text-xs font-medium capitalize border transition-colors ${
+                          addForm.status === s
+                            ? s === "operational"
+                              ? "bg-green-500/20 text-green-400 border-green-500/40"
+                              : s === "broken"
+                                ? "bg-red-500/20 text-red-400 border-red-500/40"
+                                : "bg-board-border text-board-muted border-board-border"
+                            : "bg-board-bg text-board-muted/60 border-board-border hover:border-board-muted/40"
+                        }`}
+                      >
+                        {EQUIPMENT_STATUS_LABELS[s]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label
+                    htmlFor="add-asset-notes"
+                    className="block text-xs text-board-muted mb-1.5"
+                  >
+                    Notes
+                  </label>
+                  <input
+                    type="text"
+                    id="add-asset-notes"
+                    value={addForm.notes}
+                    onChange={(e) =>
+                      setAddForm({ ...addForm, notes: e.target.value })
+                    }
+                    placeholder="Optional notes..."
+                    className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 transition-colors"
+                  />
+                </div>
+                <div className="flex gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddModal(false);
+                      setAddForm(BLANK_ADD_FORM);
+                    }}
+                    className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-sm text-board-muted hover:bg-board-border/50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={adding || !addForm.name.trim()}
+                    className="flex-1 px-4 py-2.5 rounded-xl font-semibold text-sm text-black disabled:opacity-50 transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
+                    }}
+                  >
+                    {adding ? "Adding..." : "Add Asset"}
+                  </button>
+                </div>
+              </fieldset>
             </form>
           </DialogContent>
         )}

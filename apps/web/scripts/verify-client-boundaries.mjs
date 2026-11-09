@@ -149,6 +149,14 @@ requiredLaunchContracts.push(
   { path: "src/lib/crew-roster.server.ts", pattern: /WHERE orgId=\? AND id=\? AND profileRevision=\?/, message: "Crew writes must retain tenant and profile revision guards." },
 );
 
+// Asset commands replace the legacy CRUD RPCs, retaining authority at atomic admission.
+requiredLaunchContracts.push(
+  { path: "src/lib/equipment-command.server.ts", pattern: /memberPermissionGuard\([\s\S]*?userId \? \["assets:view", "assets:manage"\] : \["assets:view"\]/, message: "Asset reads and writes must retain their current session and permission guard." },
+  { path: "src/lib/equipment-command.server.ts", pattern: /WHERE \$\{access\.guard\} ON CONFLICT\(orgId,key\) DO NOTHING/, message: "Asset request admission must check current authority inside the transaction." },
+  { path: "src/lib/equipment-command.server.ts", pattern: /WHERE orgId=\? AND id=\? AND revision=\? AND \$\{claim\}/, message: "Asset writes must keep tenant, revision and receipt ownership guards." },
+  { path: "src/lib/equipment-command.server.ts", pattern: /await db\.batch\(statements\)/, message: "Equipment changes and their result receipt must commit atomically." },
+);
+
 for (const contract of requiredLaunchContracts) {
   const source = readFileSync(resolve(webRoot, contract.path), "utf8");
   if (!contract.pattern.test(source)) throw new Error(contract.message);
@@ -164,14 +172,13 @@ function exportedConstBlock(relativePath, exportName) {
 }
 
 const serverPermissionContracts = [
+  ["src/lib/equipment-commands.ts", "getEquipmentState", /readEquipmentState\(getRequestHeaders\(\), data\.orgId\)/],
+  ["src/lib/equipment-commands.ts", "commandEquipment", /writeEquipmentCommand\(getRequestHeaders\(\), data, "write"\)/],
+  ["src/lib/equipment-commands.ts", "reviewEquipment", /writeEquipmentCommand\(getRequestHeaders\(\), data, "review"\)/],
   ["src/lib/data.ts", "getCrewMembers", /assertOrgPermission\(data\.orgId, "show:view"\)/],
   ["src/lib/data.ts", "addCrewMember", /writeCrewProfile\(getD1\(\), await crewActor\(getRequestHeaders\(\)\), \{ \.\.\.data, kind: "create" \}\)/],
   ["src/lib/data.ts", "updateCrewMember", /writeCrewProfile\(getD1\(\), await crewActor\(getRequestHeaders\(\)\), \{ \.\.\.data, kind: "update" \}\)/],
   ["src/lib/data.ts", "deleteCrewMember", /writeCrewProfile\(getD1\(\), await crewActor\(getRequestHeaders\(\)\), \{ \.\.\.data, kind: "delete" \}\)/],
-  ["src/lib/data.ts", "getEquipment", /assertOrgPermission\(data\.orgId, "assets:view"\)/],
-  ["src/lib/data.ts", "addEquipment", /assertOrgPermission\(data\.orgId, "assets:manage"\)/],
-  ["src/lib/data.ts", "updateEquipment", /assertOrgPermission\(data\.orgId, "assets:manage"\)[\s\S]+where:\s*\{\s*id:\s*data\.id,\s*orgId:\s*data\.orgId\s*\}/],
-  ["src/lib/data.ts", "deleteEquipment", /assertOrgPermission\(data\.orgId, "assets:manage"\)[\s\S]+where:\s*\{\s*id:\s*data\.id,\s*orgId:\s*data\.orgId\s*\}/],
   ["src/lib/data.ts", "getMicAssignments", /assertOrgPermission\(data\.orgId, "dashboard:tm"\)/],
   ["src/lib/data.ts", "addMicAssignment", /assertEffectiveOrgPermission\(data\.orgId, "dashboard:tm"\)/],
   ["src/lib/data.ts", "updateMicAssignment", /assertEffectiveOrgPermission\(data\.orgId, "dashboard:tm"\)[\s\S]+WHERE id=\? AND orgId=\?[\s\S]+data\.id,\s*data\.orgId/],
