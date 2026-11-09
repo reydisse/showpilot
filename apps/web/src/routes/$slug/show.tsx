@@ -261,7 +261,7 @@ function ChatPanel({
   const {
     messages,
     sendMessage,
-    attachmentDraft,
+    attachmentDraft, composer,
     votePoll,
     setReaction,
     connectionStatus,
@@ -308,7 +308,7 @@ function ChatPanel({
         connectionStatus={connectionStatus}
         unreadCount={0}
         onSendMessage={sendMessage}
-        attachmentDraft={attachmentDraft}
+        attachmentDraft={attachmentDraft} composer={composer}
         gatewayStatus={gatewayStatus}
         hydrated={hydrated} connectionUpdatedAt={connectionUpdatedAt} onReconnect={retryConnection}
         onReadThrough={markRead}

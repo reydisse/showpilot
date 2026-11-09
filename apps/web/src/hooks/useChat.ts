@@ -1,3 +1,4 @@
+import { getChatComposer, type WebChatComposer } from "@/lib/chat-composer";
 import { getChatAttachmentDraft, type WebChatAttachmentDraft } from "@/lib/chat-attachment-draft";
 import type { ChatNotificationWork } from "@/lib/chat-notifications";
 import type { ChatMutationWork } from "@showpilot/shared/chat-mutation-tracker";
@@ -30,6 +31,7 @@ interface UseChatReturn {
   messages: ChatMessage[];
   sendMessage: (text: string, type?: MessageType, options?: ChatMessageOptions) => Promise<void>;
   attachmentDraft?: WebChatAttachmentDraft;
+  composer: WebChatComposer;
   editMessage: (messageId: string, text: string, expectedEditTime: number) => Promise<void>;
   deleteMessage: (messageId: string, expectedEditTime: number) => Promise<void>;
   votePoll: (messageId: string, optionId: string, expectedOptionId: string | null) => Promise<void>;
@@ -196,6 +198,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     await adapter.setReaction(messageId, emoji, active);
   }, [getAdapter]);
 
+  const composer = useMemo(() => getChatComposer({ orgId, roomId, currentUserId, guestToken, guestName: userName }), [orgId, roomId, currentUserId, guestToken, userName]);
   const attachmentDraft = useMemo(() => getChatAttachmentDraft({ orgId, roomId, currentUserId, guestToken }), [orgId, roomId, currentUserId, guestToken]);
 
   const resetUnread = useCallback(() => {
@@ -240,7 +243,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
   }, [getAdapter, view.guestAccessRevoked]);
 
   return {
-    ...view, retryMutation, dismissMutation, retryNotifications, retryConnection, sendMessage, attachmentDraft, editMessage, deleteMessage, votePoll,
+    ...view, retryMutation, dismissMutation, retryNotifications, retryConnection, sendMessage, attachmentDraft, composer, editMessage, deleteMessage, votePoll,
     setReaction, resetUnread, setTyping, markRead, loadOlderMessages, retryQueuedMessage, cancelQueuedMessage,
   };
 }

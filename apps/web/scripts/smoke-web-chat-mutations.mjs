@@ -67,9 +67,36 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
     await page("Page.navigate", { url:`${origin}/${orgId}/chat?room=production` });
     await check(`${panel}?.innerText.includes('Production Chat')&&!${panel}.innerText.includes('Connecting to chat')`, "chat hydration");
     await evaluate("window.chatDocument='unchanged'");
+    const fill = async (selector, text) => {
+      await check(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return n&&Object.keys(n).some(key=>key.startsWith('__reactProps'));})()`, "hydrated draft input");
+      await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.focus();Object.getOwnPropertyDescriptor(n.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set.call(n,${JSON.stringify(text)});n.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    };
+    await fill('textarea', 'Unsent production draft');
+    await room('planning'); assert.equal(await evaluate(`${panel}.querySelector('textarea').value`), '');
+    await fill('textarea', 'Unsent planning draft');
+    await room('production'); assert.equal(await evaluate(`${panel}.querySelector('textarea').value`), 'Unsent production draft');
+    await click('Create poll'); await fill('input[placeholder="Ask a question"]', 'Ready for soundcheck?');
+    await fill('input[placeholder="Option 1"]', 'Yes'); await fill('input[placeholder="Option 2"]', 'Wait');
+    for(let option=3;option<=6;option++) await click('Add option');
+    await room('planning'); assert.equal(await evaluate(`!!document.querySelector('[aria-label="Poll draft"]')`),false);
+    await room('production'); assert.equal(await evaluate(`document.querySelector('input[placeholder="Ask a question"]').value`),'Ready for soundcheck?');
+    for (const [width,height] of [[320,568],[768,1024],[1440,900]]) {
+      await page('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+      await check(`(()=>{const n=document.querySelector('aside'),r=n?.getBoundingClientRect();return r&&(innerWidth<1024?n.getAttribute('aria-hidden')==='true'&&r.right<=1:Math.abs(r.width-240)<1&&Math.abs(r.left)<1);})()`, `poll sidebar ${width}`);
+      await check(point(control('Send poll')), `reachable poll send ${width}`);
+      assert.equal(await evaluate(`(()=>{const n=${panel},h=n.firstElementChild,b=h.getBoundingClientRect(),p=n.getBoundingClientRect(),t=n.querySelector('textarea').getBoundingClientRect();return b.top>=p.top-1&&t.top>=0&&t.bottom<=innerHeight+1&&document.documentElement.scrollWidth<=innerWidth+1;})()`),true,`poll layout ${width}`);
+      await writeFile(`/tmp/showpilot-web-composer-poll-${width}.png`,Buffer.from((await page('Page.captureScreenshot',{format:'png'})).data,'base64'));
+    }
+    await click('Close poll composer');
     await send("Mutation original");
     await check(`${panel}.innerText.includes('Mutation original')&&!!(${control("Edit message")})`,"stored message");
+    await fill('textarea', 'Announcement after edit');
     await click("Edit message");
+    await fill('textarea', 'Unsent correction');
+    await room('planning'); assert.equal(await evaluate(`${panel}.querySelector('textarea').value`), 'Unsent planning draft');
+    await room('production'); assert.equal(await evaluate(`${panel}.querySelector('textarea').value`), 'Unsent correction');
+    await click('Cancel edit'); assert.equal(await evaluate(`${panel}.querySelector('textarea').value`), 'Announcement after edit');
+    await click('Edit message');
     await evaluate(`(()=>{const n=${panel}.querySelector('textarea');n.focus();Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(n,'Captured edited text');n.dispatchEvent(new Event('input',{bubbles:true}));})()`);
     await click("Save message");
     await check(`${panel}.innerText.includes('Recover original change')`,"lost edit reply deadline");
@@ -105,5 +132,5 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
     await click("Dismiss result");
     assert.deepEqual(await evaluate("window.chatErrors"),[]);
   });
-  console.log(JSON.stringify({result:"pass",realRelay:true,editRecovery:true,reactionRecovery:true,deleteRecovery:true,sameCommandRetry:true,navigationRecovery:true,widths:[320,768,1440]}));
+  console.log(JSON.stringify({result:"pass",draftRoomRetention:true,editDraftRestoration:true,pollDraftRetention:true,realRelay:true,editRecovery:true,reactionRecovery:true,deleteRecovery:true,sameCommandRetry:true,navigationRecovery:true,widths:[320,768,1440]}));
 });

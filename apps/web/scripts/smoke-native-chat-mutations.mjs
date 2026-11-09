@@ -151,9 +151,39 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, date }) => {
   try {
     await page.goto(`${nativeOrigin}/chat`);
     await page.getByRole("textbox",{name:"Message Production Chat"}).waitFor(); await waitReady();
+    const draftInput = () => page.getByRole('textbox',{name:/^Message /});
+    await draftInput().fill('Unsent native production');
+    await room('Planning Room'); assert.equal(await draftInput().inputValue(),'');
+    await draftInput().fill('Unsent native planning');
+    await room('Production Chat'); assert.equal(await draftInput().inputValue(),'Unsent native production');
+    await button('Open message tools').click(); await page.getByText('Quick poll',{exact:true}).click();
+    await page.getByRole('textbox',{name:'Poll question'}).fill('Ready for soundcheck?');
+    await page.getByRole('textbox',{name:'Poll option 1'}).fill('Yes');
+    await page.getByRole('textbox',{name:'Poll option 2'}).fill('Wait');
+    for(let option=3;option<=6;option++) await button('+ Add option').click();
+    for(const [width,height] of [[320,568],[768,1024],[1440,900]]) {
+      await page.setViewportSize({width,height});
+      const close=button('Close poll'),sendPoll=button('Send poll');
+      for(const control of [close,sendPoll]) { await control.scrollIntoViewIfNeeded();const b=await control.boundingBox();assert.ok(b.height>=44&&b.width>=44&&b.y>=0&&b.y+b.height<=height); }
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+      await page.screenshot({path:`/tmp/showpilot-native-composer-poll-${width}.png`,fullPage:true});
+    }
+    await button('Close poll').click();
+    await page.getByText('Ask the crew',{exact:true}).waitFor({state:'hidden'});
+    await room('Planning Room');await room('Production Chat');
+    await button('Open message tools').click();await page.getByText('Quick poll',{exact:true}).click();
+    assert.equal(await page.getByRole('textbox',{name:'Poll question'}).inputValue(),'Ready for soundcheck?');
+    await button('Close poll').click();
+    await page.getByText('Ask the crew',{exact:true}).waitFor({state:'hidden'});
     await send("Mutation original");
     await page.getByLabel("You: Mutation original",{exact:true}).waitFor();
+    await draftInput().fill('Announcement after native edit');
     await actions("Mutation original"); await page.getByText("Edit message",{exact:true}).click();
+    await draftInput().fill('Unsent native correction');
+    await room('Planning Room');assert.equal(await draftInput().inputValue(),'Unsent native planning');
+    await room('Production Chat');assert.equal(await draftInput().inputValue(),'Unsent native correction');
+    await button('Cancel message action').click();assert.equal(await draftInput().inputValue(),'Announcement after native edit');
+    await actions('Mutation original');await page.getByText('Edit message',{exact:true}).click();
     await page.getByRole("textbox",{name:"Message Production Chat"}).fill("Captured native edit");
     mode="lost"; await button("Save edited message").click();
     await button("Recover original change").waitFor({timeout:15000});
@@ -181,7 +211,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, date }) => {
     assert.deepEqual(sent[2],sent[3]);assert.equal((await history())[0].reactions[0].userIds.length,1);
     await button("Dismiss result").click();
     assert.deepEqual(errors,[]);
-    console.log(JSON.stringify({result:"pass",realAuth:true,realRelay:true,compiledNativeWeb:true,editRecovery:true,reactionRecovery:true,exactCommandRecovery:true,widths:[320,768,1440],physicalDevice:false}));
+    console.log(JSON.stringify({result:"pass",realAuth:true,realRelay:true,compiledNativeWeb:true,draftRoomRetention:true,editDraftRestoration:true,pollDraftRetention:true,editRecovery:true,reactionRecovery:true,exactCommandRecovery:true,widths:[320,768,1440],physicalDevice:false}));
   } catch (error) { await page.screenshot({path:"/tmp/showpilot-native-mutation-failure.png",fullPage:true}); console.error(JSON.stringify({ body: await page.locator("body").innerText(), errors,menus:await page.getByText("Message actions",{exact:true}).count() })); throw error; }
   finally {
     closing = true;
