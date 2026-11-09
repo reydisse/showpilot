@@ -1,8 +1,29 @@
-import type { AutomationEvent, TimecodeFormat } from "@/types/timecode";
-import { automationDeviceId } from "./automation-timing";
-import type { AutomationDeviceNames } from "./automation-catalog";
+import type { TimecodeFormat } from "./timecode-validation";
+export interface AutomationSummaryCue {
+  action: string;
+  payload: Record<string, unknown>;
+  targetDeviceId?: string;
+  targetActionId?: string;
+  timingDeviceId?: string;
+}
+export interface AutomationDeviceName { id: string; label: string; enabled: boolean }
+export type AutomationDeviceNames = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; value: AutomationDeviceName[] };
 
-export const isDeviceCue = (event: AutomationEvent) => event.action === "device-action" || event.action === "lighting-scene" || event.action === "lighting-blackout";
+/** Matches the saved-device precedence used when the relay dispatches. */
+export function automationDeviceId(
+  event: Pick<AutomationSummaryCue, "targetDeviceId" | "payload">,
+): string | undefined {
+  for (const value of [
+    event.targetDeviceId,
+    event.payload.deviceId,
+    event.payload.targetDeviceId,
+  ]) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+export const isDeviceCue = (event: AutomationSummaryCue) => event.action === "device-action" || event.action === "lighting-scene" || event.action === "lighting-blackout";
 const short = (value: string, limit = 60) => value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
 const words = (value: string) => value.replace(/[-_]/g, " ");
 const privateField = /password|secret|token|authorization|credential|api.?key/i;
@@ -16,7 +37,7 @@ function describeValue(value: unknown): string | null {
   return short(value.replace(/\s+/g, " "));
 }
 
-export function deviceCueSummary(event: AutomationEvent, names?: AutomationDeviceNames): { target: string; details: string } | null {
+export function deviceCueSummary(event: AutomationSummaryCue, names?: AutomationDeviceNames): { target: string; details: string } | null {
   if (!isDeviceCue(event)) return null;
   const deviceId = event.timingDeviceId ?? automationDeviceId(event);
   const device = names?.status === "ready" ? names.value.find(device => device.id === deviceId) : null;
@@ -33,7 +54,7 @@ export function deviceCueSummary(event: AutomationEvent, names?: AutomationDevic
   return { target, details: `${short(action)}${summary ? ` · ${summary}` : ""}${fields.length > 3 ? " · …" : ""}` };
 }
 
-export function webhookCueSummary(event: AutomationEvent): string | null {
+export function webhookCueSummary(event: AutomationSummaryCue): string | null {
   if (event.action !== "custom-webhook") return null;
   if (typeof event.payload.url !== "string") return "Webhook URL missing";
   try {

@@ -1,6 +1,6 @@
 import { useCallback, type ComponentProps } from "react";
 import { getAutomationDeviceNames } from "@/lib/automation-targets";
-import { isDeviceCue } from "@/lib/automation-summary";
+import { isDeviceCue } from "@showpilot/shared";
 import { useCueChoices } from "./useCueChoices";
 import { AutomationTimeline } from "./AutomationTimeline";
 

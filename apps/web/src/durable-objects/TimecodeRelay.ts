@@ -52,7 +52,8 @@ import { crewMessagePayloadSchema } from "@/lib/crew-message";
 import { chatRelayKey } from "@/lib/chat-relay-key";
 import { runProPresenterCue } from "@/lib/automation-propresenter";
 import { AutomationExecutor, automationOutput, isTriggerControlAction } from "@/lib/automation-execution";
-import { cueReviewMatches, nextAutomationEvent, automationControlPriority } from "@/lib/automation-cues";
+import { cueReviewMatches } from "@/lib/automation-cues";
+import { nextAutomationEvent, automationControlPriority } from "@showpilot/shared";
 import { emptyMidiController, midiControllerSchema, type MidiControllerSnapshot } from "@/lib/midi-controller";
 
 interface Env {

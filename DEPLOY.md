@@ -8804,3 +8804,65 @@ changes. Twenty necessary tracked Markdown files remain; none were added.
 Stack gate: #276 head 9c7bfbc10818e62a10f7299052f17d677785c5ba passed CI
 42555671474 before opening this change's draft PR. Its own exact-head CI must pass
 before opening the next PR.
+
+## 2026-11-08 — Native Timecode timeline and fixed transport
+
+Branch: fix/native-timecode-timeline, stacked on fix/native-timecode-cue-editor.
+Native Timecode previously rendered the relay array in received order, discarded
+canonical dispatch timing during parsing, and showed only basic execution status.
+Its clock and both stop controls scrolled away. The timeline now shares Next,
+ordering, dispatch-frame, overdue/missed and payload-summary functions with web,
+MIDI feedback and the relay. Nominal cue order remains separate from dispatch
+order; cue lead and captured device latency determine the countdown and Next.
+The old web summary implementation was moved to shared and its callers migrated.
+
+Native rows now show Next, Overdue, Missed and FAILED text, tolerance, early-send
+timing, device names and short device/webhook summaries. Secret fields are omitted
+and webhook summaries show only the origin. Device names use the existing
+org-scoped Devices API with an abortable ten-second deadline and inline retry.
+A missed/failed list and Fire next reuse the existing reviewed, recoverable cue
+commands. Disabled/skipped cues and the automation gate still block output.
+Disconnected timelines identify the last known Next and disable controls.
+
+The clock, running state, automation state, Start, Stop and Stop automation live
+outside the page scroll area. The module gate also gates this fixed header.
+Automation stop confirmation stays visible even at the bottom of a long timeline.
+Cue editing, retained saves, clock review and automation recovery keep their
+existing controls; the timeline is now above the creation form.
+
+Final full suite passes 361 unit files / 3,129 tests and 149 Worker files / 1,669
+tests: 4,798 total, including 20 new native timing cases. Web and shared typechecks
+pass. The web build passes at 542,274 raw / 171,110 gzip bytes for the main client;
+subsequent refinements were native-only. Final native verification passes
+TypeScript, lint (18 existing warnings, zero errors), all three exports, Expo
+Doctor 18/18, contracts and polling checks. Hermes bundles: 5,935,332 bytes iOS,
+5,934,492 bytes Android. Coverage thresholds and bundle limits are unchanged.
+
+The final compiled Expo web rehearsal uses disposable real authentication, D1
+and TimecodeRelay. It deliberately reverses event arrays on the wire, verifies
+nominal ordering and lead-aware Next/countdowns while stopped, drop-frame labels,
+missed/overdue/disabled/failed states, a ten-second device-name failure and retry,
+redacted summaries, cancelled/confirmed Fire next and attention-list reviews.
+Start/Stop and Stop automation affect the real fixture room; stopping automation
+keeps the clock running. Socket loss marks cached state and disables controls.
+Controls remain at least 44px and visible while scrolled at 320/768/1440px and
+320x568. Screenshots were inspected. The existing cue-editor rehearsal also passes
+with the new layout, including stale review, retained lost replies after show
+navigation, preservation of later edits and refresh-only recovery. This is not
+physical-device verification. A screenshot's ambiguous semicolon appearance was
+checked against rendered text; the header was already correct, and assertions now
+cover it before and after cue actions.
+
+Reproduce after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-timecode-timeline.mjs`.
+Logs: /tmp/showpilot-native-timeline-{mobile-tsc1,mobile-tsc2,unit1,full1,full2,tsc1,tsc2,shared-tsc,build1,verify1,verify2,browser1,browser2,browser3,browser4,editor-browser}.log.
+The first mobile typecheck caught a JSX extraction error, corrected before tests.
+Screenshots: /tmp/showpilot-native-timeline-{320,768,1440,short}.png.
+
+Phase 2 remains 67/79; broad product-wide requirements remain partial. Native
+lyrics preview controls/fitting are next, followed by the other recorded native
+and web UX gaps. No deployment, release, remote migration, external mail or
+real-org changes. Twenty necessary tracked Markdown files remain; none added.
+Stack gate: #277 exact head 737fd18a673eb4f0eb9ba8490c7234bf188adb86 passed CI
+42559076471 before opening this change's draft PR. Its own exact-head CI must pass
+before another PR is opened.

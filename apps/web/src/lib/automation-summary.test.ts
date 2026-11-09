@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { AutomationEvent } from "@/types/timecode";
-import { cueCountdown, deviceCueSummary, webhookCueSummary } from "./automation-summary";
+import { cueCountdown, deviceCueSummary, webhookCueSummary } from "@showpilot/shared";
 
 const cue: AutomationEvent = {
   id: "cue", label: "Camera", action: "device-action", enabled: true, fired: false,
