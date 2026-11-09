@@ -1,415 +1,269 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetch as expoFetch } from "expo/fetch";
 import { AppState } from "react-native";
-import {
-  createAuthenticatedWebSocket,
-  getAuthenticatedFetchCredentials,
-  getNativeCookieHeader,
-} from "@/lib/auth-transport";
-import {
-  compareChatMessages,
-  mergeChatMessage,
-  parseChatHistoryPage,
-  parseChatMessage,
-  type ChatHistoryCursor,
-  type MobileChatMessage,
-  type MobileChatReactionEmoji,
-} from "@/lib/chat-history";
+import { createAuthenticatedWebSocket, getAuthenticatedFetchCredentials, getNativeCookieHeader } from "@/lib/auth-transport";
+import { compareChatMessages, mergeChatMessage, parseChatHistoryPage, parseChatMessage,
+  type ChatHistoryCursor, type MobileChatMessage, type MobileChatReactionEmoji } from "@/lib/chat-history";
 import { SHOWPILOT_URL } from "@/lib/env";
-
+import { runMobileOperation, MobileOperationTimeoutError } from "../lib/request-deadline";
+import { createLocalRequestUuid } from "../lib/request-id";
 export type { MobileChatMessage } from "@/lib/chat-history";
-
 type Status = "connecting" | "connected" | "reconnecting" | "offline";
-type GatewayStatus = {
-  platform: "mattermost" | "slack" | "discord" | "teams" | null;
-  status: "disabled" | "connecting" | "connected" | "error";
-  error?: string;
-};
-
+type GatewayStatus = { platform: "mattermost" | "slack" | "discord" | "teams" | null; status: "disabled" | "connecting" | "connected" | "error"; error?: string };
 export interface MobileChatSendOptions {
   replyTo?: NonNullable<MobileChatMessage["replyTo"]>;
   attachments?: NonNullable<MobileChatMessage["attachments"]>;
   poll?: { question: string; options: string[] };
 }
-
-export interface MobileChatTypingState {
-  userId?: string;
-  name: string;
-  typing: boolean;
+export interface MobileChatTypingState { userId?: string; name: string; typing: boolean }
+export type ChatDelivery = { id: string; frame: string; text: string; createdAt: number } & (
+  | { kind: "queued" }
+  | { kind: "sending" }
+  | { kind: "uncertain" | "rejected"; error: string }
+);
+type Mutation = { type: "edit" | "delete" | "vote" | "reaction"; messageId: string; text?: string; optionId?: string; emoji?: MobileChatReactionEmoji };
+type PendingMutation = { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> };
+type Actions = { scope: string; retry(): void; send(text: string, type: MobileChatMessage["type"], options?: MobileChatSendOptions): string | null;
+  retryMessage(id: string): void; discardMessage(id: string): void; mutate(payload: Mutation): Promise<void>;
+  transient(payload: object): void; loadOlder(): Promise<void> };
+type ChatView = { scope: string; messages: MobileChatMessage[]; status: Status; lastError: string | null; historyError: string | null;
+  hasOlder: boolean; loadingOlder: boolean; typingUsers: MobileChatTypingState[]; readReceipts: Record<string, number>; hydrated: boolean; gatewayStatus: GatewayStatus };
+function emptyView(scope: string): ChatView {
+  return { scope, messages: [], status: "connecting", lastError: null, historyError: null, hasOlder: false, loadingOlder: false,
+    typingUsers: [], readReceipts: {}, hydrated: false, gatewayStatus: { platform: null, status: "connecting" } };
 }
-
-interface PendingMutation {
-  resolve: () => void;
-  reject: (error: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
-function createChatRequestId() {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
-    const random = Math.floor(Math.random() * 16);
-    const value = character === "x" ? random : (random & 0x3) | 0x8;
-    return value.toString(16);
-  });
-}
-
 function chatUrl(orgId: string, roomId: string) {
-  const url = new URL(SHOWPILOT_URL);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = `/api/chat/${encodeURIComponent(orgId)}/ws`;
-  url.search = new URLSearchParams({ room: roomId }).toString();
-  return url.toString();
+  const url = new URL(SHOWPILOT_URL); url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = `/api/chat/${encodeURIComponent(orgId)}/ws`; url.search = new URLSearchParams({ room: roomId }).toString(); return url.toString();
 }
-
 function historyUrl(orgId: string, roomId: string, cursor: ChatHistoryCursor) {
-  const url = new URL(SHOWPILOT_URL);
-  url.pathname = `/api/chat/${encodeURIComponent(orgId)}/history`;
-  url.search = new URLSearchParams({
-    room: roomId,
-    limit: "200",
-    beforeTimestamp: String(cursor.timestamp),
-    beforeId: cursor.id,
-  }).toString();
-  return url.toString();
+  const url = new URL(SHOWPILOT_URL); url.pathname = `/api/chat/${encodeURIComponent(orgId)}/history`;
+  url.search = new URLSearchParams({ room: roomId, limit: "200", beforeTimestamp: String(cursor.timestamp), beforeId: cursor.id }).toString(); return url.toString();
 }
+const uncertainMessage = "Delivery was not confirmed. It may have arrived. Retry the original message to check without posting it twice.";
+const sendFailureMessage = "Chat could not send. Retry the message or reconnect.";
 
-export function useChatRelay(orgId: string | undefined, roomId = "production") {
-  const queryClient = useQueryClient();
-  const [messages, setMessages] = useState<MobileChatMessage[]>([]);
-  const [status, setStatus] = useState<Status>("connecting");
-  const [lastError, setLastError] = useState<string | null>(null);
-  const [historyCursor, setHistoryCursor] = useState<ChatHistoryCursor | null>(null);
-  const [hasOlder, setHasOlder] = useState(false);
-  const [loadingOlder, setLoadingOlder] = useState(false);
-  const [typingUsers, setTypingUsers] = useState<MobileChatTypingState[]>([]);
-  const [readReceipts, setReadReceipts] = useState<Record<string, number>>({});
-  const [hydrated, setHydrated] = useState(false);
-  const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus>({ platform: null, status: "disabled" });
-  const socketRef = useRef<WebSocket | null>(null);
-  const queueRef = useRef<string[]>([]);
-  const pendingMutationsRef = useRef(new Map<string, PendingMutation>());
-  const typingTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
-  const roomGenerationRef = useRef(0);
-  const historyGenerationRef = useRef(0);
-
-  const flush = useCallback(() => {
-    const socket = socketRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    while (queueRef.current.length) {
-      const frame = queueRef.current.shift();
-      if (frame !== undefined) socket.send(frame);
-    }
-  }, []);
-
+/** Each mounted room owns its socket and deadlines. Unconfirmed messages live in
+ * the actor/org/room query cache so leaving the screen cannot silently lose them. */
+export function useChatRelay(orgId: string | undefined, roomId = "production", userId: string | undefined) {
+  const client = useQueryClient();
+  const key = useMemo(() => ["mobile-chat-outbox", userId, orgId, roomId], [userId, orgId, roomId]);
+  const scope = JSON.stringify(key), currentScope = useRef(scope); currentScope.current = scope;
+  const { data: outbox = [] } = useQuery<ChatDelivery[]>({ queryKey: key, queryFn: () => [], initialData: [], enabled: false, gcTime: Infinity });
+  const [view, setView] = useState(() => emptyView(scope));
+  const actions = useRef<Actions | null>(null);
   useEffect(() => {
-    if (!orgId) return;
-    const roomGeneration = ++roomGenerationRef.current;
-    const activeOrgId = orgId;
-    let disposed = false;
-    let connecting = false;
-    let attempts = 0;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    setMessages([]);
-    setHistoryCursor(null);
-    setHasOlder(false);
-    setLoadingOlder(false);
-    setTypingUsers([]);
-    setReadReceipts({});
-    setHydrated(false);
-    setGatewayStatus({ platform: null, status: "connecting" });
-    queueRef.current = [];
-
-    function rejectPendingMutations(message: string) {
-      for (const pending of pendingMutationsRef.current.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error(message));
-      }
-      pendingMutationsRef.current.clear();
-    }
-
-    function updateTypingUser(state: MobileChatTypingState) {
-      const key = state.userId || `name:${state.name}`;
-      const timer = typingTimersRef.current.get(key);
-      if (timer) clearTimeout(timer);
-      setTypingUsers((current) => state.typing
-        ? [...current.filter((candidate) => (candidate.userId || `name:${candidate.name}`) !== key), state]
-        : current.filter((candidate) => (candidate.userId || `name:${candidate.name}`) !== key));
-      if (state.typing) {
-        typingTimersRef.current.set(key, setTimeout(() => {
-          setTypingUsers((current) => current.filter((candidate) => (candidate.userId || `name:${candidate.name}`) !== key));
-          typingTimersRef.current.delete(key);
-        }, 3_500));
-      } else {
-        typingTimersRef.current.delete(key);
-      }
-    }
-
-    function reconnect() {
-      if (disposed || reconnectTimer || AppState.currentState !== "active") return;
-      setStatus("reconnecting");
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null;
-        void connect();
-      }, Math.min(1_000 * 2 ** attempts++, 30_000));
-    }
-
-    async function connect() {
-      if (disposed || connecting || AppState.currentState !== "active") return;
-      const existingSocket = socketRef.current;
-      if (existingSocket?.readyState === WebSocket.CONNECTING || existingSocket?.readyState === WebSocket.OPEN) return;
-      connecting = true;
-      setStatus(attempts ? "reconnecting" : "connecting");
-      let socket: WebSocket;
-      try {
-        socket = await createAuthenticatedWebSocket(chatUrl(activeOrgId, roomId));
-      } catch (error) {
-        connecting = false;
-        if (!disposed) {
-          setLastError(error instanceof Error ? error.message : "Chat authentication failed.");
-          reconnect();
-        }
-        return;
-      }
-      connecting = false;
-      if (disposed || AppState.currentState !== "active") {
-        socket.close();
-        return;
-      }
-      socketRef.current = socket;
-      socket.onopen = () => {
-        if (disposed || socketRef.current !== socket) return;
-        attempts = 0;
-        setStatus("connected");
-        setLastError(null);
-        flush();
-      };
-      socket.onmessage = (event) => {
-        if (disposed || socketRef.current !== socket || typeof event.data !== "string") return;
-        try {
-          const payload = JSON.parse(event.data) as unknown;
-          if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return;
-          if ("type" in payload && payload.type === "hydrate" && "messages" in payload && Array.isArray(payload.messages)) {
-            const hydratedMessages = payload.messages.flatMap((candidate) => {
-              const message = parseChatMessage(candidate);
-              return message ? [message] : [];
-            });
-            // Every hydration replaces the native snapshot, including reconnect
-            // after a clear while offline. Older requests cannot merge into it.
-            historyGenerationRef.current++;
-            setLoadingOlder(false);
-            if("historyCleared" in payload && payload.historyCleared === true) {
-              setLastError(null);
-              void queryClient.invalidateQueries({queryKey:["mobile-chat-unread"]});
-            }
-            setMessages(hydratedMessages);
-            const oldest = hydratedMessages[0];
-            setHistoryCursor(oldest ? { timestamp: oldest.timestamp, id: oldest.id } : null);
-            setHasOlder(hydratedMessages.length >= 2_000);
-            if ("readReceipts" in payload && typeof payload.readReceipts === "object" && payload.readReceipts !== null) {
-              const receipts: Record<string, number> = {};
-              for (const [userId, readAt] of Object.entries(payload.readReceipts)) {
-                if (typeof readAt === "number" && Number.isFinite(readAt)) receipts[userId] = readAt;
-              }
-              setReadReceipts(receipts);
-            }
-            setHydrated(true);
-          } else if ("type" in payload && (payload.type === "message" || payload.type === "message-edited" || payload.type === "message-deleted")) {
-            const message = "message" in payload ? parseChatMessage(payload.message) : null;
-            if (message) {
-              setMessages((current) => mergeChatMessage(current, message));
-              void queryClient.invalidateQueries({ queryKey: ["mobile-chat-unread"] });
-            }
-          } else if ("type" in payload && payload.type === "mutation-result" && "requestId" in payload && typeof payload.requestId === "string") {
-            const pending = pendingMutationsRef.current.get(payload.requestId);
-            if (pending) {
-              clearTimeout(pending.timer);
-              pendingMutationsRef.current.delete(payload.requestId);
-              if ("ok" in payload && payload.ok === true) pending.resolve();
-              else pending.reject(new Error("error" in payload && typeof payload.error === "string" ? payload.error : "Message update failed."));
-            }
-          } else if ("type" in payload && payload.type === "typing"
-            && "name" in payload && typeof payload.name === "string"
-            && "typing" in payload && typeof payload.typing === "boolean") {
-            const userId = "userId" in payload && typeof payload.userId === "string" ? payload.userId : undefined;
-            updateTypingUser({
-              ...(userId ? { userId } : {}),
-              name: payload.name,
-              typing: payload.typing,
-            });
-          } else if ("type" in payload && payload.type === "read-receipt"
-            && "userId" in payload && typeof payload.userId === "string"
-            && "readAt" in payload && typeof payload.readAt === "number" && Number.isFinite(payload.readAt)) {
-            const userId = payload.userId;
-            const readAt = payload.readAt;
-            setReadReceipts((current) => ({ ...current, [userId]: Math.max(current[userId] ?? 0, readAt) }));
-            void queryClient.invalidateQueries({ queryKey: ["mobile-chat-unread"] });
-          } else if ("type" in payload && payload.type === "gateway-status"
-            && "status" in payload && (payload.status === "disabled" || payload.status === "connecting" || payload.status === "connected" || payload.status === "error")) {
-            const platform = "platform" in payload && (payload.platform === "mattermost" || payload.platform === "slack" || payload.platform === "discord" || payload.platform === "teams")
-              ? payload.platform
-              : null;
-            const error = "error" in payload && typeof payload.error === "string" ? payload.error : undefined;
-            const next: GatewayStatus = { platform, status: payload.status, ...(error ? { error } : {}) };
-            setGatewayStatus((current) => current.platform === next.platform
-              && current.status === next.status
-              && current.error === next.error
-              ? current
-              : next);
-          }
-        } catch {
-          setLastError("A live chat update could not be read.");
-        }
-      };
-      socket.onerror = () => {
-        if (!disposed) setLastError("Chat connection interrupted. Reconnecting…");
-      };
-      socket.onclose = () => {
-        if (socketRef.current !== socket) return;
-        socketRef.current = null;
-        rejectPendingMutations("Chat disconnected before the update completed.");
-        reconnect();
-      };
-    }
-
-    const appState = AppState.addEventListener("change", (next) => {
-      if (next === "active") void connect();
-      else {
-        setStatus("offline");
-        socketRef.current?.close();
-      }
-    });
-    void connect();
-    const typingTimers = typingTimersRef.current;
-    return () => {
-      disposed = true;
-      if (roomGenerationRef.current === roomGeneration) roomGenerationRef.current += 1;
-      appState.remove();
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      const socket = socketRef.current;
-      socketRef.current = null;
-      // Never carry an offline message across a room or organization boundary.
-      queueRef.current = [];
-      rejectPendingMutations("Chat room changed before the update completed.");
-      for (const timer of typingTimers.values()) clearTimeout(timer);
-      typingTimers.clear();
-      socket?.close();
+    let disposed = false, ready = false, attempts = 0, generation = 0;
+    let socket: WebSocket | null = null, authentication: AbortController | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined, handshake: ReturnType<typeof setTimeout> | undefined;
+    let cursor: ChatHistoryCursor | null = null, hasOlder = false, history: AbortController | null = null;
+    const pending = new Map<string, PendingMutation>(), deliveryTimers = new Map<string, ReturnType<typeof setTimeout>>(), typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    const active = () => !disposed && currentScope.current === scope;
+    const update = (patch: Partial<ChatView>) => { if (active()) setView(old => ({ ...(old.scope === scope ? old : emptyView(scope)), ...patch })); };
+    const readOutbox = () => client.getQueryData<ChatDelivery[]>(key) ?? [];
+    const changeOutbox = (change: (items: ChatDelivery[]) => ChatDelivery[]) => client.setQueryData<ChatDelivery[]>(key, items => change(items ?? []));
+    const clearDeliveryTimer = (id: string) => { clearTimeout(deliveryTimers.get(id)); deliveryTimers.delete(id); };
+    const acknowledge = (message: MobileChatMessage) => {
+      if (message.senderId !== userId || !readOutbox().some(item => item.id === message.id)) return;
+      clearDeliveryTimer(message.id); changeOutbox(items => items.filter(item => item.id !== message.id));
+      setView(old => old.lastError === sendFailureMessage ? { ...old, lastError: null } : old);
     };
-  }, [flush, orgId, queryClient, roomId]);
-
-  const send = useCallback((text: string, messageType: MobileChatMessage["type"] = "text", options?: MobileChatSendOptions) => {
-    const clean = text.trim().slice(0, 4_000);
-    if (!clean && !options?.attachments?.length && !options?.poll) return null;
-    const clientMessageId = createChatRequestId();
-    const frame = JSON.stringify({
-      type: "message",
-      text: clean,
-      messageType,
-      clientMessageId,
-      replyTo: options?.replyTo,
-      attachments: options?.attachments,
-      poll: options?.poll ? {
-        question: options.poll.question,
-        options: options.poll.options.map((option) => ({ id: "", text: option, voterIds: [] })),
-      } : undefined,
-    });
-    const socket = socketRef.current;
-    if (socket?.readyState === WebSocket.OPEN) socket.send(frame);
-    else queueRef.current.push(frame);
-    return clientMessageId;
-  }, []);
-
-  const mutateMessage = useCallback((payload: {
-    type: "edit" | "delete" | "vote" | "reaction";
-    messageId: string;
-    text?: string;
-    optionId?: string;
-    emoji?: MobileChatReactionEmoji;
-  }) => {
-    const socket = socketRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Chat is offline. Reconnect and try again."));
-    const requestId = createChatRequestId();
-    return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pendingMutationsRef.current.delete(requestId);
-        reject(new Error("The message update timed out. Please try again."));
-      }, 8_000);
-      pendingMutationsRef.current.set(requestId, { resolve, reject, timer });
-      socket.send(JSON.stringify({ ...payload, requestId }));
-    });
-  }, []);
-
-  const editMessage = useCallback((messageId: string, text: string) => {
-    const clean = text.trim().slice(0, 4_000);
-    if (!clean) return Promise.reject(new Error("Message cannot be empty."));
-    return mutateMessage({ type: "edit", messageId, text: clean });
-  }, [mutateMessage]);
-
-  const deleteMessage = useCallback((messageId: string) => mutateMessage({ type: "delete", messageId }), [mutateMessage]);
-  const votePoll = useCallback((messageId: string, optionId: string) => mutateMessage({ type: "vote", messageId, optionId }), [mutateMessage]);
-  const toggleReaction = useCallback((messageId: string, emoji: MobileChatReactionEmoji) => mutateMessage({ type: "reaction", messageId, emoji }), [mutateMessage]);
-  const setTyping = useCallback((typing: boolean) => {
-    const socket = socketRef.current;
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "typing", typing }));
-  }, []);
-  const markRead = useCallback((readAt: number) => {
-    const socket = socketRef.current;
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "read", readAt }));
-  }, []);
-
-  const loadOlder = useCallback(async () => {
-    if (!orgId || !historyCursor || loadingOlder || !hasOlder) return;
-    const requestedGeneration = roomGenerationRef.current;
-    const historyGeneration = historyGenerationRef.current;
-    setLoadingOlder(true);
-    try {
-      const nativeCookieHeader = await getNativeCookieHeader();
-      if (roomGenerationRef.current !== requestedGeneration || historyGenerationRef.current !== historyGeneration) return;
-      const response = await expoFetch(historyUrl(orgId, roomId, historyCursor), {
-        credentials: getAuthenticatedFetchCredentials(),
-        headers: { Accept: "application/json", ...nativeCookieHeader },
-      });
-      if (roomGenerationRef.current !== requestedGeneration || historyGenerationRef.current !== historyGeneration) return;
-      if (!response.ok) throw new Error(`Earlier messages could not be loaded (${response.status}).`);
-      const payload: unknown = await response.json();
-      if (roomGenerationRef.current !== requestedGeneration || historyGenerationRef.current !== historyGeneration) return;
-      const page = parseChatHistoryPage(payload);
-      if (!page) {
-        throw new Error("ShowPilot returned an invalid chat history page.");
-      }
-      setMessages((current) => {
-        const messagesById = new Map<string, MobileChatMessage>();
-        for (const message of [...page.messages, ...current]) messagesById.set(message.id, message);
-        return [...messagesById.values()].sort(compareChatMessages);
-      });
-      setHistoryCursor(page.nextCursor);
-      setHasOlder(page.nextCursor !== null);
-      setLastError(null);
-    } catch (error) {
-      if (roomGenerationRef.current === requestedGeneration && historyGenerationRef.current === historyGeneration) {
-        setLastError(error instanceof Error ? error.message : "Earlier messages could not be loaded.");
-      }
-    } finally {
-      if (roomGenerationRef.current === requestedGeneration && historyGenerationRef.current === historyGeneration) setLoadingOlder(false);
+    const cancelHistory = () => { history?.abort(); history = null; update({ loadingOlder: false }); };
+    function disconnect() {
+      generation++; ready = false;
+      authentication?.abort(); authentication = null;
+      clearTimeout(handshake); handshake = undefined;
+      clearTimeout(reconnectTimer); reconnectTimer = undefined;
+      cancelHistory();
+      const old = socket; socket = null;
+      if (old) { old.onopen = null; old.onmessage = null; old.onerror = null; old.onclose = null; old.close(); }
+      for (const item of pending.values()) { clearTimeout(item.timer); item.reject(new Error("Chat disconnected before the update completed. Check the current message before trying again.")); }
+      pending.clear();
+      for (const timer of deliveryTimers.values()) clearTimeout(timer);
+      deliveryTimers.clear();
+      changeOutbox(items => items.map(item => item.kind === "sending" ? { ...item, kind: "uncertain", error: uncertainMessage } : item));
+      for (const timer of typingTimers.values()) clearTimeout(timer);
+      typingTimers.clear(); update({ typingUsers: [] });
     }
-  }, [hasOlder, historyCursor, loadingOlder, orgId, roomId]);
-
-  return {
-    messages,
-    status,
-    lastError,
-    send,
-    editMessage,
-    deleteMessage,
-    votePoll,
-    toggleReaction,
-    typingUsers,
-    setTyping,
-    readReceipts,
-    hydrated,
-    markRead,
-    hasOlder,
-    loadingOlder,
-    loadOlder,
-    gatewayStatus,
+    function reconnect() {
+      if (!active() || reconnectTimer || AppState.currentState !== "active") return;
+      update({ status: "reconnecting" });
+      reconnectTimer = setTimeout(() => { reconnectTimer = undefined; void connect(); }, Math.min(1000 * 2 ** attempts++, 30000));
+    }
+    function fail(message: string) {
+      if (!active()) return;
+      disconnect(); update({ lastError: message, status: "offline" }); reconnect();
+    }
+    function transmit(id: string) {
+      const item = readOutbox().find(item => item.id === id);
+      if (!active() || !ready || !socket || socket.readyState !== WebSocket.OPEN || !item || item.kind === "sending" || item.kind === "rejected") return;
+      changeOutbox(items => items.map(value => value.id === id ? { ...value, kind: "sending" } : value));
+      clearDeliveryTimer(id);
+      deliveryTimers.set(id, setTimeout(() => {
+        clearDeliveryTimer(id);
+        if (active()) changeOutbox(items => items.map(value => value.id === id && value.kind === "sending" ? { ...value, kind: "uncertain", error: uncertainMessage } : value));
+      }, 12000));
+      try { socket.send(item.frame); }
+      catch {
+        clearDeliveryTimer(id);
+        changeOutbox(items => items.map(value => value.id === id ? { ...value, kind: "uncertain", error: uncertainMessage } : value));
+        update({ lastError: sendFailureMessage });
+      }
+    }
+    function typing(state: MobileChatTypingState) {
+      const id = state.userId || `name:${state.name}`;
+      clearTimeout(typingTimers.get(id));
+      setView(old => ({ ...old, typingUsers: [...old.typingUsers.filter(item => (item.userId || `name:${item.name}`) !== id), ...(state.typing ? [state] : [])] }));
+      if (state.typing) typingTimers.set(id, setTimeout(() => {
+        typingTimers.delete(id);
+        if (active()) setView(old => ({ ...old, typingUsers: old.typingUsers.filter(item => (item.userId || `name:${item.name}`) !== id) }));
+      }, 3500));
+      else typingTimers.delete(id);
+    }
+    async function connect() {
+      if (!active() || !orgId || !userId || authentication || socket || AppState.currentState !== "active") return;
+      clearTimeout(reconnectTimer); reconnectTimer = undefined;
+      const attempt = ++generation, controller = new AbortController(); authentication = controller;
+      update({ status: attempts ? "reconnecting" : "connecting" });
+      try {
+        const connection = await createAuthenticatedWebSocket(chatUrl(orgId, roomId), undefined, controller.signal);
+        if (!active() || attempt !== generation || AppState.currentState !== "active") { connection.close(); return; }
+        authentication = null; socket = connection;
+        const owns = () => active() && attempt === generation && socket === connection;
+        handshake = setTimeout(() => { if (owns()) fail("Chat connection timed out before history arrived. Retry the connection."); }, 10000);
+        // An open transport is not a ready room. Only hydration enables writes.
+        connection.onopen = () => {};
+        connection.onmessage = event => {
+          if (!owns() || typeof event.data !== "string") return;
+          try {
+            const payload: unknown = JSON.parse(event.data);
+            if (typeof payload !== "object" || payload === null || Array.isArray(payload) || !("type" in payload)) return;
+            if (payload.type === "hydrate" && "messages" in payload && Array.isArray(payload.messages)) {
+              const messages = payload.messages.map(parseChatMessage);
+              if (messages.some(item => item === null)) throw new Error("Chat returned an invalid history snapshot. Retry the connection.");
+              const snapshot = messages.filter((item): item is MobileChatMessage => item !== null);
+              cancelHistory();
+              snapshot.forEach(acknowledge);
+              cursor = snapshot[0] ? { timestamp: snapshot[0].timestamp, id: snapshot[0].id } : null;
+              hasOlder = snapshot.length >= 2000;
+              const receipts: Record<string, number> = {};
+              if ("readReceipts" in payload && typeof payload.readReceipts === "object" && payload.readReceipts !== null)
+                for (const [id, at] of Object.entries(payload.readReceipts)) if (typeof at === "number" && Number.isFinite(at)) receipts[id] = at;
+              ready = true; attempts = 0; clearTimeout(handshake); handshake = undefined;
+              update({ messages: snapshot, hydrated: true, status: "connected", lastError: null, historyError: null, hasOlder, readReceipts: receipts });
+              if ("historyCleared" in payload && payload.historyCleared === true) void client.invalidateQueries({ queryKey: ["mobile-chat-unread"] });
+              for (const item of readOutbox()) if (item.kind === "queued") transmit(item.id);
+            } else if (payload.type === "message" || payload.type === "message-edited" || payload.type === "message-deleted") {
+              const message = "message" in payload ? parseChatMessage(payload.message) : null;
+              if (message) {
+                acknowledge(message);
+                setView(old => ({ ...old, messages: mergeChatMessage(old.messages, message) }));
+                void client.invalidateQueries({ queryKey: ["mobile-chat-unread"] });
+              }
+            } else if (payload.type === "error") {
+              const error = "error" in payload && typeof payload.error === "string" ? payload.error : "Chat rejected an operation.";
+              if ("messageId" in payload && typeof payload.messageId === "string") {
+                const id = payload.messageId; clearDeliveryTimer(id);
+                changeOutbox(items => items.map(item => item.id === id ? { ...item, kind: "rejected", error } : item));
+              } else update({ lastError: error });
+            } else if (payload.type === "mutation-result" && "requestId" in payload && typeof payload.requestId === "string") {
+              const item = pending.get(payload.requestId);
+              if (item) {
+                clearTimeout(item.timer); pending.delete(payload.requestId);
+                if ("ok" in payload && payload.ok === true) item.resolve();
+                else item.reject(new Error("error" in payload && typeof payload.error === "string" ? payload.error : "Message update failed."));
+              }
+            } else if (payload.type === "typing" && "name" in payload && typeof payload.name === "string" && "typing" in payload && typeof payload.typing === "boolean") {
+              typing({ name: payload.name, typing: payload.typing, userId: "userId" in payload && typeof payload.userId === "string" ? payload.userId : undefined });
+            } else if (payload.type === "read-receipt" && "userId" in payload && typeof payload.userId === "string" && "readAt" in payload && typeof payload.readAt === "number" && Number.isFinite(payload.readAt)) {
+              const id = payload.userId, at = payload.readAt;
+              setView(old => ({ ...old, readReceipts: { ...old.readReceipts, [id]: Math.max(old.readReceipts[id] ?? 0, at) } }));
+              void client.invalidateQueries({ queryKey: ["mobile-chat-unread"] });
+            } else if (payload.type === "gateway-status" && "status" in payload && (payload.status === "disabled" || payload.status === "connecting" || payload.status === "connected" || payload.status === "error")) {
+              const platform = "platform" in payload && (payload.platform === "mattermost" || payload.platform === "slack" || payload.platform === "discord" || payload.platform === "teams") ? payload.platform : null;
+              update({ gatewayStatus: { platform, status: payload.status, error: "error" in payload && typeof payload.error === "string" ? payload.error : undefined } });
+            }
+          } catch (error) { fail(error instanceof Error ? error.message : "A live chat update could not be read. Retry the connection."); }
+        };
+        connection.onerror = () => { if (owns()) fail("Chat connection interrupted. Retry the connection."); };
+        connection.onclose = () => { if (owns()) fail("Chat disconnected. Showing last known messages."); };
+      } catch (error) { if (active() && attempt === generation) { authentication = null; fail(error instanceof Error ? error.message : "Chat authentication failed."); } }
+    }
+    const controller: Actions = {
+      scope,
+      retry() { if (!active()) return; disconnect(); attempts = 0; void connect(); },
+      send(text, type, options) {
+        if (!active() || !orgId || !userId) return null;
+        const clean = text.trim().slice(0, 4000);
+        if (!clean && !options?.attachments?.length && !options?.poll) return null;
+        const id = createLocalRequestUuid();
+        const frame = JSON.stringify({ type: "message", clientMessageId: id, text: clean, messageType: type, replyTo: options?.replyTo, attachments: options?.attachments,
+          poll: options?.poll ? { question: options.poll.question, options: options.poll.options.map(text => ({ id: "", text, voterIds: [] })) } : undefined });
+        changeOutbox(items => [...items, { id, frame, text: clean || options?.poll?.question || options?.attachments?.map(item => item.name).join(", ") || "Message", createdAt: Date.now(), kind: "queued" }]);
+        transmit(id); return id;
+      },
+      retryMessage: transmit,
+      discardMessage(id) { if (active()) { clearDeliveryTimer(id); changeOutbox(items => items.filter(item => item.id !== id)); } },
+      mutate(payload) {
+        if (!active() || !ready || !socket || socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Chat is not ready. Reconnect and try again."));
+        const requestId = createLocalRequestUuid(), target = socket;
+        return new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => { pending.delete(requestId); reject(new Error("The message update was not confirmed. Check the current message before trying again.")); }, 8000);
+          pending.set(requestId, { resolve, reject, timer });
+          try { target.send(JSON.stringify({ ...payload, requestId })); }
+          catch { clearTimeout(timer); pending.delete(requestId); reject(new Error("Chat could not send the update. Check the connection and try again.")); }
+        });
+      },
+      transient(payload) {
+        if (!active() || !ready || !socket || socket.readyState !== WebSocket.OPEN) return;
+        try { socket.send(JSON.stringify(payload)); } catch { fail("Chat connection interrupted. Retry the connection."); }
+      },
+      async loadOlder() {
+        if (!active() || !orgId || !ready || !cursor || !hasOlder || history) return;
+        const request = new AbortController(), requestedCursor = cursor; history = request;
+        update({ loadingOlder: true, historyError: null });
+        const owns = () => active() && history === request;
+        try {
+          const page = await runMobileOperation(async child => {
+            const headers = await getNativeCookieHeader();
+            if (child.signal.aborted) throw new Error("History request cancelled.");
+            const response = await expoFetch(historyUrl(orgId, roomId, requestedCursor), { credentials: getAuthenticatedFetchCredentials(), headers: { Accept: "application/json", ...headers }, signal: child.signal });
+            if (!response.ok) throw new Error(`Earlier messages could not be loaded (${response.status}).`);
+            const page = parseChatHistoryPage(await response.json());
+            if (!page) throw new Error("ShowPilot returned an invalid chat history page.");
+            return page;
+          }, request.signal, 10000);
+          if (!owns()) return;
+          cursor = page.nextCursor; hasOlder = cursor !== null;
+          setView(old => { const byId = new Map([...page.messages, ...old.messages].map(item => [item.id, item]));
+            return { ...old, messages: [...byId.values()].sort(compareChatMessages), hasOlder, historyError: null }; });
+        } catch (error) { if (owns()) update({ historyError: error instanceof MobileOperationTimeoutError ? "Earlier messages timed out. Retry loading earlier messages." : error instanceof Error ? error.message : "Earlier messages could not load." }); }
+        finally { if (owns()) { history = null; update({ loadingOlder: false }); } }
+      },
+    };
+    actions.current = controller;
+    setView(emptyView(scope));
+    if (!orgId || !userId) update({ status: "offline" }); else void connect();
+    const subscription = AppState.addEventListener("change", state => {
+      if (!active()) return;
+      if (state === "active") void connect();
+      else { disconnect(); update({ status: "offline" }); }
+    });
+    return () => { disposed = true; disconnect(); subscription.remove(); if (actions.current === controller) actions.current = null; };
+  }, [client, key, orgId, roomId, scope, userId]);
+  const current = useCallback(() => actions.current?.scope === currentScope.current ? actions.current : null, []);
+  return { ...(view.scope === scope ? view : emptyView(scope)), outbox,
+    retryConnection: useCallback(() => current()?.retry(), [current]),
+    retryMessage: useCallback((id: string) => current()?.retryMessage(id), [current]),
+    discardMessage: useCallback((id: string) => current()?.discardMessage(id), [current]),
+    send: useCallback((text: string, type: MobileChatMessage["type"] = "text", options?: MobileChatSendOptions) => current()?.send(text, type, options) ?? null, [current]),
+    editMessage: useCallback((messageId: string, text: string) => text.trim() ? current()?.mutate({ type: "edit", messageId, text: text.trim().slice(0, 4000) }) ?? Promise.reject(new Error("Chat is not ready.")) : Promise.reject(new Error("Message cannot be empty.")), [current]),
+    deleteMessage: useCallback((messageId: string) => current()?.mutate({ type: "delete", messageId }) ?? Promise.reject(new Error("Chat is not ready.")), [current]),
+    votePoll: useCallback((messageId: string, optionId: string) => current()?.mutate({ type: "vote", messageId, optionId }) ?? Promise.reject(new Error("Chat is not ready.")), [current]),
+    toggleReaction: useCallback((messageId: string, emoji: MobileChatReactionEmoji) => current()?.mutate({ type: "reaction", messageId, emoji }) ?? Promise.reject(new Error("Chat is not ready.")), [current]),
+    setTyping: useCallback((typing: boolean) => current()?.transient({ type: "typing", typing }), [current]),
+    markRead: useCallback((readAt: number) => current()?.transient({ type: "read", readAt }), [current]),
+    loadOlder: useCallback(() => current()?.loadOlder() ?? Promise.resolve(), [current]),
   };
 }
