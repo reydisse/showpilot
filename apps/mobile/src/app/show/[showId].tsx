@@ -1,3 +1,4 @@
+import { ProPresenterControls } from "../../components/propresenter-controls";
 import { StageMessageCard } from "@/components/stage-message-card";
 import { useRundownItemEditor } from "@/hooks/use-rundown-item-editor";
 import { RundownResetConfirmation } from "@/components/rundown-reset-confirmation";
@@ -45,7 +46,6 @@ import { authClient } from "@/lib/auth-client";
 import { SHOWPILOT_URL } from "@/lib/env";
 import {
   commandMobileRundownChange,
-  controlMobileProPresenter,
   getMobileRundown,
   getMobileRundownTemplates,
   updateMobileProPresenterStageDisplay,
@@ -212,14 +212,6 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
     networkMode: "always", retry: false,
     queryFn: () => getMobileRundownTemplates(orgId, detail.show.id),
     enabled: canAuthor,
-  });
-  const proPresenter = useMutation({
-    mutationFn: (command: "next" | "previous" | "clear") => controlMobileProPresenter({
-      orgId,
-      showId: detail.show.id,
-      command,
-    }),
-    onError: (error) => Alert.alert("ProPresenter command failed", error.message),
   });
   const stageDisplay = useMutation({
     mutationFn: (enabled: boolean) => updateMobileProPresenterStageDisplay({
@@ -397,11 +389,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
               </Pressable>
               {detail.canControl ? <>
                 {!detail.proPresenter.cuesEnabled ? <Text style={styles.ppWarning}>Enable “Send cues” in Settings → ProPresenter before using remote slide controls.</Text> : null}
-                <View style={styles.ppControls}>
-                  <MiniButton disabled={proPresenter.isPending || !detail.proPresenter.cuesEnabled || !detail.proPresenter.bridgeOnline} label="Previous" onPress={() => proPresenter.mutate("previous")}><SkipBack color={colors.textMuted} size={16} /></MiniButton>
-                  <MiniButton disabled={proPresenter.isPending || !detail.proPresenter.cuesEnabled || !detail.proPresenter.bridgeOnline} label="Next" onPress={() => proPresenter.mutate("next")}><SkipForward color={colors.textMuted} size={16} /></MiniButton>
-                  <MiniButton disabled={proPresenter.isPending || !detail.proPresenter.cuesEnabled || !detail.proPresenter.bridgeOnline} label="Clear" onPress={() => proPresenter.mutate("clear")}><CircleStop color={colors.red} size={16} /></MiniButton>
-                </View>
+                <ProPresenterControls key={`${userId}:${orgId}:${detail.show.id}`} scope={{ userId, orgId, showId: detail.show.id }} ready={liveReady && detail.proPresenter.cuesEnabled && detail.proPresenter.bridgeOnline} />
               </> : null}
             </View> : null}
             {canUseLiveRelay || relay.stageMessage ? <StageMessageCard key={`${userId}:${orgId}:${detail.show.id}`}
@@ -565,7 +553,6 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   ppStageTitle: { color: colors.text, fontFamily, fontSize: 12, fontWeight: "800" },
   ppStageHint: { color: colors.textFaint, fontFamily, fontSize: 11, lineHeight: 15 },
   ppWarning: { color: colors.amberText, fontFamily, fontSize: 11, lineHeight: 17 },
-  ppControls: { flexDirection: "row", gap: 8 },
   activeMessagePriorityText: { color: colors.red },
   sectionHeading: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.6 },

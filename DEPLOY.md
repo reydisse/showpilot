@@ -9205,3 +9205,75 @@ tracked Markdown files remain, with none added.
 Stack gate: #283 exact head c216a8fa7f2800617dd8203c7e0b9367086da7e6 passed
 both jobs in CI 42574525613 before this draft opens. This draft's exact-head CI
 must pass before another PR opens.
+
+### Phase 2: native ProPresenter command receipts (2026-11-09)
+
+The mobile API previously generated a new Bridge command ID on every request.
+After a lost reply, another request could advance again without establishing
+whether the first Next had already reached ProPresenter. Native slide controls
+now retain the original account/workspace/show/request identity and show a
+bounded pending state, confirmed result, rejection, or uncertain outcome.
+Checking status reads that request's receipt and never dispatches another slide
+command. After uncertainty, the operator must explicitly check the output before
+starting a new action. Clear requires a visible confirmation; Previous slide and
+Next slide remain single-tap controls with distinct accessible labels. Retention
+covers navigation during the signed-in app session, not app termination.
+
+The mobile prepare/execute/check contract delegates to the org-scoped BridgeRelay.
+A durable receipt is written before dispatch and binds the actor, show, command,
+selected installation and ProPresenter configuration fingerprint. Live session,
+PIN/control permission, show existence, configured target approval and cue-control
+settings are rechecked at execution. Retries and object eviction cannot replay a
+claimed relative command. A crash or missing device acknowledgement remains
+uncertain rather than being reported as a definite failure or success. Receipts
+use existing Durable Object storage and are retained for deduplication; no D1
+migration or new service is required.
+
+The Bridge prepares a five-second reservation using its own monotonic clock,
+then consumes it before touching ProPresenter. Server and Bridge clocks need not
+agree. A delayed command, duplicate execution, changed payload, connection
+replacement, disconnect or ownership handoff cannot reuse the reservation.
+Reconnecting with identical ProPresenter settings preserves it. The adapter checks
+expiry before each fallback mutation endpoint; its existing rule against trying
+another endpoint after a lost HTTP response remains intact. ProPresenter's reply
+confirms its API command, not what a physical screen displayed.
+
+Deployment dependency: deploy the receipt API and update Desktop/Bridge's bundled
+Bridge before distributing this native client. Older Bridges cannot acknowledge
+reservation messages and fail closed without a slide command. Older native
+clients sending only `{command}` receive an explicit update-required error;
+coordinate the client rollout instead of expecting the previous blind-command
+contract to remain available. No deployment or release was performed here.
+The native stage-display toggle and the web ProPresenter controls remain separate
+recovery work; this change does not claim those paths are complete.
+
+Verification: full web suite passed twice after migrating the old control tests:
+3,297 unit + 1,712 Worker = 5,009 tests. A final expired-preparation message
+correction and added regression passed all 25 focused unit/hook/API tests. Worker
+coverage exercises real auth, D1, socket dispatch, durable receipts after eviction,
+permission/session/configuration/cue-control changes, removed shows and strict
+identity matching. All 158 Bridge tests passed, including real localhost sockets
+and a ProPresenter HTTP stub proving one mutation per reservation, unchanged
+reconnection, configuration replacement and ownership handoff. No real equipment
+or production workspace was used.
+
+Web and Bridge typechecks and production build passed. Main bundle remains
+542,230 raw / 171,073 gzip bytes within unchanged budgets. Final native verification
+passed typecheck, lint (18 existing warnings, zero errors), all three exports,
+Expo Doctor 18/18, contracts and polling checks. Hermes: iOS 6,038,976 / Android
+6,038,080 bytes.
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-propresenter-command.mjs`
+passed and exited zero. It exercises the compiled Expo web controls with a local
+command-receipt stub and real disposable Worker authentication/rundown hydration.
+Lost accepted replies, failed status reads, explicit Clear review, uncertain
+outcome acknowledgement and late preparation are covered. Status checks add no
+mutation. At 320x480, 768x1024 and 1440x1000, controls remain unobstructed, at least
+44px and within the viewport. Screenshots were inspected. This is exported-web
+behavior proof, not physical iOS/Android or external ProPresenter verification.
+
+Logs: /tmp/showpilot-pp-{unit1,unit2,unit3,worker1,worker2,worker3,route1,route2,bridge1,bridge2,full1,full2,full3,tsc0,tsc1,bridge-tsc0,bridge-tsc1,mobile-tsc0,build1,verify1,verify2,browser1}.log.
+Screenshots: /tmp/showpilot-native-propresenter-{ready,clear-review,lost-reply,uncertain}-{320,768,1440}.png.
+Phase 2 remains 67/79. Twenty necessary tracked Markdown files remain; none added.
+Stack gate: #284 exact head 0ea5b60c1abe66b648a46fdbf13ea5aa518815a8 passed
+both jobs in CI run 42576928882 before this successor was opened.
