@@ -27,7 +27,11 @@ class Socket {
 }
 const appState = {
   currentState: "active",
-  addEventListener: () => ({ remove() {} }),
+  listener: null,
+  addEventListener: (_event, listener) => {
+    appState.listener = listener;
+    return { remove() { appState.listener = null; } };
+  },
 };
 const authenticate = vi.fn(async () => {
   const socket = new Socket();
@@ -65,6 +69,7 @@ beforeEach(() => {
   vi.stubGlobal("WebSocket", { OPEN: 1, CONNECTING: 0 });
   sockets.length = 0;
   authenticate.mockClear();
+  appState.currentState = "active";
 });
 afterEach(() => {
   cleanup();
@@ -235,4 +240,117 @@ it("an uncertain transport timeout is visible and cannot retry an expired action
   expect(f.result.current.lastError).toMatch(/may have completed/);
   await act(async () => f.result.current.dismissCommandError());
   expect(f.result.current.lastError).toBeNull();
+});
+
+
+it("bounds stalled authentication and closes a late socket without replacing the new connection", async () => {
+  let finish;
+  authenticate.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const f = renderHook(() => useRundownRelay("org", "2026-11-08", "show"));
+  await act(async () => vi.advanceTimersByTimeAsync(12001));
+  expect(f.result.current.lastError).toMatch(/timed out/i);
+  expect(f.result.current.hydrated).toBe(false);
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(authenticate).toHaveBeenCalledTimes(2);
+  const current = sockets.at(-1);
+  await act(async () => { current.open(); hydrate(current); });
+  const late = new Socket();
+  await act(async () => finish(late));
+  expect(late.readyState).toBe(3);
+  expect(f.result.current.status).toBe("connected");
+});
+it("bounds a socket that never opens", async () => {
+  const f = renderHook(() => useRundownRelay("org", "2026-11-08", "show"));
+  await act(async () => {});
+  const socket = sockets[0];
+  await act(async () => vi.advanceTimersByTimeAsync(12001));
+  expect(socket.readyState).toBe(3);
+  expect(f.result.current.lastError).toMatch(/timed out/i);
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(authenticate).toHaveBeenCalledTimes(2);
+});
+it("requires hydration before connected and bounds an open but silent socket", async () => {
+  const f = renderHook(() => useRundownRelay("org", "2026-11-08", "show"));
+  await act(async () => {});
+  const socket = sockets[0];
+  await act(async () => socket.open());
+  expect(f.result.current.status).toBe("connecting");
+  await act(async () => vi.advanceTimersByTimeAsync(12001));
+  expect(f.result.current.hydrated).toBe(false);
+  expect(f.result.current.lastError).toMatch(/timed out/i);
+  expect(socket.readyState).toBe(3);
+});
+it("does not let a wrong-show snapshot satisfy the hydration deadline", async () => {
+  const f = renderHook(() => useRundownRelay("org", "2026-11-08", "show"));
+  await act(async () => {});
+  const socket = sockets[0];
+  await act(async () => {
+    socket.open();
+    socket.message({ type: "hydrate", state: { showId: "other", serviceDate: "2026-11-08", revision: 1, items: [], timer: {} } });
+  });
+  await act(async () => vi.advanceTimersByTimeAsync(12001));
+  expect(f.result.current.hydrated).toBe(false);
+  expect(socket.readyState).toBe(3);
+});
+it("does not mark malformed hydration live", async () => {
+  const f = renderHook(() => useRundownRelay("org", "2026-11-08", "show"));
+  await act(async () => {});
+  await act(async () => { sockets[0].open(); sockets[0].message({ type: "hydrate", state: {} }); });
+  expect(f.result.current.hydrated).toBe(false);
+  expect(f.result.current.lastError).toMatch(/unreadable/i);
+});
+it("reconnects after an error even if the platform never dispatches close", async () => {
+  const f = await fixture();
+  f.socket.close = () => { f.socket.readyState = 2; };
+  await act(async () => f.socket.onerror());
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(authenticate).toHaveBeenCalledTimes(2);
+  expect(f.result.current.hydrated).toBe(false);
+});
+it("invalidates hydration as soon as the app backgrounds and reconnects on resume", async () => {
+  const f = await fixture();
+  f.socket.close = () => { f.socket.readyState = 2; };
+  await act(async () => { appState.currentState = "background"; appState.listener("background"); });
+  expect(f.result.current.hydrated).toBe(false);
+  expect(f.result.current.status).toBe("offline");
+  await act(async () => { appState.currentState = "active"; appState.listener("active"); });
+  expect(authenticate).toHaveBeenCalledTimes(2);
+});
+it("clears a completed handshake deadline without dropping a healthy connection", async () => {
+  const f = await fixture();
+  await act(async () => vi.advanceTimersByTimeAsync(13000));
+  expect(f.result.current.hydrated).toBe(true);
+  expect(f.result.current.status).toBe("connected");
+  expect(f.socket.readyState).toBe(1);
+});
+
+
+it("manual retry replaces a stalled handshake without waiting for its deadline", async () => {
+  const f = renderHook(() => useRundownRelay("org", "2026-11-08", "show"));
+  await act(async () => {});
+  const first = sockets[0];
+  await act(async () => f.result.current.retryConnection());
+  expect(first.readyState).toBe(3);
+  expect(authenticate).toHaveBeenCalledTimes(2);
+  await act(async () => { sockets[1].open(); hydrate(sockets[1]); });
+  expect(f.result.current.hydrated).toBe(true);
+});
+it("ignores a retired socket's late state after manual retry", async () => {
+  const f = await fixture();
+  await act(async () => f.result.current.retryConnection());
+  await act(async () => { sockets[1].open(); hydrate(sockets[1], 9); });
+  await act(async () => hydrate(f.socket, 100));
+  expect(f.result.current.revision).toBe(9);
+});
+it("closes late authentication after unmount and clears the attempt deadline", async () => {
+  let finish;
+  authenticate.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const f = renderHook(() => useRundownRelay("org", "2026-11-08", "show"));
+  await act(async () => {});
+  f.unmount();
+  const late = new Socket();
+  await act(async () => finish(late));
+  expect(late.readyState).toBe(3);
+  await act(async () => vi.advanceTimersByTimeAsync(60000));
+  expect(authenticate).toHaveBeenCalledTimes(1);
 });

@@ -39,6 +39,7 @@ interface RelayState {
 }
 
 const TRANSPORT_MAX_AGE_MS = 5_000;
+const CONNECTION_TIMEOUT_MS = 12_000;
 function isTransport(action: string) { return action.startsWith("timer-") && action !== "timer-mode"; }
 function expired(command: QueuedCommand) { return isTransport(command.action) && Date.now() - command.queuedAt >= TRANSPORT_MAX_AGE_MS; }
 
@@ -93,6 +94,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
   const [unconfirmedCount, setUnconfirmedCount] = useState(0);
   const serverClockOffsetRef = useRef<number | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const restartConnectionRef = useRef<(message?: string) => void>(() => {});
   const hydratedRef = useRef(false);
   const revisionRef = useRef(0);
   const queueRef = useRef<QueuedCommand[]>([]);
@@ -137,10 +139,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       }
       updateCount();
       if (socketRef.current === socket) {
-        hydratedRef.current = false;
-        setHydrated(false);
-        setStatus("reconnecting");
-        socket.close();
+        restartConnectionRef.current("Live state is being refreshed after an unconfirmed command.");
       }
     }, 8_000);
     try { socket.send(JSON.stringify({
@@ -151,11 +150,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       payload: pending.payload,
       ...(pending.expiresAt === undefined ? {} : { expiresAt: pending.expiresAt }),
     })); } catch {
-      setConnectionError("The control change could not be sent. Reconnecting with its original request retained.");
-      hydratedRef.current = false;
-      setHydrated(false);
-      setStatus("reconnecting");
-      socket.close();
+      restartConnectionRef.current("The control change could not be sent. Reconnecting with its original request retained.");
     }
   }, [clearPendingTimer, updateCount]);
 
@@ -165,6 +160,9 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
     let attempts = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+    let handshakeTimer: ReturnType<typeof setTimeout> | null = null;
+    let authentication: AbortController | null = null;
+    let generation = 0;
 
     hydratedRef.current = false;
     revisionRef.current = 0;
@@ -202,20 +200,62 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       }, delay);
     }
 
+    function clearHandshake() {
+      if (handshakeTimer) clearTimeout(handshakeTimer);
+      handshakeTimer = null;
+    }
+
+    // Detach before close: native platforms may delay or omit the close event.
+    // Late authentication and callbacks from this generation no longer own state.
+    function retireConnection(message?: string, reconnect = true) {
+      generation += 1;
+      authentication?.abort();
+      authentication = null;
+      connecting = false;
+      clearHandshake();
+      clearKeepalive();
+      clearPendingTimer();
+      if (pendingRef.current) {
+        queueRef.current.unshift(pendingRef.current);
+        pendingRef.current = null;
+      }
+      const socket = socketRef.current;
+      socketRef.current = null;
+      hydratedRef.current = false;
+      socket?.close();
+      if (disposed) return;
+      setHydrated(false);
+      updateCount();
+      if (message) setConnectionError(message);
+      if (reconnect) scheduleReconnect();
+      else setStatus("offline");
+    }
+
+    restartConnectionRef.current = (message) => {
+      retireConnection(message, Boolean(message));
+      if (!message) {
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+        attempts = 0;
+        void connect();
+      }
+    };
+
     function applyState(value: unknown) {
-      if (!isRecord(value)) return;
+      if (!isRecord(value) || !Array.isArray(value.items) || !isRecord(value.timer)
+        || typeof value.revision !== "number" || !Number.isSafeInteger(value.revision) || value.revision < 0) {
+        retireConnection("ShowPilot received an unreadable live update. Reconnecting for current state.");
+        return;
+      }
       const incomingShowId = typeof value.showId === "string" ? value.showId : null;
       const incomingServiceDate = typeof value.serviceDate === "string" ? value.serviceDate : null;
       const incomingItems = Array.isArray(value.items) ? value.items : [];
       const hasRoomState = incomingItems.length > 0 || incomingShowId !== null || incomingServiceDate !== null;
       if (
         (incomingShowId !== showId && hasRoomState) ||
-        (!incomingShowId && incomingServiceDate && incomingServiceDate !== serviceDate)
+        (incomingServiceDate !== serviceDate && hasRoomState)
       ) {
-        setState((current) => ({ ...current, serviceDate: incomingServiceDate, showId: incomingShowId }));
-        hydratedRef.current = false;
-        setHydrated(false);
-        setConnectionError("Live state belongs to another show. Reconnect before sending controls.");
+        retireConnection("Live state belongs to another show. Reconnecting before sending controls.");
         return;
       }
 
@@ -255,8 +295,11 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
           ? normalizePPSlide(value.ppPreviewSlide)
           : current.ppPreviewSlide,
       }));
+      clearHandshake();
+      attempts = 0;
       hydratedRef.current = true;
       setHydrated(true);
+      setStatus("connected");
       setConnectionError(null);
       dispatchNext();
     }
@@ -268,32 +311,38 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
 
       setStatus(attempts ? "reconnecting" : "connecting");
       connecting = true;
+      const attemptGeneration = ++generation;
+      const controller = new AbortController();
+      authentication = controller;
+      clearHandshake();
+      handshakeTimer = setTimeout(() => {
+        if (disposed || generation !== attemptGeneration) return;
+        retireConnection("The live connection timed out before current state arrived. Retrying…");
+      }, CONNECTION_TIMEOUT_MS);
       let socket: WebSocket;
       try {
-        socket = await createAuthenticatedWebSocket(relayUrl(orgId, serviceDate, showId), orgId);
+        socket = await createAuthenticatedWebSocket(relayUrl(orgId, serviceDate, showId), orgId, controller.signal);
       } catch (error) {
-        connecting = false;
-        if (!disposed) {
-          setConnectionError(error instanceof Error ? error.message : "Live authentication failed.");
-          scheduleReconnect();
+        if (!disposed && generation === attemptGeneration) {
+          retireConnection(error instanceof Error ? error.message : "Live authentication failed.");
         }
         return;
       }
-      connecting = false;
-      if (disposed || AppState.currentState !== "active") {
+      if (disposed || generation !== attemptGeneration || AppState.currentState !== "active") {
         socket.close();
         return;
       }
+      connecting = false;
       socketRef.current = socket;
       hydratedRef.current = false;
 
       socket.onopen = () => {
         if (disposed || socketRef.current !== socket) return;
-        attempts = 0;
-        setStatus("connected");
         clearKeepalive();
         keepaliveTimer = setInterval(() => {
-          if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "ping" }));
+          if (socket.readyState !== WebSocket.OPEN) return;
+          try { socket.send(JSON.stringify({ type: "ping" })); }
+          catch { retireConnection("The live connection was interrupted. Reconnecting…"); }
         }, 20_000);
       };
 
@@ -328,34 +377,18 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
           updateCount();
           dispatchNext();
         } catch {
-          setConnectionError("ShowPilot received an unreadable live update.");
+          retireConnection("ShowPilot received an unreadable live update. Reconnecting for current state.");
         }
       };
 
       socket.onerror = () => {
         if (disposed || socketRef.current !== socket) return;
-        hydratedRef.current = false;
-        setHydrated(false);
-        setStatus("reconnecting");
-        setConnectionError("The live connection was interrupted. Reconnecting…");
-        socket.close();
+        retireConnection("The live connection was interrupted. Reconnecting…");
       };
 
       socket.onclose = () => {
-        if (socketRef.current !== socket) return;
-        clearKeepalive();
-        clearPendingTimer();
-        if (pendingRef.current) {
-          queueRef.current.unshift(pendingRef.current);
-          pendingRef.current = null;
-        }
-        socketRef.current = null;
-        hydratedRef.current = false;
-        updateCount();
-        if (!disposed) {
-          setHydrated(false);
-          scheduleReconnect();
-        }
+        if (disposed || socketRef.current !== socket) return;
+        retireConnection("The live connection closed. Reconnecting with the last known state.");
       };
     }
 
@@ -364,8 +397,9 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       if (nextState === "active") {
         void connect();
       } else {
-        setStatus("offline");
-        socketRef.current?.close();
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+        retireConnection(undefined, false);
       }
     });
 
@@ -374,13 +408,10 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       disposed = true;
       appStateSubscription.remove();
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      clearKeepalive();
-      clearPendingTimer();
+      retireConnection(undefined, false);
+      restartConnectionRef.current = () => {};
       queueRef.current = [];
       pendingRef.current = null;
-      const socket = socketRef.current;
-      socketRef.current = null;
-      socket?.close();
     };
   }, [clearPendingTimer, dispatchNext, orgId, serviceDate, showId, updateCount]);
 
@@ -415,7 +446,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
     sendCommand("seed", { items, timer, force: false, ...meta });
   }, [sendCommand]);
 
-  return { ...state, status, hydrated, lastError: commandError ?? connectionError, commandError, unconfirmedCount, dismissCommandError: () => setCommandError(null), sendCommand, seedState };
+  return { ...state, status, hydrated, lastError: commandError ?? connectionError, commandError, unconfirmedCount, dismissCommandError: () => setCommandError(null), retryConnection: () => restartConnectionRef.current(), sendCommand, seedState };
 }
 
 function normalizePPSlide(value: unknown): RelayState["ppPreviewSlide"] {

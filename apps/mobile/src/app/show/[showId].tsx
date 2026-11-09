@@ -63,6 +63,7 @@ function titleFor(show: MobileRundown["show"]) {
 }
 
 function TimerPanel({
+  liveReady,
   canEdit,
   canControl,
   controlsEnabled,
@@ -73,6 +74,7 @@ function TimerPanel({
   onCommand,
   timer,
 }: {
+  liveReady: boolean;
   canEdit: boolean;
   canControl: boolean;
   controlsEnabled: boolean;
@@ -93,9 +95,10 @@ function TimerPanel({
   useEffect(() => {
     const tick = () => setElapsed(timerElapsed(timer));
     tick();
+    if (!liveReady) return;
     const interval = setInterval(tick, 100);
     return () => clearInterval(interval);
-  }, [timer]);
+  }, [timer, liveReady]);
 
   const timerValue = timer.mode === "clock"
     ? new Date(elapsed).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
@@ -107,11 +110,11 @@ function TimerPanel({
   return (
     <View style={[styles.timerCard, overtime && styles.timerCardOvertime]}>
       <View style={styles.nowRow}>
-        <View style={[styles.liveDot, timer.playback !== "play" && styles.liveDotIdle]} />
-        <Text style={styles.nowLabel}>{timer.playback === "play" ? "NOW LIVE" : timer.playback === "pause" ? "PAUSED" : "STANDBY"}</Text>
+        <View style={[styles.liveDot, (!liveReady || timer.playback !== "play") && styles.liveDotIdle]} />
+        <Text style={styles.nowLabel}>{!liveReady ? "LAST KNOWN" : timer.playback === "play" ? "NOW LIVE" : timer.playback === "pause" ? "PAUSED" : "STANDBY"}</Text>
       </View>
       <Text numberOfLines={2} style={styles.currentTitle}>{currentItem?.title ?? "Select an item to begin"}</Text>
-      <Text adjustsFontSizeToFit numberOfLines={1} style={[styles.timer, overtime && styles.timerOvertime]}>{timerValue}</Text>
+      <Text testID="rundown-timer-value" adjustsFontSizeToFit numberOfLines={1} style={[styles.timer, overtime && styles.timerOvertime]}>{timerValue}</Text>
       <Text style={styles.timerMode}>{timer.mode.replace("-", " ").toUpperCase()}</Text>
 
       {canEdit ? <View accessibilityRole="radiogroup" style={styles.modeRow}>
@@ -197,12 +200,12 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
   const [stageDisplayEnabled, setStageDisplayEnabled] = useState(detail.proPresenter.stageDisplayEnabled);
   const seededRef = useRef(false);
   const sameRoom = relay.showId === detail.show.id && relay.serviceDate === detail.show.serviceDate;
-  // Once the relay identifies this room, its empty list is authoritative.
-  // Falling back to the HTTP snapshot would resurrect items deleted elsewhere.
-  const relayIsAuthoritative = relay.hydrated && sameRoom && relay.initialized;
-  const items = relayIsAuthoritative ? relay.items : detail.items;
+  // Keep the last relay snapshot during reconnect, including an empty list.
+  // Falling back to older HTTP data would resurrect items deleted elsewhere.
+  const hasRelayState = sameRoom && relay.initialized;
+  const items = hasRelayState ? relay.items : detail.items;
   const itemNumbers = rundownItemNumbers(items);
-  const timer = relayIsAuthoritative ? relay.timer : detail.timer;
+  const timer = hasRelayState ? relay.timer : detail.timer;
   const canAuthor = detail.canEdit;
   const canUseLiveRelay = detail.canEdit || detail.canControl;
   const templatesQuery = useQuery({
@@ -396,8 +399,12 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
               <Pressable accessibilityLabel="Share stage display link" accessibilityRole="button" onPress={shareKioskLink} style={styles.connectionAction}><ScreenShare color={colors.textMuted} size={15} /></Pressable>
               {canAuthor ? <Pressable accessibilityLabel="Edit show details" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setShowDetailsOpen(true)} style={[styles.connectionAction, !editControlsEnabled && styles.disabled]}><Pencil color={colors.textMuted} size={15} /></Pressable> : null}
             </View>
+            {relay.lastError ? <Text accessibilityRole="alert" style={styles.syncError}>{relay.lastError}</Text> : null}
+            {relay.commandError ? <AppButton label="Dismiss rundown notice" variant="secondary" onPress={relay.dismissCommandError}/> : null}
+            {!liveReady ? <AppButton label="Retry live connection" variant="secondary" onPress={relay.retryConnection} /> : null}
             <RundownUnlock userId={userId} orgId={orgId} showId={detail.show.id} pinAccess={detail.pinAccess} />
             <TimerPanel
+              liveReady={liveReady}
               resetEnabled={canReset}
               onReset={() => setResetOpen(true)}
               canEdit={canAuthor}
@@ -408,8 +415,6 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
               onCommand={(action, payload) => void command(action, payload)}
               timer={timer}
             />
-            {relay.lastError ? <Text accessibilityRole="alert" style={styles.syncError}>{relay.lastError}</Text> : null}
-            {relay.commandError ? <AppButton label="Dismiss rundown notice" variant="secondary" onPress={relay.dismissCommandError}/> : null}
             {canUseLiveRelay && detail.proPresenter.configured ? <View style={styles.ppCard}>
               <View style={styles.ppHeading}><View style={styles.ppTitleRow}><Presentation color={colors.amberText} size={17} /><Text style={styles.ppTitle}>PROPRESENTER</Text></View><Text style={[styles.ppStatus, detail.proPresenter.connected && styles.ppStatusConnected]}>{detail.proPresenter.connected ? "CONNECTED" : detail.proPresenter.bridgeOnline ? "READY" : "BRIDGE OFFLINE"}</Text></View>
               {relay.ppPreviewSlide ? <View style={styles.ppPreview}><Text numberOfLines={1} style={styles.ppPresentation}>{relay.ppPreviewSlide.presentationName || "Current slide"}</Text><Text numberOfLines={5} style={styles.ppText}>{relay.ppPreviewSlide.text || "Blank slide"}</Text>{relay.ppPreviewSlide.notes ? <Text numberOfLines={2} style={styles.ppNotes}>{relay.ppPreviewSlide.notes}</Text> : null}</View> : <Text style={styles.ppEmpty}>No active slide preview. Commands will connect through the Venue Bridge.</Text>}
@@ -434,7 +439,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
               </> : null}
             </View> : null}
             {canUseLiveRelay ? <View style={styles.messageCard}>
-              <View style={styles.messageHeading}><Text style={styles.messageTitle}>STAGE MESSAGE</Text>{relay.stageMessage ? <Text style={styles.messageLive}>LIVE</Text> : null}</View>
+              <View style={styles.messageHeading}><Text style={styles.messageTitle}>STAGE MESSAGE</Text>{relay.stageMessage ? <Text style={styles.messageLive}>{liveReady ? "LIVE" : "Last known"}</Text> : null}</View>
               <TextInput accessibilityLabel="Stage message" editable={liveWriteEnabled} maxLength={1_980} multiline onChangeText={setMessage} placeholder="Send a message to confidence displays" placeholderTextColor={colors.textFaint} style={styles.messageInput} value={message} />
               <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: messagePriority, disabled: !liveWriteEnabled }} disabled={!liveWriteEnabled} onPress={() => setMessagePriority((current) => !current)} style={[styles.priorityToggle, messagePriority && styles.priorityToggleActive]}><View style={[styles.priorityDot, messagePriority && styles.priorityDotActive]} /><View style={styles.priorityCopy}><Text style={[styles.priorityTitle, messagePriority && styles.priorityTitleActive]}>Priority message</Text><Text style={styles.priorityHint}>Use the urgent treatment on confidence displays.</Text></View></Pressable>
               <View style={styles.messageActions}><AppButton disabled={!liveWriteEnabled || !message.trim()} label="Send message" onPress={() => relay.sendCommand("stage-message", { message: `${messagePriority ? "!!PRIORITY!!" : ""}${message.trim()}` })} style={styles.messageButton} /><Pressable accessibilityRole="button" disabled={!liveWriteEnabled || !relay.stageMessage} onPress={() => relay.sendCommand("stage-clear")} style={[styles.clearMessage, (!liveWriteEnabled || !relay.stageMessage) && styles.disabled]}><Text style={styles.clearMessageText}>Clear</Text></Pressable></View>
@@ -552,7 +557,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   nowRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.green },
   liveDotIdle: { backgroundColor: colors.textFaint },
-  nowLabel: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.8 },
+  nowLabel: { color: colors.textFaint, fontFamily, fontSize: 12, fontWeight: "900", letterSpacing: 1.8 },
   currentTitle: { minHeight: 24, color: colors.text, fontFamily, fontSize: 18, lineHeight: 24, fontWeight: "700", textAlign: "center" },
   timer: { width: "100%", color: colors.amberText, fontFamily: "monospace", fontSize: 66, lineHeight: 74, fontWeight: "800", letterSpacing: -4, textAlign: "center" },
   timerOvertime: { color: colors.red },
@@ -596,7 +601,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   messageCard: { gap: 10, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: 13 },
   messageHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   messageTitle: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.3 },
-  messageLive: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1 },
+  messageLive: { color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "900", letterSpacing: 1 },
   messageInput: { minHeight: 72, borderRadius: radii.small, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, color: colors.text, fontFamily, fontSize: 14, lineHeight: 20, padding: 11, textAlignVertical: "top" },
   messageActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   priorityToggle: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: radii.small, borderWidth: 1, borderColor: colors.borderSoft, padding: 10 },

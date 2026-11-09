@@ -268,9 +268,15 @@ function LiveChatStatus({ detail, orgId }: { detail: MobileRundown; orgId: strin
   const styles = useStyles();
   const relay = useRundownRelay(orgId, detail.show.serviceDate, detail.show.id);
   const sameRoom = relay.showId === detail.show.id && relay.serviceDate === detail.show.serviceDate;
-  const relayIsAuthoritative = relay.hydrated && sameRoom && relay.initialized;
-  const timer = relayIsAuthoritative ? relay.timer : detail.timer;
-  const items = relayIsAuthoritative ? relay.items : detail.items;
+  const hasRelayState = sameRoom && relay.initialized;
+  const relayIsAuthoritative = relay.status === "connected" && relay.hydrated && hasRelayState;
+  const timer = hasRelayState ? relay.timer : detail.timer;
+  const items = hasRelayState ? relay.items : detail.items;
+  if (!relayIsAuthoritative) return <View style={{ gap: 8 }}>
+    <Text accessibilityLiveRegion="polite" style={styles.liveItem}>Live show unavailable. Showing last known state{timer.currentItemId ? `: ${items.find(item => item.id === timer.currentItemId)?.title ?? "current item"}` : "."}</Text>
+    {relay.lastError ? <Text accessibilityRole="alert" style={styles.error}>{relay.lastError}</Text> : null}
+    <AppButton label="Retry live connection" variant="secondary" onPress={relay.retryConnection} />
+  </View>;
   if (timer.playback !== "play" || !timer.currentItemId) return null;
   const currentItem = items.find((item) => item.id === timer.currentItemId);
   if (!currentItem) return null;
@@ -973,8 +979,8 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   error: { color: colors.red, fontFamily, fontSize: 11 },
   liveStatus: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 7, borderBottomWidth: 1, borderBottomColor: colors.borderSoft, paddingHorizontal: 4 },
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.green },
-  liveLabel: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 0.8 },
-  liveItem: { flex: 1, color: colors.text, fontFamily, fontSize: 11, fontWeight: "800" },
+  liveLabel: { color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "900", letterSpacing: 0.8 },
+  liveItem: { flex: 1, color: colors.text, fontFamily, fontSize: 12, fontWeight: "800" },
   list: { flex: 1, marginHorizontal: -spacing.medium },
   listWrap: { flex: 1, position: "relative" },
   listContent: { flexGrow: 1, justifyContent: "flex-start", paddingTop: 8, paddingBottom: 12 },
@@ -1152,3 +1158,4 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   pollSend: { minHeight: 46, alignItems: "center", justifyContent: "center", borderRadius: radii.medium, backgroundColor: colors.amber },
   pollSendText: { color: colors.black, fontFamily, fontSize: 12, fontWeight: "900" },
 }));
+import { AppButton } from "@/components/app-button";
