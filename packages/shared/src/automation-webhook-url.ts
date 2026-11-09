@@ -17,4 +17,3 @@ export function isSafeAutomationWebhookUrl(value: unknown): value is string {
     return false;
   }
 }
-
