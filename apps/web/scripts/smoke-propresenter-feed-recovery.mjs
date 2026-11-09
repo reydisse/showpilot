@@ -406,13 +406,15 @@ await withLocalSmokeFixture(
       // has no physical effect; status checks must never create another mutation.
       await evaluate(`(() => {
       const original = window.fetch;
+      window.__ppOriginalFetch = original; window.__ppFailOutputReads = false;
       window.__ppLoseMode = null; window.__ppHoldPrepare = false; window.__ppRelease = null;
       window.__ppFailChecks = false; window.__ppOperations = [];
       window.fetch = async (input, init) => {
         const url = typeof input === 'string' ? input : input.url;
         const body = String(init?.body ?? '');
         const post = init?.method === 'POST' && url.includes('/_serverFn/');
-        const mode = !post ? null : body.includes('prepare') ? 'prepare' : body.includes('execute') ? 'execute' : body.includes('check') ? 'check' : 'output';
+        const mode = !post ? null : body.includes('prepare') ? 'prepare' : body.includes('execute') ? 'execute' : body.includes('check') ? 'check' : body.includes('expectedRevision') && body.includes('surface') ? 'output' : null;
+        if (!post && url.includes('/_serverFn/') && decodeURIComponent(url).includes('surface') && window.__ppFailOutputReads) throw new TypeError('Fixture output read failure');
         if (mode) window.__ppOperations.push({mode, body});
         if (mode === 'check' && window.__ppFailChecks) throw new TypeError('Fixture status read failed');
         const lose = mode && mode === window.__ppLoseMode;
@@ -533,35 +535,110 @@ await withLocalSmokeFixture(
       await browser("wait", 'button:text-is("I\'ve checked the output")');
       assert.deepEqual(commands, ["next", "previous", "clear"]);
       await click("I've checked the output");
-      // Kiosk failure must be visible with the feed switched off.
+      // Both output directions require review, even when the slide preview is off.
       await click("Streaming");
       await browser("wait", 'button:text-is("Off")');
+      const outputWrites = () =>
+        evaluate("window.__ppOperations.filter(x=>x.mode==='output').length");
+      await click("Show stage slides");
+      await responsive("output-review", ["Show slides", "Cancel"]);
+      assert.equal(await outputWrites(), 0);
+      await click("Cancel");
+      assert.equal(await outputWrites(), 0);
+      await click("Show stage slides");
       await evaluate("window.__ppLoseMode = 'output'");
-      await click("Kiosk Off");
-      await browser("wait", "text=Kiosk output change was not confirmed.");
+      await click("Show slides");
+      await browser("wait", "text=Output change was not confirmed.");
+      await responsive("output-lost", ["Recover output change"]);
       const [savedOutput] = await queryFixture(
         `SELECT value FROM app_setting WHERE orgId='${orgId}' AND key='propresenter-stage-display'`,
       );
       assert.equal(
         savedOutput.value,
         "true",
-        "Kiosk change committed before the response was lost",
+        "Output committed before the reply was lost",
+      );
+      const originalBody = await evaluate(
+        "window.__ppOperations.find(x=>x.mode==='output').body",
+      );
+      const [actor] = await queryFixture(
+        `SELECT userId FROM member WHERE organizationId='${orgId}' AND role='owner' LIMIT 1`,
+      );
+      // Another client uses the native endpoint to change the same output.
+      const later = await evaluate(`(async () => {
+        const url='/api/mobile/v1/propresenter/output?orgId=${orgId}';
+        const state=await (await window.__ppOriginalFetch(url)).json();
+        const response=await window.__ppOriginalFetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({orgId:'${orgId}',userId:'${actor.userId}',requestId:crypto.randomUUID(),enabled:false,expectedRevision:state.revision,expiresAt:state.serverTime+5000})});
+        return {status:response.status,result:await response.json()};
+      })()`);
+      assert.equal(later.status, 200);
+      assert.equal(later.result.outcome, "applied");
+      await browser("click", 'button[title="Account menu"]');
+      await browser("wait", `a[href="/${orgId}/settings"]`);
+      await evaluate(
+        `document.querySelector('a[href="/${orgId}/settings"]').click(); true`,
+      );
+      await browser("wait", "--url", `**/${orgId}/settings*`);
+      await click("Integrations");
+      await browser("wait", "text=Output change was not confirmed.");
+      assert.equal(await outputWrites(), 1);
+      await evaluate("window.__ppFailOutputReads = true");
+      await click("Recover output change");
+      await browser(
+        "wait",
+        "text=Another operator changed the output after this request.",
+      );
+      await browser(
+        "wait",
+        'button:text-is("Refresh saved output result"):not(:disabled)',
+      );
+      await responsive("output-refresh", ["Refresh saved output result"]);
+      const recoveredBody = await evaluate(
+        "window.__ppOperations.filter(x=>x.mode==='output').at(-1).body",
       );
       assert.equal(
-        await evaluate(
-          "document.querySelector('[aria-label=\"ProPresenter command confirmation\"]') !== null",
-        ),
-        true,
+        recoveredBody.replaceAll("settings", "rundown"),
+        originalBody,
+        "Recovery preserves the original command across surfaces",
       );
-      await click("I've checked the output");
-      await browser("wait", 'button:text-is("On Kiosk")');
-      const afterReview = await queryFixture(
+      assert.equal(await outputWrites(), 2);
+      const unchanged = await queryFixture(
         `SELECT value FROM app_setting WHERE orgId='${orgId}' AND key='propresenter-stage-display'`,
       );
-      assert.equal(afterReview[0].value, "true");
-      await click("On Kiosk");
-      await browser("wait", "text=Kiosk output change confirmed.");
-      await browser("wait", 'button:text-is("Kiosk Off")');
+      assert.equal(
+        unchanged[0].value,
+        "false",
+        "Recovery preserved the later operator's change",
+      );
+      await evaluate("window.__ppFailOutputReads = false");
+      await click("Refresh saved output result");
+      await browser(
+        "wait",
+        'button:text-is("Review current output"):not(:disabled)',
+      );
+      await click("Review current output");
+      assert.equal(
+        await outputWrites(),
+        2,
+        "Refreshing never repeats the mutation",
+      );
+      await click("Show stage slides");
+      await click("Show slides");
+      await browser(
+        "wait",
+        'button:text-is("Hide stage slides"):not(:disabled)',
+      );
+      await click("Hide stage slides");
+      await responsive("output-hide-review", ["Hide slides", "Cancel"]);
+      await click("Hide slides");
+      await browser(
+        "wait",
+        'button:text-is("Show stage slides"):not(:disabled)',
+      );
+      const hidden = await queryFixture(
+        `SELECT value FROM app_setting WHERE orgId='${orgId}' AND key='propresenter-stage-display'`,
+      );
+      assert.equal(hidden[0].value, "false");
       assert.deepEqual(commands, ["next", "previous", "clear"]);
       console.log(
         JSON.stringify({
@@ -578,7 +655,10 @@ await withLocalSmokeFixture(
           lostCommandResponseAfterExecution: true,
           commandsNeverReplayed: true,
           reviewDoesNotSend: true,
-          kioskErrorVisibleWithFeedOff: true,
+          outputErrorVisibleWithFeedOff: true,
+          outputRecoveryAcrossSettingsAndRundown: true,
+          outputPreservesLaterNativeChange: true,
+          outputReadRetryDoesNotRepeatWrite: true,
           commandNavigationRetention: true,
           receiptChecksNeverExecute: true,
           clearConfirmation: true,

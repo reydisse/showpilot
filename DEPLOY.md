@@ -9490,3 +9490,46 @@ Web typecheck and production build pass; main stays 542,230 raw / 171,089 gzip.
 The PIN boundary unit test now supplies a valid output command so it tests the
 PIN gate rather than an obsolete malformed payload. No deployment or release.
 Logs: /tmp/showpilot-output-ci-{pin1,full2,coverage1,tsc1,build1}.log.
+
+### Web ProPresenter output receipt migration (2026-11-09)
+
+Rundown and Settings now use the same dedicated workspace-output receipt contract
+as the native client. Each surface checks its own live permission: rundown edit
+or control (including the configured TM PIN), or Settings integrations permission.
+The old web boolean RPC/fallback writer and generic editable output key were
+removed; generic Settings saves can no longer bypass output receipts. Companion
+continues to advance the shared revision through the relay.
+
+Both Show and Hide require review against the current output revision. A lost
+reply retains the exact actor, workspace, request ID, desired value, revision and
+expiry through SPA navigation, including Rundown → Settings. Reads stop after
+eight seconds; commands after fifteen seconds. Recovery cannot overwrite a later
+output change, and a saved command's failed refresh retries only the read.
+Conflict, expired and superseded results require review before another change.
+Changing account/workspace isolates retained work. Retention covers navigation
+within the current browser session, not a page reload or browser termination.
+
+Validation: full web suite passes 3,336 unit + 1,738 Worker = 5,074 tests; web
+typecheck and production build pass. Main bundle is 542,176 raw / 171,049 gzip
+bytes under unchanged budgets. Tests cover concurrent surface actions, revision
+changes during confirmation, cancellation, bounded reads/writes, identity-mismatched
+replies, navigation retention, permission/session revocation, strict payloads,
+generic Settings rejection and the original slide-control recovery behavior.
+
+The built browser/real disposable Worker rehearsal passed and exited zero:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-propresenter-feed-recovery.mjs`.
+It loses an output reply after the actual D1 commit, changes output through the
+native API, navigates to Settings without reloading, and recovers the original
+request without replacing that later value. A failed read after recovery retries
+without another POST. Both output directions require confirmation; Cancel sends
+nothing. Existing slide/import/feed recovery checks still pass against the
+protocol-compatible Bridge fixture. Confirmation/recovery targets are reachable
+and at least 44px at 320x480, 768x1024 and 1440x900 without horizontal overflow;
+screenshots were inspected. No physical ProPresenter or production writes.
+
+Parent #287 CI repair is pushed as 995a5515289b74ac5626aace2a289b02515d5cde,
+run 42591572155. Its exact-head CI must pass before opening this successor PR.
+Phase 2 remains 67/79; this is partial evidence for the product-wide gates.
+No deployment, release or migration. Twenty necessary Markdown files remain.
+Logs: /tmp/showpilot-weboutput-{unit1,worker1,ui2,full2,tsc2,build1,browser2}.log.
+Screenshots: /tmp/showpilot-web-pp-output-{review,lost,refresh,hide-review}-{320,768,1440}.png.
