@@ -113,7 +113,7 @@ export function ChatShareDialog({ orgId, scope, members, open, onOpenChange, rev
     <DialogContent aria-modal="true" showCloseButton={false} className="max-h-[calc(100dvh-2rem)] overflow-y-auto border-board-border bg-board-card text-board-text sm:max-w-xl">
       <DialogHeader>
         <DialogTitle>{planning ? "Share Planning Room" : "Invite guest crew"}</DialogTitle>
-        <DialogDescription>{planning ? "Choose up to 50 members. They must sign in to use this link. Selected members also receive an inbox notification." : "Guests enter their name to join Production Chat. They can send messages, but cannot issue cues or alerts."}</DialogDescription>
+        <DialogDescription>{planning ? "Choose up to 50 members. They must sign in to use this link. Selected members also receive an inbox notification." : "Guests enter their name to join Production Chat."}</DialogDescription>
       </DialogHeader>
       {!pass && <>
         {planning && <fieldset disabled={!editable} className="min-w-0 space-y-2">

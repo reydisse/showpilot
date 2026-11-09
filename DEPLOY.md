@@ -9064,3 +9064,71 @@ tracked Markdown files remain, with none added.
 Stack gate: #280 exact head 00e5f63d4d5df7857a7f1dbb400f4e29acbbd4da passed
 both jobs in CI 42566284825 before this draft opens. This draft's exact-head CI
 must pass before another PR opens.
+
+
+### Phase 2: native Chat invitation recovery (2026-11-09)
+
+Native Chat previously created a fresh grant on retry, discarded the returned
+link before opening the share sheet, and reported a share failure as failed
+creation. Crew and Planning invitations now retain their choices, request ID,
+link, original expiry and notification outcome by account, workspace and room.
+Creation and sharing have separate 15-second deadlines and explicit retries.
+Closing the sheet preserves the draft or pending request for this signed-in app
+session. A notification retry reuses the existing grant; a failed, timed-out or
+cancelled share leaves the link available. Starting another invitation requires
+review of the fact that an earlier link may still be active. Expired links cannot
+be shared, and selections can be cleared if a member becomes unavailable.
+
+Chat member reads now have a 10-second deadline, an account-scoped query key,
+a response identity check, and visible error/retry. The current session supplies
+the actor instead of a potentially stale member response. Invite requests carry
+the expected actor and receive authoritative account/workspace/request/scope
+metadata. A changed account is rejected before grant creation. The existing
+receipt table and authorization rules are reused; no migration is needed.
+Deploy the API response extension before releasing a native build that expects
+it. Previously released clients keep their existing response shape when they
+omit a request ID.
+
+Removed the unsupported guest-text-only claim from web and native invite copy.
+ChatRelay still accepts guest-supplied cue/alert message types; enforcement is an
+explicit Phase 3 item and was not implemented ahead of the Phase 2 gate.
+
+Verification: the initial API regression run failed three assertions (missing
+identity metadata and two changed-account requests accepted). The fix passes
+those checks and a real Worker/D1 test proving rejection before insertion and
+one recovered grant after retry. Final full suite: 3,243 unit + 1,691 Worker =
+4,934 passing tests. Web typecheck and production build passed; main bundle
+542,274 raw / 171,113 gzip bytes, within unchanged budgets. Final native verify3
+passed typecheck, lint (18 existing warnings, zero errors), all three exports,
+Expo Doctor 18/18, contracts and polling checks. Hermes bundles: iOS 5,994,009 /
+Android 5,993,129 bytes. Thirty final focused invite UI/hook tests passed after
+the copy and checked-state changes. The focused parameterized test initially
+unpacked array fixtures incorrectly; correcting the fixture shape preserved its
+selection-validation assertions.
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-chat-invites.mjs`
+uses compiled Expo web with disposable real auth, D1 and pass issuance. It rejects
+a mismatched member response, recovers with Retry, loses an actual grant reply,
+and verifies the same token/expiry/request with one stored grant. Crew and
+Planning choices remain separate through close/reopen and room changes. Sharing
+failure, timeout, cancellation and retry use the same link without further grant
+creation. A real D1 notification trigger exposes a ready Planning link with a
+missing notification; retry after restoring the database preserves the link and
+creates one inbox item. Share outcomes are simulated browser adapters, not a
+physical iOS/Android share-sheet test. The first browser run exposed missing
+checked-state attributes on the compiled radio/checkbox controls; explicit
+aria-checked was added rather than weakening the assertion. Final browser3
+exited zero at 320/768/1440px including 320x568, with unobstructed 44px+ retry
+controls and no document overflow. Screenshots were inspected. The separate
+fixture live-show indicator remains outside this Chat rehearsal's coverage.
+
+Logs: /tmp/showpilot-chat-invites-{before,unit1,unit2,unit3,full1,full2,full3,full4,mobile-tsc1,tsc1,tsc2,build1,build2,verify1,verify2,verify3,browser1,browser2,browser3}.log.
+Screenshots: /tmp/showpilot-chat-invites-{short,320,768,1440}.png.
+Phase 2 remains 67/79; product-wide UX and final phase gates remain open. Web
+Chat still starts notifications before relay acknowledgement and swallows some
+failures; native Chat attachment and message-mutation recovery also remain.
+No deployment, release, remote migration, external mail or real-org writes.
+Twenty necessary tracked Markdown files remain, with none added.
+Stack gate: #281 exact head 35d326e57f3332abd8e507013dd045eaa6bbc2d4 passed
+both jobs in CI 42568671152 before this draft opens. This draft's exact-head CI
+must pass before another PR opens.

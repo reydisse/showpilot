@@ -1,3 +1,4 @@
+import { chatInviteReplySchema, type ChatInviteCommand } from "./chat-pass-recovery";
 import { chatNotificationResultSchema, type ChatNotificationCommand } from "./chat-notification";
 import { lyricsControlReplySchema, type MobileLyricsControl } from "./timecode-lyrics-recovery";
 import { cueEditReplySchema, type CueEditCommand } from "./timecode-cue-edit-recovery";
@@ -129,12 +130,6 @@ const chatAttachmentSchema = z.object({
   url: z.string(),
   mimeType: z.string(),
   size: z.number().nonnegative(),
-});
-const chatPassSchema = z.object({
-  token: z.string(),
-  expiresAt: z.number(),
-  joinUrl: z.string().url(),
-  targetCount: z.number().int().positive().optional(),
 });
 
 const accessAuthoritySchema = z.object({
@@ -1050,11 +1045,13 @@ export async function getMobileNotificationPage(
   return notificationPageSchema.parse(await response.json());
 }
 
-export async function getMobileChatMembers(orgId: string) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/chat/members?orgId=${encodeURIComponent(orgId)}`,
-  );
-  return chatMembersSchema.parse(await response.json());
+export async function getMobileChatMembers(orgId: string, expectedUserId: string) {
+  return withMobileRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/chat/members?orgId=${encodeURIComponent(orgId)}`, { signal });
+    const result = chatMembersSchema.parse(await response.json());
+    if (result.currentUserId !== expectedUserId) throw new Error("Chat member data belongs to another account. Retry after confirming your sign-in.");
+    return result;
+  });
 }
 
 export async function notifyMobileChat(input: ChatNotificationCommand, signal: AbortSignal) {
@@ -1157,33 +1154,12 @@ export async function downloadMobileChatAttachment(
   return file.uri;
 }
 
-export async function createMobileCrewChatPass(input: {
-  orgId: string;
-  hours: number;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/chat/passes/crew?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify({ hours: input.hours }) },
-  );
-  return chatPassSchema.parse(await response.json());
-}
-
-export async function createMobilePlanningChatPass(input: {
-  orgId: string;
-  hours: number;
-  targetUserIds: string[];
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/chat/passes/planning?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        hours: input.hours,
-        targetUserIds: input.targetUserIds,
-      }),
-    },
-  );
-  return chatPassSchema.parse(await response.json());
+export async function createMobileChatInvite(input: ChatInviteCommand, signal: AbortSignal) {
+  const kind = input.scope === "crew-chat" ? "crew" : "planning";
+  const response = await authenticatedFetch(`/api/mobile/v1/chat/passes/${kind}?orgId=${encodeURIComponent(input.orgId)}`, {
+    method: "POST", signal, body: JSON.stringify({ ...input, expectedUserId: input.userId }),
+  });
+  return chatInviteReplySchema.parse(await response.json());
 }
 
 export async function getMobileRundown(orgId: string, showId: string): Promise<MobileRundown> {
