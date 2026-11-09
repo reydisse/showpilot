@@ -950,3 +950,35 @@ it("native team keeps an uncertain invitation's provider identity and does not r
     await getPrisma().serviceAssignment.count({ where: { orgId: f.orgId } }),
   ).toBe(1);
 });
+
+it.each(["edit", "delete"] as const)("legacy native %s reports the actual row change with revision triggers enabled", async kind => {
+  const f = await assignmentFixture(), initial = await saved(f);
+  const existing = await env.DB.prepare("SELECT updatedAt FROM service_assignment WHERE orgId=? AND id=?").bind(f.orgId, initial.id).first<{ updatedAt: string }>();
+  const response = await handleMobileApi(new Request(
+    `https://app.showpilot.tech/api/mobile/v1/schedule/assignments/${initial.id}${kind === "delete" ? "/remove" : ""}?orgId=${f.orgId}`,
+    { method: "POST", headers: { Cookie: f.headers.get("cookie")!, "Content-Type": "application/json" },
+      body: JSON.stringify({ ...f.input, requestId: crypto.randomUUID(), expectedUpdatedAt: existing?.updatedAt, notes: "Legacy saved note" }) },
+  ), { DB: env.DB });
+  expect(response).not.toBeNull();
+  const actual = await env.DB.prepare("SELECT notes FROM service_assignment WHERE orgId=? AND id=?").bind(f.orgId, initial.id).first<{ notes: string }>();
+  expect(actual).toEqual(kind === "edit" ? { notes: "Legacy saved note" } : null);
+  expect(response!.status).toBe(200);
+  expect(await response!.json()).toMatchObject({ ok: true });
+  const revision = await env.DB.prepare("SELECT revision FROM schedule_assignment_revision WHERE orgId=? AND assignmentId=?").bind(f.orgId, initial.id).first<{ revision: string }>();
+  expect(revision?.revision).toEqual(expect.any(String));
+  expect(revision?.revision).not.toBe(initial.revision);
+  expect(mail.send).not.toHaveBeenCalled();
+});
+
+it.each(["edit", "delete"] as const)("legacy native %s rejects a position owned by another organization", async kind => {
+  const foreign = await assignmentFixture(), initial = await saved(foreign), f = await assignmentFixture();
+  const response = await handleMobileApi(new Request(
+    `https://app.showpilot.tech/api/mobile/v1/schedule/assignments/${initial.id}${kind === "delete" ? "/remove" : ""}?orgId=${f.orgId}`,
+    { method: "POST", headers: { Cookie: f.headers.get("cookie")!, "Content-Type": "application/json" },
+      body: JSON.stringify({ ...f.input, requestId: crypto.randomUUID(), expectedUpdatedAt: "untrusted", notes: "Must not change" }) },
+  ), { DB: env.DB });
+  expect(response?.status).toBe(404);
+  const actual = await readScheduleAssignment(foreign.headers, foreign.orgId, initial.id);
+  expect(actual.snapshot).toEqual(initial);
+  expect(mail.send).not.toHaveBeenCalled();
+});
