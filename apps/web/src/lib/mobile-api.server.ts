@@ -5803,6 +5803,14 @@ async function notifyMobileChatMessage(
   )
     return json({ error: "Invalid chat notification." }, 400);
 
+  const requestId = typeof body?.requestId === "string" ? body.requestId : null;
+  if (body?.requestId !== undefined && (!requestId || !z.uuid().safeParse(requestId).success || !messageId))
+    return json({ error: "Review this message before retrying notifications." }, 400);
+  if (requestId && body?.expectedUserId !== access.identity.userId)
+    return json({ error: "The signed-in account changed. Return to the original account before retrying notifications." }, 409);
+  const result = (notified: number) => json({ notified, ...(requestId ? {
+    orgId: access.orgId, userId: access.identity.userId, requestId, roomId, messageId,
+  } : {}) });
   const recipients = new Map<string, "dm" | "mention" | "group">();
   const { groupChatNotificationRecipients } = await import("./chat-notification-recipients.server");
   for (const userId of await groupChatNotificationRecipients(db, access.orgId, access.identity.userId, roomId)) {
@@ -5821,7 +5829,7 @@ async function notifyMobileChatMessage(
     recipients.size === 0 ||
     !(await chatNotificationsEnabled(access.orgId, db))
   )
-    return json({ notified: 0 });
+    return result(0);
 
   const validMembers = directParticipants ? await db
     .prepare(
@@ -5850,6 +5858,7 @@ async function notifyMobileChatMessage(
       if (!recipientIds.length) continue;
       const result = await notifyOperationalEvent({
         orgId: access.orgId,
+        requireInbox: true,
         actorId: access.identity.userId,
         recipientIds,
         category: "chat",
@@ -5864,15 +5873,15 @@ async function notifyMobileChatMessage(
         source: messageId ?? `chat:${roomId}`,
         pushTag: `chat-${kind}-${roomId}`,
         ...(messageId
-          ? { dedupeKey: `chat-message:${messageId}:${kind}` }
+          ? { dedupeKey: `chat-message:${messageId}:${kind}`, once: true }
           : {}),
       });
       notified += result.notified;
     }
   } catch {
-    // The durable chat message remains authoritative when notification delivery fails.
+    return json({ error: "The message was delivered, but crew notifications could not be confirmed. Retry notifications." }, 503);
   }
-  return json({ notified });
+  return result(notified);
 }
 
 async function notifyMobileChatReaction(
@@ -5895,11 +5904,19 @@ async function notifyMobileChatReaction(
     (directParticipants && !directParticipants.includes(access.identity.userId))
   )
     return json({ error: "Invalid chat reaction notification." }, 400);
+  const requestId = typeof body.requestId === "string" ? body.requestId : null;
+  if (body.requestId !== undefined && (!requestId || !z.uuid().safeParse(requestId).success))
+    return json({ error: "Review this reaction before retrying notifications." }, 400);
+  if (requestId && body.expectedUserId !== access.identity.userId)
+    return json({ error: "The signed-in account changed. Return to the original account before retrying notifications." }, 409);
+  const result = (notified: number) => json({ notified, ...(requestId ? {
+    orgId: access.orgId, userId: access.identity.userId, requestId, roomId, messageId: body.messageId,
+  } : {}) });
   if (
     body.targetUserId === access.identity.userId ||
     !(await chatNotificationsEnabled(access.orgId, db))
   ) {
-    return json({ notified: 0 });
+    return result(0);
   }
   const target = await db
     .prepare(
@@ -5907,13 +5924,15 @@ async function notifyMobileChatReaction(
     )
     .bind(access.orgId, body.targetUserId)
     .first<{ userId: string }>();
-  if (!target) return json({ notified: 0 });
+  if (!target) return result(0);
   let notified = 0;
   try {
     const { notifyOperationalEvent } =
       await import("./operational-notifications.server");
     const result = await notifyOperationalEvent({
       orgId: access.orgId,
+      requireInbox: true,
+      ...(requestId ? { dedupeKey: `chat-reaction:${access.identity.userId}:${requestId}`, once: true } : {}),
       actorId: access.identity.userId,
       recipientIds: [target.userId],
       category: "chat",
@@ -5926,9 +5945,9 @@ async function notifyMobileChatReaction(
     });
     notified = result.notified;
   } catch {
-    // The durable chat reaction remains authoritative when notification delivery fails.
+    return json({ error: "The reaction was saved, but its notification could not be confirmed. Retry notifications." }, 503);
   }
-  return json({ notified });
+  return result(notified);
 }
 
 async function createMobileChatPass(request: Request, url: URL, env: MobileApiEnvironment, scope: "crew-chat" | "planning-chat"): Promise<Response> {

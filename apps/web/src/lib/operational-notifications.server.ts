@@ -26,6 +26,9 @@ export type OperationalNotification = {
   dedupeKey?: string;
   /** Insert once and push only for a newly created inbox item. Requires dedupeKey. */
   once?: boolean;
+  /** Notification-only endpoints must report inbox failures so they can retry.
+   * Other callers keep an already-saved business operation successful. */
+  requireInbox?: boolean;
 };
 
 export async function operationalNotificationId(
@@ -90,6 +93,7 @@ async function deliverOperationalEvent(input: OperationalNotification) {
     ? `/${encodeURIComponent(org.slug)}/${input.actionUrl.replace(/^\/+/, "")}`
     : "/";
 
+  let failed = 0;
   const results = await Promise.all(
     recipientIds.map(async (userId) => {
       try {
@@ -148,11 +152,13 @@ async function deliverOperationalEvent(input: OperationalNotification) {
         }
         return true;
       } catch (error) {
+        failed++;
         console.error("[Notifications] Operational delivery failed", error);
         return false;
       }
     }),
   );
+  if (input.requireInbox && failed) throw new Error("Crew notifications could not be confirmed. Retry notifications.");
   return { notified: results.filter(Boolean).length };
 }
 
@@ -162,6 +168,7 @@ export async function notifyOperationalEvent(input: OperationalNotification) {
     return await deliverOperationalEvent(input);
   } catch (error) {
     console.error("[Notifications] Preparation failed", error);
+    if (input.requireInbox) throw error;
     return { notified: 0 };
   }
 }

@@ -8943,3 +8943,62 @@ tracked Markdown files remain; none added.
 Stack gate: #279 exact head 04257b835a1ed772716afad45c0025dfad5955e6 passed both
 jobs in CI 42563967696 before opening this draft. This draft's exact-head CI must
 pass before another PR opens.
+
+
+### Phase 2: native Chat drafts and notification recovery (2026-11-09)
+
+Native Chat now retains text, message type, reply/edit context, an uploaded
+attachment, and unfinished poll fields by actor, organization and room for the
+current app session. Leaving the screen does not discard them. A late edit
+acknowledgement clears only the submitted draft, preserving newer typing; sending
+a separate text message preserves an unfinished poll. This is in-memory
+navigation recovery, not persistence through process termination.
+
+Message notification intent is stored before sending the relay frame. After the
+relay acknowledges delivery, the outbox distinguishes delivered chat from an
+unconfirmed crew notification. Notification calls have a 15-second deadline and
+an explicit notification-only retry. Reaction notifications are planned from the
+acknowledged reaction snapshot; retry does not toggle the reaction again.
+Attempts retain their actor, organization, room, message and request identities
+across navigation, and mismatched receipts cannot settle them. The server checks
+the original account identity before writing, reports inbox preparation/write
+failures as 503, and uses insert-once event keys so retry cannot duplicate push
+attempts or reset existing read/dismissed inbox state. Push remains best effort;
+success confirms durable inbox creation, not receipt on a physical device.
+Already-released clients retain their legacy response shape. Other operational
+notification callers retain their existing best-effort failure policy.
+
+Verification: 3,220 unit and 1,690 Worker tests passed (4,910 total); web typecheck
+and production build passed. Main web bundle remains 542,274 raw / 171,102 gzip
+bytes. Native verification passed typecheck, lint (18 existing warnings, zero
+errors), iOS/Android/web exports, Expo Doctor 18/18, API contracts and polling
+boundaries. Hermes bundles: iOS 5,978,380 / Android 5,977,492 bytes. Focused cases
+cover full composer isolation, late acknowledgement, notification deadline and
+late response, receipt identity mismatches, same-event retries, partial failures,
+reactions, and preserving a poll while sending text.
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-chat-drafts.mjs`
+exercises the compiled Expo web UI with real disposable auth, D1 and ChatRelay.
+A recipient-specific D1 trigger fails one inbox write while another succeeds.
+After marking the successful inbox item read/dismissed, restoring the database
+and retrying creates the missing item without resending chat or resetting the
+existing item. A dropped notification HTTP reply also recovers without duplicate
+messages or inbox items. Text and poll drafts survive Production/Planning room
+switches. 320/768/1440px layouts, including 320x568, have reachable 44px retry
+controls and no document overflow. Browser2 exited zero and screenshots were
+inspected. Browser1 passed behavior assertions but captured the room picker
+closing; browser2 waits for it to disappear and checks unobstructed clickability.
+The fixture's separate live-show indicator reports unavailable; this rehearsal
+proves Chat recovery, not live-rundown or physical-device operation.
+
+Logs: /tmp/showpilot-chat-drafts-{full1,tsc1,build1,verify1,browser1,browser2}.log;
+/tmp/showpilot-chat-notification-unit1.log;
+/tmp/showpilot-chat-notifications-{before,server1,server2}.log.
+Screenshots: /tmp/showpilot-chat-drafts-{short,320,768,1440}.png.
+Phase 2 remains 67/79. Web Chat notification recovery and the remaining native
+Chat upload/share/mutation workflows still need their broader UX pass. No deploy,
+release, remote migration, external mail or real-org writes. Twenty necessary
+tracked Markdown files remain, with none added.
+Stack gate: #280 exact head 00e5f63d4d5df7857a7f1dbb400f4e29acbbd4da passed
+both jobs in CI 42566284825 before this draft opens. This draft's exact-head CI
+must pass before another PR opens.

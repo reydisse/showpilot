@@ -254,4 +254,48 @@ describe("mobile chat collaboration", () => {
     const response = await request(fakeDatabase(), "/api/mobile/v1/chat/members?orgId=org-1");
     expect(response.status).toBe(403);
   });
+  const notificationRequest = { roomId: "production", messageId: "saved-message", text: "Crew update", targetUserId: "operator-2", emoji: "👍", expectedUserId: "operator-1", requestId: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa" };
+  it.each(["notify", "reaction-notify"])("reports %s inbox failure separately from the saved chat update", async endpoint => {
+    mocks.notify.mockRejectedValue(new Error("D1 unavailable"));
+    const response = await request(fakeDatabase(), `/api/mobile/v1/chat/${endpoint}?orgId=org-1`, notificationRequest);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: expect.stringMatching(/Retry notifications/) });
+    expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ requireInbox: true, once: true }));
+  });
+  it.each(["notify", "reaction-notify"])("returns authoritative identity for %s including disabled notifications", async endpoint => {
+    const response = await request(fakeDatabase({ notificationsEnabled: false }), `/api/mobile/v1/chat/${endpoint}?orgId=org-1`, notificationRequest);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ notified: 0, orgId: "org-1", userId: "operator-1", roomId: "production", messageId: notificationRequest.messageId, requestId: notificationRequest.requestId });
+    expect(mocks.notify).not.toHaveBeenCalled();
+  });
+  it.each(["notify", "reaction-notify"])("refuses %s queued by another signed-in account", async endpoint => {
+    const response = await request(fakeDatabase(), `/api/mobile/v1/chat/${endpoint}?orgId=org-1`, { ...notificationRequest, expectedUserId: "previous-operator" });
+    expect(response.status).toBe(409); expect(mocks.notify).not.toHaveBeenCalled();
+  });
+  it.each(["notify", "reaction-notify"])("validates %s retry identity before writing", async endpoint => {
+    const response = await request(fakeDatabase(), `/api/mobile/v1/chat/${endpoint}?orgId=org-1`, { ...notificationRequest, requestId: "not-a-uuid" });
+    expect(response.status).toBe(400); expect(mocks.notify).not.toHaveBeenCalled();
+  });
+  it("keeps reaction retries keyed to the original actor and event", async () => {
+    for (let i = 0; i < 2; i++) {
+      const response = await request(fakeDatabase(), "/api/mobile/v1/chat/reaction-notify?orgId=org-1", notificationRequest);
+      expect(response.status).toBe(200);
+    }
+    for (const [event] of mocks.notify.mock.calls) expect(event).toMatchObject({
+      once: true, requireInbox: true, dedupeKey: `chat-reaction:operator-1:${notificationRequest.requestId}`, recipientIds: ["operator-2"],
+    });
+  });
+  it("retries all notification groups with stable once-only identities after a partial failure", async () => {
+    mocks.notify.mockResolvedValueOnce({ notified: 1 }).mockRejectedValueOnce(new Error("Group inbox unavailable"));
+    const body = { ...notificationRequest, mentionedUserIds: ["operator-2"] };
+    const failed = await request(fakeDatabase(), "/api/mobile/v1/chat/notify?orgId=org-1", body);
+    expect(failed.status).toBe(503);
+    const retried = await request(fakeDatabase(), "/api/mobile/v1/chat/notify?orgId=org-1", body);
+    expect(retried.status).toBe(200);
+    expect(mocks.notify.mock.calls).toHaveLength(4);
+    expect(mocks.notify.mock.calls[2][0]).toEqual(mocks.notify.mock.calls[0][0]);
+    expect(mocks.notify.mock.calls[3][0]).toEqual(mocks.notify.mock.calls[1][0]);
+    expect(mocks.notify.mock.calls[0][0]).toMatchObject({ once: true, dedupeKey: "chat-message:saved-message:mention" });
+  });
+
 });

@@ -7,25 +7,32 @@ import { compareChatMessages, mergeChatMessage, parseChatHistoryPage, parseChatM
   type ChatHistoryCursor, type MobileChatMessage, type MobileChatReactionEmoji } from "@/lib/chat-history";
 import { SHOWPILOT_URL } from "@/lib/env";
 import { runMobileOperation, MobileOperationTimeoutError } from "../lib/request-deadline";
+import { notifyMobileChat } from "../lib/mobile-api";
+import { chatNotificationResultSchema, type ChatNotificationCommand } from "../lib/chat-notification";
 import { createLocalRequestUuid } from "../lib/request-id";
 export type { MobileChatMessage } from "@/lib/chat-history";
 type Status = "connecting" | "connected" | "reconnecting" | "offline";
 type GatewayStatus = { platform: "mattermost" | "slack" | "discord" | "teams" | null; status: "disabled" | "connecting" | "connected" | "error"; error?: string };
 export interface MobileChatSendOptions {
+  mentionedUserIds?: string[];
   replyTo?: NonNullable<MobileChatMessage["replyTo"]>;
   attachments?: NonNullable<MobileChatMessage["attachments"]>;
   poll?: { question: string; options: string[] };
 }
 export interface MobileChatTypingState { userId?: string; name: string; typing: boolean }
-export type ChatDelivery = { id: string; frame: string; text: string; createdAt: number } & (
-  | { kind: "queued" }
-  | { kind: "sending" }
-  | { kind: "uncertain" | "rejected"; error: string }
+type DeliveryBase = { id: string; text: string; createdAt: number; notification: ChatNotificationCommand };
+export type ChatDelivery = DeliveryBase & (
+  | { kind: "queued"; frame: string }
+  | { kind: "sending"; frame: string }
+  | { kind: "uncertain" | "rejected"; frame: string; error: string }
+  | { kind: "notifying" }
+  | { kind: "notification-failed"; error: string }
 );
+
 type Mutation = { type: "edit" | "delete" | "vote" | "reaction"; messageId: string; text?: string; optionId?: string; emoji?: MobileChatReactionEmoji };
-type PendingMutation = { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> };
+type PendingMutation = { payload: Mutation; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> };
 type Actions = { scope: string; retry(): void; send(text: string, type: MobileChatMessage["type"], options?: MobileChatSendOptions): string | null;
-  retryMessage(id: string): void; discardMessage(id: string): void; mutate(payload: Mutation): Promise<void>;
+  retryMessage(id: string): void; retryNotifications(id: string): void; discardMessage(id: string): void; mutate(payload: Mutation): Promise<void>;
   transient(payload: object): void; loadOlder(): Promise<void> };
 type ChatView = { scope: string; messages: MobileChatMessage[]; status: Status; lastError: string | null; historyError: string | null;
   hasOlder: boolean; loadingOlder: boolean; typingUsers: MobileChatTypingState[]; readReceipts: Record<string, number>; hydrated: boolean; gatewayStatus: GatewayStatus };
@@ -58,15 +65,36 @@ export function useChatRelay(orgId: string | undefined, roomId = "production", u
     let socket: WebSocket | null = null, authentication: AbortController | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined, handshake: ReturnType<typeof setTimeout> | undefined;
     let cursor: ChatHistoryCursor | null = null, hasOlder = false, history: AbortController | null = null;
+    let snapshot: MobileChatMessage[] = [];
     const pending = new Map<string, PendingMutation>(), deliveryTimers = new Map<string, ReturnType<typeof setTimeout>>(), typingTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const active = () => !disposed && currentScope.current === scope;
     const update = (patch: Partial<ChatView>) => { if (active()) setView(old => ({ ...(old.scope === scope ? old : emptyView(scope)), ...patch })); };
     const readOutbox = () => client.getQueryData<ChatDelivery[]>(key) ?? [];
     const changeOutbox = (change: (items: ChatDelivery[]) => ChatDelivery[]) => client.setQueryData<ChatDelivery[]>(key, items => change(items ?? []));
     const clearDeliveryTimer = (id: string) => { clearTimeout(deliveryTimers.get(id)); deliveryTimers.delete(id); };
+    function notify(item: ChatDelivery) {
+      const command = item.notification;
+      const attempt: ChatDelivery = { id: item.id, text: item.text, createdAt: item.createdAt, notification: command, kind: "notifying" };
+      const claim = changeOutbox(items => items.map(value => value === item ? attempt : value))?.find(value => value.id === item.id);
+      if (!claim || claim.kind !== "notifying") return;
+      // Notification delivery remains bounded and scoped even when its screen
+      // unmounts. A later actor cannot inherit it or replace its result.
+      void runMobileOperation(async controller => {
+        const result = chatNotificationResultSchema.parse(await notifyMobileChat(command, controller.signal));
+        if (result.orgId !== command.orgId || result.userId !== command.userId || result.roomId !== command.roomId
+          || result.messageId !== command.messageId || result.requestId !== command.requestId)
+          throw new Error("The notification result belongs to another message or account.");
+        return result;
+      }, undefined, 15000).then(() => {
+        changeOutbox(items => items.filter(value => value !== claim));
+      }).catch(error => {
+        changeOutbox(items => items.map(value => value === claim ? { ...claim, kind: "notification-failed", error: error instanceof Error && !(error instanceof MobileOperationTimeoutError) ? error.message : "Crew notifications were not confirmed. Retry notifications without sending the message again." } : value));
+      });
+    }
     const acknowledge = (message: MobileChatMessage) => {
-      if (message.senderId !== userId || !readOutbox().some(item => item.id === message.id)) return;
-      clearDeliveryTimer(message.id); changeOutbox(items => items.filter(item => item.id !== message.id));
+      const item = readOutbox().find(item => item.id === message.id);
+      if (message.senderId !== userId || !item || item.kind === "notifying" || item.kind === "notification-failed") return;
+      clearDeliveryTimer(message.id); notify(item);
       setView(old => old.lastError === sendFailureMessage ? { ...old, lastError: null } : old);
     };
     const cancelHistory = () => { history?.abort(); history = null; update({ loadingOlder: false }); };
@@ -97,8 +125,8 @@ export function useChatRelay(orgId: string | undefined, roomId = "production", u
     }
     function transmit(id: string) {
       const item = readOutbox().find(item => item.id === id);
-      if (!active() || !ready || !socket || socket.readyState !== WebSocket.OPEN || !item || item.kind === "sending" || item.kind === "rejected") return;
-      changeOutbox(items => items.map(value => value.id === id ? { ...value, kind: "sending" } : value));
+      if (!active() || !ready || !socket || socket.readyState !== WebSocket.OPEN || !item || item.kind === "sending" || item.kind === "rejected" || item.kind === "notifying" || item.kind === "notification-failed") return;
+      changeOutbox(items => items.map(value => value === item ? { ...item, kind: "sending" } : value));
       clearDeliveryTimer(id);
       deliveryTimers.set(id, setTimeout(() => {
         clearDeliveryTimer(id);
@@ -107,7 +135,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production", u
       try { socket.send(item.frame); }
       catch {
         clearDeliveryTimer(id);
-        changeOutbox(items => items.map(value => value.id === id ? { ...value, kind: "uncertain", error: uncertainMessage } : value));
+        changeOutbox(items => items.map(value => value.id === id && value.kind === "sending" ? { ...value, kind: "uncertain", error: uncertainMessage } : value));
         update({ lastError: sendFailureMessage });
       }
     }
@@ -142,7 +170,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production", u
             if (payload.type === "hydrate" && "messages" in payload && Array.isArray(payload.messages)) {
               const messages = payload.messages.map(parseChatMessage);
               if (messages.some(item => item === null)) throw new Error("Chat returned an invalid history snapshot. Retry the connection.");
-              const snapshot = messages.filter((item): item is MobileChatMessage => item !== null);
+              snapshot = messages.filter((item): item is MobileChatMessage => item !== null);
               cancelHistory();
               snapshot.forEach(acknowledge);
               cursor = snapshot[0] ? { timestamp: snapshot[0].timestamp, id: snapshot[0].id } : null;
@@ -158,20 +186,33 @@ export function useChatRelay(orgId: string | undefined, roomId = "production", u
               const message = "message" in payload ? parseChatMessage(payload.message) : null;
               if (message) {
                 acknowledge(message);
-                setView(old => ({ ...old, messages: mergeChatMessage(old.messages, message) }));
+                snapshot = mergeChatMessage(snapshot, message);
+                update({ messages: snapshot });
                 void client.invalidateQueries({ queryKey: ["mobile-chat-unread"] });
               }
             } else if (payload.type === "error") {
               const error = "error" in payload && typeof payload.error === "string" ? payload.error : "Chat rejected an operation.";
               if ("messageId" in payload && typeof payload.messageId === "string") {
                 const id = payload.messageId; clearDeliveryTimer(id);
-                changeOutbox(items => items.map(item => item.id === id ? { ...item, kind: "rejected", error } : item));
+                changeOutbox(items => items.map(item => item.id === id && "frame" in item ? { ...item, kind: "rejected", error } : item));
               } else update({ lastError: error });
             } else if (payload.type === "mutation-result" && "requestId" in payload && typeof payload.requestId === "string") {
               const item = pending.get(payload.requestId);
               if (item) {
                 clearTimeout(item.timer); pending.delete(payload.requestId);
-                if ("ok" in payload && payload.ok === true) item.resolve();
+                if ("ok" in payload && payload.ok === true) {
+                  const mutation = item.payload;
+                  const target = snapshot.find(message => message.id === mutation.messageId);
+                  if (mutation.type === "reaction" && mutation.emoji && orgId && userId && target?.senderId && target.senderId !== userId
+                    && target.reactions?.some(reaction => reaction.emoji === mutation.emoji && reaction.userIds.includes(userId))) {
+                    const notification: ChatNotificationCommand = { kind: "reaction", orgId, userId, roomId, requestId: payload.requestId,
+                      messageId: target.id, targetUserId: target.senderId, emoji: mutation.emoji };
+                    const delivery: ChatDelivery = { id: payload.requestId, notification, text: `Reaction ${mutation.emoji} to ${target.senderName}'s message`, createdAt: Date.now(), kind: "notifying" };
+                    const stored = changeOutbox(items => [...items, delivery])?.find(value => value.id === delivery.id);
+                    if (stored) notify(stored);
+                  }
+                  item.resolve();
+                }
                 else item.reject(new Error("error" in payload && typeof payload.error === "string" ? payload.error : "Message update failed."));
               }
             } else if (payload.type === "typing" && "name" in payload && typeof payload.name === "string" && "typing" in payload && typeof payload.typing === "boolean") {
@@ -200,17 +241,23 @@ export function useChatRelay(orgId: string | undefined, roomId = "production", u
         const id = createLocalRequestUuid();
         const frame = JSON.stringify({ type: "message", clientMessageId: id, text: clean, messageType: type, replyTo: options?.replyTo, attachments: options?.attachments,
           poll: options?.poll ? { question: options.poll.question, options: options.poll.options.map(text => ({ id: "", text, voterIds: [] })) } : undefined });
-        changeOutbox(items => [...items, { id, frame, text: clean || options?.poll?.question || options?.attachments?.map(item => item.name).join(", ") || "Message", createdAt: Date.now(), kind: "queued" }]);
+        changeOutbox(items => [...items, { id, frame, text: clean || options?.poll?.question || options?.attachments?.map(item => item.name).join(", ") || "Message", createdAt: Date.now(), kind: "queued",
+          notification: { kind: "message", orgId, userId, roomId, messageId: id, requestId: id,
+            text: clean || options?.poll?.question || "", mentionedUserIds: options?.mentionedUserIds ?? [] } }]);
         transmit(id); return id;
       },
       retryMessage: transmit,
+      retryNotifications(id) {
+        const item = readOutbox().find(item => item.id === id);
+        if (active() && item?.kind === "notification-failed") notify(item);
+      },
       discardMessage(id) { if (active()) { clearDeliveryTimer(id); changeOutbox(items => items.filter(item => item.id !== id)); } },
       mutate(payload) {
         if (!active() || !ready || !socket || socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Chat is not ready. Reconnect and try again."));
         const requestId = createLocalRequestUuid(), target = socket;
         return new Promise<void>((resolve, reject) => {
           const timer = setTimeout(() => { pending.delete(requestId); reject(new Error("The message update was not confirmed. Check the current message before trying again.")); }, 8000);
-          pending.set(requestId, { resolve, reject, timer });
+          pending.set(requestId, { payload, resolve, reject, timer });
           try { target.send(JSON.stringify({ ...payload, requestId })); }
           catch { clearTimeout(timer); pending.delete(requestId); reject(new Error("Chat could not send the update. Check the connection and try again.")); }
         });
@@ -236,8 +283,9 @@ export function useChatRelay(orgId: string | undefined, roomId = "production", u
           }, request.signal, 10000);
           if (!owns()) return;
           cursor = page.nextCursor; hasOlder = cursor !== null;
-          setView(old => { const byId = new Map([...page.messages, ...old.messages].map(item => [item.id, item]));
-            return { ...old, messages: [...byId.values()].sort(compareChatMessages), hasOlder, historyError: null }; });
+          const byId = new Map([...page.messages, ...snapshot].map(item => [item.id, item]));
+          snapshot = [...byId.values()].sort(compareChatMessages);
+          update({ messages: snapshot, hasOlder, historyError: null });
         } catch (error) { if (owns()) update({ historyError: error instanceof MobileOperationTimeoutError ? "Earlier messages timed out. Retry loading earlier messages." : error instanceof Error ? error.message : "Earlier messages could not load." }); }
         finally { if (owns()) { history = null; update({ loadingOlder: false }); } }
       },
@@ -256,6 +304,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production", u
   return { ...(view.scope === scope ? view : emptyView(scope)), outbox,
     retryConnection: useCallback(() => current()?.retry(), [current]),
     retryMessage: useCallback((id: string) => current()?.retryMessage(id), [current]),
+    retryNotifications: useCallback((id: string) => current()?.retryNotifications(id), [current]),
     discardMessage: useCallback((id: string) => current()?.discardMessage(id), [current]),
     send: useCallback((text: string, type: MobileChatMessage["type"] = "text", options?: MobileChatSendOptions) => current()?.send(text, type, options) ?? null, [current]),
     editMessage: useCallback((messageId: string, text: string) => text.trim() ? current()?.mutate({ type: "edit", messageId, text: text.trim().slice(0, 4000) }) ?? Promise.reject(new Error("Chat is not ready.")) : Promise.reject(new Error("Message cannot be empty.")), [current]),
