@@ -34,14 +34,15 @@ export const ensureDisplaySession = createServerFn({ method: "POST" })
           const renewed = await issueDisplayPass(orgId, data.surface, env.KIOSK_SECRET);
           setCookie(displayCookieName(orgId, data.surface), renewed.token, {
             httpOnly: true, secure: new URL(request.url).protocol === "https:", sameSite: "lax", path: "/",
-            maxAge: Math.floor((renewed.authority.expiresAt - Date.now()) / 1000),
+            // Cookie age uses whole seconds; the signed pass enforces exact expiry.
+            maxAge: Math.ceil((renewed.authority.expiresAt - Date.now()) / 1000),
           });
           return { authorized: true as const, expiresAt: renewed.authority.expiresAt };
         } catch { /* A shared pass remains valid until its original deadline. */ }
       }
       if (data.token) setCookie(displayCookieName(orgId, data.surface), data.token, {
         httpOnly: true, secure: new URL(request.url).protocol === "https:", sameSite: "lax", path: "/",
-        maxAge: Math.floor((authority.expiresAt - Date.now()) / 1000),
+        maxAge: Math.ceil((authority.expiresAt - Date.now()) / 1000),
       });
       return { authorized: true as const, expiresAt: authority.expiresAt };
     }
@@ -53,7 +54,7 @@ export const ensureDisplaySession = createServerFn({ method: "POST" })
     const issued = await issueDisplayPass(orgId, data.surface, env.KIOSK_SECRET);
     setCookie(displayCookieName(orgId, data.surface), issued.token, {
       httpOnly: true, secure: new URL(request.url).protocol === "https:", sameSite: "lax", path: "/",
-      maxAge: Math.floor((issued.authority.expiresAt - Date.now()) / 1000),
+      maxAge: Math.ceil((issued.authority.expiresAt - Date.now()) / 1000),
     });
     return { authorized: true as const, expiresAt: issued.authority.expiresAt };
   });
