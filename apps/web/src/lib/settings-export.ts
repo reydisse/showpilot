@@ -18,6 +18,7 @@ export function selectReportExportSections(
 ) {
   return {
     generatedAt: report.generatedAt,
+    showId: report.showId,
     serviceDate: report.serviceDate,
     organization: report.organization,
     ...(sections.includes("summary") ? { summary: report.summary } : {}),
