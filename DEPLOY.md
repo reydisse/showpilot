@@ -621,6 +621,28 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Rundown loading and replacement
+
+Load from date or template now reports failed reads with a timestamp and Retry.
+A failed list does not display an empty state. List and selected-rundown reads
+are bounded to ten seconds; late responses cannot apply after a timeout, close,
+workspace change or target-show change. If applying the result cannot be
+confirmed within ten seconds, the dialog asks the operator to review the current
+rundown before trying again. It does not offer an immediate duplicate write.
+
+Replacing a populated rundown requires confirmation. A running timer or a changed
+rundown revision disables confirmation; cancel and select again after reviewing
+the current state. Existing relay revision checks and permission checks still
+apply. Template deletion is disabled while a load or replacement is pending.
+
+After building, run `node apps/web/scripts/smoke-rundown-load-errors.mjs` and
+`node apps/web/scripts/smoke-rundown-layout.mjs`. The first stops and restarts the
+disposable Worker to verify real list/read failures, retries, timestamps, 320px
+layout and confirmed replacement in the real relay. The second checks five
+viewport sizes, keyboard focus, drag-and-drop and all rundown dialogs. Component
+tests cover timeouts, stale results, removed templates, uncertain writes and
+confirmation changes. No production data is used.
+
 ### Operational error reports
 
 Apply `0052_operational_errors.sql` before deploying this Worker. The migration
