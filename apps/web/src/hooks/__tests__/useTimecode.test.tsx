@@ -53,6 +53,69 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe("timecode connection honesty", () => {
+  it("timestamps construction failures and permits an immediate reconnect without replaying commands", () => {
+    vi.stubGlobal("WebSocket", class { constructor() { throw new Error("fixture failure"); } });
+    const { result } = hook();
+    expect(result.current.connected).toBe(false);
+    expect(result.current.lastError).toContain("Could not open");
+    expect(result.current.lastErrorAt).toBe(Date.now());
+    vi.stubGlobal("WebSocket", Socket);
+    act(() => result.current.retryConnection());
+    expect(Socket.instances).toHaveLength(1);
+    act(() => hydrate(Socket.instances[0]));
+    expect(result.current.connected).toBe(true);
+    expect(Socket.instances[0].sent).toEqual([]);
+  });
+
+  it("times out a socket that never opens and backs off until hydration succeeds", () => {
+    const { result } = hook();
+    act(() => vi.advanceTimersByTime(5000));
+    expect(Socket.instances[0].readyState).toBe(3);
+    expect(result.current.lastError).toContain("five seconds");
+    act(() => vi.advanceTimersByTime(1000));
+    expect(Socket.instances).toHaveLength(2);
+    act(() => Socket.instances[1].open());
+    act(() => vi.advanceTimersByTime(5000));
+    act(() => vi.advanceTimersByTime(1000));
+    expect(Socket.instances).toHaveLength(2);
+    act(() => vi.advanceTimersByTime(1000));
+    expect(Socket.instances).toHaveLength(3);
+  });
+
+  it("retains last known cues after a malformed update and replaces them only after a fresh hydration", () => {
+    const { result } = hook(); const socket = Socket.instances[0];
+    const event = { id: "remembered", action: "lyrics-clear", label: "Remembered cue", payload: {}, triggerTimecode: state.timecode, triggerFrame: 0, enabled: true, fired: false };
+    act(() => { socket.open(); socket.receive({ type: "hydrate", state, events: [event] }); });
+    act(() => socket.onmessage?.({ data: "{broken" } as MessageEvent<string>));
+    const occurredAt = result.current.lastErrorAt;
+    expect(result.current.connected).toBe(false);
+    expect(result.current.state?.showId).toBe("test-show");
+    expect(result.current.events.map(event => event.id)).toEqual(["remembered"]);
+    expect(result.current.lastError).toContain("could not be read");
+    expect(occurredAt).toBe(Date.now());
+    act(() => result.current.retryConnection());
+    const replacement = Socket.instances[1];
+    act(() => socket.receive({ type: "hydrate", state: { ...state, display: "stale" }, events: [] }));
+    expect(result.current.events).toHaveLength(1);
+    act(() => hydrate(replacement));
+    expect(result.current.connected).toBe(true);
+    expect(result.current.events).toEqual([]);
+    expect(result.current.lastErrorAt).toBe(occurredAt);
+    expect(replacement.sent).toEqual([]);
+  });
+
+  it("never carries a retained state or last error into another show", () => {
+    const { result, rerender } = renderHook(({ showId }) => useTimecode({ orgId: "test-org", showId, enabled: true }), { initialProps: { showId: "test-show" } });
+    act(() => hydrate(Socket.instances[0]));
+    act(() => Socket.instances[0].close());
+    expect(result.current.state?.showId).toBe("test-show");
+    expect(result.current.lastErrorAt).not.toBeNull();
+    rerender({ showId: "other-show" });
+    expect(result.current.state).toBeNull();
+    expect(result.current.lastError).toBeNull();
+    expect(result.current.lastErrorAt).toBeNull();
+  });
+
   it("rejects a running echo at the wrong start position without feeding any local frames", () => {
     const start = vi.spyOn(InternalTimecodeSource.prototype, "startAtFrame");
     const { result } = hook(); const socket = Socket.instances[0];

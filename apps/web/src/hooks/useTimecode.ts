@@ -46,6 +46,8 @@ export interface UseTimecodeReturn {
   releaseControl: () => void;
   generatorPending: "starting" | "stopping" | null;
   lastError: string | null;
+  lastErrorAt: number | null;
+  retryConnection: () => void;
 
   // Master controls
   startFreerun: (position?: TimecodeStartPosition) => TimecodeSendResult;
@@ -96,6 +98,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const requestedScope = useRef({ orgId, showId });
   requestedScope.current = { orgId, showId };
   const confirmedScope = useRef<{ orgId: string; showId: string } | null>(null);
+  const receivedScope = useRef<{ orgId: string; showId: string } | null>(null);
   const [state, setState] = useState<TimecodeState | null>(null);
   const [events, setEvents] = useState<AutomationEvent[]>([]);
   const [controller, setController] = useState(emptyMidiController);
@@ -104,7 +107,13 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const [control, setControl] = useState<TimecodeControlStatus | null>(null);
   const controlRef = useRef<TimecodeControlStatus | null>(null);
   const [generatorPending, setGeneratorPending] = useState<"starting" | "stopping" | null>(null);
-  const [lastError, setLastError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ message: string; occurredAt: number; orgId: string; showId: string | null } | null>(null);
+  const setLastError = useCallback((message: string | null) => {
+    setFailure(message === null ? null : { message, occurredAt: Date.now(), ...requestedScope.current });
+  }, []);
+  const lastFailure = failure?.orgId === orgId && failure.showId === showId ? failure : null;
+  const reconnectRef = useRef<(() => void) | null>(null);
+  const retryConnection = useCallback(() => reconnectRef.current?.(), []);
   const [mtcSupported, setMtcSupported] = useState(false);
   useEffect(() => { setMtcSupported(MtcSource.isSupported()); }, []);
 
@@ -214,7 +223,7 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   }, [clearGeneratorTimeout, sendCommand, startFeedTimer, stopLocalSources]);
 
   useEffect(() => {
-    setState(null); stateRef.current = null; pendingSeekRef.current = null; setEvents([]); setLastError(null); setController(emptyMidiController());
+    setState(null); stateRef.current = null; receivedScope.current = null; pendingSeekRef.current = null; setEvents([]); setLastError(null); setController(emptyMidiController());
     controlRef.current = null; setControl(null);
     setConnected(false); readyRef.current = false; confirmedScope.current = null;
     if (!enabled || !orgId || !showId) return;
@@ -235,12 +244,16 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
     const connect = () => {
       if (disposed) return;
       let ws: WebSocket;
-      try { ws = new WebSocket(url); } catch { scheduleReconnect(); return; }
+      try { ws = new WebSocket(url); } catch {
+        setLastError("Could not open the timecode connection. Reconnecting.");
+        scheduleReconnect(); return;
+      }
       wsRef.current = ws;
       let hydrateTimeout: ReturnType<typeof setTimeout> | undefined;
       const current = () => !disposed && wsRef.current === ws && requestedScope.current.orgId === orgId && requestedScope.current.showId === showId;
-      const awaitHydrate = () => { clearTimeout(hydrateTimeout); hydrateTimeout = setTimeout(() => { if (current()) ws.close(); }, CONFIRM_TIMEOUT_MS); };
-      ws.onopen = () => { if (current()) { attempts = 0; awaitHydrate(); } };
+      const awaitHydrate = () => { clearTimeout(hydrateTimeout); hydrateTimeout = setTimeout(() => { if (current()) { setLastError("Timecode did not confirm the show state within five seconds. Reconnecting."); ws.close(); } }, CONFIRM_TIMEOUT_MS); };
+      awaitHydrate();
+      ws.onopen = () => { if (current()) awaitHydrate(); };
       ws.onclose = () => {
         clearTimeout(hydrateTimeout);
         if (!current()) return;
@@ -250,6 +263,8 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
         controlRef.current = null; setControl(null);
         if (internalSourceRef.current || mtcSourceRef.current || pendingSourceRef.current) {
           setLastError("Timecode disconnected. The local source stopped; reconnect before starting again.");
+        } else {
+          setFailure(previous => previous ?? { message: "Timecode disconnected. Reconnecting; review the show state before retrying an action.", occurredAt: Date.now(), orgId, showId });
         }
         stopLocalSources();
         failEdits("Timecode disconnected before the save was confirmed. Your changes have been kept in the form.");
@@ -273,10 +288,11 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
               if ("source" in msg.state && "events" in msg) {
                 if (msg.state.showId !== showId) { setLastError("Timecode show mismatch. Reconnecting."); ws.close(); break; }
                 clearTimeout(hydrateTimeout);
+                attempts = 0;
                 sequence.snapshot(msg);
                 controlRef.current = msg.control ?? "available"; setControl(controlRef.current);
                 stateRef.current = msg.state; formatRef.current = msg.state.format;
-                confirmedScope.current = { orgId, showId };
+                confirmedScope.current = { orgId, showId }; receivedScope.current = { orgId, showId };
                 setState(msg.state); setEvents(msg.events); readyRef.current = true; setConnected(true);
                 setController(msg.controller ?? emptyMidiController());
                 for (const edit of pendingEditsRef.current) {
@@ -345,12 +361,28 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
               }
               break;
           }
-        } catch { /* Malformed relay frames cannot confirm a pending command. */ }
+        } catch {
+          setLastError("A timecode update could not be read. Reconnecting to confirm the show state.");
+          ws.close();
+        }
       };
+    };
+    reconnectRef.current = () => {
+      if (disposed || readyRef.current) return;
+      // Closing never replays actions or restarts a local source. Hydration must
+      // confirm the show before controls become available again.
+      readyRef.current = false; confirmedScope.current = null; setConnected(false);
+      controlRef.current = null; setControl(null);
+      stopLocalSources();
+      failEdits("Reconnecting before the save was confirmed. Your changes have been kept in the form.");
+      wsRef.current?.close();
+      if (reconnectTimer !== null) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      connect();
     };
     connect();
     return () => {
       disposed = true;
+      reconnectRef.current = null;
       if (reconnectTimer !== null) clearTimeout(reconnectTimer);
       readyRef.current = false;
       confirmedScope.current = null;
@@ -506,14 +538,14 @@ export function useTimecode({ orgId, showId, enabled, relayBaseUrl }: UseTimecod
   const setLyrics = useCallback((lyrics: Omit<LyricsDisplayState, "updatedAt" | "manual">) => { sendCommand("set-lyrics", lyrics); }, [sendCommand]);
   const clearLyrics = useCallback(() => { sendCommand("clear-lyrics"); }, [sendCommand]);
 
-  const visibleState = confirmedScope.current?.orgId === orgId && state?.showId === showId ? state : null;
+  const visibleState = receivedScope.current?.orgId === orgId && state?.showId === showId ? state : null;
   const lyricsCommands = useLyricsCommands({ orgId, showId, lyrics: visibleState?.lyrics ?? null,
     connected: connected && visibleState !== null, canControl: control === "yours" });
   return {
     controller: visibleState ? controller : emptyMidiController(), saveController,
     state: visibleState, display: visibleState?.display ?? "00:00:00:00", connected: connected && visibleState !== null,
     control: visibleState ? control : null, claimControl, releaseControl,
-    events: visibleState ? events : [], isMaster: visibleState !== null && isMaster, generatorPending, lastError,
+    events: visibleState ? events : [], isMaster: visibleState !== null && isMaster, generatorPending, lastError: lastFailure?.message ?? null, lastErrorAt: lastFailure?.occurredAt ?? null, retryConnection,
     startFreerun, stopGenerator, pauseGenerator, startMtc, stopMtc: stopGenerator, setTimecode, adjustTimecode, setFormat,
     addEvent, replaceEventGroup, updateEvent, removeEvent, resetEvents, retryEvent, fireEvent, fireNext, skipEvent, rearmEvent, setEventEnabled,
     setTriggersEnabled, resumeAutomaticCues, setLyrics, clearLyrics, mtcSupported,

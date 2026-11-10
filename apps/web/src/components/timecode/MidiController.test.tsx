@@ -13,7 +13,7 @@ async function fixture() {
   vi.stubGlobal("navigator", { requestMIDIAccess: vi.fn().mockResolvedValue(access) });
   const tc: UseTimecodeReturn = {
     state: { showId: "show", source: "internal-freerun", format: { frameRate: 30, dropFrame: "ndf" }, running: false, timecode: { hours: 0, minutes: 0, seconds: 0, frames: 0 }, totalFrames: 0, display: "00:00:00:00", serverTime: 0, lyrics: null, triggersEnabled: true },
-    connected: true, control: "yours", display: "00:00:00:00", events: [], isMaster: false, generatorPending: null, lastError: null, mtcSupported: true,
+    connected: true, control: "yours", display: "00:00:00:00", events: [], isMaster: false, generatorPending: null, lastError: null, lastErrorAt: null, retryConnection: vi.fn(), mtcSupported: true,
     controlLyrics: vi.fn(async () => {}), lyricsPending: null, lyricsError: null,
     controller: { revision: 1, config: { ...emptyMidiController().config, input: { id: input.id, name: input.name, manufacturer: input.manufacturer }, output: { id: output.id, name: output.name, manufacturer: output.manufacturer }, feedback: "apc-mini-mk2", bindings: [
       { id: "next", input: { kind: "note", channel: 0, number: 0 }, action: { kind: "fire-next" } },
