@@ -31,7 +31,8 @@ export async function signToken(
   return `${data}.${signature}`;
 }
 
-export async function verifyToken(
+/** Authenticates bytes only. Callers must validate their own scope and expiry. */
+export async function verifyTokenSignature(
   token: string,
   secret: string
 ): Promise<Record<string, unknown> | null> {
@@ -54,14 +55,20 @@ export async function verifyToken(
     );
     const valid = await crypto.subtle.verify("HMAC", key, sigBytes, encoder.encode(data));
     if (!valid) return null;
-    const payload = JSON.parse(
+    const payload: unknown = JSON.parse(
       atob(body.replace(/-/g, "+").replace(/_/g, "/"))
     );
-    // Check expiration
-    if (payload.exp && Date.now() / 1000 > payload.exp) return null;
-    return payload;
+    if (payload === null || typeof payload !== "object" || Array.isArray(payload)) return null;
+    return Object.fromEntries(Object.entries(payload));
   } catch {
     // Malformed base64 / JSON / crypto input → treat as an invalid token.
     return null;
   }
+}
+
+/** Existing kiosk callers retain their expiry policy; chat passes validate mandatory claims separately. */
+export async function verifyToken(token: string, secret: string): Promise<Record<string, unknown> | null> {
+  const payload = await verifyTokenSignature(token, secret);
+  if (!payload || (payload.exp && Date.now() / 1000 > Number(payload.exp))) return null;
+  return payload;
 }
