@@ -9,14 +9,14 @@ class FakeWebSocket {
   sent: string[] = [];
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event: { code: number; reason: string }) => void) | null = null;
   onerror: (() => void) | null = null;
 
   constructor(readonly url: string) { FakeWebSocket.instances.push(this); }
   open() { this.readyState = FakeWebSocket.OPEN; this.onopen?.(); }
   receive(value: unknown) { this.onmessage?.({ data: JSON.stringify(value) }); }
   send(value: string) { this.sent.push(value); }
-  close() { this.readyState = 3; this.onclose?.(); }
+  close(code = 1000, reason = "") { this.readyState = 3; this.onclose?.({ code, reason }); }
 }
 
 describe("NativeChatAdapter recovery and history", () => {
@@ -68,4 +68,18 @@ describe("NativeChatAdapter recovery and history", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toContain("beforeId=new");
     expect((await adapter.getHistory()).map((message) => message.id)).toEqual(["old", "new"]);
   });
+});
+
+it("reports a revoked guest pass without reconnecting or flushing its queued message", async () => {
+  vi.useFakeTimers();
+  FakeWebSocket.instances = []; vi.stubGlobal("WebSocket", FakeWebSocket);
+  const revoked = vi.fn();
+  const adapter = new NativeChatAdapter("revocation-org", { token: "fixture", name: "Crew", onRevoked: revoked });
+  const connected = adapter.connect();
+  const socket = FakeWebSocket.instances[0]; socket.open(); await connected;
+  socket.close(4403, "Guest pass revoked");
+  expect(revoked).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(FakeWebSocket.instances).toHaveLength(1);
+  await adapter.disconnect(); vi.useRealTimers(); vi.unstubAllGlobals();
 });

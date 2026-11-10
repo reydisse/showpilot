@@ -8,15 +8,12 @@ import { normalizeRole } from "@/lib/app-permissions";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 import { z } from "zod";
 
+import { chatTokenIsRevoked, recordChatPassRevocation } from "./chat-pass-revocation.server";
+import { refreshRevokedChatGuests } from "./chat-pass-relay.server";
 import { getD1 } from "./d1";
 import { resolveEffectiveAccess } from "./effective-access";
 import { CREW_CHAT_PREFIX as PASS_PREFIX, PLANNING_CHAT_PREFIX as PLANNING_PASS_PREFIX, inspectCrewChatPass, inspectPlanningChatPass, type CrewChatJoinState, type PlanningChatJoinState } from "./chat-pass-token";
 const PASS_CREATORS = new Set(["owner", "admin", "td", "pd", "pm", "sm", "tm"]);
-
-export async function verifyCrewChatPass(token: string, secret: string) {
-  const result = await inspectCrewChatPass(token, secret);
-  return result.status === "valid" ? result.pass : null;
-}
 
 export const createCrewChatPass = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, hours: z.number().int().min(1).max(24) }), data))
@@ -41,6 +38,7 @@ export const validateCrewChatPass = createServerFn({ method: "GET" })
   .handler(async ({ data }): Promise<CrewChatJoinState> => {
     const result = await inspectCrewChatPass(data, getKioskSecret());
     if (result.status !== "valid") return result;
+    if (await chatTokenIsRevoked(getD1(), result.pass.orgId, data)) return { status: "revoked" };
     const org = await getPrisma().organization.findUnique({ where: { id: result.pass.orgId }, select: { slug: true } });
     if (!org) return { status: "unavailable" };
     return { status: "valid", pass: { ...result.pass, orgSlug: org.slug } };
@@ -100,6 +98,7 @@ export const validatePlanningChatPass = createServerFn({ method: "GET" })
   .handler(async ({ data }): Promise<PlanningChatJoinState> => {
     const result = await inspectPlanningChatPass(data, getKioskSecret());
     if (result.status !== "valid") return result;
+    if (await chatTokenIsRevoked(getD1(), result.pass.orgId, data)) return { status: "revoked" };
     const { pass } = result;
     const org = await getPrisma().organization.findUnique({ where: { id: pass.orgId }, select: { slug: true } });
     if (!org) return { status: "unavailable" };
@@ -109,4 +108,26 @@ export const validatePlanningChatPass = createServerFn({ method: "GET" })
     const access = await resolveEffectiveAccess(getD1(), session.user.id, pass.orgId);
     if (!access?.permissions.includes("chat:access")) return { status: "access-removed" };
     return { status: "authorized", orgSlug: org.slug };
+  });
+
+export const revokeChatPass = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema, token: z.string().min(1).max(8192) }), data))
+  .handler(async ({ data }) => {
+    const session = await getAuth().api.getSession({ headers: getRequestHeaders(), query: { disableCookieCache: true } });
+    if (!session) throw new Error("Sign in to disable a chat link");
+    const access = await resolveEffectiveAccess(getD1(), session.user.id, data.orgId);
+    const role = normalizeRole(access?.role);
+    if (!role || !PASS_CREATORS.has(role) || !access?.permissions.includes("chat:access")) throw new Error("Only production leaders can disable chat links");
+    const scope = data.token.startsWith(PLANNING_PASS_PREFIX) ? "planning-chat" : "crew-chat";
+    const inspected = scope === "planning-chat" ? await inspectPlanningChatPass(data.token, getKioskSecret()) : await inspectCrewChatPass(data.token, getKioskSecret());
+    if (inspected.status === "invalid") throw new Error("This chat link is invalid. Paste the complete link.");
+    if (inspected.status === "expired") return { status: "expired" as const };
+    if (inspected.pass.orgId !== data.orgId) throw new Error("This link belongs to a different workspace");
+    try {
+      await recordChatPassRevocation(getD1(), { orgId: data.orgId, token: data.token, scope, expiresAt: inspected.pass.exp*1000, actorId: session.user.id });
+    } catch {
+      throw new Error("Could not confirm that the link was disabled. Retry with the same link.");
+    }
+    const disconnected = scope === "planning-chat" || await refreshRevokedChatGuests(data.orgId);
+    return { status: "revoked" as const, disconnected };
   });

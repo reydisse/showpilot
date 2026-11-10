@@ -4,7 +4,8 @@ import { SELF } from "cloudflare:test";
 import { hashPassword } from "better-auth/crypto";
 import { getPrisma } from "../db";
 import { signToken } from "../kiosk-token";
-import { validateCrewChatPass, validatePlanningChatPass } from "../crew-chat-pass";
+import { chatPassDigest } from "../chat-pass-revocation.server";
+import { validateCrewChatPass, validatePlanningChatPass, revokeChatPass } from "../crew-chat-pass";
 const request = vi.hoisted(() => ({ cookie: "" }));
 vi.mock("better-auth/tanstack-start", () => ({ tanstackStartCookies: () => ({ id: "test-cookie-bridge" }) }));
 vi.mock("@tanstack/react-start/server", () => ({ getRequestHeaders: () => new Headers({ Cookie: request.cookie }) }));
@@ -71,4 +72,45 @@ it("returns only the valid crew grant and never creates membership during valida
   const token = `chat_${await signToken({ scope: "crew-chat", orgId: f.orgId, orgSlug: f.orgId, exp: Math.floor(Date.now()/1000)+3600 }, env.KIOSK_SECRET)}`;
   expect(await validateCrewChatPass({ data: token })).toMatchObject({ status: "valid", pass: { orgId: f.orgId, orgSlug: f.orgId } });
   expect(await f.prisma.member.count({ where: { organizationId: f.orgId } })).toBe(1);
+});
+
+it("distinguishes a revoked signed invite from expiry without affecting another link", async () => {
+  const f = await fixture();
+  const tokenHash = await chatPassDigest(f.token);
+  await env.DB.prepare("INSERT INTO chat_pass_revocation (orgId,tokenHash,scope,expiresAt,revokedAt,revokedBy) VALUES (?,?,'planning-chat',?,?,?)")
+    .bind(f.orgId, tokenHash, Date.now()+3600000, Date.now(), f.id).run();
+  expect(await validatePlanningChatPass({ data: f.token })).toEqual({ status: "revoked" });
+  const crew = `chat_${await signToken({ scope: "crew-chat", orgId: f.orgId, orgSlug: f.orgId, exp: Math.floor(Date.now()/1000)+3600 }, env.KIOSK_SECRET)}`;
+  expect(await validateCrewChatPass({ data: crew })).toMatchObject({ status: "valid" });
+  await env.DB.prepare("INSERT INTO chat_pass_revocation (orgId,tokenHash,scope,expiresAt,revokedAt) VALUES (?,?,'crew-chat',?,?)")
+    .bind(f.orgId, await chatPassDigest(crew), Date.now()+3600000, Date.now()).run();
+  expect(await validateCrewChatPass({ data: crew })).toEqual({ status: "revoked" });
+});
+
+it("allows only a current leader to disable a link from that workspace, with repeatable receipts", async () => {
+  const f = await fixture();
+  await expect(revokeChatPass({ data: { orgId: f.orgId, token: f.token } })).rejects.toThrow("Only production leaders");
+  await f.prisma.member.updateMany({ where: { organizationId: f.orgId, userId: f.id }, data: { role: "owner" } });
+  await expect(revokeChatPass({ data: { orgId: f.orgId, token: f.token } })).resolves.toEqual({ status: "revoked", disconnected: true });
+  const row = await env.DB.prepare("SELECT * FROM chat_pass_revocation WHERE orgId=?").bind(f.orgId).first();
+  await expect(revokeChatPass({ data: { orgId: f.orgId, token: f.token } })).resolves.toEqual({ status: "revoked", disconnected: true });
+  expect(await env.DB.prepare("SELECT * FROM chat_pass_revocation WHERE orgId=?").bind(f.orgId).first()).toEqual(row);
+  expect(JSON.stringify(row)).not.toContain(f.token);
+  expect(await validatePlanningChatPass({ data: f.token })).toEqual({ status: "revoked" });
+  const other = await fixture();
+  await other.prisma.member.updateMany({ where: { organizationId: other.orgId, userId: other.id }, data: { role: "owner" } });
+  await expect(revokeChatPass({ data: { orgId: other.orgId, token: f.token } })).rejects.toThrow("different workspace");
+  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM chat_pass_revocation WHERE orgId=?").bind(other.orgId).first("n")).toBe(0);
+  await other.prisma.session.deleteMany({ where: { userId: other.id } });
+  await expect(revokeChatPass({ data: { orgId: other.orgId, token: other.token } })).rejects.toThrow("Sign in");
+});
+it("cannot bypass revocation with an equivalent base64 spelling of the signature", async () => {
+  const f = await fixture();
+  await f.prisma.member.updateMany({ where: { organizationId: f.orgId, userId: f.id }, data: { role: "owner" } });
+  await revokeChatPass({ data: { orgId: f.orgId, token: f.token } });
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const original = alphabet.indexOf(f.token.slice(-1));
+  const alternate = f.token.slice(0,-1) + alphabet[original ^ 1];
+  expect(alternate).not.toBe(f.token);
+  expect(await validatePlanningChatPass({ data: alternate })).toEqual({ status: "revoked" });
 });
