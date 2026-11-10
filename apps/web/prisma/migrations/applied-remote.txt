@@ -70,3 +70,4 @@
 0063_team_command_receipts.sql
 0064_team_invitation_delivery.sql
 0065_crew_roster_recovery.sql
+0066_access_write_recovery.sql
