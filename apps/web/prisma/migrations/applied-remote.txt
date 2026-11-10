@@ -64,3 +64,4 @@
 0057_song_write_receipts.sql
 0058_audio_write_receipts.sql
 0059_device_write_receipts.sql
+0060_stream_destination_write_receipts.sql

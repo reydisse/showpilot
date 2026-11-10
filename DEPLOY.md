@@ -2862,7 +2862,7 @@ from a backup as an automatic rollback step.
 
 ### Current state
 
-The production manifest records every migration through `0059_device_write_receipts.sql`.
+The production manifest records every migration through `0060_stream_destination_write_receipts.sql`.
 Migration 0048 was applied on 2026-11-05 after a clean preflight and a saved
 Time Travel bookmark. Its postcondition verified three empty tables, five
 named indexes, an unchanged legacy key count, and no foreign key violations.
@@ -2883,6 +2883,9 @@ postconditions verified the NOT NULL integer column with default 0 and every
 existing song at revision 0, all ten triggers, the empty receipt tables and
 named index, unchanged existing row counts, and no foreign key violations.
 Migration 0059 (`device_write_receipt`) was applied on 2026-11-10 after a clean
+preflight and a saved Time Travel bookmark. Its postcondition verified the
+empty table and no foreign key violations.
+Migration 0060 (`stream_destination_write_receipt`) was applied on 2026-11-10 after a clean
 preflight and a saved Time Travel bookmark. Its postcondition verified the
 empty table and no foreign key violations.
 Migrations 0030 through 0035 were applied in order on 2026-08-28. Migrations
@@ -3556,7 +3559,7 @@ also passes.
 
 Migration 0060_stream_destination_write_receipts.sql is required before deployment.
 New/replaced keys require the existing CREDENTIAL_ENCRYPTION_KEYS configuration.
-No production migration, deployment, native release, real organization write or
-paid provider action was performed. The 20 necessary tracked Markdown files
+It was applied to production on 2026-11-10 and is recorded in the
+remote migration manifest. The 20 necessary tracked Markdown files
 remain. Phase 2 stays 46/79. Go Live, Stop All, destination selection/deletion and
 ingest mutation confirmations/recovery remain to be completed before its gate.
