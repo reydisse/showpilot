@@ -73,18 +73,31 @@ it("crosses a cue after eviction using the persisted previous frame", async () =
 
 it("retains the socket master through eviction and accepts a genuinely fresh resumed feed without catch-up firing", async () => {
   const test = await clock();
-  test.socket.send(JSON.stringify({ type: "command", action: "start" }));
-  await expect.poll(() => test.messages.some(message => message.type === "master-status" && message.granted)).toBe(true);
-  test.socket.send(JSON.stringify({ type: "command", action: "feed-tc", payload: feed(1) }));
-  await expect.poll(async () => (await test.state()).totalFrames).toBe(30);
-  await test.command("add-event", { id: "gap", action: "lyrics-clear", label: "Do not catch up", triggerTimecode: feed(2).timecode, payload: {}, toleranceFrames: 0 });
-  await evictDurableObject(test.stub);
-  await expect.poll(async () => (await test.state()).signal?.status, { timeout: 2000 }).toBe("timecode-stalled");
-  test.socket.send(JSON.stringify({ type: "command", action: "feed-tc", payload: feed(3) }));
-  await expect.poll(async () => (await test.state()).totalFrames).toBe(90);
-  expect(await test.state()).toMatchObject({ running: true, signal: { status: "live" } });
-  expect(await (await test.stub.fetch(test.url("/events"))).json()).toEqual([expect.objectContaining({ id: "gap", fired: false })]);
-  test.socket.close();
+  const feedAt = Date.now();
+  const time = vi.spyOn(Date, "now").mockReturnValue(feedAt);
+  try {
+    test.socket.send(JSON.stringify({ type: "command", action: "start" }));
+    await expect.poll(() => test.messages.some(message => message.type === "master-status" && message.granted)).toBe(true);
+    test.socket.send(JSON.stringify({ type: "command", action: "feed-tc", payload: feed(1) }));
+    await expect.poll(async () => (await test.state()).totalFrames).toBe(30);
+    await test.command("add-event", { id: "gap", action: "lyrics-clear", label: "Do not catch up", triggerTimecode: feed(2).timecode, payload: {}, toleranceFrames: 0 });
+    await evictDurableObject(test.stub);
+    // Test recovery across an explicit gap, independently of runner speed.
+    // Automatic alarm delivery is covered separately above.
+    time.mockReturnValue(feedAt + 800);
+    await runDurableObjectAlarm(test.stub);
+    expect(await test.state()).toMatchObject({ running: false, signal: { status: "timecode-stalled" } });
+    test.socket.send(JSON.stringify({ type: "command", action: "feed-tc", payload: feed(3) }));
+    await expect.poll(async () => (await test.state()).totalFrames).toBe(90);
+    expect(await test.state()).toMatchObject({ running: true, signal: { status: "live", lastFeedAt: feedAt + 800 } });
+    expect(await (await test.stub.fetch(test.url("/events"))).json()).toEqual([expect.objectContaining({ id: "gap", fired: false })]);
+    time.mockReturnValue(feedAt + 1300);
+    await runDurableObjectAlarm(test.stub);
+    expect(await test.state()).toMatchObject({ running: false, totalFrames: 90, signal: { status: "timecode-stalled" } });
+  } finally {
+    time.mockRestore();
+    test.socket.close();
+  }
 });
 
 it("keeps a live Bridge feed on standby and promotes it when the operator master disconnects", async () => {
