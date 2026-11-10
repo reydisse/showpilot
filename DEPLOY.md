@@ -3430,3 +3430,68 @@ passed on this build. The older navigation test expected a bare `/login`; it now
 asserts the login pathname and the retained protected `returnTo` deep link. Actual
 anonymous access still reaches sign-in without overlay content, and a signed-in
 member without device permission cannot open device controls.
+
+
+## Multi-Platform output status recovery, 2026-11-07
+
+No schema change is required for this slice. The preceding Devices migration
+0059 remains required by its own matching web build. No production migration or
+deployment was performed.
+
+The Multi-Platform summary expected connected/reconnecting health states, but
+the server returned provider configuration states, enabled or disabled. As a
+result, a successfully enabled output appeared to be Connecting indefinitely.
+The page also suppressed polling errors and had no request deadline or Retry.
+Two component tests and the baseline browser audit reproduced those failures.
+
+The summary and cards now describe confirmed configuration only: output enabled,
+disabled, missing, unconfirmed or unavailable. An enabled output does not prove
+that viewers receive a broadcast. The page explicitly directs operators to check
+each destination platform. Failed reads retain values as Last confirmed with a
+timestamp and Retry. Pending Go Live markers are unconfirmed, not endless
+Connecting spinners.
+
+Output reads use the shared useOperatorRead lifecycle: eight-second deadlines,
+coalescing, hidden-tab pause, abandoned-response rejection and workspace/output
+identity scoping. The server reads each live input once per poll, queries inputs
+only within the organization, and bounds each provider response and body to five
+seconds. Independent inputs are checked concurrently. Malformed, missing-enabled
+and failed responses produce unknown states rather than invented health. Provider
+credentials and arbitrary error bodies are never returned.
+
+Run the compiled-app rehearsal with:
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-platform-output-status.mjs`
+
+The optional `--audit` mode reproduces the old behavior against the preceding
+build. The fixture intercepts every outbound request, permits only GET on its
+exact fake Stream endpoint, and never contacts Cloudflare. It simulates enabled,
+disabled, missing and pending outputs, provider errors, malformed responses and
+a delayed body. Final Chrome checks pass lost replies, explicit Last confirmed
+state, Retry, stale-reply rejection and 320/768/1440px recovery controls. The phone
+screenshot was inspected. Seven client polls made seven provider GETs; final D1
+values match all four original destination/output IDs and enabled states exactly.
+
+Five component tests cover status truth, deadlines, workspace changes, output-ID
+changes with an unchanged count, visibility and overlapping polls. Four Worker
+tests use real D1/permissions with a simulated provider to cover grouped reads,
+credential exclusion, a hung body, independent input results, pending markers,
+foreign inputs, revocation and malformed responses. The source-boundary check
+now follows useOperatorRead; actual component tests verify its integration.
+
+Full validation passed 2,186 unit tests, 863 Worker tests, the four coverage-gate
+tests, typecheck and production build. After a final wording correction, 26
+focused tests and the rebuilt browser rehearsal passed. The existing seven-screen
+empty-state browser regression also passed. Phase 2 remains 46/79; no paid
+resource, real organization, production deployment or native release was changed.
+
+Remaining streaming work includes confirmation and bounded recovery for Go Live,
+Stop All, selection, destination creation/edit/deletion and ingest mutations.
+The old destination form also still needs the shared Dialog and retained drafts.
+This status-read repair does not claim those paths are complete.
+
+### 2026-11-07: stream-status CI follow-up
+
+Run 42375622195 passed Native Rust and all typechecks but timed out in the first Audio receipt test. A local coverage timing probe measured 1,976 ms of real-auth fixture setup versus 61 ms for the concurrent saves. Move authenticated fixture setup into `beforeEach`, retaining the mutation assertions and their default five-second deadline. No production code, timeout setting, or permission check changed.
+
+Validation: the clean full `test:coverage` run passes 2,186 unit tests, 863 Worker tests, the boundary/migration/coverage checks, and all coverage thresholds; web typecheck passes. An earlier full local run timed out in the separate same-day timecode scoping case. That case completed in 84 ms when instrumented, then passed an instrumented full Worker run and the clean full coverage run; no timecode code or test change is retained. GitHub CI must confirm the pushed revision before the next PR.

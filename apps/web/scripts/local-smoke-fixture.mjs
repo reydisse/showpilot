@@ -13,7 +13,11 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, streamOutputs = false } = {}) {
+  if (streamOutputs) {
+    assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Stream status requires the isolated outbound handler");
+    assert.equal(captureEmail, false, "Use separate fixtures for email and Stream status");
+  }
   if (captureEmail) assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Email capture requires the isolated outbound handler");
   const directory = await mkdtemp(join(tmpdir(), "showpilot-display-smoke-"));
   const session = `display-smoke-${process.pid}`;
@@ -104,6 +108,12 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
       await writeFile(join(directory, "email-mode"), "success");
       await writeFile(join(directory, "emails.jsonl"), "");
     }
+    if (streamOutputs) {
+      config.vars.CLOUDFLARE_ACCOUNT_ID = "fixture-account";
+      config.vars.CLOUDFLARE_STREAM_API_TOKEN = "local-stream-status-only";
+      await writeFile(join(directory, "stream-output-mode"), "success");
+      await writeFile(join(directory, "stream-output-requests.jsonl"), "");
+    }
     const configPath = join(directory, "wrangler.json");
     const state = join(directory, "state");
     await writeFile(configPath, JSON.stringify(config));
@@ -170,11 +180,15 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
       WHEN NEW.orgId='display-smoke' AND NEW.userId='smoke-second-operator' AND NEW.type='chat-planning-invite'
       BEGIN SELECT RAISE(ABORT, 'fixture notification failure'); END;` : "";
     const sqlPath = join(directory, "fixture.sql");
-    await writeFile(sqlPath, `${schema}\n${seed}\n${chatNotificationFault}`);
+    const streamSeed = streamOutputs ? `
+      INSERT INTO live_input(id,orgId,name,cfInputId) VALUES('smoke-input','display-smoke','Fixture ingest','fixture-input');
+      ${["enabled","disabled","missing","pending"].map(kind => `INSERT INTO stream_destination(id,orgId,name,platform,rtmpUrl,streamKey,enabled,cfOutputId,liveInputId) VALUES('smoke-${kind}','display-smoke','Fixture ${kind}','custom','rtmp://fixture.invalid/live','fixture-stream-key',1,'${kind === "pending" ? "pending:1:fixture" : `fixture-output-${kind}`}','smoke-input');`).join("\n")}
+    ` : "";
+    await writeFile(sqlPath, `${schema}\n${seed}\n${chatNotificationFault}\n${streamSeed}`);
     await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state, "--file", sqlPath);
     const startServer = async () => {
       worker = process.env.SHOWPILOT_SMOKE_RUNTIME === "miniflare"
-        ? spawn(process.execPath, [join(web, "scripts/local-smoke-runtime.mjs"), configPath, state, String(port), ...(captureEmail ? [directory] : [])], { cwd: web, detached: true, stdio: ["ignore", "pipe", "pipe"] })
+        ? spawn(process.execPath, [join(web, "scripts/local-smoke-runtime.mjs"), configPath, state, String(port), ...(streamOutputs ? ["", directory] : captureEmail ? [directory] : [])], { cwd: web, detached: true, stdio: ["ignore", "pipe", "pipe"] })
         : spawn("pnpm", ["exec", "wrangler", "dev", "--local", "--config", configPath, "--persist-to", state, "--port", String(port), "--inspector-port", "0", "--ip", "127.0.0.1"], { cwd: web, detached: true, stdio: ["ignore", "pipe", "pipe"] });
       worker.stdout.on("data", (chunk) => { workerLog += chunk; });
       worker.stderr.on("data", (chunk) => { workerLog += chunk; });
@@ -236,11 +250,19 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
       assert.ok(captureEmail && ["success", "fail"].includes(mode));
       await writeFile(join(directory, "email-mode"), mode);
     };
+    const configureStreamOutputs = async mode => {
+      assert.ok(streamOutputs && ["success", "error", "slow", "malformed"].includes(mode));
+      await writeFile(join(directory, "stream-output-mode"), mode);
+    };
+    const streamOutputRequests = async () => {
+      assert.ok(streamOutputs);
+      return (await readFile(join(directory, "stream-output-requests.jsonl"), "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
+    };
     const capturedEmails = async () => {
       assert.ok(captureEmail);
       return (await readFile(join(directory, "emails.jsonl"), "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
     };
-    await check({ removeInvitationMembership, restoreChatNotifications, configureEmail, capturedEmails, origin, orgId, date, browser, pass, crewChatPass, planningChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, resetTokens: passwordReset ? resetTokens : undefined, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
+    await check({ configureStreamOutputs, streamOutputRequests, removeInvitationMembership, restoreChatNotifications, configureEmail, capturedEmails, origin, orgId, date, browser, pass, crewChatPass, planningChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, resetTokens: passwordReset ? resetTokens : undefined, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
   } catch (error) {
     // Configuration contains only disposable fixture secrets; redact them anyway.
     console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]").replaceAll(companionSecret, "[fixture secret]").replaceAll(encryptionSecret, "[fixture secret]"));
