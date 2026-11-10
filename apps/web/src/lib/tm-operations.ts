@@ -11,7 +11,7 @@ import { env } from "cloudflare:workers";
 const showTargetSchema = z.object({ showId: idSchema.nullable(), serviceDate: serviceDateSchema });
 
 const actionSchema = z.enum([
-  "lower-third-clear", "displays-blank", "displays-restore",
+  "lower-third-clear",
   "stream-live", "stream-stop",
 ]);
 export type TmControlAction = z.infer<typeof actionSchema>;
@@ -68,14 +68,12 @@ export const runTmControl = createServerFn({ method: "POST" })
     const deps = api.buildCompanionDeps({ orgId: data.orgId, target });
     const handlers: Record<TmControlAction, () => Promise<{ status: number; body: Record<string, unknown> }>> = {
       "lower-third-clear": () => control.clearLowerThird(deps, data.orgId),
-      "displays-blank": () => control.kioskBlank(deps, data.orgId, true),
-      "displays-restore": () => control.kioskBlank(deps, data.orgId, false),
       "stream-live": () => control.streamGoLive(deps, data.orgId),
       "stream-stop": () => control.streamStop(deps, data.orgId),
     };
     const result = await handlers[data.action]();
     if (result.status >= 400) throw new Error(String(result.body.error ?? "Control failed"));
-    if (["stream-live", "stream-stop", "displays-blank"].includes(data.action)) {
+    if (["stream-live", "stream-stop"].includes(data.action)) {
       try {
         await getPrisma().notification.create({ data: {
           orgId: data.orgId, type: "technical-control", severity: "info",

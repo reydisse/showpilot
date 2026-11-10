@@ -10,7 +10,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { KioskDisplayControl } from "../KioskDisplayControl";
 import { KioskSection } from "../KioskSection";
-const rpc = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn() }));
+const rpc = vi.hoisted(() => ({
+  read: vi.fn(),
+  write: vi.fn(),
+  technicalRead: vi.fn(),
+  technicalWrite: vi.fn(),
+}));
+vi.mock("@/lib/technical-kiosk-display", () => ({
+  getTechnicalKioskDisplay: rpc.technicalRead,
+  writeTechnicalKioskDisplay: rpc.technicalWrite,
+}));
 vi.mock("@/lib/kiosk-display", () => ({
   getKioskBlankState: rpc.read,
   setKioskBlankState: rpc.write,
@@ -28,6 +37,10 @@ beforeEach(() => {
   vi.useFakeTimers();
   rpc.read.mockReset();
   rpc.write.mockReset();
+  rpc.technicalRead
+    .mockReset()
+    .mockResolvedValue({ blanked: false, revision: null });
+  rpc.technicalWrite.mockReset();
   rpc.read.mockResolvedValue({ blanked: false, revision: null });
 });
 afterEach(() => {
@@ -207,4 +220,77 @@ it("restores without a destructive confirmation and rejects a late pre-write pol
   expect(
     screen.getByRole("button", { name: "Blank all displays" }),
   ).toBeTruthy();
+});
+
+it("uses technical authority and confirms the actual kiosk scope", async () => {
+  render(
+    <QueryClientProvider client={cache()}>
+      <KioskDisplayControl orgId="org" userId="user" surface="technical" />
+    </QueryClientProvider>,
+  );
+  await settle();
+  expect(rpc.technicalRead).toHaveBeenCalled();
+  expect(rpc.read).not.toHaveBeenCalled();
+  rpc.technicalWrite.mockImplementation(async ({ data }) =>
+    result(data.requestId, true),
+  );
+  await blank();
+  expect(rpc.technicalWrite.mock.calls[0][0].data).toMatchObject({
+    orgId: "org",
+    blanked: true,
+    expectedRevision: null,
+  });
+  expect(rpc.write).not.toHaveBeenCalled();
+});
+it("keeps a first-read retry visible and disabled while it is pending", async () => {
+  rpc.read
+    .mockRejectedValueOnce(new Error("Read failed"))
+    .mockImplementationOnce(() => new Promise(() => {}));
+  control();
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: "Retry display state" }));
+  await settle();
+  expect(
+    screen.getByRole("button", { name: "Retry display state" }),
+  ).toHaveProperty("disabled", true);
+  expect(screen.getByText("Retrying…")).toBeTruthy();
+});
+it("retains a pending command when moving between Settings and the technical dashboard", async () => {
+  const client = cache();
+  rpc.write.mockRejectedValueOnce(new Error("Lost reply"));
+  const settings = control(client);
+  await settle();
+  await blank();
+  const original = rpc.write.mock.calls[0][0].data;
+  settings.unmount();
+  render(
+    <QueryClientProvider client={client}>
+      <KioskDisplayControl orgId="org" userId="user" surface="technical" />
+    </QueryClientProvider>,
+  );
+  await settle();
+  rpc.technicalWrite.mockResolvedValue(
+    result(original.requestId, false, "superseded"),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Retry display command" }),
+  );
+  await settle();
+  expect(rpc.technicalWrite.mock.calls[0][0].data).toEqual(original);
+  expect(screen.getByText(/another controller changed/)).toBeTruthy();
+});
+it("discards confirmation when the account or organization changes", async () => {
+  const client = cache(),
+    view = control(client);
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: "Blank all displays" }));
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  view.rerender(
+    <QueryClientProvider client={client}>
+      <KioskDisplayControl orgId="other-org" userId="user" />
+    </QueryClientProvider>,
+  );
+  await settle();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(rpc.write).not.toHaveBeenCalled();
 });
