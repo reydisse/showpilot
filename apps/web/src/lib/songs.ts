@@ -4,7 +4,7 @@ import { z } from "zod";
 import { assertOrgPermission } from "@/lib/org-access";
 import { getPrisma } from "@/lib/db";
 import { idSchema, labelSchema, parseOrThrow, textSchema } from "@/lib/validation";
-import { isValidTimecode, parseTimecodeString, timecodeToFrames } from "@/lib/timecode";
+import { parseTimecodeString, timecodeToFrames } from "@/lib/timecode";
 import type { FrameRate, TimecodeFormat } from "@/types/timecode";
 import { isBridgeVersionAtLeast } from "@/lib/bridge-version";
 import { planProPresenterMerge } from "@/lib/song-import";
@@ -71,8 +71,8 @@ function parseCueDrafts(data: z.infer<typeof cueMapSchema>) {
     throw new Error("Drop-frame is only valid at 29.97 fps.");
   }
   const cues = data.cues.map((cue, sortOrder) => {
-    const timecode = parseTimecodeString(cue.triggerTc);
-    if (!timecode || !isValidTimecode(timecode, format)) {
+    const timecode = parseTimecodeString(cue.triggerTc, format);
+    if (!timecode) {
       throw new Error(`Invalid cue timecode: ${cue.triggerTc}`);
     }
     return {

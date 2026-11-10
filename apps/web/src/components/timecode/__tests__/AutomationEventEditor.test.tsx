@@ -304,3 +304,24 @@ it.each([
   expect(save).toHaveBeenCalledOnce();
   expect(save.mock.calls[0][0].payload).toEqual({ ...expected, type, style: "minimal" });
 });
+
+it("revalidates the retained cue draft when the selected frame rate changes", async () => {
+  const save = vi.fn(async (_event: NewAutomationEvent) => {});
+  const view = render(<AutomationEventEditor connected format={{ frameRate: 24, dropFrame: "ndf" }} onAdd={save} />);
+  fireEvent.change(screen.getByLabelText("First line"), { target: { value: "Preserved graphic" } });
+  const input = screen.getByPlaceholderText("00:05:00:00");
+  fireEvent.change(input, { target: { value: "00:00:10:24" } });
+  expect(screen.getByRole("button", { name: "Add Event" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("alert").textContent).toContain("24 fps NDF");
+  expect(save).not.toHaveBeenCalled();
+
+  view.rerender(<AutomationEventEditor connected format={{ frameRate: 25, dropFrame: "ndf" }} onAdd={save} />);
+  expect(input).toHaveProperty("value", "00:00:10:24");
+  expect(screen.getByLabelText("First line")).toHaveProperty("value", "Preserved graphic");
+  expect(screen.getByRole("button", { name: "Add Event" })).toHaveProperty("disabled", false);
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
+  expect(save.mock.calls[0][0]).toMatchObject({
+    triggerTimecode: { hours: 0, minutes: 0, seconds: 10, frames: 24 },
+    payload: { line1: "Preserved graphic" },
+  });
+});
