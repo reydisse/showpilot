@@ -71,3 +71,4 @@
 0064_team_invitation_delivery.sql
 0065_crew_roster_recovery.sql
 0066_access_write_recovery.sql
+0067_notification_preference_receipts.sql
