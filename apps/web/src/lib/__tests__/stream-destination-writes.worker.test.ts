@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SELF } from "cloudflare:test";
 import { hashPassword } from "better-auth/crypto";
 import { getPrisma } from "../db";
-import { addStreamDestination, updateStreamDestination, toggleStreamDestination, connectDestinationsForOrg } from "../stream-destinations";
+import { addStreamDestination, updateStreamDestination, toggleStreamDestination, deleteStreamDestination, disconnectAllDestinations, connectDestinationsToInput, connectDestinationsForOrg } from "../stream-destinations";
 import { CredentialVault } from "../credential-vault.server";
 import { readStreamDestinationKey } from "../stream-destination-write.server";
 import { handleMobileApi } from "../mobile-api.server";
@@ -182,4 +182,32 @@ it("refuses Go Live when credentials change after its snapshot but before its pr
   expect(fetch).not.toHaveBeenCalled();
   expect(await readStreamDestinationKey(await stored(f.orgId,row.id))).toBe("concurrent-key");
   expect(await env.DB.prepare("SELECT cfOutputId FROM stream_destination WHERE orgId=? AND id=?").bind(f.orgId,row.id).first("cfOutputId")).toBe("");
+});
+
+
+it("rechecks authority on public output Retry and returns a deletion receipt after the row is gone", async () => {
+  const f=authenticated;const destination=await addStreamDestination({data:f.input});
+  const data={orgId:f.orgId,id:destination.id,requestId:crypto.randomUUID()};
+  await deleteStreamDestination({data});await deleteStreamDestination({data});
+  const stop={orgId:f.orgId,requestId:crypto.randomUUID()};await disconnectAllDestinations({data:stop});
+  await env.DB.prepare("DELETE FROM member WHERE organizationId=? AND userId=?").bind(f.orgId,f.userId).run();
+  await expect(deleteStreamDestination({data})).rejects.toThrow("Forbidden");
+  await expect(disconnectAllDestinations({data:stop})).rejects.toThrow("Forbidden");
+  await expect(connectDestinationsToInput({data:{orgId:f.orgId,liveInputId:"foreign-input",requestId:crypto.randomUUID()}})).rejects.toThrow("Forbidden");
+});
+
+it("mobile removal and selection keep caller request IDs and validate them before mutations", async () => {
+  const f=authenticated;const destination=await addStreamDestination({data:f.input});
+  const send=(body:object)=>handleMobileApi(new Request(`https://app.showpilot.tech/api/mobile/v1/streaming/destinations/${destination.id}?orgId=${f.orgId}`,{
+    method:"POST",headers:{"Content-Type":"application/json",Origin:"https://app.showpilot.tech",Cookie:request.cookie},body:JSON.stringify(body),
+  }),{DB:env.DB});
+  expect((await send({action:"toggle",enabled:true,requestId:"short"}))?.status).toBe(400);
+  const selection={action:"toggle",enabled:true,requestId:crypto.randomUUID()};
+  expect((await send(selection))?.status).toBe(200);
+  expect((await send({action:"toggle",enabled:false,requestId:crypto.randomUUID()}))?.status).toBe(200);
+  expect((await send(selection))?.status).toBe(200);
+  expect((await stored(f.orgId,destination.id)).enabled).toBe(0);
+  const removal={action:"remove",requestId:crypto.randomUUID()};
+  expect((await send(removal))?.status).toBe(200);expect((await send(removal))?.status).toBe(200);
+  expect(await env.DB.prepare("SELECT id FROM stream_destination WHERE orgId=? AND id=?").bind(f.orgId,destination.id).first()).toBeNull();
 });

@@ -1,6 +1,6 @@
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
-import { createFileRoute, useRouter, useBlocker } from "@tanstack/react-router";
+import { createFileRoute, useBlocker } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useCallback, useEffect } from "react";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
@@ -16,7 +16,6 @@ import {
   Zap,
   ZapOff,
   Loader2,
-  XCircle,
   X,
   Link,
 } from "lucide-react";
@@ -96,7 +95,6 @@ function PlatformsPage() {
 }
 export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
   const { orgId } = initial;
-  const router = useRouter();
   const readConfiguration = useCallback(async (signal: AbortSignal) => {
     const [destinations, inputs] = await Promise.all([
       getStreamDestinations({ data: { orgId }, signal }), getLiveInputs({ data: { orgId }, signal }),
@@ -110,13 +108,16 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
   });
   const { destinations, inputs } = read.value;
   const writes = useConfirmedWrite(orgId);
+  const outputWrites = useConfirmedWrite(orgId);
+  const outputLocked = outputWrites.state.status !== "idle";
+  const stopping = outputWrites.state.status !== "idle" && outputWrites.state.label === "Stop All";
   const locked = writes.state.status !== "idle", busy = writes.state.status === "saving";
-  const controlsDisabled = locked || read.refreshing || !!read.error;
+  const controlsDisabled = locked || outputLocked || read.refreshing || !!read.error;
   const [editor, setEditor] = useState<{ key: string; existing: Destination | null; open: boolean } | null>(null);
   const [formDirty, setFormDirty] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
-  const dirty = locked || formDirty;
+  const dirty = locked || outputLocked || formDirty;
   const blocker = useBlocker({ shouldBlockFn: () => dirty, enableBeforeUnload: dirty, withResolver: true });
   useEffect(() => { if (!dirty && blocker.status === "blocked") blocker.proceed(); }, [dirty, blocker]);
   const openEditor = (existing: Destination | null) => {
@@ -153,9 +154,7 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
     setReviewing(false);
   };
   const notice = <><ConfirmedWriteNotice collectionLabel="destinations" state={writes.state} retry={() => void writes.retry()} review={() => void reviewStored()} reviewing={reviewing} />{editor?.open && read.error && <p role="alert" className="text-sm text-amber-200">{read.error.message}</p>}</>;
-  const [goingLive, setGoingLive] = useState(false);
-  const [stopping, setStopping] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [reviewingOutputs, setReviewingOutputs] = useState(false);
   const activeCount = destinations.filter((d) => d.enabled).length;
   const connectedCount = destinations.filter((d) => d.cfOutputId).length;
   const hasInputs = inputs.length > 0;
@@ -176,59 +175,62 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
     occurredAt: outputRead.confirmedAt,
   } : null);
 
-  const handleToggle = async (id: string, currentEnabled: boolean) => {
-    setActionError(null);
-    try {
-      await toggleStreamDestination({ data: { id, enabled: !currentEnabled } });
-      router.invalidate();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to toggle destination");
-    }
+  const finishOutput = async (_result: unknown, signal: AbortSignal) => {
+    const confirmed = await read.refresh(); signal.throwIfAborted();
+    if (!confirmed) throw new Error("The output command completed, but destinations could not be refreshed. Retry refresh without repeating the command.");
   };
-
-  const handleDelete = async (id: string) => {
-    setActionError(null);
-    try {
-      await deleteStreamDestination({ data: { id } });
-      router.invalidate();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to delete destination");
-    }
+  const requireSuccess = (results: { id: string; success: boolean; error?: string }[]) => {
+    const failed = results.filter(result => !result.success);
+    if (failed.length) throw new Error(failed.map(result => `${destinations.find(destination => destination.id === result.id)?.name ?? "Destination"}: ${result.error ?? "Outcome unconfirmed"}`).join("; "));
+    return results;
   };
-
+  const reviewOutputs = async () => {
+    if (reviewingOutputs || outputWrites.state.status !== "failed") return;
+    if (!await confirm({ title: "Review stored outputs?", description: "The previous command may still complete. Reviewing does not stop it. Use Stop All to cancel an unconfirmed Go Live request.", confirmLabel: "Review outputs", variant: "warning" })) return;
+    setReviewingOutputs(true);
+    if (await read.refresh()) outputWrites.discard();
+    setReviewingOutputs(false);
+  };
+  const handleToggle = async (destination: Destination) => {
+    if (controlsDisabled) return;
+    const enabled = !destination.enabled;
+    if (!enabled && destination.cfOutputId && !await confirm({ title: `Disable ${destination.name}?`, description: "This will stop forwarding to this destination and remove it from the next Go Live selection.", confirmLabel: "Disable destination", variant: "warning" })) return;
+    void outputWrites.start({
+      label: `${enabled ? "Enable" : "Disable"} ${destination.name}`,
+      write: (requestId, signal) => toggleStreamDestination({ data: { orgId, id: destination.id, enabled, requestId }, signal }),
+      apply: () => read.invalidate(), finish: finishOutput,
+    });
+  };
+  const handleDelete = async (destination: Destination) => {
+    if (controlsDisabled || !await confirm({ title: `Delete ${destination.name}?`, description: "This stops any output for this destination and removes its saved configuration and stream key.", confirmLabel: "Delete destination" })) return;
+    void outputWrites.start({
+      label: `Delete ${destination.name}`,
+      write: (requestId, signal) => deleteStreamDestination({ data: { orgId, id: destination.id, requestId }, signal }),
+      apply: () => read.invalidate(), finish: finishOutput,
+    });
+  };
   const handleGoLive = async () => {
-    if (!hasInputs) return;
-    setGoingLive(true);
-    setActionError(null);
-    try {
-      const results = await connectDestinationsToInput({
-        data: { orgId, liveInputId: inputs[0].id },
-      });
-      const failed = results.filter((r) => !r.success);
-      if (failed.length > 0) {
-        setActionError(`${failed.length} destination(s) failed to connect: ${failed.map((f) => f.error).join("; ")}`);
-      }
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to go live");
-    }
-    setGoingLive(false);
-    router.invalidate();
+    if (!hasInputs || controlsDisabled) return;
+    const selected = destinations.filter(destination => destination.enabled);
+    const liveInput = inputs[0];
+    const targets = selected.map(destination => ({ id: destination.id, version: destination.outputVersion }));
+    if (!await confirm({ title: "Go live to these destinations?", description: `${liveInput.name} will forward to ${selected.map(destination => destination.name).join(", ")}. Check that your encoder is sending the intended program.`, confirmLabel: "Go Live", variant: "warning" })) return;
+    void outputWrites.start({
+      label: "Go Live",
+      write: async (requestId, signal) => requireSuccess(await connectDestinationsToInput({ data: { orgId, liveInputId: liveInput.id, requestId, targets }, signal })),
+      apply: () => read.invalidate(), finish: finishOutput,
+    });
   };
-
   const handleStopAll = async () => {
-    setStopping(true);
-    setActionError(null);
-    try {
-      const results = await disconnectAllDestinations({ data: { orgId } });
-      const failed = results.filter((result) => !result.success);
-      if (failed.length > 0) {
-        setActionError(`${failed.length} destination(s) could not be stopped: ${failed.map((result) => result.error).join("; ")}`);
-      }
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to stop streams");
-    }
-    setStopping(false);
-    router.invalidate();
+    if (stopping) return;
+    const selected = destinations.filter(destination => destination.enabled || destination.cfOutputId);
+    const targets = selected.map(destination => ({ id: destination.id, version: destination.outputVersion }));
+    if (!targets.length || !await confirm({ title: "Stop all destination outputs?", description: `Stop forwarding to ${selected.map(destination => destination.name).join(", ")} and cancel pending Go Live requests for them. Your encoder and live input stay running.`, confirmLabel: "Stop All", variant: "warning" })) return;
+    void outputWrites.replace({
+      label: "Stop All",
+      write: async (requestId, signal) => requireSuccess(await disconnectAllDestinations({ data: { orgId, requestId, targets }, signal })),
+      apply: () => read.invalidate(), finish: finishOutput,
+    });
   };
 
   return (
@@ -246,34 +248,15 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
           </div>
           {destinations.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
-              {connectedCount > 0 ? (
-                <button
-                  onClick={handleStopAll}
-                  disabled={stopping || controlsDisabled}
-                  className="flex min-h-[44px] items-center gap-1.5 px-4 py-1.5 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 disabled:opacity-50 transition-colors"
-                >
-                  {stopping ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <ZapOff className="w-3.5 h-3.5" />
-                  )}
-                  Stop All
-                </button>
-              ) : (
-                <button
-                  onClick={handleGoLive}
-                  disabled={controlsDisabled || goingLive || !hasInputs || activeCount === 0}
-                  className="flex min-h-[44px] items-center gap-1.5 px-4 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50 transition-colors"
-                  title={!hasInputs ? "Create a live input on Stream first" : activeCount === 0 ? "Enable at least one destination" : ""}
-                >
-                  {goingLive ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Zap className="w-3.5 h-3.5" />
-                  )}
-                  Go Live
-                </button>
-              )}
+              <button onClick={handleGoLive} disabled={controlsDisabled || !hasInputs || activeCount === 0}
+                className="flex min-h-11 items-center gap-1.5 rounded-lg bg-fire-500 px-4 py-2 text-sm font-medium text-white outline-none hover:bg-fire-600 focus-visible:ring-2 focus-visible:ring-fire-500 disabled:opacity-50"
+                title={!hasInputs ? "Create a live input on Stream first" : activeCount === 0 ? "Enable at least one destination" : ""}>
+                <Zap className="h-4 w-4" />Go Live
+              </button>
+              <button onClick={handleStopAll} disabled={stopping || (activeCount === 0 && connectedCount === 0)}
+                className="flex min-h-11 items-center gap-1.5 rounded-lg bg-red-500/20 px-4 py-2 text-sm font-medium text-red-400 outline-none hover:bg-red-500/30 focus-visible:ring-2 focus-visible:ring-fire-500 disabled:opacity-50">
+                {stopping && outputWrites.state.status === "saving" ? <Loader2 className="h-4 w-4 animate-spin" /> : <ZapOff className="h-4 w-4" />}Stop All
+              </button>
               <button
                 onClick={() => openEditor(null)} disabled={controlsDisabled}
                 className="flex min-h-[44px] items-center gap-1.5 px-3 py-1.5 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 transition-colors"
@@ -289,6 +272,7 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
       <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
         <ReadFailureNotice error={read.error} refreshing={read.refreshing} retry={read.retry} label="Retry destinations" />
         {!editor?.open && notice}
+        <ConfirmedWriteNotice collectionLabel="outputs" state={outputWrites.state} retry={() => void outputWrites.retry()} review={() => void reviewOutputs()} reviewing={reviewingOutputs} />
         {editor && !editor.open && <button className={controlClass} onClick={() => setEditor({ ...editor, open: true })}>Review destination draft</button>}
         {read.refreshing && <p role="status" className="text-xs text-board-muted">Refreshing destinations… Previously confirmed values are shown.</p>}
         <ReadFailureNotice error={outputFailure} refreshing={outputRead.refreshing} retry={outputRead.retry} label="Retry output status" />
@@ -309,22 +293,6 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
             <p className="text-xs text-yellow-400">
               No live input configured. Create one on the Stream page to enable simulcasting.
             </p>
-          </div>
-        )}
-
-        {/* Action error banner */}
-        {actionError && (
-          <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20">
-            <XCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-            <p className="text-xs text-red-400 flex-1">{actionError}</p>
-            <button
-              type="button"
-              onClick={() => setActionError(null)}
-              aria-label="Dismiss error"
-              className="text-red-400/60 hover:text-red-400 transition-colors text-sm leading-none"
-            >
-              <X className="size-3.5" />
-            </button>
           </div>
         )}
 
@@ -385,11 +353,11 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
                       {outputError && <p className="text-xs text-amber-200">{outputError}</p>}
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
-                      <button disabled={controlsDisabled} onClick={() => handleToggle(dest.id, dest.enabled)} className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted outline-none hover:bg-board-border/50 focus-visible:ring-2 focus-visible:ring-fire-500" aria-label={`${dest.enabled ? "Disable" : "Enable"} ${dest.name}`}>
+                      <button disabled={controlsDisabled} onClick={() => handleToggle(dest)} className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted outline-none hover:bg-board-border/50 focus-visible:ring-2 focus-visible:ring-fire-500" aria-label={`${dest.enabled ? "Disable" : "Enable"} ${dest.name}`}>
                         {dest.enabled ? <ToggleRight className="h-5 w-5" /> : <ToggleLeft className="h-5 w-5" />}
                       </button>
                       <button type="button" disabled={controlsDisabled} onClick={() => openEditor(dest)} aria-label={`Edit ${dest.name}`} className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted outline-none hover:bg-board-border/50 focus-visible:ring-2 focus-visible:ring-fire-500"><Pencil className="h-4 w-4" /></button>
-                      <button type="button" disabled={controlsDisabled} onClick={() => handleDelete(dest.id)} aria-label={`Delete ${dest.name}`} className="min-h-11 min-w-11 rounded-lg p-2 text-red-400 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-fire-500"><Trash2 className="h-4 w-4" /></button>
+                      <button type="button" disabled={controlsDisabled} onClick={() => handleDelete(dest)} aria-label={`Delete ${dest.name}`} className="min-h-11 min-w-11 rounded-lg p-2 text-red-400 outline-none hover:bg-red-500/10 focus-visible:ring-2 focus-visible:ring-fire-500"><Trash2 className="h-4 w-4" /></button>
                     </div>
                   </div>
 
@@ -443,7 +411,7 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
 
         {editor && <DestinationFormModal key={editor.key} existing={editor.existing} open={editor.open} locked={locked} busy={busy} controlsDisabled={controlsDisabled} onClose={() => void closeEditor()} onSave={saveDraft} onDirty={setFormDirty} notice={notice} />}
         <Dialog open={blocker.status === "blocked"} onOpenChange={open => { if (!open && blocker.status === "blocked") blocker.reset(); }}>
-          <DialogContent aria-modal="true" showCloseButton={false} className="border-board-border bg-board-card text-board-text"><DialogTitle>Leave Multi-Platform?</DialogTitle><DialogDescription>Unsaved drafts and retry controls will be discarded. An unconfirmed save may still complete. Review stored destinations when you return.</DialogDescription><div className="flex flex-wrap gap-2"><button className={controlClass} onClick={() => blocker.status === "blocked" && blocker.reset()}>Stay</button><button className={controlClass} onClick={() => blocker.status === "blocked" && blocker.proceed()}>Leave Multi-Platform</button></div></DialogContent>
+          <DialogContent aria-modal="true" showCloseButton={false} className="border-board-border bg-board-card text-board-text"><DialogTitle>Leave Multi-Platform?</DialogTitle><DialogDescription>Unsaved drafts and retry controls will be discarded. An unconfirmed save or output command may still complete. Use Stop All to cancel Go Live before leaving. Review stored destinations when you return.</DialogDescription><div className="flex flex-wrap gap-2"><button className={controlClass} onClick={() => blocker.status === "blocked" && blocker.reset()}>Stay</button><button className={controlClass} onClick={() => blocker.status === "blocked" && blocker.proceed()}>Leave Multi-Platform</button></div></DialogContent>
         </Dialog>
       </div>
     </div>
