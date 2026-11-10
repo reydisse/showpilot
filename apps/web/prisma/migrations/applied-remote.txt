@@ -74,3 +74,4 @@
 0067_notification_preference_receipts.sql
 0068_chat_history_clear_receipts.sql
 0069_graphic_library_reset_receipts.sql
+0070_kiosk_team_commands.sql
