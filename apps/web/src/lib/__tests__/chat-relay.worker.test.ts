@@ -1,7 +1,7 @@
 import { seedRelayMember } from "@/test/relay-fixtures";
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects, evictDurableObject, runDurableObjectAlarm } from "cloudflare:test";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 afterEach(async () => {
   await abortAllDurableObjects();
@@ -170,20 +170,29 @@ describe("ChatRelay threads", () => {
 
   it("closes an idle expired guest without closing the member connection", async () => {
     const member = await openChat("guest-expiry-org");
-    const expiresAt = Date.now() + 150;
-    const response = await member.stub.fetch(new Request(`https://chat.test/internal/guest-ws?orgId=guest-expiry-org&role=Guest&guestExpiresAt=${expiresAt}`, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } }));
-    if (!response.webSocket) throw new Error("Missing guest socket");
-    const guest = response.webSocket;
-    const closed = new Promise<number>(resolve => guest.addEventListener("close", event => resolve(event.code), { once: true }));
-    const hydration = nextFrame(guest, "hydrate"); guest.accept(); await hydration;
-    await evictDurableObject(member.stub);
-    await new Promise(resolve => setTimeout(resolve, Math.max(0, expiresAt - Date.now() + 20)));
-    await runDurableObjectAlarm(member.stub);
-    await expect(closed).resolves.toBe(1008);
-    const memberMessage = nextFrame(member.socket, "message");
-    member.socket.send(JSON.stringify({ type: "message", text: "Member remains connected" }));
-    await expect(memberMessage).resolves.toMatchObject({ message: { text: "Member remains connected" } });
-    member.socket.close();
+    const now = Date.now();
+    const expiresAt = now + 60_000;
+    // Hold time steady during the handshake, then expire the hydrated guest.
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      const response = await member.stub.fetch(new Request(`https://chat.test/internal/guest-ws?orgId=guest-expiry-org&role=Guest&guestExpiresAt=${expiresAt}`, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } }));
+      expect(response.status).toBe(101);
+      if (!response.webSocket) throw new Error("Missing guest socket");
+      const guest = response.webSocket;
+      const closed = new Promise<number>(resolve => guest.addEventListener("close", event => resolve(event.code), { once: true }));
+      const hydration = nextFrame(guest, "hydrate"); guest.accept(); await hydration;
+      await evictDurableObject(member.stub);
+      expect(guest.readyState).toBe(WebSocket.OPEN);
+      clock.mockReturnValue(expiresAt + 1);
+      await runDurableObjectAlarm(member.stub);
+      await expect(closed).resolves.toBe(1008);
+      const memberMessage = nextFrame(member.socket, "message");
+      member.socket.send(JSON.stringify({ type: "message", text: "Member remains connected" }));
+      await expect(memberMessage).resolves.toMatchObject({ message: { text: "Member remains connected" } });
+      member.socket.close();
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("hydrates read progress in shared rooms so clients can resume at the first missed message", async () => {
