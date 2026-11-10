@@ -269,7 +269,7 @@ function IncidentsPage() {
   }, [openIncidentId, loadingIncidents]);
 
   const loadIncidents = useCallback(
-    async (date: string, targetShowId: string | null, reportFailure = false) => {
+    async (date: string, targetShowId: string | null, reportFailure = false, signal?: AbortSignal) => {
       const version = ++requestVersion.current;
       setLoadingIncidents(true);
       setLoadError(null);
@@ -281,6 +281,7 @@ function IncidentsPage() {
               serviceDate: date,
               showId: targetShowId ?? undefined,
             },
+            signal,
           }),
           getIncidentComments({
             data: {
@@ -288,13 +289,14 @@ function IncidentsPage() {
               serviceDate: date,
               showId: targetShowId ?? undefined,
             },
+            signal,
           }),
         ]);
-        if (version !== requestVersion.current) return;
+        if (signal?.aborted || version !== requestVersion.current) return;
         setIncidents(latest.map(normalizeIncident));
         setComments(latestComments);
       } catch (cause) {
-        if (version === requestVersion.current) setLoadError(cause instanceof Error ? cause.message : "Could not load incidents. Try again.");
+        if (!signal?.aborted && version === requestVersion.current) setLoadError(cause instanceof Error ? cause.message : "Could not load incidents. Try again.");
         if (reportFailure) throw cause;
       } finally {
         if (version === requestVersion.current) setLoadingIncidents(false);
@@ -303,11 +305,11 @@ function IncidentsPage() {
     [orgId],
   );
 
-  const { publish: publishIncident, syncError, retrySync } = useCueSheetSync({
+  const { publish: publishIncident, syncError, syncErrorAt, status: syncStatus, retrySync } = useCueSheetSync({
     orgId,
+    scope: showId ?? "",
     onNote: () => {},
-    onColumns: () => {},
-    onRefresh: () => loadIncidents(serviceDate, showId, true),
+    onRefresh: (signal) => loadIncidents(serviceDate, showId, true, signal),
     onIncident: (event) => {
       if (event.showId === showId) void loadIncidents(serviceDate, showId);
     },
@@ -457,7 +459,7 @@ function IncidentsPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <RelaySyncNotice error={syncError} onRetry={retrySync} />
+      <RelaySyncNotice error={syncError} occurredAt={syncErrorAt} status={syncStatus} onRetry={retrySync} />
       <div className="sticky top-0 z-10 border-b border-board-border bg-board-bg/80 px-4 py-4 backdrop-blur-xl sm:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-lg font-semibold text-board-text">

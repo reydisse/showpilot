@@ -621,6 +621,29 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Cue-sheet connection recovery
+
+Cue-sheet relay clients now bound socket opening and hydration at five seconds,
+retain timestamped connection errors through retries, and reconnect immediately
+from Retry. They report Synced only after a scoped D1 refresh and any missing
+snapshot have completed. Column notifications also use that refresh path.
+Reconnect and refresh retries back off; a selected-show change cancels the old
+connection and read. The shared notice also appears on Incidents and the production
+and technical manager dashboards.
+
+Cue-sheet reads have an eight-second deadline, cancel superseded requests, and
+reject late results after timeout or show changes. Failed reads keep the confirmed
+sheet and pending note edits. Reconnecting never resubmits note writes; Retry saves
+remains the explicit write retry. Note-write confirmation deadlines and column
+mutation recovery remain in the Phase 2 audit.
+
+After building, run `node apps/web/scripts/smoke-cue-sheet-recovery.mjs` and
+`node apps/web/scripts/smoke-relay-sequences.mjs`. Both use disposable local data.
+The recovery test stops the actual Worker, holds read responses past their deadline,
+switches shows with a read pending, and checks retained notes, explicit save retry,
+and the Retry button's reachability at 320px. No migration or native update is
+required; this change does not deploy the app.
+
 ### Large rundown and cue-sheet lists
 
 Lists above 100 rows now use measured virtualization. Visible rows plus focused,
