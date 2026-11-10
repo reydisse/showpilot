@@ -4145,3 +4145,45 @@ PR #198's exact parent head fd9accbb49ef550f4adbeeba4c6b3ca6846bf31c is now
 fully green in GitHub run 42411480306, including main CI and Native Rust. The
 song setup timeout and stale native Crew verification contract are both closed
 before opening the Access draft PR.
+
+
+## Settings plan and timezone clarity (2026-11-07, not deployed)
+
+Billing previously presented effective Pro trial access as the current plan,
+highlighted the available Founding offer as if selected, and could mark both Pro
+and Founding current for a Founding subscriber. The Billing component now shows
+one current plan separately from feature access and trial/beta status. It follows
+the existing paid-entitlement policy, displays inactive subscription status, and
+keeps a current Founding card visible after acquisition eligibility closes.
+Available offers share neutral styling and actions say Subscribe. Existing
+prices, checkout APIs, entitlement rules and database fields are unchanged.
+
+Organization timezone now has a labeled search and native select with 44px
+controls. The browser's supported IANA catalog loads after hydration, avoiding
+server/browser ICU differences. UTC is explicit, Toronto is searchable, and
+saved aliases remain visible even outside the search results. Search never
+writes. The existing Settings owner retains save, retry, conflict and navigation
+state. Unset timezones no longer falsely display New York as saved; London is
+no longer described as UTC. A custom combobox and a second timezone/save store
+were unnecessary because native selection preserves keyboard behavior and the
+existing write contract already owns recovery.
+
+Two Billing regressions failed before the repair. Ten focused component cases
+now pass, covering plan/entitlement distinctions, Founding uniqueness, expired
+trial, beta, unpaid subscriptions, timezone aliases, no matches and unset values.
+The full web suite passes 2,242 unit and 1,018 Worker tests. Typecheck and the web
+production build pass; main client bundle is 525,791 raw / 166,829 gzip bytes.
+
+After building, run `SHOWPILOT_SMOKE_RUNTIME=miniflare node
+apps/web/scripts/smoke-settings-clarity.mjs`. Seven real-D1 billing organizations
+exercise the compiled UI with real login; timezone search/save/reload and
+320/768/1440px controls pass. Payment RPC calls are forbidden by the rehearsal
+and none occurred. Phone screenshots were inspected. The existing
+`smoke-settings-autosave.mjs` regression also passes lost replies, exact Retry,
+newer edits, two-operator conflicts, ProPresenter save gating, Confidence draft
+preservation and the final audit of 18 receipts.
+
+No migration or native binary is needed for this slice. No deployment, release,
+real organization mutation or payment-provider call occurred. Notification
+categories and the remaining Settings/product-wide acceptance work remain open;
+Phase 2 stays at 46/79. Twenty necessary tracked Markdown files remain.
