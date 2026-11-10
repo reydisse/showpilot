@@ -1620,9 +1620,10 @@
       "phase": "2",
       "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
       "line": 251,
-      "status": "in_progress",
+      "status": "verified",
       "evidence": [
-        "2026-11-06 CI now includes the web production build and shared/mobile tsc --noEmit, alongside its existing Desktop offline test. Local build and all three typechecks passed; Desktop offline suite passed 11 tests. YAML parsing verified commands, Prisma ordering and the existing successful-CI gate before exact-commit main deployment. apps/gateway is absent following Phase 1 removal. Actual GitHub execution of the newly added steps remains to be verified before marking this requirement complete."
+        "2026-11-06 CI now includes the web production build and shared/mobile tsc --noEmit, alongside its existing Desktop offline test. Local build and all three typechecks passed; Desktop offline suite passed 11 tests. YAML parsing verified commands, Prisma ordering and the existing successful-CI gate before exact-commit main deployment. apps/gateway is absent following Phase 1 removal. Actual GitHub execution of the newly added steps remains to be verified before marking this requirement complete.",
+        "2026-11-06 GitHub run 42332695395 (PR #165, commit 342d07562cfba0e84b97c77e6758bfee647262a3) completed successfully in both CI and Native Rust jobs. The actual steps Typecheck shared, Typecheck mobile and Build web all passed. The successful-CI exact-main-commit deploy condition remains unchanged; no production deployment was triggered by these PR runs."
       ]
     },
     {
@@ -1630,8 +1631,10 @@
       "phase": "2",
       "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
       "line": 252,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "2026-11-06 Added fake-D1 literal wire goldens through resolveTimecodeDeviceAction for ATEM, Art-Net, sACN multicast, PJLink, VISCA hexadecimal presets, TCP and a test-only registered WoL profile. Both explicit and legacy cue payloads are covered, with scoped query bindings, rejected invalid parameters, missing/disabled targets, invalid ports and explicit routing precedence. The WoL case exercises the real profile/protocol path; no built-in WoL product profile is claimed. Home Assistant remains incomplete: a reproduced valid scene command is rejected at timecode-device-actions.ts because its remote action list is empty; mobile discovers actions through the Bridge while timecode target discovery and execution do not. Do not mark this requirement verified until trusted Home Assistant discovery, golden resolution and dispatch are covered. Baseline reproduction saved locally in /tmp/showpilot-homeassistant-timecode-before.test.ts and .log."
+      ]
     },
     {
       "id": "723f3481eb2e180a",
@@ -1646,8 +1649,10 @@
       "phase": "2",
       "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
       "line": 254,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06 internal-source.test.ts now covers frame-change-only worker ticks and interval fallback plus repeated feedElapsed samples at 24/25/29.97 DF/30 fps, no ticker in external-elapsed mode, and a deliberate rewind. Existing mtc-full-frame.test.ts covers all rate codes, malformed/SysEx boundaries, drop-frame labels and quarter-frame resets. Added a WebSocket reconnect/reclaim regression in useTimecode.test.tsx: disconnect stops the old source, late old grants are ignored, reconnect sends no start, and explicit Start needs a fresh master grant plus authoritative running state before starting at the confirmed frame. This preserves the Phase 0 no-unconfirmed-start rule; reclaim is explicit, not automatic. Final full suite passed 1956 unit + 718 Worker tests and web typecheck. These are deterministic source/socket tests, not a real MIDI hardware claim."
+      ]
     },
     {
       "id": "2a54975ad0b9ecc1",
@@ -1672,8 +1677,10 @@
       "phase": "2",
       "section": "2.9 CI and test closure (audit H23, H24, QO/M1, QO/M2, QO/M3, QO/M4, QO/L2)",
       "line": 257,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06 Audited the Desktop updater implementation actually shipped in the hosted web shell (src/lib/desktop-runtime.ts). Existing tests cover install, resource close on install failure, restart and older-shell manual restart. Added separate check-only and native no-update tests proving no install/restart occurs. These match Bridge updates.test.ts cases for check-only, explicit install, failure cleanup and no update. Full web suite passed 1956 unit + 718 Worker tests; Bridge desktop suite passed 9 tests including all 4 updater tests; web typecheck passed. Both suites already run in CI. This verifies adapters with the Tauri plugin mocked, not signing certificates, a release download or a physical installation."
+      ]
     },
     {
       "id": "8637515169e00d6f",

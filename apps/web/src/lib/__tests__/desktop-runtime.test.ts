@@ -244,6 +244,26 @@ describe("desktop runtime boundary", () => {
     expect(nativeNotifications.unregister).toHaveBeenCalledOnce();
   });
 
+  it("checks an available Desktop update without installing or restarting", async () => {
+    const invoke = vi.fn();
+    window.__TAURI__ = { core: { invoke } };
+    nativeUpdater.available = { version: "0.2.0" };
+    await expect(checkDesktopUpdate()).resolves.toEqual({ version: "0.2.0", notes: null, date: null });
+    expect(nativeUpdater.install).not.toHaveBeenCalled();
+    expect(nativeUpdater.close).toHaveBeenCalledOnce();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("does not install or restart when the native updater has no update", async () => {
+    const invoke = vi.fn();
+    window.__TAURI__ = { core: { invoke } };
+    await expect(checkDesktopUpdate()).resolves.toBeNull();
+    await expect(installDesktopUpdate()).resolves.toBeNull();
+    expect(nativeUpdater.install).not.toHaveBeenCalled();
+    expect(nativeUpdater.close).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("checks, installs, closes, and restarts signed desktop updates", async () => {
     const calls: string[] = [];
     window.__TAURI__ = {
