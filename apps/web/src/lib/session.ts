@@ -1,3 +1,5 @@
+import { teamInvitationSchema, teamInvitationInputSchema, retryInvitationDeliverySchema, invitationRequestHeaders } from "./team-invitation-contract";
+import { listTeamInvitations } from "./team-invitation.server";
 import { assertTeamCommandSuccess } from "./team-command.server";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders, setResponseHeader } from "@tanstack/react-start/server";
@@ -11,7 +13,7 @@ import {
 import { hasPermission, normalizeRole } from "@/lib/app-permissions";
 import { resolveMemberRoleForOrg } from "@/lib/org-role";
 import { z } from "zod";
-import { emailSchema, idSchema, parseOrThrow } from "@/lib/validation";
+import { idSchema, parseOrThrow } from "@/lib/validation";
 import { withPrimaryDatabase } from "./request-database.server";
 
 // Role names are org-defined (dynamic access control) — bound, not enumerated.
@@ -294,29 +296,14 @@ export const removeMember = createServerFn({ method: "POST" })
 // ─── Invitations ─────────────────────────────────────────
 
 export const inviteMember = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({ email: emailSchema, role: roleNameSchema, orgId: idSchema }),
-      data,
-    ),
-  )
+  .inputValidator((data: unknown) => parseOrThrow(teamInvitationInputSchema, data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "settings:members");
-
-    // Plan gating: members + outstanding invitations count against the cap.
-    const { checkPlanLimit } = await import("@/lib/plan-limits");
-    const prisma = getPrisma();
-    const [memberCount, pendingInviteCount] = await Promise.all([
-      prisma.member.count({ where: { organizationId: data.orgId } }),
-      prisma.invitation.count({
-        where: { organizationId: data.orgId, status: "pending" },
-      }),
-    ]);
-    await checkPlanLimit(data.orgId, "members", memberCount + pendingInviteCount);
-
+    // Capacity is guarded atomically with insertion. A replay at capacity must
+    // still recover its existing invitation instead of failing a fresh precheck.
     const auth = getAuth();
-    const headers = getRequestHeaders();
-    return await auth.api.createInvitation({
+    const headers = invitationRequestHeaders(data, getRequestHeaders());
+    const result = await auth.api.createInvitation({
       headers,
       body: {
         email: data.email,
@@ -325,19 +312,26 @@ export const inviteMember = createServerFn({ method: "POST" })
           | "td" | "cd" | "pd"
           | "pm" | "tm" | "sm" | "stageManager",
         organizationId: data.orgId,
+        resend: !!data.resend,
       },
     });
+    assertTeamCommandSuccess(result);
+    return teamInvitationSchema.parse(result);
   });
 
 export const getOrgInvitations = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "settings:members");
-    const prisma = getPrisma();
-    return await prisma.invitation.findMany({
-      where: { organizationId: data.orgId, status: "pending" },
-      orderBy: { createdAt: "desc" },
-    });
+    return listTeamInvitations(getD1(), data.orgId);
+  });
+
+export const retryTeamInvitationDelivery = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(retryInvitationDeliverySchema, data))
+  .handler(async ({ data }) => {
+    const result = await getAuth().api.retryInvitationDelivery({ headers: getRequestHeaders(), body: data });
+    assertTeamCommandSuccess(result);
+    return teamInvitationSchema.parse(result);
   });
 
 export const cancelInvitation = createServerFn({ method: "POST" })

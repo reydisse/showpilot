@@ -3837,3 +3837,98 @@ This closes these Team controls, not the whole Team audit: invitation creation,
 email delivery, crew/access editors and native client request retention remain
 outstanding. Phase 2 stays 46/79. No deployment, native release, real crew write
 or external email occurred. The 20 necessary tracked Markdown files remain.
+
+## Team invitation creation and email recovery
+
+Four real-auth/D1 baseline failures reproduce lost creation acknowledgements,
+missing rejected/unknown email status, and recreation after cancellation when an
+old request is retried. Team and Settings have separate invitation forms; both
+must use the same recovery component. Mobile uses the direct organization API.
+Setup already records delivery outcomes through its email hook and must keep
+that evidence. The installed Better Auth adapter generates invitation IDs and
+commits insertion before the email hook. Migration 0040 already enforces member
+plus pending-invitation capacity atomically; preserve it rather than duplicating
+plan rules in a new implementation.
+
+A UI-only retry can resend or recreate after cancellation. Recording only after
+the existing create endpoint leaves the insertion/receipt gap; recording only
+before it cannot identify an insertion that committed without its hook running.
+The chosen shape extends the existing organization endpoint wrapper: retain its
+schema/middleware/origin/rate-limit boundary, reuse current Team authority and
+commit guards, and atomically insert the invitation, request receipt and ready
+email attempt. The email attempt owns its frozen payload, stable provider key,
+lease and accepted/failed/uncertain outcome. A creation retry returns the same
+invitation's current state and can recover its original email attempt; it never
+reopens a canceled/answered invitation. An explicit resend creates a new attempt
+for the same pending invitation, guarded against an outdated target/attempt.
+
+Caller shape: create with organization, email, role and request ID; refresh the
+invitation's delivery state; retry its same attempt after uncertainty; explicitly
+confirm sending again when an earlier email may have been accepted. Keep email
+acceptance separate from the recipient accepting the invitation. Preserve the
+Setup hook and migrate Team, Settings and mobile error handling together.
+
+Resend documents [24-hour key retention and identical-payload replay](https://resend.com/docs/dashboard/emails/idempotency-keys).
+Freeze the email payload and stop automatic provider replay after 23 hours from
+first admission, leaving a margin inside that contract. A new confirmed resend
+gets a new key; it must never be disguised as retrying the previous attempt.
+A lease and current invitation/actor guards prevent competing dispatches and
+stale attempt owners from changing newer outcomes. Tests use fake email delivery
+and disposable organizations, never real recipients or provider traffic.
+
+
+Implementation and verification:
+
+- Migration 0064 adds atomic creation/resend receipts and durable email attempts.
+  Invitation lists join their current delivery in one scoped snapshot and never
+  expose frozen email bodies. Retry checks current membership, session, role
+  policy, invitation state, lease and the 23-hour replay window. Email payloads
+  escape organization/inviter text and require a valid provider acceptance ID.
+- Four additional baseline failures exposed web/mobile callers returning auth
+  error payloads as success and rejecting receipt recovery at the plan cap.
+  Those callers now forward exact request IDs, reject explicit auth failures and
+  leave capacity enforcement to the existing atomic database boundary. Setup
+  forwards its attempt ID and reviewed resend target while retaining its own
+  delivery evidence and explicit completion decision.
+- Team and Settings share the invitation form, delivery states, bounded clipboard
+  feedback and confirmed resend controls. Team retains drafts across form close
+  and tabs, coordinates invitations with other pending Team changes, and blocks
+  accidental navigation. A confirmed write followed by a failed read retries the
+  refresh only. Controls have labels, visible actions and 44px minimum targets.
+- Mobile parses delivery state, bounds team/invitation requests, shows errors and
+  retries the original request from the session's mutation cache after returning
+  to the screen. Offline mutations run their bounded transport rather than pausing
+  indefinitely. Accepted, expired, rejected and uncertain email/invitation states
+  stay distinct. Real QueryClient tests verify retained variables, current-user
+  cache isolation, pruning and offline behavior; no native simulator UI run or
+  native release is claimed for this change.
+- The new real-auth/D1 Worker file has 23 cases, covering exact/concurrent retry,
+  rollback, duplicate and capacity races, frozen payloads, request mismatch,
+  explicit resend, stale attempts, lease ownership, current owner/actor access,
+  commit-time revocation, canceled/expired invitations, web/mobile wrappers and a
+  provider that never responds. Existing Team and Setup regressions remain green.
+  The Team component suite has 12 cases; email transport/template tests have 14;
+  three mobile recovery tests exercise the real mutation cache and status copy.
+- Final full web coverage run passes 2,227 unit and 967 Worker tests, migration and
+  client-boundary checks, and all coverage thresholds. Web/mobile typechecks and
+  the production build pass. Main client bundle: 523,008 raw / 165,632 gzip bytes.
+- `smoke-team-invitations.mjs` passes real Chrome/auth/compiled Worker/disposable
+  D1: a committed creation with its browser reply withheld; a provider acceptance
+  with its reply lost; exact Retry; explicit resend; refresh-only Retry; clipboard
+  failure/recovery; Settings draft navigation protection; and 320/768/1440px
+  controls. Final evidence is three invitations, four delivery attempts, four
+  request receipts and six provider calls for four distinct accepted emails.
+  The 320px screenshot was inspected. Both existing Setup recovery/skip browser
+  scenarios also pass, preserving crew and truthful email completion evidence.
+
+Apply 0064 after 0063 before deploying these callers. Phase 2 remains 46/79;
+crew/access editors, the remaining native Team mutations and product-wide gates
+are still open. No production migration, deployment, native release, real
+organization mutation or external email occurred. Twenty necessary tracked
+Markdown files remain.
+
+The existing `smoke-team-recovery.mjs` also passes against this final build:
+six Team command receipts, one remaining owner, correct cancellation/moderation,
+newer role preservation, exact and refresh-only retries, keyboard/navigation and
+320/768/1440px controls. Its geometry check excludes the now-preserved, hidden
+invitation form; enabled visible controls retain the same minimum-size checks.

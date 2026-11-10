@@ -1,3 +1,4 @@
+import { TeamInvitations, type InvitationChange } from "@/components/admin/TeamInvitations";
 import { createFileRoute, useBlocker } from "@tanstack/react-router";
 import { RouteError } from "@/components/ui/RouteRecovery";
 import {
@@ -14,14 +15,8 @@ import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   Users,
-  UserPlus,
   Shield,
-  Copy,
-  Check,
-  X,
-  Mail,
   Trash2,
-  ChevronDown,
   KeyRound,
   Flag,
 } from "lucide-react";
@@ -29,7 +24,6 @@ import { getCrewMembers } from "@/lib/data";
 import {
   getOrgMembers,
   getOrgInvitations,
-  inviteMember,
   updateMemberRole,
   removeMember,
   cancelInvitation,
@@ -124,9 +118,10 @@ type TeamInitial = Awaited<ReturnType<typeof loadTeam>>;
 type OrgMember = TeamInitial["orgMembers"][number];
 type PendingInvitation = TeamInitial["invitations"][number];
 type Tab = "members" | "access" | "crew" | "moderation";
-type TeamChange = {
+type TeamChange<T> = {
   label: string;
-  write: (requestId: string, signal: AbortSignal) => Promise<unknown>;
+  write: (requestId: string, signal: AbortSignal) => Promise<T>;
+  apply?: (result: T) => void;
 };
 const controlClass =
   "min-h-11 min-w-11 rounded-lg border border-board-border px-3 py-2 text-sm font-medium text-board-text outline-none hover:bg-board-bg focus-visible:ring-2 focus-visible:ring-fire-500 disabled:opacity-40";
@@ -168,21 +163,22 @@ export function TeamWorkspace({ initial }: { initial: TeamInitial }) {
   } = read.value;
   const writes = useConfirmedWrite(orgId);
   const locked = writes.state.status !== "idle";
+  const [invitationDirty, setInvitationDirty] = useState(false);
   const disabled = locked || read.refreshing || !!read.error;
   const [reviewing, setReviewing] = useState(false);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const blocker = useBlocker({
-    shouldBlockFn: () => locked,
-    enableBeforeUnload: locked,
+    shouldBlockFn: () => locked || invitationDirty,
+    enableBeforeUnload: locked || invitationDirty,
     withResolver: true,
   });
   useEffect(() => {
-    if (!locked && blocker.status === "blocked") blocker.proceed();
-  }, [locked, blocker]);
-  const startChange = (change: TeamChange) =>
+    if (!locked && !invitationDirty && blocker.status === "blocked") blocker.proceed();
+  }, [locked, invitationDirty, blocker]);
+  const startChange = <T,>(change: TeamChange<T>) =>
     writes.start({
       ...change,
-      apply: () => read.invalidate(),
+      apply: result => { change.apply?.(result); read.invalidate(); },
       finish: async (_result, signal) => {
         const refreshed = await read.refresh();
         signal.throwIfAborted();
@@ -429,6 +425,8 @@ export function TeamWorkspace({ initial }: { initial: TeamInitial }) {
               orgId={orgId}
               disabled={disabled}
               refresh={read.invalidate}
+              invitationChange={change => void startChange(change)}
+              invitationDirty={setInvitationDirty}
               changeRole={changeRole}
               remove={(member) => void remove(member)}
               cancel={(invitation) => void cancel(invitation)}
@@ -468,8 +466,7 @@ export function TeamWorkspace({ initial }: { initial: TeamInitial }) {
         >
           <DialogTitle>Leave Team?</DialogTitle>
           <DialogDescription>
-            An unconfirmed change may still complete. Leaving discards its retry
-            controls. Review the team when you return.
+            Leaving discards your invitation draft and retry controls. An unconfirmed change may still complete. Review the team when you return.
           </DialogDescription>
           <div className="flex flex-wrap gap-2">
             <button
@@ -563,64 +560,13 @@ function ModerationTab({
   );
 }
 
-function MembersTab({
-  members,
-  invitations,
-  orgId,
-  disabled,
-  refresh,
-  changeRole,
-  remove,
-  cancel,
-}: {
-  members: OrgMember[];
-  invitations: PendingInvitation[];
-  orgId: string;
-  disabled: boolean;
-  refresh: () => void;
-  changeRole: (member: OrgMember, role: string) => void;
-  remove: (member: OrgMember) => void;
-  cancel: (invitation: PendingInvitation) => void;
+function MembersTab({ members, invitations, orgId, disabled, refresh, invitationChange, invitationDirty, changeRole, remove, cancel }: {
+  members: OrgMember[]; invitations: PendingInvitation[]; orgId: string; disabled: boolean;
+  refresh: () => void; invitationChange: (change: InvitationChange) => void; invitationDirty: (dirty: boolean) => void;
+  changeRole: (member: OrgMember, role: string) => void; remove: (member: OrgMember) => void; cancel: (invitation: PendingInvitation) => void;
 }) {
-  const [showInviteForm, setShowInviteForm] = useState(false);
-  return (
-    <div className="space-y-6">
-      {showInviteForm ? (
-        <InviteForm
-          orgId={orgId}
-          onDone={() => {
-            setShowInviteForm(false);
-            refresh();
-          }}
-          onCancel={() => setShowInviteForm(false)}
-        />
-      ) : (
-        <button
-          disabled={disabled}
-          onClick={() => setShowInviteForm(true)}
-          className={`${controlClass} inline-flex items-center gap-2 bg-fire-500 text-black`}
-        >
-          <UserPlus className="size-4" />
-          Invite Member
-        </button>
-      )}
-      {invitations.length > 0 && (
-        <div>
-          <h2 className="mb-3 text-sm font-medium text-board-muted">
-            Pending Invitations
-          </h2>
-          <div className="space-y-2">
-            {invitations.map((invitation) => (
-              <InvitationRow
-                key={invitation.id}
-                invitation={invitation}
-                disabled={disabled}
-                onCancel={() => cancel(invitation)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+  return (<div className="space-y-6">
+    <TeamInvitations orgId={orgId} invitations={invitations} disabled={disabled} refresh={refresh} change={invitationChange} onDirtyChange={invitationDirty} cancel={cancel} />
       <div>
         <h2 className="mb-3 text-sm font-medium text-board-muted">
           {members.length} Member{members.length === 1 ? "" : "s"}
@@ -637,182 +583,6 @@ function MembersTab({
           ))}
         </div>
       </div>
-    </div>
-  );
-}
-
-// ─── Invite Form ─────────────────────────────────────────
-
-function InviteForm({
-  orgId,
-  onDone,
-  onCancel,
-}: {
-  orgId: string;
-  onDone: () => void;
-  onCancel: () => void;
-}) {
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState("member");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [inviteLink, setInviteLink] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const result = await inviteMember({ data: { email, role, orgId } });
-      // Generate invite link
-      const link = `${window.location.origin}/invite/${(result as any).id}`;
-      setInviteLink(link);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send invite");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function handleCopy() {
-    if (inviteLink) {
-      navigator.clipboard.writeText(inviteLink);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  }
-
-  if (inviteLink) {
-    return (
-      <div className="p-4 rounded-xl border border-fire-500/20 bg-fire-500/5">
-        <p className="text-sm text-board-text mb-2">
-          Invitation sent to <span className="font-medium">{email}</span>
-        </p>
-        <div className="flex items-center gap-2">
-          <input
-            readOnly
-            value={inviteLink}
-            className="flex-1 text-xs bg-board-bg border border-board-border rounded-lg px-3 py-2 text-board-muted font-mono"
-          />
-          <button
-            onClick={handleCopy}
-            className="p-2 rounded-lg border border-board-border hover:bg-board-border transition-colors text-board-muted"
-            title="Copy link"
-          >
-            {copied ? (
-              <Check className="w-4 h-4 text-green-400" />
-            ) : (
-              <Copy className="w-4 h-4" />
-            )}
-          </button>
-        </div>
-        <button
-          onClick={onDone}
-          className="mt-3 text-xs text-fire-500 hover:underline"
-        >
-          Done
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <form
-      onSubmit={handleSubmit}
-      className="p-4 rounded-xl border border-board-border bg-board-card space-y-3"
-    >
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-        <div className="flex-1 min-w-0">
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="team@example.com"
-            className="w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20"
-          />
-        </div>
-        <div className="relative sm:w-[180px] shrink-0">
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            className="appearance-none rounded-lg border border-board-border bg-board-bg px-3 py-2 pr-8 text-sm text-board-text outline-none focus:border-fire-500/50 cursor-pointer"
-          >
-            {ASSIGNABLE_ROLES.map((r) => {
-              const meta = ROLE_META[r];
-              return meta ? (
-                <option key={r} value={r}>
-                  {meta.label}
-                </option>
-              ) : null;
-            })}
-          </select>
-          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-board-muted pointer-events-none" />
-        </div>
-      </div>
-
-      {error && <p className="text-xs text-red-400">{error}</p>}
-
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-        <button
-          type="submit"
-          disabled={loading}
-          className="px-4 py-2 rounded-lg text-xs font-semibold text-black transition-all hover:shadow-md active:scale-[0.98] disabled:opacity-50"
-          style={{
-            background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
-          }}
-        >
-          {loading ? "Sending..." : "Send Invite"}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="px-4 py-2 rounded-lg text-xs font-medium text-board-muted hover:text-board-text transition-colors"
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
-  );
-}
-
-// ─── Invitation Row ──────────────────────────────────────
-
-function InvitationRow({
-  invitation,
-  disabled,
-  onCancel,
-}: {
-  invitation: PendingInvitation;
-  disabled: boolean;
-  onCancel: () => void;
-}) {
-  const roleLabel =
-    Object.entries(ROLE_META).find(([role]) => role === invitation.role)?.[1]
-      .label ??
-    invitation.role ??
-    "Member";
-  return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-board-border bg-board-card p-3">
-      <Mail className="size-5 shrink-0 text-board-muted" />
-      <div className="min-w-0 flex-1 basis-40">
-        <p className="break-words text-sm text-board-text">
-          {invitation.email}
-        </p>
-        <p className="text-xs text-board-muted">
-          {roleLabel} · expires <TeamDate value={invitation.expiresAt} />
-        </p>
-      </div>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={onCancel}
-        className={controlClass}
-        aria-label={`Cancel invitation for ${invitation.email}`}
-      >
-        <X className="size-4" />
-      </button>
     </div>
   );
 }

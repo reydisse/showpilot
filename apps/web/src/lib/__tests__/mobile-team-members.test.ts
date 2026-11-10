@@ -77,6 +77,8 @@ function fakeDatabase(input: {
         if (sql.includes("FROM invitation")) {
           return { results: [{
             id: "invite-1",
+            organizationId: "org-1", inviterId: "owner-1", deliveryId: null,
+            emailId: null, emailState: null, leaseUntil: null, firstSentAt: null, emailUpdatedAt: null,
             email: "new@example.com",
             role: "member",
             status: "pending",
@@ -125,6 +127,8 @@ describe("mobile team membership", () => {
     mocks.checkPlanLimit.mockResolvedValue(undefined);
     mocks.createInvitation.mockResolvedValue({
       id: "invite-2",
+      organizationId: "org-1", inviterId: "owner-1",
+      delivery: { id: "00000000-0000-4000-8000-000000000001", state: "accepted", retryable: false, updatedAt: Date.now() },
       email: "new@example.com",
       role: "tm",
       status: "pending",
@@ -149,16 +153,16 @@ describe("mobile team membership", () => {
       .toBe(true);
   });
 
-  it("checks the combined plan count and creates an invitation for the requested organization", async () => {
+  it("delegates capacity to the atomic auth boundary and creates an invitation for the requested organization", async () => {
     const response = await mobileRequest(
       fakeDatabase(),
       "/api/mobile/v1/team/invitations?orgId=org-1",
       { email: "NEW@example.com", role: "tm" },
     );
     expect(response.status).toBe(201);
-    expect(mocks.checkPlanLimit).toHaveBeenCalledWith("org-1", "members", 3);
+    expect(mocks.checkPlanLimit).not.toHaveBeenCalled();
     expect(mocks.createInvitation).toHaveBeenCalledWith(expect.objectContaining({
-      body: { email: "new@example.com", role: "tm", organizationId: "org-1" },
+      body: { email: "new@example.com", role: "tm", organizationId: "org-1", resend: false },
     }));
   });
 
