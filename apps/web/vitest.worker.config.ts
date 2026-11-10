@@ -16,7 +16,13 @@ export default defineConfig(async () => {
       cloudflareTest({
         main: "./src/test/worker-entry.ts",
         miniflare: {
-          modulesRules: [{ type: "CompiledWasm", include: ["**/*.wasm", "**/*.wasm?module"] }],
+          modulesRules: [
+            // Keep the real crypto implementation in workerd's native module
+            // loader. Vitest's transformed imports add overhead inside hash
+            // loops (about 10x for PIN derivation), exhausting CI test deadlines.
+            { type: "ESModule", include: ["**/node_modules/@noble/hashes/*.js"] },
+            { type: "CompiledWasm", include: ["**/*.wasm", "**/*.wasm?module"] },
+          ],
           compatibilityDate: "2026-02-28",
           compatibilityFlags: ["nodejs_compat"],
           d1Databases: ["DB"],

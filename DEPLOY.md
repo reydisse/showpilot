@@ -656,6 +656,49 @@ migration. Deploy the matching web client and Worker so Re-fire can send the
 reviewed execution state. This change has local verification only; it does not
 confirm delivery through a real external chat service or deploy the catalog.
 
+### Media library and playback work
+
+Timecode includes a workspace media library for bumpers, countdown videos and
+stings. The library supports MP4, WebM, MP3, WAV and Ogg containers, with a 95 MiB
+limit and a three-minute upload deadline. Codec support depends on the output
+computer; Preview checks decoding and playback there without starting a show
+output. Uploads, browsing, previews and deletes require current `timecode:access`.
+File mutations also require a trusted browser Origin. Display and guest passes
+do not grant library access.
+
+R2 owns each immutable file and its metadata together at
+`orgs/<orgId>/media/<assetId>`. There is no second D1 index or migration. Existing
+workspace deletion removes this prefix. Upload authorization is rechecked after
+streaming; failed or revoked checks remove the completed object. Files are
+streamed through a fixed-length pipe, with one byte held until EOF to reject
+overlong input before R2 can commit. Container signatures and actual byte counts
+are checked. Interrupted input leaves no partial object. The conditional write
+prevents overlapping requests from replacing an existing asset. If an upload's
+response was lost, refresh the library before retrying its existing ID.
+
+Downloads are private and authenticated on every request, including HEAD and
+byte-range reads. Single ranges and If-Range support browser seeking. Invalid
+or unsatisfiable ranges return 416. Deletes are confirmed and idempotent. The UI
+keeps failed uploads and deletions retryable and aborts requests when unmounted.
+
+The chosen cue design is one explicitly enabled playback window per selected
+output, with the relay waiting for actual playback/stop acknowledgments. Playing
+in every operator/display tab could duplicate audio. A separate native Bridge
+player would introduce another codec/rendering stack before the shared web
+player exists. The dedicated window uses the same authenticated library on web
+and Desktop. Its ownership protocol, autoplay enablement, timecode dispatch,
+receipt/retry behavior and `media-play`/`media-stop` editor fields remain pending.
+The library alone does not complete Phase 2.5's media catalog requirement.
+
+After building web, run `node apps/web/scripts/smoke-media-library.mjs`. The
+disposable local rehearsal uploads a real WAV and a browser-encoded WebM,
+verifies decoding, playback, seeking, private reads, rejected cross-origin
+deletion, confirmed removal, offline retry, restart persistence and a 320px
+layout. Preview audio is muted during the test. Worker tests use real R2 and
+cover partial/overlong input, upload deadlines, concurrent writes, access loss,
+organization isolation, pagination and ranges. This is local evidence only;
+the media library has not been deployed.
+
 ### Native configuration credential migration
 
 Desktop, Bridge Desktop and standalone Bridge now store both the installation

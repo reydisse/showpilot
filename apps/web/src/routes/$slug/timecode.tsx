@@ -1,4 +1,5 @@
 import { NamedTimers } from "@/components/timers/NamedTimers";
+import { MediaLibrary } from "@/components/timecode/MediaLibrary";
 import { getBlackoutTargets } from "@/lib/automation-targets";
 import { getRundownState } from "@/lib/rundown";
 import type { AutomationTargetKind } from "@/components/timecode/AutomationTargetPicker";
@@ -181,6 +182,7 @@ function TimecodePage() {
         {state?.lyrics ? (
           <div className="overflow-hidden rounded-xl border border-board-border bg-black"><div className="border-b border-white/10 px-4 py-3"><p className="text-xs font-semibold text-white">{state.lyrics.songTitle}</p><p className="text-[10px] uppercase tracking-wider text-amber-400">{state.lyrics.sectionLabel}</p></div><div className="flex min-h-48 items-center justify-center p-6 text-center"><p className="whitespace-pre-line text-2xl font-semibold leading-tight text-white">{state.lyrics.lyrics}</p></div><p className="border-t border-white/10 px-4 py-3 text-[10px] text-white/40">{state.lyrics.nextLabel ? `NEXT · ${state.lyrics.nextLabel}` : "END OF SONG"}</p></div>
         ) : null}
+        <MediaLibrary key={orgId} orgId={orgId} />
       </div>
       {songLoaderOpen ? (
         <SongCueLoader orgId={orgId} connected={connected} running={Boolean(state?.running) || generatorPending !== null} defaultTarget={lyricsTarget(settings["lyrics-output"])} format={state?.format ?? { frameRate: 30, dropFrame: "ndf" }} onClose={() => setSongLoaderOpen(false)} onLoad={async (loaded) => { const sourceKey = loaded[0]?.sourceKey; if (!sourceKey) throw new Error("No mapped song cues to load."); await replaceEventGroup(sourceKey, loaded); }} />
