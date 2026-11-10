@@ -138,6 +138,14 @@ const requiredLaunchContracts = [
   },
 ];
 
+// Crew authorization moved into the shared command boundary used by web and native.
+requiredLaunchContracts.push(
+  { path: "src/lib/crew-roster.server.ts", pattern: /readTeamAuthority\(db, actor, \{\s*orgId: command\.orgId,\s*kind: "crew"/, message: "Crew writes must check current session and organization authority." },
+  { path: "src/lib/team-command.server.ts", pattern: /command\.kind === "report" \|\| command\.kind === "crew"\)[\s\S]+hasPermission\(member\.role, "settings:members"\)/, message: "Crew authorization must retain member-management permission." },
+  { path: "src/lib/crew-roster.server.ts", pattern: /teamAuthorityGuard\(actor, command\.orgId, access\)/, message: "Crew writes must retain commit-time authority guards." },
+  { path: "src/lib/crew-roster.server.ts", pattern: /WHERE orgId=\? AND id=\? AND profileRevision=\?/, message: "Crew writes must retain tenant and profile revision guards." },
+);
+
 for (const contract of requiredLaunchContracts) {
   const source = readFileSync(resolve(webRoot, contract.path), "utf8");
   if (!contract.pattern.test(source)) throw new Error(contract.message);
@@ -154,9 +162,9 @@ function exportedConstBlock(relativePath, exportName) {
 
 const serverPermissionContracts = [
   ["src/lib/data.ts", "getCrewMembers", /assertOrgPermission\(data\.orgId, "show:view"\)/],
-  ["src/lib/data.ts", "addCrewMember", /assertOrgPermission\(data\.orgId, "settings:members"\)/],
-  ["src/lib/data.ts", "updateCrewMember", /assertOrgPermission\(data\.orgId, "settings:members"\)/],
-  ["src/lib/data.ts", "deleteCrewMember", /assertOrgPermission\(data\.orgId, "settings:members"\)/],
+  ["src/lib/data.ts", "addCrewMember", /writeCrewProfile\(getD1\(\), await crewActor\(getRequestHeaders\(\)\), \{ \.\.\.data, kind: "create" \}\)/],
+  ["src/lib/data.ts", "updateCrewMember", /writeCrewProfile\(getD1\(\), await crewActor\(getRequestHeaders\(\)\), \{ \.\.\.data, kind: "update" \}\)/],
+  ["src/lib/data.ts", "deleteCrewMember", /writeCrewProfile\(getD1\(\), await crewActor\(getRequestHeaders\(\)\), \{ \.\.\.data, kind: "delete" \}\)/],
   ["src/lib/data.ts", "getEquipment", /assertOrgPermission\(data\.orgId, "assets:view"\)/],
   ["src/lib/data.ts", "addEquipment", /assertOrgPermission\(data\.orgId, "assets:manage"\)/],
   ["src/lib/data.ts", "updateEquipment", /assertOrgPermission\(data\.orgId, "assets:manage"\)[\s\S]+where:\s*\{\s*id:\s*data\.id,\s*orgId:\s*data\.orgId\s*\}/],

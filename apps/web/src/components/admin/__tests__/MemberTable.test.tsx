@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { MemberTable } from "../MemberTable";
-import type { Member } from "@/types";
+import type { CrewRosterMember as Member } from "@/lib/crew-roster-contract";
 
 vi.mock("@tanstack/react-router", () => ({
   useRouter: () => ({ invalidate: vi.fn() }),
@@ -27,31 +27,53 @@ const member: Member = {
   email: "mobile@example.com",
   photoUrl: "",
   isOnline: false,
+  profileRevision: 0,
   lastCheckIn: null,
   lastCheckOut: null,
-  createdAt: "2026-08-27T00:00:00.000Z",
+  createdAt: new Date("2026-08-27T00:00:00.000Z"),
 };
 
 describe("MemberTable icon actions", () => {
   it("gives crew management icons clear accessible names", () => {
-    render(<MemberTable members={[member]} orgId="org-1" canManage />);
+    render(
+      <MemberTable
+        members={[member]}
+        orgId="org-1"
+        canManage
+        disabled={false}
+        change={vi.fn()}
+        onDirtyChange={vi.fn()}
+      />,
+    );
 
-    expect(screen.getByRole("button", { name: "Edit Mobile QA" })).toBeInstanceOf(
-      HTMLButtonElement,
-    );
-    expect(screen.getByRole("button", { name: "Remove Mobile QA" })).toBeInstanceOf(
-      HTMLButtonElement,
-    );
+    expect(
+      screen.getByRole("button", { name: "Edit Mobile QA" }),
+    ).toBeInstanceOf(HTMLButtonElement);
+    expect(
+      screen.getByRole("button", { name: "Remove Mobile QA" }),
+    ).toBeInstanceOf(HTMLButtonElement);
   });
 
   it("labels the icon that clears a crew search", () => {
-    render(<MemberTable members={[member]} orgId="org-1" canManage />);
-
-    fireEvent.change(screen.getByPlaceholderText("Search by name, role, or ID..."), {
-      target: { value: "Mobile" },
-    });
-    expect(screen.getByRole("button", { name: "Clear crew search" })).toBeInstanceOf(
-      HTMLButtonElement,
+    render(
+      <MemberTable
+        members={[member]}
+        orgId="org-1"
+        canManage
+        disabled={false}
+        change={vi.fn()}
+        onDirtyChange={vi.fn()}
+      />,
     );
+
+    fireEvent.change(
+      screen.getByPlaceholderText("Search by name, role, or ID..."),
+      {
+        target: { value: "Mobile" },
+      },
+    );
+    expect(
+      screen.getByRole("button", { name: "Clear crew search" }),
+    ).toBeInstanceOf(HTMLButtonElement);
   });
 });

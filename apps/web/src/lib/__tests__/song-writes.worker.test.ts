@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { SELF } from "cloudflare:test";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { hashPassword } from "better-auth/crypto";
 import { z } from "zod";
 import { getPrisma } from "../db";
@@ -38,6 +38,13 @@ async function fixture() {
     sections: [{ label: "Verse", lyrics: "First\nSecond" }, { label: "Chorus", lyrics: "Chorus first\nChorus second" }] };
   return { prisma, orgId, userId, input };
 }
+// Keep cold password hashing and the real login outside the behavior timeout.
+// Each test still gets its own organization, member and authenticated session.
+let authenticated: Awaited<ReturnType<typeof fixture>>;
+beforeEach(async () => {
+  authenticated = await fixture();
+});
+
 async function rejecting(sql: string, check: () => Promise<void>) {
   await env.DB.prepare(`CREATE TRIGGER fixture_reject_song_write ${sql}`).run();
   try { await check(); } finally { await env.DB.exec("DROP TRIGGER fixture_reject_song_write"); }
@@ -53,7 +60,7 @@ async function existingSong(f: Awaited<ReturnType<typeof fixture>>) {
 }
 
 it("rolls back manual song creation if any lyric section fails", async () => {
-  const f = await fixture();
+  const f = authenticated;
   await rejecting(`BEFORE INSERT ON song_section WHEN NEW.orgId='${f.orgId}' AND NEW.label='Chorus'
     BEGIN SELECT RAISE(ABORT,'fixture section insert failed'); END;`, async () => {
     await expect(createSong({ data: f.input })).rejects.toThrow();
@@ -63,7 +70,7 @@ it("rolls back manual song creation if any lyric section fails", async () => {
 });
 
 it("rolls back the whole section reorder on a later update failure", async () => {
-  const f = await fixture(); const song = await existingSong(f);
+  const f = authenticated; const song = await existingSong(f);
   await rejecting(`BEFORE UPDATE ON song_section WHEN NEW.orgId='${f.orgId}' AND NEW.id='${song.sections[0].id}'
     BEGIN SELECT RAISE(ABORT,'fixture reorder failed'); END;`, async () => {
     await expect(reorderSongSections({ data: { orgId: f.orgId, songId: song.id, sectionIds: song.sections.map(s => s.id).reverse() } })).rejects.toThrow();
@@ -72,7 +79,7 @@ it("rolls back the whole section reorder on a later update failure", async () =>
 });
 
 it("preserves the old cue map name and cues if replacement insertion fails", async () => {
-  const f = await fixture(); const song = await existingSong(f);
+  const f = authenticated; const song = await existingSong(f);
   await rejecting(`BEFORE INSERT ON song_cue WHEN NEW.orgId='${f.orgId}'
     BEGIN SELECT RAISE(ABORT,'fixture cue insert failed'); END;`, async () => {
     await expect(saveSongCueMap({ data: { orgId: f.orgId, songId: song.id, cueMapId: song.cueMaps[0].id, name: "New map", ...format,
@@ -82,7 +89,7 @@ it("preserves the old cue map name and cues if replacement insertion fails", asy
 });
 
 it("rolls back metadata, lyrics and cues together when saving a draft fails", async () => {
-  const f = await fixture(); const song = await existingSong(f);
+  const f = authenticated; const song = await existingSong(f);
   await rejecting(`BEFORE UPDATE ON song_section WHEN NEW.orgId='${f.orgId}' AND NEW.id='${song.sections[1].id}'
     BEGIN SELECT RAISE(ABORT,'fixture draft failed'); END;`, async () => {
     await expect(saveSongDraft({ data: { orgId: f.orgId, songId: song.id, title: "Changed title", artist: "Changed artist", ccliNumber: "", bpm: 120, keySignature: "G",
@@ -94,7 +101,7 @@ it("rolls back metadata, lyrics and cues together when saving a draft fails", as
 });
 
 it("rolls back destructive ProPresenter replacement including cascaded mapped cues", async () => {
-  const f = await fixture(); const original = await existingSong(f); const uuid = crypto.randomUUID();
+  const f = authenticated; const original = await existingSong(f); const uuid = crypto.randomUUID();
   await f.prisma.song.update({ where: { id: original.id }, data: { ppPresentationUuid: uuid } });
   const song = await getSong({ data: { orgId: f.orgId, songId: original.id } });
   await rejecting(`BEFORE INSERT ON song_section WHEN NEW.orgId='${f.orgId}' AND NEW.label='Reject'
@@ -108,7 +115,7 @@ it("rolls back destructive ProPresenter replacement including cascaded mapped cu
 });
 
 it("concurrent creation retries commit one song and one receipt", async () => {
-  const f = await fixture(); const data = { ...f.input, requestId: crypto.randomUUID() };
+  const f = authenticated; const data = { ...f.input, requestId: crypto.randomUUID() };
   const replies = await Promise.all([createSong({ data }), createSong({ data })]);
   expect(replies[0]).toEqual(replies[1]);
   expect(await f.prisma.song.count({ where: { orgId: f.orgId } })).toBe(1);
@@ -118,7 +125,7 @@ it("concurrent creation retries commit one song and one receipt", async () => {
 });
 
 it("rolls back its receipt with a failed write so the same request can retry", async () => {
-  const f = await fixture(); const data = { ...f.input, requestId: crypto.randomUUID() };
+  const f = authenticated; const data = { ...f.input, requestId: crypto.randomUUID() };
   await rejecting(`BEFORE INSERT ON song_section WHEN NEW.orgId='${f.orgId}' AND NEW.label='Chorus'
     BEGIN SELECT RAISE(ABORT,'fixture section insert failed'); END;`, async () => {
     await expect(createSong({ data })).rejects.toThrow();
@@ -130,7 +137,7 @@ it("rolls back its receipt with a failed write so the same request can retry", a
 });
 
 it("never recreates a removed song when its saved creation is retried", async () => {
-  const f = await fixture(); const data = { ...f.input, requestId: crypto.randomUUID() };
+  const f = authenticated; const data = { ...f.input, requestId: crypto.randomUUID() };
   const { id } = await createSong({ data });
   const removal = { orgId: f.orgId, songId: id, requestId: crypto.randomUUID() };
   await deleteSong({ data: removal });
@@ -140,7 +147,7 @@ it("never recreates a removed song when its saved creation is retried", async ()
 });
 
 it("replays a saved draft without overwriting a later edit or creating another map", async () => {
-  const f = await fixture(); const song = await existingSong(f);
+  const f = authenticated; const song = await existingSong(f);
   const data = { ...f.input, songId: song.id, requestId: crypto.randomUUID(), title: "First saved title",
     sections: song.sections.map(s => ({ id: s.id, label: s.label, lyrics: s.lyrics, sourceSlideIndex: s.sourceSlideIndex })),
     cueMap: { name: "New map", ...format, cues: [] },
@@ -156,7 +163,7 @@ it("replays a saved draft without overwriting a later edit or creating another m
 });
 
 it("recovers a new section once and never restores it after deletion", async () => {
-  const f = await fixture(); const song = await existingSong(f);
+  const f = authenticated; const song = await existingSong(f);
   const data = { orgId: f.orgId, songId: song.id, requestId: crypto.randomUUID(), label: "Added", lyrics: "One\nTwo" };
   const replies = await Promise.all([saveSongSection({ data }), saveSongSection({ data })]);
   expect(replies[0].id).toBe(replies[1].id);
@@ -168,14 +175,14 @@ it("recovers a new section once and never restores it after deletion", async () 
 });
 
 it("checks current permission before returning a saved receipt", async () => {
-  const f = await fixture(); const data = { ...f.input, requestId: crypto.randomUUID() };
+  const f = authenticated; const data = { ...f.input, requestId: crypto.randomUUID() };
   await createSong({ data });
   await f.prisma.member.deleteMany({ where: { organizationId: f.orgId, userId: f.userId } });
   await expect(createSong({ data })).rejects.toThrow("Forbidden");
 });
 
 it("rejects foreign songs and cue sections without touching either organization", async () => {
-  const f = await fixture(); const song = await existingSong(f); const other = await fixture();
+  const f = authenticated; const song = await existingSong(f); const other = await fixture();
   const foreign = await createSong({ data: other.input });
   const foreignSong = await getSong({ data: { orgId: other.orgId, songId: foreign.id } });
   await expect(saveSongMetadata({ data: { ...other.input, songId: song.id, title: "Wrong organization" } })).rejects.toThrow("Song not found");
@@ -185,7 +192,7 @@ it("rejects foreign songs and cue sections without touching either organization"
 });
 
 it("rolls back a prepared command if another writer changes a section before commit", async () => {
-  const f = await fixture(); const song = await existingSong(f); const requestId = crypto.randomUUID();
+  const f = authenticated; const song = await existingSong(f); const requestId = crypto.randomUUID();
   await expect(runSongWrite({ orgId: f.orgId, actorId: f.userId, requestId, kind: "metadata", payload: { title: "Stale title" }, targetSongId: song.id }, z.object({ ok: z.literal(true) }), async () => {
     await f.prisma.songSection.update({ where: { id: song.sections[0].id }, data: { lyrics: "Concurrent lyrics" } });
     return { songId: song.id, result: { ok: true as const }, statements: [env.DB.prepare("UPDATE song SET title=? WHERE id=? AND orgId=?").bind("Stale title", song.id, f.orgId)] };
@@ -196,7 +203,7 @@ it("rolls back a prepared command if another writer changes a section before com
 });
 
 it("rejects a prepared section deletion if a new cue maps it before commit", async () => {
-  const f = await fixture(); const song = await existingSong(f); const section = song.sections[1];
+  const f = authenticated; const song = await existingSong(f); const section = song.sections[1];
   await expect(runSongWrite({ orgId: f.orgId, actorId: f.userId, requestId: crypto.randomUUID(), kind: "delete-section", payload: { sectionId: section.id }, targetSongId: song.id }, z.object({ ok: z.literal(true) }), async () => {
     await f.prisma.songCue.create({ data: { orgId: f.orgId, cueMapId: song.cueMaps[0].id, sectionId: section.id, triggerTc: "00:00:02:00", triggerFrame: 60, sortOrder: 1 } });
     return { songId: song.id, result: { ok: true as const }, statements: [env.DB.prepare("DELETE FROM song_section WHERE id=? AND orgId=?").bind(section.id, f.orgId)] };

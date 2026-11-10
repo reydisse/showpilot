@@ -1,24 +1,36 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, ImagePlus } from "lucide-react";
 
 interface PhotoUploadProps {
   currentPhotoURL?: string;
+  file?: File | null;
   onFileSelect: (file: File | null) => void;
 }
 
-export function PhotoUpload({ currentPhotoURL, onFileSelect }: PhotoUploadProps) {
+export function PhotoUpload({
+  currentPhotoURL,
+  onFileSelect,
+  file: controlledFile,
+}: PhotoUploadProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] || null;
-    onFileSelect(file);
-    if (file) {
-      const url = URL.createObjectURL(file);
-      setPreview(url);
-    } else {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const file = controlledFile === undefined ? selectedFile : controlledFile;
+  useEffect(() => {
+    if (!file) {
       setPreview(null);
+      return;
     }
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = event.target.files?.[0];
+    if (!selected) return;
+    setSelectedFile(selected);
+    onFileSelect(selected);
   };
 
   const displayURL = preview || currentPhotoURL;
@@ -53,6 +65,7 @@ export function PhotoUpload({ currentPhotoURL, onFileSelect }: PhotoUploadProps)
       <input
         ref={inputRef}
         type="file"
+        aria-label="Choose crew profile photo"
         accept="image/*"
         onChange={handleChange}
         className="hidden"
@@ -60,7 +73,7 @@ export function PhotoUpload({ currentPhotoURL, onFileSelect }: PhotoUploadProps)
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        className="text-[11px] text-fire-500/70 hover:text-fire-500 transition-colors"
+        className="min-h-11 min-w-11 rounded-lg px-3 text-sm text-fire-500/70 hover:text-fire-500 transition-colors"
       >
         {displayURL ? "Change photo" : "Upload photo"}
       </button>
