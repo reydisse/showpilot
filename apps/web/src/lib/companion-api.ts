@@ -15,7 +15,7 @@ import {
   clearLowerThirdForOrg,
   readLowerThirdForOrg,
 } from "@/lib/lowerthirds";
-import { setKioskBlanked, getKioskBlanked } from "@/lib/kiosk-display";
+import { setKioskBlanked, getKioskBlanked } from "@/lib/kiosk-display-command.server";
 import {
   resolveOrgLiveInput,
   connectDestinationsForOrg,

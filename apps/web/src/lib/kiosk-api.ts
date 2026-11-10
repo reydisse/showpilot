@@ -1,7 +1,7 @@
 import { findScopedToken, scopedTokenIsActive } from "./scoped-token-store.server";
 import { env } from "cloudflare:workers";
 import { verifyToken, getKioskSecret } from "@/lib/kiosk";
-import { interpretBlankedValue } from "@/lib/kiosk-display";
+import { interpretBlankedValue } from "@/lib/kiosk-display-contract";
 import { getPortableAvatarUrl } from "@/lib/avatar-image";
 
 // ─────────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+vi.mock("./KioskDisplayControl", () => ({ KioskDisplayControl: () => null }));
 import { renderToString } from 'react-dom/server';
 import { hydrateRoot } from 'react-dom/client';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -70,7 +71,7 @@ it('cancels token reads when the organization changes', async () => {
 it('bounds the org-chart read without showing a partial result and leaves token access reachable', async () => {
   kiosk.teams.mockResolvedValue([{id:'team',name:'Unconfirmed team',members:[],color:'#000000'}]);
   kiosk.roles.mockImplementation(() => new Promise(() => {}));
-  render(<KioskSection orgId="one" slug="one" members={[]} />);
+  render(<KioskSection userId="fixture-user" orgId="one" slug="one" members={[]} />);
   await tick(8000);
   expect(screen.queryByText('Loading kiosk organization…')).toBeNull();
   expect(screen.queryByText('Unconfirmed team')).toBeNull(); expect(screen.queryByText(/No teams yet/)).toBeNull();
@@ -84,7 +85,7 @@ it('isolates roster weeks and retains a draft when a refresh fails', async () =>
   kiosk.roles.mockResolvedValue([{id:'audio',code:'audio',name:'Audio',short:'Audio'}]);
   kiosk.week.mockImplementationOnce(() => new Promise(done => { oldReply = done; }))
     .mockResolvedValueOnce({tech:{},pmUserId:null}).mockImplementationOnce(() => new Promise(() => {})).mockResolvedValue({tech:{},pmUserId:null});
-  render(<KioskSection orgId="one" slug="one" members={[{user:{id:'person',name:'Fixture person',image:null}}]} />);
+  render(<KioskSection userId="fixture-user" orgId="one" slug="one" members={[{user:{id:'person',name:'Fixture person',image:null}}]} />);
   await tick(); fireEvent.click(screen.getByRole('button',{name:'On-Duty Roster'})); await tick();
   expect(screen.getByText('Loading roster week…')).toBeTruthy();
   expect(screen.queryByLabelText('Audio assignment')).toBeNull();
