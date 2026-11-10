@@ -5,20 +5,24 @@ interface SendEmailOptions {
   to: string;
   subject: string;
   html: string;
+  signal?: AbortSignal;
 }
 
-export async function sendEmail({ to, subject, html }: SendEmailOptions) {
+export class EmailDeliveryRejected extends Error {}
+
+export async function sendEmail({ to, subject, html, signal }: SendEmailOptions) {
   const apiKey: string | undefined = env.RESEND_API_KEY;
 
   if (!apiKey) {
     console.error("[email] service configuration is missing");
-    throw new Error("Email service not configured");
+    throw new EmailDeliveryRejected("Email service not configured");
   }
 
   const from = "ShowPilot <noreply@showpilot.tech>";
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
+    signal,
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
@@ -31,7 +35,7 @@ export async function sendEmail({ to, subject, html }: SendEmailOptions) {
       status: res.status,
       requestId: res.headers.get("x-request-id") ?? undefined,
     });
-    throw new Error(`Email send failed with status ${res.status}.`);
+    throw new EmailDeliveryRejected(`Email send failed with status ${res.status}.`);
   }
 }
 

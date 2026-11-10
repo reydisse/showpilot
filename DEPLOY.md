@@ -703,12 +703,69 @@ external networking blocked. No browser errors occurred. Labels, full control
 bounds, 44px targets and header separation passed at 320/768/1440px; both phone
 screenshots were inspected.
 
-This fixes validation before submission. Partial-save acknowledgement, failed
-invitation delivery, safe retry, setup Back/exit and seeding recovery remain
-open. Better Auth's installed invitation path catches email-hook failures and
-can acknowledge an invitation whose email was not delivered; recovering saves
-must distinguish record creation from email delivery. This change does not
-alter that path. No deployment, migration or native release is included.
+This covers validation before submission. Save and delivery recovery are
+covered below. Setup Back/exit and seeding recovery remain open.
+
+### Setup saves and invitation delivery recovery
+
+Setup saves its immutable team request and all crew rows in one D1 transaction.
+Concurrent submissions select one saved request. Retrying or refreshing returns
+that saved team without adding crew again or recreating someone later deleted
+from Team. Every read, save, invitation attempt and completion rechecks current
+owner access. Internal records use existing organization-scoped app settings;
+no migration is needed.
+
+Each invitation attempt has a conditional claim and durable outcome. Better
+Auth still owns invitation creation, permissions, plan limits and resending.
+Its installed plugin catches email-hook exceptions, so a setup-only async
+context records the invitation ID and delivery result inside the email hook.
+A provider acceptance is distinct from rejection or an unknown response.
+Ordinary invitations outside setup keep their existing path.
+
+Email attempts time out after eight seconds. Client calls time out after ten
+seconds, cancel on unmount and ignore late replies. Checking saved results is a
+read; refreshing never replays sends. Resend is explicit, reuses a current
+pending invitation, and warns that an earlier uncertain delivery may have
+succeeded. Attempts still active are held for fifteen seconds; an interrupted
+attempt can then be explicitly retried against its existing invitation. Old
+callbacks cannot replace a newer attempt or confirmed acceptance. The email hook
+also rechecks its current attempt before starting a send. Expired,
+revoked, role-mismatched or unresolved creation states need review in Team.
+
+Completion requires the saved batch and accepted invitations, or an explicit
+confirmed choice to continue with unresolved invitations. That choice retains
+the saved crew and explains that pending requests may still finish. A lost
+completion acknowledgement can be checked or retried without replaying saves.
+The old unchecked completeOnboarding RPC is removed. Deploy matching Worker and
+web assets, and reload existing setup tabs.
+
+After building, run both rehearsals:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-setup-save-recovery.mjs
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-setup-team.mjs
+```
+
+Validation passed 2,058 unit tests, 745 Worker tests, four coverage-gate tests,
+web typecheck and production build. Twelve new Worker tests use real auth,
+permissions, invitation APIs and D1, replacing only email transport. They cover
+concurrent submissions, transaction rollback, replay after deletion, rejection,
+unknown delivery, explicit resend, stale callbacks, access revocation, invalid
+scope and explicit completion. Client tests cover bounded reads/writes, lost
+responses, duplicate submits, unmount, partial success and competing tabs.
+
+The compiled browser rehearsal passed a rejected save, an actual committed save
+with its response withheld, refresh recovery, provider rejection, explicit
+resend of the same invitation, a committed completion with its response withheld,
+and canceled/confirmed continuation with unresolved invitations. Local email
+capture and final D1 inspection proved one crew record per scenario, two
+invitation records with three send attempts in recovery, and one unresolved
+invitation in the explicit-skip scenario. No browser errors occurred. Recovery
+and dialog controls passed at 320/768/1440px; all six phone screenshots were
+inspected. The earlier form-validation rehearsal also passed.
+
+No deployment, migration, external email or native release is included. Setup
+navigation, role/workspace checkpoints and seeding recovery remain open.
 
 ### Timecode label validation
 
