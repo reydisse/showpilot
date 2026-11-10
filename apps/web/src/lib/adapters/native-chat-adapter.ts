@@ -38,6 +38,7 @@ export class NativeChatAdapter implements ChatAdapter {
   private statusListeners: Set<(status: ConnectionStatus) => void> = new Set();
   private typingListeners = new Set<(state: ChatTypingState) => void>();
   private readReceiptListeners = new Set<(receipt: ChatReadReceipt) => void>();
+  private historyClearVersion = 0;
   private hydrationListeners = new Set<(state: ChatHydrationState) => void>();
   private gatewayStatusListeners = new Set<(status: ChatGatewayStatus) => void>();
   private gatewayStatus: ChatGatewayStatus | null = null;
@@ -87,6 +88,13 @@ export class NativeChatAdapter implements ChatAdapter {
             const data = JSON.parse(event.data);
 
             if ((data.type === "hydrate" || data.type === "history") && Array.isArray(data.messages)) {
+              const clearVersion = Number.isSafeInteger(data.historyClearVersion) && data.historyClearVersion >= 0 ? data.historyClearVersion : this.historyClearVersion;
+              const historyCleared = data.historyCleared === true || clearVersion > this.historyClearVersion;
+              this.historyClearVersion = Math.max(this.historyClearVersion, clearVersion);
+              if(historyCleared) {
+                this.pendingHistory?.controller.abort(new Error("Chat history was cleared."));
+                this.pendingHistory = null;
+              }
               // Initial history hydration from the ChatRelay Durable Object
               this.messageHistory = data.messages;
               for (const msg of data.messages) {
@@ -102,7 +110,7 @@ export class NativeChatAdapter implements ChatAdapter {
                   if (typeof readAt === "number") this.notifyReadReceipt({ userId, readAt });
                 }
               }
-              for (const listener of this.hydrationListeners) listener({ readReceipts });
+              for (const listener of this.hydrationListeners) listener({ readReceipts, ...(historyCleared ? {clearedMessages:this.messageHistory} : {}) });
             } else if ((data.type === "message" || data.type === "message-edited" || data.type === "message-deleted") && data.message) {
               this.acknowledgeQueued(data.message.id);
               const existingIndex = this.messageHistory.findIndex((message) => message.id === data.message.id);

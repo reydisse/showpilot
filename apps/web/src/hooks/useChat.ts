@@ -72,6 +72,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
   const view = stored.owner === owner ? stored.view : emptyView(Boolean(orgId));
   const { messages, hasOlderMessages, loadingOlderMessages } = view;
   const adapterRef = useRef<{ owner: typeof owner; adapter: ChatAdapter } | null>(null);
+  const historyGeneration = useRef(0);
   const isVisibleRef = useRef(isVisible);
   isVisibleRef.current = isVisible;
 
@@ -114,10 +115,17 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
     const unsubReadReceipt = adapter.onReadReceipt?.(({ userId, readAt }) => update(adapter, current => ({
       ...current, readReceipts: { ...current.readReceipts, [userId]: Math.max(current.readReceipts[userId] || 0, readAt) },
     })));
-    const unsubHydrated = adapter.onHydrated?.(({ readReceipts }) => update(adapter, current => ({
-      ...current, openingReadThrough: currentUserId ? readReceipts[currentUserId] ?? null : null,
-      hydrated: true, hasOlderMessages: true,
-    })));
+    const unsubHydrated = adapter.onHydrated?.(({ readReceipts, clearedMessages }) => {
+      if(clearedMessages) historyGeneration.current++;
+      update(adapter, current => ({
+        ...current, openingReadThrough: currentUserId ? readReceipts[currentUserId] ?? null : null,
+        hydrated: true, hasOlderMessages: clearedMessages ? clearedMessages.length >= 2000 : true,
+        ...(clearedMessages ? {
+          messages: [...clearedMessages,...current.messages.filter(message=>message.delivery)],
+          readReceipts, unreadCount:0, loadingOlderMessages:false, olderMessagesError:null,
+        } : {}),
+      }));
+    });
     const unsubGatewayStatus = adapter.onGatewayStatus?.(gatewayStatus => update(adapter, current => ({ ...current, gatewayStatus })));
     const unsubOutbox = adapter.onOutboxChange?.(pending => update(adapter, current => ({
       ...current, messages: [...current.messages.filter(message => !message.delivery), ...pending]
@@ -215,9 +223,11 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
   const loadOlderMessages = useCallback(async () => {
     const adapter = getAdapter();
     if (!adapter?.loadOlder || loadingOlderMessages || !hasOlderMessages) return;
+    const generation = historyGeneration.current;
     update(adapter, current => ({ ...current, loadingOlderMessages: true, olderMessagesError: null }));
     try {
       const page = await adapter.loadOlder(100);
+      if(generation !== historyGeneration.current) return;
       update(adapter, current => {
         const pending = current.messages.filter(message => message.delivery);
         const settled = current.messages.filter(message => !message.delivery);
@@ -227,9 +237,10 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
         };
       });
     } catch (error) {
+      if(generation !== historyGeneration.current) return;
       update(adapter, current => ({ ...current, olderMessagesError: error instanceof Error ? error.message : "Older messages could not be loaded." }));
     } finally {
-      update(adapter, current => ({ ...current, loadingOlderMessages: false }));
+      if(generation === historyGeneration.current) update(adapter, current => ({ ...current, loadingOlderMessages: false }));
     }
   }, [getAdapter, hasOlderMessages, loadingOlderMessages, update]);
   const retryQueuedMessage = useCallback((messageId: string) => getAdapter()?.retryOutbox?.(messageId), [getAdapter]);
