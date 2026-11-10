@@ -15,12 +15,12 @@ async function timeline() {
     orgId, controlSocket,
     stub,
     url,
-    async command(action: TimecodeCommand, payload?: Record<string, unknown>) {
+    async command(action: TimecodeCommand, payload?: Record<string, unknown>, status = 200) {
       if (action === "feed-tc") await startFixtureTimecodeFeed(stub, url);
       const response = await stub.fetch(new Request(url("/command"), {
         method: "POST", body: JSON.stringify({ action, payload }),
       }));
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(status);
       await response.arrayBuffer();
     },
     async events() {
@@ -282,7 +282,9 @@ describe("automation acknowledgement", () => {
     await test.command("update-event", { id: "cue", updates: {
       id: "forged-id", fired: true, executionStatus: "acknowledged", executionAttempts: 100,
       executionRetryable: true, executionId: "forged-execution", label: "Renamed",
-    } });
+    } }, 400);
+    expect((await test.events())[0].label).toBe("Clear");
+    await test.command("update-event", { id: "cue", updates: { label: "Renamed" } });
     expect(await test.events()).toEqual([expect.objectContaining({
       id: "cue", fired: false, executionStatus: "scheduled", executionAttempts: 0, label: "Renamed",
     })]);

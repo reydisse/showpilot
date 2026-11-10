@@ -120,7 +120,7 @@ it("does not let cue creation, group replacement or editing forge the server-own
   const test = await fixture();
   const event = { id: "one", label: "one", action: "lyrics-clear", payload: {}, triggerTimecode: tc(2), skipped: true };
   await test.command("add-event", event);
-  await test.command("update-event", { id: "one", updates: { skipped: true } });
+  await test.command("update-event", { id: "one", updates: { skipped: true } }, 400);
   expect((await test.events())[0].skipped).toBeUndefined();
   await test.command("replace-event-group", { sourceKey: "fixture", events: [{ ...event, id: "two" }] });
   expect((await test.events()).every(event => !event.skipped)).toBe(true);

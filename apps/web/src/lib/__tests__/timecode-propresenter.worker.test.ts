@@ -217,9 +217,9 @@ it.each([
     await test.command("add-event", { ...cue, action, enabled: false });
     await test.command("fire-event", { id: cue.id }, 400);
     expect(test.received).toEqual([]);
-    await test.command("update-event", {
+    await test.command("set-event-enabled", {
       id: cue.id,
-      updates: { enabled: true },
+      enabled: true,
     });
     await test.command("fire-event", { id: cue.id });
     const first = (await test.events())[0];
