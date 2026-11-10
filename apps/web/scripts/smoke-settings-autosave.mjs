@@ -59,9 +59,10 @@ await withLocalSmokeFixture(async({origin,orgId,operatorCookie,operatorPassword,
       }
     };
     const mode=value=>evaluate(`window.settingsModes.updateOrgSetting=${JSON.stringify(value)};true`);
+    // SSR controls can be visible before React attaches their event handlers.
     const click=async(name,scope='document')=>{
       let point;await poll(async()=>{
-        point=await evaluate(`(async()=>{const root=${scope};const node=[...root.querySelectorAll('button,a,label')].find(el=>(el.getAttribute('aria-label')===${JSON.stringify(name)}||el.textContent.trim()===${JSON.stringify(name)})&&el.getBoundingClientRect().width>0&&!el.disabled&&el.closest('[role="dialog"]')?.dataset.state!=='closed');if(!node)return null;node.scrollIntoView({block:'center'});await new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)));const r=node.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return node.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`);return !!point;
+        point=await evaluate(`(async()=>{const root=${scope};const node=[...root.querySelectorAll('button,a,label')].find(el=>(el.getAttribute('aria-label')===${JSON.stringify(name)}||el.textContent.trim()===${JSON.stringify(name)})&&el.getBoundingClientRect().width>0&&!el.disabled&&el.closest('[role="dialog"]')?.dataset.state!=='closed');if(!node||!Object.keys(node).some(key=>key.startsWith('__reactProps')))return null;node.scrollIntoView({block:'center'});await new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)));const r=node.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return node.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`);return !!point;
       },`reachable ${name}`);
       await page('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1});await page('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1});
     };
@@ -70,7 +71,7 @@ await withLocalSmokeFixture(async({origin,orgId,operatorCookie,operatorPassword,
     const saved=()=>check(`document.body.textContent.includes('General settings save automatically')&&!document.querySelector('button[aria-label^="Retry "]')`,'all Settings writes confirmed');
     await page('Page.navigate',{url:`${origin}/${orgId}/settings?section=organization`});
     await check(`document.querySelector('select[aria-label="Timezone"]')?.value==='America/New_York'`,'initial timezone');
-    // Wait for hydration by performing a navigation and checking its new content.
+    // Verify navigation after the click helper observes an attached React handler.
     await click('Production Defaults');await check(`!!document.querySelector('select[aria-label="Clock format"]')`,'production settings');
     await click('Organization');await check(`!!document.querySelector('select[aria-label="Timezone"]')`,'organization settings');
     const documentId=await evaluate('window.settingsDocument');
