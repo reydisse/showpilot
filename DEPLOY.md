@@ -2862,7 +2862,7 @@ from a backup as an automatic rollback step.
 
 ### Current state
 
-The production manifest records every migration through `0061_stream_output_commands.sql`.
+The production manifest records every migration through `0062_stream_input_lifecycle.sql`.
 Migration 0048 was applied on 2026-11-05 after a clean preflight and a saved
 Time Travel bookmark. Its postcondition verified three empty tables, five
 named indexes, an unchanged legacy key count, and no foreign key violations.
@@ -2891,6 +2891,9 @@ empty table and no foreign key violations.
 Migration 0061 (`stream_output_command`, `stream_output_intent`) was applied on 2026-11-10 after a clean
 preflight and a saved Time Travel bookmark. Its postcondition verified the
 empty tables, named index, and no foreign key violations.
+Migration 0062 (`stream_input_command`, `stream_input_lifecycle`, `stream_input_health`) was applied on 2026-11-10 after a clean
+preflight and a saved Time Travel bookmark. Its postcondition verified the
+empty tables and no foreign key violations.
 Migrations 0030 through 0035 were applied in order on 2026-08-28. Migrations
 0036 and 0037 were applied in order on 2026-09-10. Migrations 0038 and 0039
 were applied in order on 2026-09-18. Before each rollout, every
@@ -3743,7 +3746,7 @@ The provider contract was checked against Cloudflare's official
 [Retrieve](https://developers.cloudflare.com/api/resources/stream/subresources/live_inputs/methods/get/)
 and [Update](https://developers.cloudflare.com/api/resources/stream/subresources/live_inputs/methods/update/)
 API references. All provider mutations during verification used isolated fake
-resources; no real organization, provider, production migration, deployment or
-native release was changed. The 20 necessary tracked Markdown files remain.
+resources. It was applied to production on 2026-11-10 and is recorded in the
+remote migration manifest. The 20 necessary tracked Markdown files remain.
 Phase 2 remains 46/79; remaining UI sweeps, native/Companion request retention,
 MIDI/LTC/local-mode/catalog verification and phase gates still need completion.
