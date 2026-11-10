@@ -1,3 +1,5 @@
+import { useGraphicLibraryMutation } from "@/hooks/useGraphicLibraryMutation";
+import { LibraryMutationNotice } from "@/components/graphics/LibraryMutationNotice";
 import { previewSamples } from "@/lib/workspace/preview-samples";
 import { useWorkspace } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
@@ -18,7 +20,6 @@ import {
 } from "lucide-react";
 import { ContextHelp } from "@/components/ui/context-help";
 import {
-  addGraphicTemplate,
   deleteGraphicScene,
   clearActiveGraphics,
   getActiveGraphics,
@@ -60,7 +61,7 @@ export const Route = createFileRoute("/$slug/streaming/lt-preview")({
       slug: context.slug,
     };
   },
-  component: TemplatePreviewPage,
+  component: TemplatePreviewRoute,
 });
 
 // ─── Sample Data ─────────────────────────────────────────────
@@ -285,6 +286,10 @@ function ControlPanel({
 
 // ─── Preview Page ────────────────────────────────────────────
 
+function TemplatePreviewRoute() {
+  return <TemplatePreviewPage key={Route.useLoaderData().orgId} />;
+}
+
 function TemplatePreviewPage() {
   const SAMPLES = previewSamples(useWorkspace().type);
   const { orgId, activeIds: initialActiveIds, scenes: initialScenes, role, grantedPermissions, slug } = Route.useLoaderData();
@@ -305,7 +310,8 @@ function TemplatePreviewPage() {
   const [savedScenes, setSavedScenes] = useState<SavedGraphicScene[]>(initialScenes);
   const [sceneId, setSceneId] = useState<string | null>(null);
   const [sceneName, setSceneName] = useState("");
-  const [saving, setSaving] = useState(false);
+  const libraryMutation = useGraphicLibraryMutation(orgId);
+  const saving = libraryMutation.pending;
   const [savingScene, setSavingScene] = useState(false);
   const [pushing, setPushing] = useState(false);
   const [savedMsg, setSavedMsg] = useState("");
@@ -344,26 +350,10 @@ function TemplatePreviewPage() {
     if (!canConfigureGraphics) return;
     const text = getCurrentText();
     if (!text.primary.trim()) return;
-    setSaving(true);
-    setOperationError("");
-    try {
-      await addGraphicTemplate({
-        data: {
-          orgId,
-          name: text.primary.trim().slice(0, 200),
-          title: text.primary.trim(),
-          subtitle: text.secondary?.trim() ?? "",
-          style: JSON.stringify({ type: "lower-third", templateId: template.id, controls }),
-        },
-      });
-      setSavedMsg("Graphic saved to library");
-      setTimeout(() => setSavedMsg(""), 2000);
-      router.invalidate();
-    } catch (error) {
-      setOperationError(error instanceof Error ? error.message : "The graphic could not be saved.");
-    } finally {
-      setSaving(false);
-    }
+    if (await libraryMutation.run({ kind: "create", content: {
+      name: text.primary.trim().slice(0, 200), title: text.primary.trim(), subtitle: text.secondary?.trim() ?? "",
+      style: JSON.stringify({ type: "lower-third", templateId: template.id, controls }),
+    } })) setSavedMsg("Graphic saved to library");
   };
 
   // Does the in-progress draft carry real text (vs. an empty custom field)?
@@ -709,7 +699,7 @@ function TemplatePreviewPage() {
               {canConfigureGraphics && (
                 <button
                   onClick={handleSave}
-                  disabled={saving || (sampleKey === "custom" && !customPrimary.trim())}
+                  disabled={libraryMutation.locked || (sampleKey === "custom" && !customPrimary.trim())}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 disabled:opacity-50 transition-colors"
                 >
                   <Save className="w-3.5 h-3.5" />
@@ -734,6 +724,7 @@ function TemplatePreviewPage() {
                 </div>
               )}
             </div>
+            <LibraryMutationNotice mutation={libraryMutation} onConfirmed={() => setSavedMsg("Graphic saved to library")} />
             {operationError && (
               <div role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">{operationError}</div>
             )}

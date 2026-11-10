@@ -621,6 +621,43 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Graphics library confirmation
+
+Graphics create, edit, delete, ProPresenter import and Template Studio's Save
+graphic use one validated operation endpoint. Each attempt captures its content
+and UUID. A D1 batch commits the change and an organization-scoped digest receipt
+together. Repeating a request acknowledges the first change without creating a
+duplicate, overwriting a later edit or resurrecting a deleted graphic. Receipts
+remain after deletion; they contain the digest, graphic ID and ownership nonce,
+not graphic text. Every retry checks current configure permission.
+
+The client waits at most ten seconds, retains a timestamped unconfirmed notice
+and offers explicit Retry with the original request. It never retries a write
+automatically. Operators can acknowledge that they checked the library before
+starting a different action; closing an unconfirmed editor also requires review
+confirmation. Library refreshes use primary reads, a deadline and visible Retry.
+A confirmed mutation invalidates older library reads before refreshing.
+Workspace changes cancel local work and reset the editor. Cancellation cannot
+undo a server write that already committed.
+
+The library's Show, Hide, Clear All, Update and Delete actions require explicit
+confirmation. Deleting an on-air graphic first requires a confirmed Hide through
+the existing output permission path. The graphic editor uses the shared Dialog with labelled inputs,
+focus trapping, Escape, scrolling within short windows and 44px controls.
+
+Run `node apps/web/scripts/smoke-graphics-library-recovery.mjs` after building.
+It loses real Create/Update/Delete responses after commit, retries the identical
+request, delivers an old library read after a newer edit, checks cancellation
+and Escape, and verifies 320x480, tablet and desktop
+layouts. The output-recovery and ProPresenter-feed rehearsals also pass, including
+lost import confirmation without a duplicate. Four hook tests and six real D1
+tests cover deadlines, stale replies, concurrent retries, atomic rollback,
+organization permissions and receipts surviving later edits/deletes.
+
+No migration is required. All callers were migrated and the old add/update/delete
+server functions removed; cached browsers must reload with this release. Template
+Studio scene/publication mutations and other operator error paths remain pending.
+
 ### Graphics output recovery
 
 The Graphics library coordinates live-output reads and writes. Reads use an
@@ -647,8 +684,8 @@ without replay, and verifies the 320px warning, output card and Clear control.
 Seven hook tests cover lifecycle ordering, deadlines, scope isolation and access;
 three real D1 tests cover Clear acknowledgements, concurrent publication,
 organization authorization and primary reads without a recent-write cookie.
-No migration is required. Graphics library creation/editing/deletion/import error
-handling remains separate follow-up work.
+No migration is required. See Graphics library confirmation above for the
+creation/editing/deletion/import follow-up.
 
 ### ProPresenter command confirmation
 
