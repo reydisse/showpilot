@@ -133,8 +133,8 @@ const requiredLaunchContracts = [
   },
   {
     path: "src/routes/_auth\/login.tsx",
-    pattern: /aria-label=\{showPassword[\s\S]+className="[^"]*size-10/,
-    message: "The password visibility control must retain a 40px touch target.",
+    pattern: /aria-label=\{showPassword[\s\S]+className="[^"]*size-11/,
+    message: "The password visibility control must retain a 44px touch target.",
   },
 ];
 

@@ -6,6 +6,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma";
 import { getPrisma } from "@/lib/db";
 import { authAccessControl, authRoles } from "@/lib/auth-access";
 import { getDevelopmentTrustedOrigins, requireBetterAuthRuntimeConfig, requireShowPilotBaseUrl } from "@/lib/auth-origins";
+import { verificationEmailCallback } from "@/lib/auth-navigation";
 import { createD1RateLimitStorage } from "@/lib/auth-rate-limit.server";
 import { PASSWORD_MIN_LENGTH } from "@showpilot/shared";
 import {
@@ -173,7 +174,7 @@ export function getAuth() {
       sendVerificationEmail: async ({ user, url }: { user: { email: string }; url: string }) => {
         // Land on our confirmation page once the token is consumed.
         const verifyUrl = new URL(url);
-        verifyUrl.searchParams.set("callbackURL", "/verify-email");
+        verifyUrl.searchParams.set("callbackURL", verificationEmailCallback(verifyUrl.searchParams.get("callbackURL"), baseURL));
         const { subject, html } = verificationEmail(verifyUrl.toString());
         await sendEmail({ to: user.email, subject, html });
       },

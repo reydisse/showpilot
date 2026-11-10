@@ -10,7 +10,8 @@ import {
   redirect,
   useMatchRoute,
 } from "@tanstack/react-router";
-import { getOrgRouteContext, setActiveOrg } from "@/lib/session";
+import { getOrgRouteContext, getSession, setActiveOrg } from "@/lib/session";
+import { safeAuthReturnTo } from "@/lib/auth-navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { ThemeProvider } from "@/components/layout/ThemeContext";
 import { PageSkeleton } from "@/components/ui/Skeleton";
@@ -20,12 +21,15 @@ import { TimecodeProvider } from "@/components/timecode/TimecodeContext";
 
 export const Route = createFileRoute("/$slug")({
   pendingComponent: OrgPending,
-  beforeLoad: async ({ params, abortController, preload }) => {
+  beforeLoad: async ({ params, location, abortController, preload }) => {
     const signal = abortController.signal;
     const routeContext = await getOrgRouteContext({ data: params.slug, signal });
     signal.throwIfAborted();
     if (!routeContext) {
-      throw redirect({ to: "/login" });
+      const session = await getSession({ signal });
+      signal.throwIfAborted();
+      if (session) throw new Error("This workspace is unavailable or your account does not have access.");
+      throw redirect({ to: "/login", search: { returnTo: safeAuthReturnTo(location.href) } });
     }
     const {
       user,
