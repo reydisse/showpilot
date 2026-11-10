@@ -15,18 +15,20 @@ export const Route = createFileRoute("/_auth")({
     }
 
     // Pages a logged-in user should still be able to reach directly.
-    const isSetupOrInvitations =
+    const allowsSignedInUser =
       location.pathname.startsWith("/setup") ||
       location.pathname.startsWith("/invitations") ||
-      location.pathname.startsWith("/verify-email");
+      location.pathname.startsWith("/verify-email") ||
+      location.pathname === "/reset-password" ||
+      location.pathname === "/forgot-password";
 
     // If already logged in with an active org, redirect to their dashboard
-    if (result.session.activeOrganizationId && result.org && !isSetupOrInvitations) {
+    if (result.session.activeOrganizationId && result.org && !allowsSignedInUser) {
       throw redirect({ to: "/$slug", params: { slug: result.org.slug } });
     }
 
     // If logged in but no active org, try to auto-activate an existing one
-    if (!isSetupOrInvitations) {
+    if (!allowsSignedInUser) {
       try {
         const orgs = await listUserOrgs({ signal });
         signal.throwIfAborted();
