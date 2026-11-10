@@ -621,6 +621,29 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Route loading recovery
+
+Each route guard, loader and page-code preload has a twelve-second deadline on
+the browser and server. A timeout reaches the shared recovery screen; a late
+result cannot complete the expired load. Navigation cancellation propagates to a
+child abort controller. Organization, authentication, Board and Timecode reads
+pass that signal to their requests. Cancellation cannot undo server work that
+already started. Preloading a link no longer changes the active organization.
+
+Retry waits for the router's actual loading state, including when invalidation
+remounts the error screen. The screen timestamps failures and provides full-page
+Reload and workspace links, with 44px controls and no decorative card on phones.
+Route deadlines cover navigation; component-owned lists and mutations still need
+their own bounded recovery paths and remain in the Phase 2 audit.
+
+After building, run `node apps/web/scripts/smoke-route-loading.mjs`. It holds real
+Board and Timecode responses, retries while reads remain stalled, releases late results,
+navigates away from a pending Chat load, and pauses an actual page-module download
+in Chrome. It checks recovery without reload and Retry reachability at 320px.
+Run `node apps/web/scripts/smoke-rundown-handoff.mjs` for the navigation/write
+regression. Both use disposable local accounts and data. No migration or native
+build is required; these changes are not deployed by a feature-branch push.
+
 ### Cue-sheet connection recovery
 
 Cue-sheet relay clients now bound socket opening and hydration at five seconds,
@@ -634,8 +657,8 @@ and technical manager dashboards.
 Cue-sheet reads have an eight-second deadline, cancel superseded requests, and
 reject late results after timeout or show changes. Failed reads keep the confirmed
 sheet and pending note edits. Reconnecting never resubmits note writes; Retry saves
-remains the explicit write retry. Note-write confirmation deadlines and column
-mutation recovery remain in the Phase 2 audit.
+remains the explicit write retry. Note and column write recovery is documented
+below; initial route-loader deadlines are covered by the shared route policy above.
 
 After building, run `node apps/web/scripts/smoke-cue-sheet-recovery.mjs` and
 `node apps/web/scripts/smoke-relay-sequences.mjs`. Both use disposable local data.
@@ -643,6 +666,41 @@ The recovery test stops the actual Worker, holds read responses past their deadl
 switches shows with a read pending, and checks retained notes, explicit save retry,
 and the Retry button's reachability at 320px. No migration or native update is
 required; this change does not deploy the app.
+
+### Cue-sheet write recovery
+
+All note and department-column writes now use `mutateCueSheet` with a captured
+request ID and operation. D1 stores an outcome receipt in `app_setting` in the
+same atomic batch as the change. Repeating an applied request acknowledges it
+without reapplying it. Receipts survive column deletion; retrying an old create
+or note cannot resurrect deleted data. Every attempt rechecks current permission.
+
+A note compares against the text the operator saw when editing began. Concurrent
+changes produce a conflict that keeps the local draft and shows the saved text
+for explicit review. Replacing it requires confirmation and a fresh comparison.
+The operator can instead choose Use saved note. Rename, color and width updates
+compare their original field; reorder compares the complete column order.
+Column additions enforce the existing 40-column reorder limit atomically.
+
+Write confirmation expires after ten seconds. Retry sends the exact captured
+request, even if the first attempt committed and lost its response. A newer local
+note waits behind that confirmation, while other cells stay editable. Column
+mutations share one pending operation and show its captured intent, timestamp
+and recovery control. Column deletion still requires confirmation. Note events
+invalidate the authorized D1 read, so a delayed notification cannot replace a
+newer note with stale text.
+
+Run `node apps/web/scripts/smoke-cue-sheet-writes.mjs` after building, followed by
+`smoke-relay-sequences.mjs` and `smoke-cue-sheet-recovery.mjs` for connection and
+two-tab regressions. The write rehearsal loses responses after real commits,
+checks a newer note from another tab, confirms conflict replacement, exercises
+all column mutation retries and delete cancellation, and replays an old create
+after deletion. It also checks the Retry control at 320px.
+
+No migration or native update is needed. Deploy the web and Worker build together
+and reload cached browser/Desktop views: the old per-action server functions
+have been removed and every in-repo caller uses the captured-write API. This work
+does not deploy the app or complete the product-wide Phase 2 mutation audit.
 
 ### Large rundown and cue-sheet lists
 

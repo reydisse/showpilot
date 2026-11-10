@@ -98,7 +98,8 @@ interface Props {
   hidden: Set<string>;
   currentItemId: string | null;
   canEdit: boolean;
-  onNoteChange: (itemId: string, columnId: string, text: string) => void;
+  canManageColumns?: boolean;
+  onNoteChange: (itemId: string, columnId: string, text: string, expectedText: string) => void;
   onWidthChange: (columnId: string, width: number) => void;
   onReorder: (fromId: string, toId: string) => void;
 }
@@ -114,6 +115,7 @@ export function CueTable({
   hidden,
   currentItemId,
   canEdit,
+  canManageColumns = canEdit,
   onNoteChange,
   onWidthChange,
   onReorder,
@@ -200,7 +202,7 @@ export function CueTable({
                 }`}
               >
                 <span className="flex items-center gap-1">
-                  {canEdit && (
+                  {canManageColumns && (
                     <button
                       type="button"
                       aria-label={`Move ${column.label} column. Use left and right arrow keys, or drag.`}
@@ -230,7 +232,7 @@ export function CueTable({
                   )}
                   <span className="truncate">{column.label}</span>
                 </span>
-                {canEdit && (
+                {canManageColumns && (
                   <ColumnResizer
                     width={column.width}
                     onCommit={(width) => onWidthChange(column.id, width)}
@@ -328,7 +330,7 @@ export function CueTable({
                   key={column.id}
                   value={row.notes[column.id] ?? ""}
                   canEdit={canEdit}
-                  onCommit={(text) => onNoteChange(row.itemId, column.id, text)}
+                  onCommit={(text, expectedText) => onNoteChange(row.itemId, column.id, text, expectedText)}
                 />
               ))}
             </tr>
@@ -469,9 +471,11 @@ function NoteCell({
 }: {
   value: string;
   canEdit: boolean;
-  onCommit: (text: string) => void;
+  onCommit: (text: string, expectedText: string) => void;
 }) {
   const [draft, setDraft] = useState(value);
+  const editBase = useRef(value);
+  const cancelled = useRef(false);
   const [editing, setEditing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -515,11 +519,12 @@ function NoteCell({
         ref={textareaRef}
         value={draft}
         rows={1}
-        onFocus={() => setEditing(true)}
+        maxLength={2000}
+        onFocus={() => { cancelled.current = false; editBase.current = value; setEditing(true); }}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => {
           setEditing(false);
-          if (draft !== value) onCommit(draft);
+          if (!cancelled.current && draft !== editBase.current) onCommit(draft, editBase.current);
         }}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) {
@@ -527,6 +532,7 @@ function NoteCell({
             event.currentTarget.blur();
           }
           if (event.key === "Escape") {
+            cancelled.current = true;
             setDraft(value);
             event.currentTarget.blur();
           }
@@ -575,7 +581,8 @@ function ColumnResizer({
       const next = clamp(event);
       if (next === null) return;
       start.current = null;
-      document.querySelector<HTMLElement>(`[data-resizing="1"]`)?.removeAttribute("data-resizing");
+      const th = document.querySelector<HTMLElement>(`[data-resizing="1"]`);
+      if (th) { th.style.width = `${width}px`; th.style.minWidth = `${width}px`; th.removeAttribute("data-resizing"); }
       if (next !== width) onCommit(next);
     }
     window.addEventListener("pointermove", move);
@@ -591,6 +598,15 @@ function ColumnResizer({
       role="separator"
       aria-orientation="vertical"
       aria-label="Resize column"
+      tabIndex={0}
+      aria-valuemin={80}
+      aria-valuemax={640}
+      aria-valuenow={width}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        onCommit(Math.min(640, Math.max(80, width + (event.key === "ArrowRight" ? 10 : -10))));
+      }}
       onPointerDown={(event) => {
         const th = event.currentTarget.closest("th");
         if (th) th.setAttribute("data-resizing", "1");

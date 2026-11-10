@@ -86,6 +86,9 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
       // Wrangler only installs its development request-body draining middleware
       // when bundling. Undrained rejected POSTs can break the next proxy request.
       no_bundle: false,
+      // Wrangler registers dev Workers by name across processes. Keep a server
+      // restart in one fixture from replacing another fixture's proxy target.
+      name: `showpilot-smoke-${process.pid}`,
       main: join(web, "dist/server/index.js"), assets: { directory: join(web, "dist/client") },
       vars: { CREDENTIAL_ENCRYPTION_KEYS: encryptionSecret, KIOSK_SECRET: secret, COMPANION_SECRET: companionSecret, BETTER_AUTH_SECRET: authSecret, BETTER_AUTH_URL: origin },
     });
