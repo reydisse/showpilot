@@ -30,7 +30,8 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
     });
     const text = value => check(`document.body?.innerText.includes(${JSON.stringify(value)})`, value);
     const control = name => `[...document.querySelectorAll('button,a,label')].find(n=>n.textContent.trim()===${JSON.stringify(name)}&&!n.disabled&&n.getBoundingClientRect().height>0)`;
-    const point = name => `(async()=>{const n=${control(name)};if(!n){window.sharePointReason='missing';return null;}n.scrollIntoView({block:'center'});const painted=await Promise.race([new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>r(true)))),new Promise(r=>setTimeout(()=>r(false),500))]);if(!painted){window.sharePointReason={reason:'no animation frame',visibility:document.visibilityState,focus:document.hasFocus()};return null;}for(let p=n;p;p=p.parentElement)if(p.getAnimations().some(a=>a.playState==='running')){window.sharePointReason={reason:'animation',element:p.tagName,animations:p.getAnimations().map(a=>({state:a.playState,timing:a.effect.getComputedTiming()}))};return null;}const r=n.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;window.sharePointReason={reason:'hit test',rect:r.toJSON(),hit:document.elementFromPoint(x,y)?.outerHTML};return !n.disabled&&n.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`;
+    // SSR controls can be visible before React installs their event handlers.
+    const point = name => `(async()=>{const n=${control(name)};if(!n){window.sharePointReason='missing';return null;}if(!Object.keys(n).some(key=>key.startsWith('__reactProps'))){window.sharePointReason='hydrating';return null;}n.scrollIntoView({block:'center'});const painted=await Promise.race([new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>r(true)))),new Promise(r=>setTimeout(()=>r(false),500))]);if(!painted){window.sharePointReason={reason:'no animation frame',visibility:document.visibilityState,focus:document.hasFocus()};return null;}for(let p=n;p;p=p.parentElement)if(p.getAnimations().some(a=>a.playState==='running')){window.sharePointReason={reason:'animation',element:p.tagName,animations:p.getAnimations().map(a=>({state:a.playState,timing:a.effect.getComputedTiming()}))};return null;}const r=n.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;window.sharePointReason={reason:'hit test',rect:r.toJSON(),hit:document.elementFromPoint(x,y)?.outerHTML};return !n.disabled&&n.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`;
     const click = async name => {
       await page("Page.bringToFront");
       const p = await check(point(name), `reachable ${name}`);
@@ -48,7 +49,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
     };
     await page("Emulation.setDeviceMetricsOverride", { width:1440,height:900,deviceScaleFactor:1,mobile:false });
     await page("Page.navigate", { url:`${origin}/${orgId}/chat` });
-    await text("Production Chat"); await click("Invite crew");
+    await text("Production Chat"); await click("Invite crew"); await text("Invite guest crew");
     await geometry("Create crew pass","crew-form");
     await evaluate("document.querySelector('[role=dialog] input').focus()");
     for (let index=0;index<8;index++) {
