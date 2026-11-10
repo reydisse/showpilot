@@ -1,3 +1,5 @@
+import { useOrganizationCreation, runCreationRequest } from "@/hooks/useOrganizationCreation";
+import { creationRequestIdSchema } from "@/lib/organization-creation-contract";
 import { useSetupChoices } from "@/hooks/useSetupChoices";
 import { SetupChoiceStatus } from "@/components/onboarding/SetupChoiceStatus";
 import { parseSetupRole, setupChoiceConfirmed } from "@/lib/setup-choices-contract";
@@ -37,7 +39,6 @@ import { identifyAnalytics, track } from "@/lib/analytics";
 import {
   checkOrgSlug,
   getOnboardingProgress,
-  markOnboardingStarted,
 } from "@/lib/onboarding";
 import {
   archetypeLanding,
@@ -58,15 +59,16 @@ import {
 // ─────────────────────────────────────────────────────────────
 
 export const Route = createFileRoute("/_auth/setup")({
-  validateSearch: (search: Record<string, unknown>): { mode?: "new"; orgId?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { mode?: "new"; orgId?: string; creationRequestId?: string } => ({
     mode: search.mode === "new" ? "new" : undefined,
     orgId: typeof search.orgId === "string" ? search.orgId : undefined,
+    creationRequestId: creationRequestIdSchema.safeParse(search.creationRequestId).success ? String(search.creationRequestId) : undefined,
   }),
-  loaderDeps: ({ search }) => search,
-  loader: async ({ deps }) => {
+  loaderDeps: ({ search }) => ({ mode: search.mode, orgId: search.orgId }),
+  loader: async ({ deps, location }) => {
     const progress = await getOnboardingProgress({ data: deps.mode === "new" ? { mode: "new" } : { mode: "resume", orgId: deps.orgId } });
     if (!progress.authenticated) {
-      throw redirect({ to: "/login", search: { returnTo: deps.mode === "new" ? "/setup?mode=new" : undefined } });
+      throw redirect({ to: "/login", search: { returnTo: location.pathname + location.searchStr } });
     }
     const decision = deriveResumeScene({
       hasOrg: progress.hasOrg,
@@ -191,7 +193,7 @@ const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStar
 
 function SetupWizard() {
   const { progress, initialScene, initialWorkspace } = Route.useLoaderData();
-  const { mode } = Route.useSearch();
+  const { mode, creationRequestId } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
   const { user } = Route.useRouteContext() as {
@@ -327,14 +329,22 @@ function SetupWizard() {
           </section>}
           {scene === 1 && !org && (
             <SceneOrgCreate
+              key={user?.id ?? user?.email}
+              initialRequestId={creationRequestId}
+              prepareRequest={async id => {
+                const version = navigation.current.version;
+                if (!currentRequest(version)) throw new Error("Setup navigation changed.");
+                await navigate({ search: { mode: "new", creationRequestId: id }, replace: true });
+                if (!currentRequest(version)) throw new Error("Setup navigation changed.");
+              }}
               user={user}
               additional={mode === "new"}
               canContinue={() => navigation.current.mounted && !navigation.current.leaving && !navigation.current.suspended}
-              onCreated={async (created) => {
+              onCreated={async (created, signal) => {
                 const version = navigation.current.version;
                 if (!currentRequest(version)) return;
                 await navigate({ search: { orgId: created.id }, replace: true });
-                if (!currentRequest(version)) return;
+                if (signal.aborted || !currentRequest(version)) return;
                 setOrg(created);
                 setDrafts(value => ({ ...value, organization: false }));
                 go("1b");
@@ -552,7 +562,7 @@ function SceneTemplates({
 
 // ─── Scene 1 — "Get your show on the air" ────────────────────
 
-type SlugState = "idle" | "checking" | "ok" | "taken";
+type SlugState = "idle" | "checking" | "ok" | "taken" | "error";
 
 function deriveSlug(name: string): string {
   return name
@@ -564,15 +574,19 @@ function deriveSlug(name: string): string {
 }
 
 function SceneOrgCreate({
+  initialRequestId,
+  prepareRequest,
   user,
   additional,
   canContinue,
   onCreated,
 }: {
+  initialRequestId?: string;
+  prepareRequest: (requestId: string) => Promise<void>;
   user: { email: string; emailVerified?: boolean } | null;
   additional: boolean;
   canContinue: () => boolean;
-  onCreated: (org: WizardOrg) => Promise<void>;
+  onCreated: (org: WizardOrg, signal: AbortSignal) => Promise<void>;
 }) {
   const needsVerification = Boolean(user && !user.emailVerified);
   const [orgName, setOrgName] = useState("");
@@ -580,8 +594,12 @@ function SceneOrgCreate({
   const [slugState, setSlugState] = useState<SlugState>("idle");
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [createdOrg, setCreatedOrg] = useState<WizardOrg | null>(null);
+  const creation = useOrganizationCreation(initialRequestId, prepareRequest);
+  const [continuing, setContinuing] = useState(false);
+  const [slugRetry, setSlugRetry] = useState(0);
+  const createdOrg = creation.snapshot?.status === "saved" ? creation.snapshot.organization : null;
+  const creating = creation.busy || continuing;
+  const unavailable = creation.snapshot?.status === "removed" || creation.snapshot?.status === "forbidden";
   const [verificationSent, setVerificationSent] = useState(false);
   const [sendingVerification, setSendingVerification] = useState(false);
   const latestSlug = useRef("");
@@ -592,29 +610,30 @@ function SceneOrgCreate({
     return () => controller.abort();
   }, []);
 
-  const slug = slugOverride ?? deriveSlug(orgName);
+  const slug = createdOrg?.slug ?? slugOverride ?? deriveSlug(orgName);
 
   // Debounced live uniqueness check with inline availability indicator.
   useEffect(() => {
-    const signal = lifetime.current.signal;
+    const controller = new AbortController();
+    const signal = controller.signal;
     latestSlug.current = slug;
-    if (slug.length < 3) {
+    if (slug.length < 3 || createdOrg) {
       setSlugState("idle");
       return;
     }
     setSlugState("checking");
     const id = setTimeout(async () => {
       try {
-        const result = await checkOrgSlug({ data: { slug }, signal });
+        const result = await runCreationRequest(signal => checkOrgSlug({ data: { slug }, signal }), signal);
         if (signal.aborted || latestSlug.current !== slug) return;
         setSlugState(result.available ? "ok" : "taken");
         setSuggestion(result.suggestion);
       } catch {
-        if (!signal.aborted && latestSlug.current === slug) setSlugState("idle");
+        if (!signal.aborted && latestSlug.current === slug) setSlugState("error");
       }
     }, 450);
-    return () => clearTimeout(id);
-  }, [slug]);
+    return () => { clearTimeout(id); controller.abort(); };
+  }, [slug, slugRetry, createdOrg]);
 
   async function handleResendVerification() {
     if (!user?.email) return;
@@ -622,11 +641,11 @@ function SceneOrgCreate({
     setSendingVerification(true);
     setError(null);
     try {
-      const { error: sendError } = await authClient.sendVerificationEmail({
+      const { error: sendError } = await runCreationRequest(signal => authClient.sendVerificationEmail({
         email: user.email,
         callbackURL: "/verify-email",
         fetchOptions: { signal, retry: 0 },
-      });
+      }), signal);
       if (signal.aborted) return;
       if (sendError) throw new Error(sendError.message);
       setVerificationSent(true);
@@ -639,43 +658,23 @@ function SceneOrgCreate({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if ((!createdOrg && slugState !== "ok") || creating || needsVerification) return;
+    if (creating || unavailable || needsVerification || (!createdOrg && !creation.pending && slugState !== "ok")) return;
     const signal = lifetime.current.signal;
     setError(null);
-    setCreating(true);
+    const nextOrg = createdOrg ?? await creation.create(orgName.trim(), slug);
+    if (!nextOrg || signal.aborted || !canContinue()) return;
+    setContinuing(true);
     try {
-      let nextOrg = createdOrg;
-      if (!nextOrg) {
-        const name = orgName.trim();
-        const { data: created, error: createError } = await authClient.organization.create({ name, slug, keepCurrentActiveOrganization: true, fetchOptions: { signal, retry: 0 } });
-        if (signal.aborted) return;
-        if (createError || !created) {
-          // Keep the name and let the operator retry or choose another slug.
-          throw new Error(createError?.message ?? "Could not create your organization");
-        }
-        nextOrg = { id: created.id, name, slug };
-        setCreatedOrg(nextOrg);
-      }
-      if (!canContinue()) return;
-      const { error: activeError } = await authClient.organization.setActive({
-        organizationId: nextOrg.id,
-        fetchOptions: { signal, retry: 0 },
-      });
-      if (signal.aborted || !canContinue()) return;
-      if (activeError) throw new Error(activeError.message);
-
-      await markOnboardingStarted({ data: { orgId: nextOrg.id }, signal });
-      if (signal.aborted || !canContinue()) return;
-      track("org_created", { slug: nextOrg.slug });
-      await onCreated(nextOrg);
-    } catch (err) {
-      if (!signal.aborted) setError(err instanceof Error ? err.message : "Failed to create organization");
-    } finally {
-      if (!signal.aborted) setCreating(false);
-    }
+      await runCreationRequest(async requestSignal => {
+        track("org_created", { slug: nextOrg.slug });
+        await onCreated(nextOrg, requestSignal);
+      }, signal);
+    } catch {
+      if (!signal.aborted) setError("Your organization is saved, but setup could not continue. Try Continue setup again.");
+    } finally { if (!signal.aborted) setContinuing(false); }
   }
 
-  const ctaReady = (createdOrg !== null || slugState === "ok") && !needsVerification && !creating;
+  const ctaReady = (createdOrg !== null || creation.pending !== null || slugState === "ok") && !needsVerification && !creating && !unavailable;
 
   return (
     <form className="rise" onSubmit={handleSubmit}>
@@ -702,7 +701,7 @@ function SceneOrgCreate({
                 type="button"
                 onClick={handleResendVerification}
                 disabled={sendingVerification || verificationSent}
-                className="mt-1.5 text-sm font-medium disabled:pointer-events-none disabled:opacity-60"
+                className="mt-1.5 min-h-11 px-2 text-sm font-medium disabled:pointer-events-none disabled:opacity-60"
                 style={{ color: T.amber }}
               >
                 {verificationSent
@@ -720,8 +719,8 @@ function SceneOrgCreate({
       <input
         id="organization-name"
         autoFocus
-        readOnly={createdOrg !== null || creating}
-        value={orgName}
+        readOnly={createdOrg !== null || creation.pending !== null || creating || unavailable}
+        value={createdOrg?.name ?? orgName}
         onChange={(e) => {
           setOrgName(e.target.value);
           setSlugOverride(null);
@@ -745,28 +744,28 @@ function SceneOrgCreate({
           >
             showpilot.tech/<span style={{ color: T.text }}>{slug}</span>
           </span>
-          {slugState === "checking" && (
+          {slugState === "checking" && !creation.pending && (
             <span style={{ color: T.faint }}>checking…</span>
           )}
-          {slugState === "ok" && (
+          {slugState === "ok" && !creation.pending && (
             <span className="flex items-center gap-1" style={{ color: T.green }}>
               <Check size={13} /> available
             </span>
           )}
-          {slugState === "taken" && (
+          {slugState === "taken" && !creation.pending && (
             <span className="flex items-center gap-1.5" style={{ color: T.red }}>
               <span
                 className="inline-block h-[7px] w-[7px] rounded-full"
                 style={{ background: T.red }}
               />
               taken
-              {suggestion && !createdOrg && (
+              {suggestion && !createdOrg && !creation.pending && !creating && (
                 <>
                   {" — try "}
                   <button
                     type="button"
                     onClick={() => setSlugOverride(suggestion)}
-                    className="underline underline-offset-2"
+                    className="min-h-11 px-2 underline underline-offset-2"
                     style={{ color: T.text }}
                   >
                     {suggestion}
@@ -778,13 +777,26 @@ function SceneOrgCreate({
         </div>
       )}
 
-      {error && (
+      {creation.hasRequest && <div className="mt-4 space-y-3 text-sm">
+        {createdOrg && <p role="status">Saved workspace: <strong>{createdOrg.name}</strong> · {createdOrg.slug}. Continue setup to use it.</p>}
+        {creation.snapshot?.status === "empty" && <p role="status">No saved workspace was found for this request. An earlier request may still finish. Check again or retry with the same name and address.</p>}
+        {creation.snapshot?.status === "removed" && <p role="alert">This workspace was removed. Retrying will not recreate it. Exit setup to start a new organization.</p>}
+        {creation.snapshot?.status === "forbidden" && <p role="alert">You no longer own this workspace. Contact its owner or exit setup.</p>}
+        {creation.snapshot?.status === "empty" && creation.pending && <button type="button" disabled={creating} onClick={creation.edit} className="min-h-11 rounded-lg border px-4 py-2">Edit creation details</button>}
+        <button type="button" disabled={creating} onClick={() => { setError(null); void creation.check(); }} className="min-h-11 rounded-lg border px-4 py-2 disabled:opacity-50">{creation.busy ? "Waiting for confirmation…" : "Check saved workspace"}</button>
+      </div>}
+      {slugState === "error" && !createdOrg && !creation.pending && <div role="alert" className="mt-4 text-sm">
+        Could not check this workspace address.
+        <button type="button" disabled={creating} onClick={() => setSlugRetry(value => value + 1)} className="min-h-11 px-3 underline">Retry address check</button>
+      </div>}
+      {(error || creation.failure) && (
         <div
           role="alert"
           className="mt-4 rounded-lg border px-3 py-2.5 text-sm"
           style={{ borderColor: `${T.red}40`, background: `${T.red}14`, color: "#FCA5A5" }}
         >
-          {error}
+          {error ?? creation.failure?.message}
+          {creation.failure && <span className="mt-1 block text-xs">Last attempt: {new Date(creation.failure.occurredAt).toLocaleTimeString()}</span>}
         </div>
       )}
 
@@ -799,7 +811,7 @@ function SceneOrgCreate({
           cursor: ctaReady ? "pointer" : "default",
         }}
       >
-        {creating ? "Creating…" : createdOrg ? "Continue setup" : additional ? "Create organization" : "Build my show"} <ArrowRight size={17} />
+        {creating ? "Waiting for confirmation…" : createdOrg ? "Continue setup" : creation.pending ? "Retry creation" : additional ? "Create organization" : "Build my show"} <ArrowRight size={17} />
       </button>
     </form>
   );
