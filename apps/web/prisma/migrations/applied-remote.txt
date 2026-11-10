@@ -76,3 +76,4 @@
 0069_graphic_library_reset_receipts.sql
 0070_kiosk_team_commands.sql
 0071_duty_roster_commands.sql
+0072_tm_rundown_receipts.sql
