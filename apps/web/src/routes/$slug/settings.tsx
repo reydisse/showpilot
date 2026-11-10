@@ -1,3 +1,6 @@
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
+import { useSettingsReturnTo } from "@/components/layout/AppShell";
 import { CredentialSettingInput } from "@/components/settings/CredentialSettingInput";
 import type { CredentialChange } from "@/lib/credential-fields";
 import { BridgeTargetSettings } from "@/components/settings/BridgeTargetSettings";
@@ -5,7 +8,7 @@ import { BridgeInstallationSettings } from "@/components/settings/BridgeInstalla
 import { ConfidenceSection } from "@/components/settings/ConfidenceSection";
 import { CONFIDENCE_LAYOUT_KEY } from "@/lib/confidence-layout";
 import { WorkspaceSettings } from "@/components/workspace/WorkspaceSettings";
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { formatServicePickerLabel } from "@/lib/service-picker";
 import { lazy, Suspense, useState, useCallback, useEffect } from "react";
@@ -210,6 +213,9 @@ function OrganizationSettingsPage({
   const { section } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
+  const settingsReturnTo = useSettingsReturnTo();
+  const goBack = () => void router.navigate({ href: settingsReturnTo ?? `/${slug}/show` });
+  const backLabel = settingsReturnTo ? "Back to previous page" : "Back to Show Flow";
   const persistSetting = useCallback(
     (key: string, value: string) =>
       updateOrgSetting({ data: { orgId, key, value } }),
@@ -279,14 +285,14 @@ function OrganizationSettingsPage({
     <div className="flex h-full min-h-0 flex-col overflow-hidden lg:flex-row">
       <aside className="hidden w-72 shrink-0 border-r border-board-border bg-board-bg/75 lg:flex lg:min-h-0 lg:flex-col">
         <div className="shrink-0 border-b border-board-border px-5 py-5">
-          <Link
-            to="/$slug/show"
-            params={{ slug }}
-            className="flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm text-board-muted transition-colors hover:bg-board-border/40 hover:text-board-text"
+          <button
+            type="button"
+            onClick={goBack}
+            className="flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm text-board-muted transition-colors hover:bg-board-border/40 hover:text-board-text"
           >
             <ArrowLeft className="size-4" />
-            <span>Back to ShowPilot</span>
-          </Link>
+            <span>{backLabel}</span>
+          </button>
           <div className="mt-4 px-2">
             <h1 className="text-lg font-semibold text-board-text">Settings</h1>
             <p className="mt-1 text-xs leading-5 text-board-muted">Organization, production, and integrations</p>
@@ -321,10 +327,10 @@ function OrganizationSettingsPage({
       </aside>
 
       <div className="shrink-0 border-b border-board-border bg-board-bg/90 px-4 py-3 lg:hidden">
-        <Link to="/$slug/show" params={{ slug }} className="flex min-h-10 items-center gap-2 text-sm text-board-muted transition-colors hover:text-board-text">
+        <button type="button" onClick={goBack} className="flex min-h-11 items-center gap-2 text-sm text-board-muted transition-colors hover:text-board-text">
           <ArrowLeft className="size-4" />
-          Back to ShowPilot
-        </Link>
+          {backLabel}
+        </button>
         <Select
           value={resolvedSection}
           onValueChange={(value) => {
@@ -2058,38 +2064,13 @@ function NotificationPolicyRow({
 // ─── API & WEBHOOKS ─────────────────────────────────────────
 
 function ApiSection({ orgId, role, getSetting, saveCredential }: SectionProps) {
-  const [webhookEvents, setWebhookEvents] = useState<WebhookEventLogItem[]>([]);
-  const [isLoadingEvents, setIsLoadingEvents] = useState(true);
-  const [eventsError, setEventsError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-
-    const loadEvents = async () => {
-      setIsLoadingEvents(true);
-      setEventsError(null);
-
-      try {
-        const events = await getRecentWebhookEvents({ data: { orgId } });
-        if (mounted) setWebhookEvents(events);
-      } catch (error) {
-        if (!mounted) return;
-        setEventsError(
-          error instanceof Error ? error.message : "Unable to load webhook events.",
-        );
-        setWebhookEvents([]);
-      } finally {
-        if (mounted) setIsLoadingEvents(false);
-      }
-    };
-
-    loadEvents();
-
-    return () => {
-      mounted = false;
-    };
-  }, [orgId]);
-
+  const readEvents = useCallback((signal: AbortSignal) => getRecentWebhookEvents({ data: { orgId }, signal }), [orgId]);
+  const eventsRead = useOperatorRead<WebhookEventLogItem[] | null>({
+    key: orgId, initialValue: null, read: readEvents,
+    errorMessage: "Could not read recent webhook events. Any displayed events are the last confirmed result.",
+  });
+  const webhookEvents = eventsRead.value ?? [];
+  const isLoadingEvents = eventsRead.value === null && !eventsRead.error;
 
   return (
     <div>
@@ -2119,16 +2100,13 @@ function ApiSection({ orgId, role, getSetting, saveCredential }: SectionProps) {
           <p className="text-[10px] font-medium uppercase tracking-widest text-board-muted/50 mb-3">
             Recent Webhook Events
           </p>
+          <ReadFailureNotice error={eventsRead.error} refreshing={eventsRead.refreshing} retry={eventsRead.retry} label="Retry webhook events" />
           {isLoadingEvents ? (
             <div className="flex items-center justify-center gap-2 text-xs text-board-muted py-6">
               <RefreshCw className="w-3 h-3 animate-spin" />
               <span>Loading events...</span>
             </div>
-          ) : eventsError ? (
-            <div className="text-center py-6 text-xs text-red-400">
-              <p>{eventsError}</p>
-            </div>
-          ) : webhookEvents.length === 0 ? (
+          ) : eventsRead.value === null ? null : webhookEvents.length === 0 ? (
             <div className="text-center py-6">
               <Webhook className="w-8 h-8 text-board-muted/30 mx-auto mb-2" />
               <p className="text-xs text-board-muted">No recent events</p>

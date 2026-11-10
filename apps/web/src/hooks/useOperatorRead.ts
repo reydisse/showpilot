@@ -17,6 +17,8 @@ export function useOperatorRead<T>({ key, initialValue, read, errorMessage, inte
   const [state, setState] = useState<{ key: string; value: T; error: OperatorReadFailure | null; refreshing: boolean; confirmedAt: number | null }>({ key, value: initialValue, error: null, refreshing: false, confirmedAt: null });
   const initialRef = useRef(initialValue);
   initialRef.current = initialValue;
+  const invalidateRef = useRef<() => void>(() => {});
+  const invalidate = useCallback(() => invalidateRef.current(), []);
   const retryRef = useRef<() => void>(() => {});
   const retry = useCallback(() => retryRef.current(), []);
 
@@ -71,17 +73,24 @@ export function useOperatorRead<T>({ key, initialValue, read, errorMessage, inte
       else { cancel(); setState(previous => ({ ...previous, refreshing: false })); }
     };
     retryRef.current = () => { void refresh(); };
+    // A confirmed write invalidates even an in-flight snapshot. Retrying the
+    // read must not repeat the write, or let a pre-write reply restore old data.
+    invalidateRef.current = () => {
+      clearScheduled(); cancel();
+      setState(previous => ({ ...previous, refreshing: false }));
+      void refresh();
+    };
     if (enabled) {
       void refresh();
       if (pauseWhenHidden) document.addEventListener("visibilitychange", visibilityChanged);
     }
     return () => {
-      disposed = true; retryRef.current = () => {};
+      disposed = true; retryRef.current = () => {}; invalidateRef.current = () => {};
       clearScheduled(); cancel();
       document.removeEventListener("visibilitychange", visibilityChanged);
     };
   }, [key, read, errorMessage, intervalMs, enabled, pauseWhenHidden]);
 
   const current = enabled && state.key === key ? state : { value: initialValue, error: null, refreshing: false, confirmedAt: null };
-  return { value: current.value, error: current.error, refreshing: current.refreshing, confirmedAt: current.confirmedAt, retry };
+  return { value: current.value, error: current.error, refreshing: current.refreshing, confirmedAt: current.confirmedAt, retry, invalidate };
 }
