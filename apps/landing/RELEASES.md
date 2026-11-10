@@ -1,8 +1,38 @@
 # Public Desktop and Bridge downloads
 
 The landing Worker streams approved artifacts from the private
-`showpilot-downloads` R2 bucket. It never exposes the private GitHub repository
-or accepts an arbitrary R2 key from a request.
+`showpilot-downloads` R2 bucket. Downloads use the approved release manifest,
+not GitHub URLs or arbitrary R2 keys from a request.
+
+## Download links and recovery
+
+Every download card has a permanent `/downloads/<id>` link. It works without
+JavaScript. The Worker checks the current approved manifest, streams the artifact
+or redirects to the validated App Store or Google Play URL. Unpublished files
+remain unavailable; a clickable card does not publish a release.
+
+Browser navigation receives a recovery page with Try again, View downloads and
+Open web app. API callers retain JSON errors, and HEAD errors have no body.
+Manifest and object lookups have an eight-second response deadline; this does not
+limit the artifact stream after headers are ready. The browser's optional status
+request also has an eight-second deadline and never disables the static links.
+
+Download ID URLs follow the current manifest, so responses use `Cache-Control:
+no-store`. The previous immutable one-hour policy could serve a cached installer
+after the manifest changed. Previously cached responses can survive until their
+old cache lifetime ends. Versioned R2 objects must still never be overwritten.
+
+To rehearse locally after building, run:
+
+```sh
+node apps/landing/scripts/smoke-download-fallback.mjs
+```
+
+The script bundles the Worker with Wrangler's dry run and uses disposable R2,
+a temporary Chrome profile and small fixture files. It verifies downloads with
+JavaScript disabled, official-store redirects, unavailable/error recovery, a
+stalled status request, a changed release at the same URL and responsive controls.
+It does not publish releases or access production R2.
 
 ## One-time setup
 

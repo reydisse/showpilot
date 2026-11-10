@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import worker, {
   bridgeUpdaterManifest,
   desktopUpdaterManifest,
@@ -320,6 +320,7 @@ describe("parseReleaseManifest", () => {
     );
     expect(response.status).toBe(200);
     expect(response.headers.get("Accept-Ranges")).toBe("bytes");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(response.headers.get("Content-Disposition")).toContain(
       encodeURIComponent(validEntry.fileName),
     );
@@ -360,12 +361,13 @@ describe("parseReleaseManifest", () => {
     expect(response.status).toBe(404);
   });
 
-  it("does not proxy store entries through the artifact route", async () => {
+  it("redirects published store entries to the validated official store", async () => {
     const response = await worker.fetch(
       incomingRequest("https://www.showpilot.tech/downloads/mobile-ios"),
       fakeEnvironment([storeEntry]),
     );
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(storeEntry.storeUrl);
   });
 
   it("treats a missing manifest as an unpublished release without console-failing the landing page", async () => {
@@ -501,5 +503,58 @@ describe("parseReleaseManifest", () => {
     expect(payload.version).toBe("0.1.7");
     expect(JSON.stringify(payload)).toContain("bridge-update-macos-arm64");
     expect(JSON.stringify(payload)).not.toContain("desktop-update-macos-arm64");
+  });
+});
+
+
+describe("download navigation without JavaScript", () => {
+  const navigation = (path: string, method = "GET") => new Request(`https://www.showpilot.tech${path}`, {
+    method, headers: { Accept: "text/html,application/xhtml+xml" },
+  }) as Parameters<typeof worker.fetch>[0];
+  it("shows unavailable downloads with real recovery links and no private object information", async () => {
+    const response = await worker.fetch(navigation("/downloads/desktop-windows-x64"), fakeEnvironment([validEntry]));
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Content-Type")).toContain("text/html");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Vary")).toBe("Accept");
+    const body = await response.text();
+    expect(body).toContain("Download unavailable");
+    expect(body).toContain('href=""');
+    expect(body).toContain('href="/#downloads"');
+    expect(body).toContain('href="https://app.showpilot.tech"');
+    expect(body).not.toContain(validEntry.key);
+    expect(body).not.toContain("<script");
+    expect(response.headers.get("Content-Security-Policy")).toContain("default-src 'none'");
+  });
+  it("keeps JSON errors for programmatic downloads and has bodyless HEAD errors", async () => {
+    const response = await worker.fetch(incomingRequest("https://www.showpilot.tech/downloads/unknown-release"), fakeEnvironment([]));
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Content-Type")).toContain("application/json");
+    expect(await response.json()).toEqual({ error: "Download not found" });
+    const head = await worker.fetch(navigation("/downloads/unknown-release", "HEAD"), fakeEnvironment([]));
+    expect(head.status).toBe(404);expect(await head.text()).toBe("");
+  });
+  it("does not echo an injected path into recovery HTML", async () => {
+    const response = await worker.fetch(navigation("/downloads/%3Cscript%3Ealert(1)%3C/script%3E"), fakeEnvironment([]));
+    expect(response.status).toBe(404);
+    const body = await response.text();expect(body).not.toContain("alert(1)");expect(body).not.toContain("<script");
+  });
+  it("distinguishes unpublished releases from storage failures without exposing provider errors", async () => {
+    const environment = fakeEnvironment([]);
+    environment.DOWNLOADS.head = async () => { throw new Error("private fixture provider failure"); };
+    const response = await worker.fetch(navigation("/downloads/desktop-macos-arm64"), environment);
+    expect(response.status).toBe(503);
+    const body = await response.text();expect(body).toContain("Could not check this download");expect(body).not.toContain("private fixture provider failure");
+  });
+  it("bounds a stalled storage read before responding with recovery", async () => {
+    vi.useFakeTimers();
+    try {
+      const environment = fakeEnvironment([]);
+      environment.DOWNLOADS.head = () => new Promise(() => {});
+      const response = worker.fetch(navigation("/downloads/desktop-macos-arm64"), environment);
+      await vi.advanceTimersByTimeAsync(8_001);
+      const result = await response;
+      expect(result.status).toBe(503);expect(await result.text()).toContain("Could not check this download");
+    } finally { vi.useRealTimers(); }
   });
 });

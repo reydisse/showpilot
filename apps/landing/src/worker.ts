@@ -242,11 +242,6 @@ async function loadManifestState(bucket: R2Bucket): Promise<ManifestState> {
   }
 }
 
-async function loadManifest(bucket: R2Bucket): Promise<ReleaseManifest | null> {
-  const state = await loadManifestState(bucket);
-  return state.kind === "ready" ? state.manifest : null;
-}
-
 function baseHeaders(): Headers {
   return new Headers({
     "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
@@ -259,6 +254,38 @@ function jsonError(message: string, status: number): Response {
   const headers = baseHeaders();
   if (status >= 500) headers.set("Cache-Control", "no-store");
   return Response.json({ error: message }, { status, headers });
+}
+
+/** Browser navigation needs recovery even when scripts or the manifest fail.
+ * Keep API/updater callers on JSON, and never interpolate request/manifest data. */
+function downloadError(request: Request, message: string, status: number): Response {
+  const response = jsonError(message, status);
+  response.headers.set("Cache-Control", "no-store");
+  response.headers.set("Vary", "Accept");
+  if (request.method === "HEAD") return new Response(null, { status, headers: response.headers });
+  if (new URL(request.url).pathname === "/downloads/manifest.json" || !request.headers.get("Accept")?.includes("text/html")) return response;
+  const unavailable = status === 404;
+  const title = unavailable ? "Download unavailable" : "Could not check this download";
+  const description = unavailable
+    ? "This build is not available from this link. You can check again, choose another download, or use ShowPilot in your browser."
+    : "The download service did not respond successfully. Try again, or use ShowPilot in your browser while we recover.";
+  const headers = response.headers;
+  headers.set("Content-Type", "text/html; charset=utf-8");
+  headers.set("Content-Security-Policy", "default-src 'none'; style-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+  headers.set("X-Frame-Options", "DENY");
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${title} | ShowPilot</title><link rel="stylesheet" href="/landing.css"></head>
+    <body><main class="download-notice"><a class="download-notice-brand" href="/">ShowPilot</a><h1>${title}</h1><p>${description}</p>
+    <div class="download-notice-actions"><a class="button primary" href="">Try again</a><a class="button outline" href="/#downloads">View downloads</a><a class="button outline" href="https://app.showpilot.tech">Open web app</a></div></main></body></html>`, { status, headers });
+}
+
+async function boundedDownloadResponse(request: Request, env: Env): Promise<Response> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      handleDownloads(request, env),
+      new Promise<Response>(resolve => { timer = setTimeout(() => resolve(downloadError(request, "Downloads are temporarily unavailable", 503)), 8_000); }),
+    ]);
+  } finally { clearTimeout(timer); }
 }
 
 export function publicManifest(manifest: ReleaseManifest): {
@@ -331,7 +358,8 @@ function rangeHeaders(object: R2Object, includeRange = true): Headers {
   object.writeHttpMetadata(headers);
   headers.set("Accept-Ranges", "bytes");
   headers.set("ETag", object.httpEtag);
-  headers.set("Cache-Control", "public, max-age=3600, immutable");
+  // The ID URL follows the current manifest; it is not a versioned object URL.
+  headers.set("Cache-Control", "no-store");
 
   const range = includeRange
     ? resolvedByteRange(object.range, object.size)
@@ -354,16 +382,22 @@ async function serveDownload(
   env: Env,
   id: string,
 ): Promise<Response> {
-  if (!DOWNLOAD_ID.test(id)) return jsonError("Download not found", 404);
-  const manifest = await loadManifest(env.DOWNLOADS);
-  if (!manifest) return jsonError("Downloads are temporarily unavailable", 503);
-  const release = manifest.releases.find((entry) => entry.id === id);
-  if (!release || release.kind !== "artifact")
-    return jsonError("Download not found", 404);
+  if (!DOWNLOAD_ID.test(id)) return downloadError(request, "Download not found", 404);
+  const state = await loadManifestState(env.DOWNLOADS);
+  if (state.kind === "invalid") return downloadError(request, "Downloads are temporarily unavailable", 503);
+  if (state.kind === "missing") return downloadError(request, "Download not found", 404);
+  const release = state.manifest.releases.find((entry) => entry.id === id);
+  if (!release) return downloadError(request, "Download not found", 404);
+  if (release.kind === "store") {
+    const headers = baseHeaders();
+    headers.set("Cache-Control", "no-store");
+    headers.set("Location", release.storeUrl);
+    return new Response(null, { status: 302, headers });
+  }
 
   if (request.method === "HEAD") {
     const object = await env.DOWNLOADS.head(release.key);
-    if (!object) return jsonError("Download not found", 404);
+    if (!object) return downloadError(request, "Download not found", 404);
     const headers = downloadHeaders(object, release.fileName, false);
     return new Response(null, { status: 200, headers });
   }
@@ -373,7 +407,7 @@ async function serveDownload(
     release.key,
     hasRangeRequest ? { range: request.headers } : undefined,
   );
-  if (!object) return jsonError("Download not found", 404);
+  if (!object) return downloadError(request, "Download not found", 404);
   const headers = downloadHeaders(object, release.fileName, hasRangeRequest);
   const partial =
     hasRangeRequest && resolvedByteRange(object.range, object.size) !== null;
@@ -526,7 +560,7 @@ async function handleDownloads(request: Request, env: Env): Promise<Response> {
   try {
     id = decodeURIComponent(url.pathname.slice("/downloads/".length));
   } catch {
-    return jsonError("Download not found", 404);
+    return downloadError(request, "Download not found", 404);
   }
   return serveDownload(request, env, id);
 }
@@ -549,7 +583,7 @@ export default {
         if (updaterProduct) {
           return await serveNativeUpdater(request, env, updaterProduct);
         }
-        return await handleDownloads(request, env);
+        return await boundedDownloadResponse(request, env);
       } catch (error) {
         console.error(
           JSON.stringify({
@@ -558,7 +592,7 @@ export default {
             error: error instanceof Error ? error.message : String(error),
           }),
         );
-        return jsonError("Downloads are temporarily unavailable", 503);
+        return updaterProduct ? jsonError("Downloads are temporarily unavailable", 503) : downloadError(request, "Downloads are temporarily unavailable", 503);
       }
     }
     return env.ASSETS.fetch(request);
