@@ -34,6 +34,8 @@ import { z } from "zod";
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMECODE_COMMANDS, TIMECODE_FEED_STALL_MS as FEED_STALL_MS } from "@/types/timecode";
 import { automationPayloadProblem } from "@/lib/automation-payload";
 import { resolveLyricsStep } from "@/lib/lyrics-step.server";
+import { NamedTimerStore } from "@/lib/named-timer-store.server";
+import { namedTimerStartSchema, namedTimerStopSchema } from "@/lib/named-timers";
 import { crewMessagePayloadSchema } from "@/lib/crew-message";
 import { chatRelayKey } from "@/lib/chat-relay-key";
 import { runProPresenterCue } from "@/lib/automation-propresenter";
@@ -63,6 +65,8 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
   "rundown-adjust",
   "stage-message",
   "crew-message",
+  "timer-start",
+  "timer-stop",
   "triggers-disable",
   "triggers-enable",
   "stage-clear",
@@ -215,10 +219,12 @@ export class TimecodeRelay extends DurableObject {
   private lastPersistedAt = 0;
   private readonly executor = new AutomationExecutor();
   private readonly revisions: RelaySequenceStore;
+  private readonly namedTimerStore: NamedTimerStore;
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
     this.revisions = new RelaySequenceStore(ctx.storage.sql);
+    this.namedTimerStore = new NamedTimerStore(ctx.storage);
     ctx.blockConcurrencyWhile(async () => {
       this.controller = await ctx.storage.get<MidiControllerSnapshot>("midi-controller") ?? emptyMidiController();
       const stored = await ctx.storage.get<TimecodeSnapshot>("timecode");
@@ -505,6 +511,7 @@ export class TimecodeRelay extends DurableObject {
       // A Bridge may still hold this room's identity. Retire it permanently so
       // a late feed or a retry cannot resurrect a deleted show or its timeline.
       this.retired = true;
+      this.namedTimerStore.clear();
       for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Timecode show deleted");
       await this.ctx.storage.transaction(async storage => {
         const keys = await storage.list();
@@ -610,7 +617,7 @@ export class TimecodeRelay extends DurableObject {
 
     if (url.pathname === "/state") {
       return this.targetJson(
-        canWrite ? this.state : this.getDisplayState(),
+        canWrite ? this.getOperatorState() : this.getDisplayState(),
       );
     }
 
@@ -1270,9 +1277,10 @@ export class TimecodeRelay extends DurableObject {
             throw new TimecodeCommandRejection("Review the current cue before firing it again.");
           }
         }
-        const deliveryId = event.action === "crew-message" && !refire ? event.executionId : undefined;
+        const durableReceipt = event.action === "crew-message" || event.action === "timer-start" || event.action === "timer-stop";
+        const deliveryId = durableReceipt && !refire ? event.executionId : undefined;
         resetCueExecution(event);
-        // A lost chat acknowledgment must not create another production post.
+        // A lost acknowledgment must not duplicate a post or restart a timer.
         if (deliveryId) event.executionId = deliveryId;
         await this.runEvent(event);
         await this.persist();
@@ -1611,6 +1619,19 @@ export class TimecodeRelay extends DurableObject {
       case "triggers-enable":
         throw new Error("Trigger controls must execute before reserving external outputs.");
 
+      case "timer-start":
+      case "timer-stop": {
+        if (!event.executionId) throw new Error("Named timer execution is missing its receipt identity.");
+        const command = event.action === "timer-start"
+          ? { action: event.action, payload: namedTimerStartSchema.parse(event.payload) }
+          : { action: event.action, payload: namedTimerStopSchema.parse(event.payload) };
+        assertCanDispatch();
+        this.namedTimerStore.apply(command, event.id, event.executionId);
+        this.broadcastState();
+        logResult(event.action, "success", `Named timer ${command.payload.name} ${event.action === "timer-start" ? "started" : "stopped"}.`);
+        break;
+      }
+
       case "crew-message": {
         const authority = this.controlOwner()?.attachment.authClaim;
         if (!authority || !this.target || !event.executionId) throw new Error("Claim timecode control before posting a crew message.");
@@ -1716,7 +1737,7 @@ export class TimecodeRelay extends DurableObject {
   private hydrate(ws: WebSocket): void {
     const attachment = ws.deserializeAttachment() as { canWrite?: boolean } | null;
     this.send(ws, attachment?.canWrite
-      ? { type: "hydrate", state: this.state, events: this.events, control: this.controlStatus(ws), controller: this.controller }
+      ? { type: "hydrate", state: this.getOperatorState(), events: this.events, control: this.controlStatus(ws), controller: this.controller }
       : { type: "hydrate", state: this.getDisplayState() }, this.revisions.current());
   }
 
@@ -1729,7 +1750,7 @@ export class TimecodeRelay extends DurableObject {
       } | null;
       const msg: TimecodeWsMessage = {
         type: "tc-update",
-        state: attachment?.canWrite ? this.state : this.getDisplayState(),
+        state: attachment?.canWrite ? this.getOperatorState() : this.getDisplayState(),
       };
       this.send(ws, msg, sequence);
     }
@@ -1810,7 +1831,11 @@ export class TimecodeRelay extends DurableObject {
     }
   }
 
+  private getOperatorState(): TimecodeState {
+    return { ...this.state, namedTimers: this.namedTimerStore.sample() };
+  }
+
   private getDisplayState(): TimecodeDisplayState {
-    return projectTimecodeDisplayState(this.state, Date.now(), this.events);
+    return projectTimecodeDisplayState(this.getOperatorState(), Date.now(), this.events);
   }
 }

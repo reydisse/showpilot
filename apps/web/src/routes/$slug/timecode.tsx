@@ -1,3 +1,4 @@
+import { NamedTimers } from "@/components/timers/NamedTimers";
 import { getBlackoutTargets } from "@/lib/automation-targets";
 import { getRundownState } from "@/lib/rundown";
 import type { AutomationTargetKind } from "@/components/timecode/AutomationTargetPicker";
@@ -33,6 +34,7 @@ function lyricsTarget(value: string | undefined): "native" | "propresenter" | "b
 
 function TimecodePage() {
   const workspace = useWorkspace();
+  const { slug } = Route.useParams();
   const { orgId } = Route.useRouteContext() as { orgId: string };
   const { settings } = Route.useLoaderData();
 
@@ -118,6 +120,7 @@ function TimecodePage() {
         {!connected && <p role="status" className="rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">Timecode disconnected. Controls will be available after reconnecting.</p>}
         {lastError && <p role="alert" className="rounded-xl border border-red-500/40 p-4 text-sm text-red-300">{lastError}</p>}
         <TimecodeAutomationControl state={state} connected={connected} canControl={control !== "other"} onSetEnabled={setTriggersEnabled} onResumeAutomaticCues={resumeAutomaticCues} />
+        <NamedTimers sample={state?.namedTimers ?? null} connected={connected} outputTarget={timecode.showId ? { orgSlug: slug, showId: timecode.showId } : undefined} />
         {/* Large TC display */}
         <div className="rounded-xl border border-board-border bg-board-card p-4 sm:p-8">
           <TimecodeDisplay state={state} connected={connected} size="large" />
@@ -169,6 +172,7 @@ function TimecodePage() {
         <AutomationEventEditor
           key={`${orgId}:${timecode.showId}`}
           loadTargets={loadTargets}
+          timerNames={[...new Set([...events.filter(event => event.action === "timer-start").flatMap(event => typeof event.payload.name === "string" ? [event.payload.name] : []), ...(state?.namedTimers?.timers.map(timer => timer.name) ?? [])])]}
           onAdd={addEvent}
           connected={connected && control !== "other"}
           format={state?.format ?? { frameRate: 30, dropFrame: "ndf" }}
