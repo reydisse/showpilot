@@ -3195,6 +3195,66 @@ pass. The complete suite passed 2,168 unit tests, 829 Worker tests and four
 coverage-gate tests; web typecheck/build passed. No browser errors, production
 writes, deployment or release.
 
-Remaining persistence work: the rehearsal emitted Prisma's D1 non-transactional
-warning during song creation/reordering. Song mutation rollback, deadlines and
-retry recovery are still open; this UI result does not prove atomic writes.
+This UI rehearsal exposed Prisma's D1 non-transactional warning during song
+creation/reordering. The subsequent song-write recovery work below addresses
+that finding; the UI rehearsal alone did not prove atomic writes.
+
+
+## Song write rollback and request recovery (2026-11-07)
+
+Apply `apps/web/prisma/migrations/0057_song_write_receipts.sql` before deploying
+this web build. It adds `song.writeRevision`, revision triggers and org/actor
+scoped command receipts. Keep this additive migration if rolling the Worker back.
+It has only been applied to disposable local/test databases; do not add it to the
+remote migration manifest until an authorized production migration succeeds.
+
+The D1 Prisma adapter did not make nested song creation or `$transaction` writes
+atomic. Five real D1 failure tests reproduced partial song creation, mixed
+section ordering, lost cue maps, partial draft updates and destructive
+ProPresenter replacement. Song writes now use one bound D1 batch containing the
+receipt and all changes. A revision check rejects changes made during command
+preparation. Replaying a committed request does not apply it again, and receipts
+survive song deletion so retries cannot recreate a removed song.
+
+The UI retains the exact request and slide snapshot for Retry. Writes and
+post-save reads have separate ten-second deadlines; an acknowledged write is
+not repeated when only opening/refreshing its view fails. Late callbacks and
+callbacks from an abandoned editor are ignored. Creation recovery survives
+closing/reopening the dialog. Failed edits retain their drafts; explicitly
+resuming editing first reads the stored song and compares it with those drafts.
+Section deletes require confirmation. A Back navigation held during a save can
+resume after confirmation when no unsaved drafts remain. Confirmed deletion is
+identified separately from a failed library refresh.
+
+The import dialog uses the shared Dialog, including labelled search and bounded
+library reads. Partial-library Retry remains available. A reimport keeps the
+original fetched slides across write retries. The library and map list refresh
+without replacing the active recovery UI. Load cues waits for relay
+acknowledgement, rejects a running/disconnected clock or mismatched format,
+and cancels its pending read when the song/show changes.
+
+Verification commands after the web build:
+
+- `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-song-write-recovery.mjs`
+- `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-song-import-recovery.mjs`
+- `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-song-studio.mjs`
+
+The first two use actual Chrome, the compiled Worker, real local authentication
+and D1. The import rehearsal connects a simulated ProPresenter peer through the
+real Bridge relay. It also withholds a committed Timecode acknowledgement,
+checks that success is not reported, retries and verifies that the stored group
+has two events rather than duplicates. The physical ProPresenter application
+and venue hardware are not exercised by this fixture.
+
+Fourteen Worker regressions cover rollback, concurrent retries, changed-payload
+rejection, removed records, permission revocation, org isolation and writes that
+race command preparation. Eight new hook/dialog regressions cover deadlines,
+late results, serialization, scope changes, retained creation requests and
+post-save recovery. The complete suite passes 2,176 unit tests, 843 Worker tests
+and four coverage-gate tests; web typecheck and production build pass.
+
+Limits: request IDs and drafts survive retries while their editor is mounted,
+not a full page reload. The server revision check protects request preparation;
+it is not a client revision protocol for long-lived concurrent/offline edits.
+Other product-wide mutation/confirmation requirements and the Phase 2 gate
+remain open. No production migration, deployment or native release was run.

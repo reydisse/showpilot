@@ -1,5 +1,7 @@
 import { useRef, useState } from "react";
 import { ClipboardPaste, Plus, Trash2, X } from "lucide-react";
+import { useSongWrite } from "@/hooks/useSongWrite";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { formatSongLyrics, insertPastedLyrics } from "@/lib/song-lyrics-format";
 import {
   Dialog,
@@ -26,7 +28,14 @@ interface EditableSection {
 
 const inputClassName = "mt-2 w-full rounded-xl border border-board-border bg-board-bg px-3 py-2.5 text-sm text-board-text outline-none transition focus:border-fire-500/60";
 
-export function SongCreateModal({ onClose, onCreate }: { onClose: () => void; onCreate: (draft: NewSongDraft) => Promise<void> }) {
+/** Keep mounted while closed so a lost reply keeps its original request. */
+export function SongCreateModal({ orgId, open, onClose, onCreate, onOpenSong }: {
+  orgId: string;
+  open: boolean;
+  onClose: () => void;
+  onCreate: (draft: NewSongDraft, requestId: string, signal: AbortSignal) => Promise<{ id: string }>;
+  onOpenSong: (songId: string, signal: AbortSignal) => Promise<void>;
+}) {
   const nextSectionKey = useRef(2);
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
@@ -37,8 +46,10 @@ export function SongCreateModal({ onClose, onCreate }: { onClose: () => void; on
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pastedLyrics, setPastedLyrics] = useState("");
   const [pasteNotice, setPasteNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const write = useSongWrite(`${orgId}/new-song`);
+  const busy = write.state.status === "saving";
+  const locked = write.state.status !== "idle";
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
   const validBpm = bpm.trim() === "" || (/^\d+$/.test(bpm.trim()) && Number(bpm) >= 1 && Number(bpm) <= 400);
   const canSubmit = title.trim().length > 0
@@ -65,43 +76,50 @@ export function SongCreateModal({ onClose, onCreate }: { onClose: () => void; on
   };
 
   const submit = async () => {
-    if (!canSubmit || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await onCreate({
-        title: title.trim(),
-        artist: artist.trim(),
-        ccliNumber: ccliNumber.trim(),
-        bpm: bpm.trim() ? Number(bpm) : null,
-        keySignature: keySignature.trim(),
-        sections: sections.map((section) => ({ label: section.label.trim(), lyrics: section.lyrics.trim() })),
-      });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Song could not be created.");
-    } finally {
-      setBusy(false);
-    }
+    if (!canSubmit || locked) return;
+    const draft = {
+      title: title.trim(), artist: artist.trim(), ccliNumber: ccliNumber.trim(),
+      bpm: bpm.trim() ? Number(bpm) : null, keySignature: keySignature.trim(),
+      sections: sections.map(section => ({ label: section.label.trim(), lyrics: section.lyrics.trim() })),
+    };
+    await write.start({
+      label: "Create song",
+      write: (requestId, signal) => onCreate(draft, requestId, signal),
+      apply: () => {},
+      finish: (song, signal) => onOpenSong(song.id, signal),
+    });
+  };
+  const editDraft = async () => {
+    if (await confirm({
+      title: "Leave this creation request?",
+      description: "The earlier request may already have created a song. Check the library before creating another. Your text will stay in this form.",
+      confirmLabel: "Keep text and edit", variant: "warning",
+    })) write.discard();
   };
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
+    <>
+    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen && !busy) onClose(); }}>
       <DialogContent showCloseButton={false} className="max-h-[92dvh] max-w-2xl gap-0 overflow-hidden border-board-border bg-board-card p-0 text-board-text">
       <form
         onSubmit={(event) => { event.preventDefault(); void submit(); }}
-        className="flex min-h-0 flex-col overflow-hidden"
+        className="flex max-h-[calc(92dvh-2px)] min-h-0 flex-col overflow-hidden"
       >
-        <header className="flex items-start justify-between border-b border-board-border px-5 py-4">
+        <header className="flex shrink-0 items-start justify-between border-b border-board-border px-5 py-4">
           <div>
             <DialogTitle className="font-semibold text-board-text">New song</DialogTitle>
             <DialogDescription className="mt-1 text-xs text-board-muted">Add the song details and its first lyric arrangement.</DialogDescription>
           </div>
-          <DialogClose asChild><button type="button" aria-label="Close new song" disabled={busy} className="rounded-lg p-2 text-board-muted hover:bg-board-bg hover:text-board-text"><X className="h-4 w-4" /></button></DialogClose>
+          <DialogClose asChild><button type="button" aria-label="Close new song" disabled={busy} className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted hover:bg-board-bg hover:text-board-text"><X className="h-4 w-4" /></button></DialogClose>
         </header>
 
-        <div className="space-y-5 overflow-y-auto p-5">
-          {error ? <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p> : null}
-
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
+          {write.state.status === "failed" && <div role="alert" className="space-y-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+            <p>{write.state.saved ? "The song was created, but its page could not be opened. Retry opening it." : "Creation is unconfirmed. Retry the same request to recover the song without creating it twice."}</p>
+            <p>{write.state.message}</p>
+            <p className="text-xs">Last attempt: {new Date(write.state.at).toLocaleTimeString()}</p>
+          </div>}
+          <fieldset disabled={locked} className="min-w-0 space-y-5">
           <section>
             <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-board-muted">Song details</h3>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -162,29 +180,35 @@ export function SongCreateModal({ onClose, onCreate }: { onClose: () => void; on
               ))}
             </div>
           </section>
+          </fieldset>
         </div>
 
-        <footer className="flex gap-2 border-t border-board-border bg-board-card px-5 py-4">
-          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-board-border p-2.5 text-sm font-semibold text-board-muted">Cancel</button>
-          <button type="submit" disabled={!canSubmit || busy} className="flex-1 rounded-xl bg-fire-500 p-2.5 text-sm font-bold text-black disabled:opacity-40">{busy ? "Creating…" : "Create song"}</button>
+        <footer className="flex shrink-0 flex-wrap gap-2 border-t border-board-border bg-board-card px-5 py-4">
+          <button type="button" disabled={busy} onClick={onClose} className="min-h-11 flex-1 rounded-xl border border-board-border p-2.5 text-sm font-semibold text-board-muted disabled:opacity-40">{locked ? "Close" : "Cancel"}</button>
+          {write.state.status === "failed" ? <>
+            {!write.state.saved && <button type="button" onClick={() => void editDraft()} className="min-h-11 rounded-xl border border-board-border px-3 text-sm">Edit draft</button>}
+            <button type="button" onClick={() => void write.retry()} className="min-h-11 flex-1 rounded-xl bg-fire-500 p-2.5 text-sm font-bold text-black">{write.state.saved ? "Retry opening song" : "Retry creation"}</button>
+          </> : <button type="submit" disabled={!canSubmit || locked} className="min-h-11 flex-1 rounded-xl bg-fire-500 p-2.5 text-sm font-bold text-black disabled:opacity-40">{write.state.status === "saving" ? write.state.saved ? "Opening song…" : "Creating…" : "Create song"}</button>}
         </footer>
       </form>
       </DialogContent>
     </Dialog>
+    {ConfirmDialogEl}
+    </>
   );
 }
 
-export function DeleteSongModal({ title, sectionCount, cueMapCount, busy, error, onClose, onDelete }: { title: string; sectionCount: number; cueMapCount: number; busy: boolean; error: string | null; onClose: () => void; onDelete: () => void }) {
+export function DeleteSongModal({ title, sectionCount, cueMapCount, busy, saved = false, error, onClose, onDelete }: { title: string; sectionCount: number; cueMapCount: number; busy: boolean; saved?: boolean; error: string | null; onClose: () => void; onDelete: () => void }) {
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
       <DialogContent showCloseButton={false} className="max-w-md gap-0 border-red-500/30 bg-board-card p-5 text-board-text">
         <div className="flex h-11 w-11 items-center justify-center rounded-full bg-red-500/10 text-red-400"><Trash2 className="h-5 w-5" /></div>
-        <DialogTitle className="mt-4 text-lg font-semibold text-board-text">Delete "{title}"?</DialogTitle>
-        <DialogDescription className="mt-2 text-sm leading-6 text-board-muted">This permanently removes the song, its {sectionCount} {sectionCount === 1 ? "section" : "sections"}, and {cueMapCount} cue {cueMapCount === 1 ? "map" : "maps"}.</DialogDescription>
+        <DialogTitle className="mt-4 text-lg font-semibold text-board-text">{saved ? `"${title}" was deleted` : `Delete "${title}"?`}</DialogTitle>
+        <DialogDescription className="mt-2 text-sm leading-6 text-board-muted">{saved ? "Deletion is confirmed. Open the library to continue." : <>This permanently removes the song, its {sectionCount} {sectionCount === 1 ? "section" : "sections"}, and {cueMapCount} cue {cueMapCount === 1 ? "map" : "maps"}.</>}</DialogDescription>
         {error ? <p role="alert" className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p> : null}
         <div className="mt-5 flex gap-2">
-          <button type="button" disabled={busy} onClick={onClose} className="flex-1 rounded-xl border border-board-border p-2.5 text-sm font-semibold text-board-text disabled:opacity-40">Keep song</button>
-          <button type="button" disabled={busy} onClick={onDelete} className="flex-1 rounded-xl bg-red-500 p-2.5 text-sm font-bold text-white disabled:opacity-40">{busy ? "Deleting…" : "Delete song"}</button>
+          <button type="button" disabled={busy} onClick={onClose} className="flex-1 rounded-xl border border-board-border p-2.5 text-sm font-semibold text-board-text disabled:opacity-40">{saved ? "Close" : "Keep song"}</button>
+          <button type="button" disabled={busy} onClick={onDelete} className="flex-1 rounded-xl bg-red-500 p-2.5 text-sm font-bold text-white disabled:opacity-40">{saved ? busy ? "Opening library…" : "Retry opening library" : busy ? "Deleting…" : error ? "Retry delete" : "Delete song"}</button>
         </div>
       </DialogContent>
     </Dialog>

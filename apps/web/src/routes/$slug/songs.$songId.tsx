@@ -19,6 +19,9 @@ import {
   Upload,
 } from "lucide-react";
 import { hasEffectivePermission } from "@/lib/app-permissions";
+import { useSongWrite } from "@/hooks/useSongWrite";
+import { useSongLibraryRefresh } from "@/components/SongLibraryRefresh";
+import { withOperationTimeout } from "@/lib/operation-timeout";
 import { DeleteSongModal } from "@/components/SongDialogs";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
@@ -29,7 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { buildSongAutomationEvents, formatCueFrame } from "@/lib/song-cues";
+import { buildSongAutomationEvents, formatCueFrame, readSongCueFormat } from "@/lib/song-cues";
 import { insertPastedLyrics } from "@/lib/song-lyrics-format";
 import {
   deleteSong,
@@ -79,7 +82,7 @@ export const Route = createFileRoute("/$slug/songs/$songId")({
       settings,
     };
   },
-  component: SongStudioPage,
+  component: SongStudioRoute,
 });
 
 type CueDraft = SongMapDraft["cues"][number];
@@ -151,6 +154,11 @@ function draftFromSong(song: SongRecord, preferredMapId?: string): SongDraft {
   };
 }
 
+function SongStudioRoute() {
+  const { orgId, song } = Route.useLoaderData();
+  return <SongStudioPage key={`${orgId}/${song.id}`} />;
+}
+
 function SongStudioPage() {
   const { orgId, slug, role, grantedPermissions, song, settings } =
     Route.useLoaderData();
@@ -161,6 +169,7 @@ function SongStudioPage() {
     "songs:manage",
   );
   const timecode = useShowTimecode();
+  const [storedSong, setStoredSong] = useState(song);
   const initialDraft = draftFromSong(song);
   const [metadata, setMetadata] =
     useState<SongMetadataDraft>(initialDraft.metadata);
@@ -177,12 +186,28 @@ function SongStudioPage() {
   );
   const [offsetFrames, setOffsetFrames] = useState(0);
   const [tapIndex, setTapIndex] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
+  const write = useSongWrite(`${orgId}/${song.id}`);
+  const [loadingCues, setLoadingCues] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const cueLoad = useRef<AbortController | null>(null);
+  const reviewRead = useRef<AbortController | null>(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  useEffect(() => () => { reviewRead.current?.abort(); reviewRead.current = null; }, []);
+  const currentTimecode = useRef(timecode);
+  currentTimecode.current = timecode;
+  const busy = write.state.status === "saving" || loadingCues || reviewBusy;
+  const locked = write.state.status !== "idle" || loadingCues || reviewBusy;
+  useEffect(() => {
+    setLoadingCues(false);
+    return () => { cueLoad.current?.abort(); cueLoad.current = null; };
+  }, [song.id, timecode.showId]);
+  const refreshLibrary = useSongLibraryRefresh();
   const [notice, setNotice] = useState<string | null>(null);
   const [draggedSectionId, setDraggedSectionId] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteBusy, setDeleteBusy] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const deleteBusy = busy && write.state.status === "saving" && write.state.label === "Delete song";
+  const deleteError = write.state.status === "failed" && write.state.label === "Delete song" ? write.state.message : null;
   const allowNavigationRef = useRef(false);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
 
@@ -201,17 +226,20 @@ function SongStudioPage() {
   );
   const dirty = canManage && isSongDraftDirty(currentDraft, savedDraft);
   const blocker = useBlocker({
-    shouldBlockFn: () => dirty && !allowNavigationRef.current,
-    enableBeforeUnload: dirty,
+    shouldBlockFn: () => (dirty || locked) && !allowNavigationRef.current,
+    enableBeforeUnload: dirty || locked,
     withResolver: true,
     disabled: !canManage,
   });
 
-  const refresh = async () => {
-    await router.invalidate();
-  };
+  // A navigation requested while a save was settling can resume as soon as
+  // its result is confirmed and there are no remaining drafts to discard.
+  useEffect(() => {
+    if (blocker.status === "blocked" && !dirty && !locked) blocker.proceed?.();
+  }, [blocker.status, blocker.proceed, dirty, locked]);
   useEffect(() => {
     const nextDraft = draftFromSong(song);
+    setStoredSong(song);
     setMetadata(nextDraft.metadata);
     setSections(song.sections);
     setMapId(nextDraft.cueMap.id);
@@ -221,7 +249,7 @@ function SongStudioPage() {
     setSavedDraft(nextDraft);
   }, [song.id]);
   const chooseMap = async (id: string) => {
-    if (id === mapId) return;
+    if (locked || id === mapId) return;
     if (isCueMapDraftDirty(currentDraft.cueMap, savedDraft.cueMap)) {
       const discard = await confirm({
         title: "Discard cue-map changes?",
@@ -232,7 +260,7 @@ function SongStudioPage() {
       });
       if (!discard) return;
     }
-    const nextDraft = draftFromSong(song, id);
+    const nextDraft = draftFromSong(storedSong, id);
     setMapId(nextDraft.cueMap.id);
     setMapName(nextDraft.cueMap.name);
     setFormat(nextDraft.cueMap.format);
@@ -240,7 +268,7 @@ function SongStudioPage() {
     setSavedDraft((current) => ({ ...current, cueMap: nextDraft.cueMap }));
   };
   const captureNext = () => {
-    if (tapIndex === null || !timecode.state || sections.length === 0) return;
+    if (locked || tapIndex === null || !timecode.state || sections.length === 0) return;
     const section = sections[tapIndex % sections.length];
     setCues((current) => [
       ...current,
@@ -270,103 +298,146 @@ function SongStudioPage() {
     return () => window.removeEventListener("keydown", keydown);
   });
 
-  const saveAll = async (successNotice = true): Promise<boolean> => {
-    setBusy(true);
-    setNotice(null);
-    try {
-      const result = await saveSongDraft({
-        data: {
-          orgId,
-          songId: song.id,
-          title: currentDraft.metadata.title,
-          artist: currentDraft.metadata.artist,
-          ccliNumber: currentDraft.metadata.ccliNumber,
-          bpm: currentDraft.metadata.bpm
-            ? Number(currentDraft.metadata.bpm)
-            : null,
-          keySignature: currentDraft.metadata.keySignature,
-          sections: currentDraft.sections,
-          cueMap: {
-            cueMapId: currentDraft.cueMap.id || undefined,
-            name: currentDraft.cueMap.name,
-            frameRate: currentDraft.cueMap.format.frameRate,
-            dropFrame: currentDraft.cueMap.format.dropFrame,
-            cues: currentDraft.cueMap.cues,
-          },
-        },
-      });
-      const nextDraft = {
-        ...currentDraft,
-        cueMap: { ...currentDraft.cueMap, id: result.cueMapId },
-      };
-      setMapId(result.cueMapId);
-      setSavedDraft(nextDraft);
-      if (successNotice) setNotice("All song changes saved.");
-      return true;
-    } catch (cause) {
-      setNotice(
-        cause instanceof Error ? cause.message : "Song changes did not save.",
-      );
-      return false;
-    } finally {
-      setBusy(false);
-    }
+  const refreshSavedSong = async (signal: AbortSignal) => {
+    const [updated] = await Promise.all([
+      getSong({ signal, data: { orgId, songId: song.id } }), refreshLibrary(signal),
+    ]);
+    if (!signal.aborted) setStoredSong(updated);
   };
-
-  const saveMap = async (): Promise<string | null> => {
-    setBusy(true);
+  const metadataInput = {
+    orgId, songId: song.id, title: metadata.title, artist: metadata.artist,
+    ccliNumber: metadata.ccliNumber, bpm: metadata.bpm ? Number(metadata.bpm) : null,
+    keySignature: metadata.keySignature,
+  };
+  const mapInput = {
+    orgId, songId: song.id, cueMapId: mapId || undefined, name: mapName,
+    frameRate: format.frameRate, dropFrame: format.dropFrame, cues,
+  };
+  const saveAll = async (successNotice = true): Promise<boolean> => {
     setNotice(null);
-    try {
-      const result = await saveSongCueMap({
-        data: {
-          orgId,
-          songId: song.id,
-          cueMapId: mapId || undefined,
-          name: mapName,
-          frameRate: format.frameRate,
-          dropFrame: format.dropFrame,
-          cues,
-        },
-      });
-      setMapId(result.cueMapId);
-      setSavedDraft((current) => ({
-        ...current,
-        cueMap: { ...currentDraft.cueMap, id: result.cueMapId },
-      }));
-      setNotice("Cue map saved.");
-      return result.cueMapId;
-    } catch (cause) {
-      setNotice(
-        cause instanceof Error ? cause.message : "Cue map did not save.",
-      );
-      return null;
-    } finally {
-      setBusy(false);
-    }
+    return write.start({
+      label: "Save all changes",
+      write: (requestId, signal) => saveSongDraft({ signal, data: {
+        ...metadataInput, requestId, sections: currentDraft.sections,
+        cueMap: { cueMapId: mapId || undefined, name: mapName,
+          frameRate: format.frameRate, dropFrame: format.dropFrame, cues },
+      } }),
+      finish: (_, signal) => refreshSavedSong(signal),
+      apply: result => {
+        setMapId(result.cueMapId);
+        setSavedDraft({ ...currentDraft, cueMap: { ...currentDraft.cueMap, id: result.cueMapId } });
+        if (successNotice) setNotice("All song changes saved.");
+      },
+    });
+  };
+  const saveMap = async (): Promise<string | null> => {
+    setNotice(null);
+    let savedId: string | null = null;
+    const saved = await write.start({
+      label: "Save cue map",
+      write: (requestId, signal) => saveSongCueMap({ signal, data: { ...mapInput, requestId } }),
+      finish: (_, signal) => refreshSavedSong(signal),
+      apply: result => {
+        savedId = result.cueMapId;
+        setMapId(result.cueMapId);
+        setSavedDraft(current => ({ ...current, cueMap: { ...currentDraft.cueMap, id: result.cueMapId } }));
+        setNotice("Cue map saved.");
+      },
+    });
+    return saved ? savedId : null;
+  };
+  const saveMetadata = () => write.start({
+    label: "Save song details",
+    write: (requestId, signal) => saveSongMetadata({ signal, data: { ...metadataInput, requestId } }),
+    finish: (_, signal) => refreshSavedSong(signal),
+      apply: () => {
+      setSavedDraft(current => ({ ...current, metadata }));
+      setNotice("Song details saved without changing your other drafts.");
+    },
+  });
+  const addSection = () => write.start({
+    label: "Add section",
+    write: (requestId, signal) => saveSongSection({ signal, data: {
+      orgId, songId: song.id, requestId, label: `Section ${sections.length + 1}`, lyrics: "", sourceSlideIndex: null,
+    } }),
+    finish: (_, signal) => refreshSavedSong(signal),
+      apply: created => {
+      setSections(current => [...current, created]);
+      setSavedDraft(current => ({ ...current, sections: [...current.sections, created] }));
+      setNotice("Section added.");
+    },
+  });
+  const saveSection = (section: (typeof sections)[number]) => write.start({
+    label: "Save section",
+    write: (requestId, signal) => saveSongSection({ signal, data: {
+      orgId, songId: song.id, requestId, sectionId: section.id, label: section.label,
+      lyrics: section.lyrics, sourceSlideIndex: section.sourceSlideIndex,
+    } }),
+    finish: (_, signal) => refreshSavedSong(signal),
+      apply: saved => {
+      setSections(current => current.map(item => item.id === saved.id ? { ...item, ...saved } : item));
+      setSavedDraft(current => reconcileSavedSection(current, saved));
+      setNotice(`${saved.label} saved without changing your other drafts.`);
+    },
+  });
+  const removeSection = async (section: (typeof sections)[number]) => {
+    if (locked) return;
+    const mapped = cues.some(cue => cue.sectionId === section.id)
+      || storedSong.cueMaps.some(map => map.cues.some(cue => cue.sectionId === section.id));
+    if (!await confirm({
+      title: `Delete ${section.label}?`,
+      description: mapped ? "This section is used in a cue map. Deleting it also removes every cue mapped to it."
+        : "This permanently removes the section and its lyrics from the song.",
+      confirmLabel: "Delete section", variant: "danger",
+    })) return;
+    await write.start({
+      label: "Delete section",
+      write: (requestId, signal) => deleteSongSection({ signal, data: { orgId, songId: song.id, sectionId: section.id, confirmMapped: mapped, requestId } }),
+      finish: (_, signal) => refreshSavedSong(signal),
+      apply: () => {
+        setSections(current => current.filter(item => item.id !== section.id));
+        setCues(current => current.filter(cue => cue.sectionId !== section.id));
+        setSavedDraft(current => ({ ...current, sections: current.sections.filter(item => item.id !== section.id),
+          cueMap: { ...current.cueMap, cues: current.cueMap.cues.filter(cue => cue.sectionId !== section.id) } }));
+        setNotice("Section deleted.");
+      },
+    });
   };
   const loadCues = async () => {
+    if (locked || cueLoad.current) return;
+    setLoadError(null);
+    if (!timecode.connected || !timecode.state || timecode.state.running) {
+      setLoadError("Connect to the selected show and stop its clock before loading cues."); return;
+    }
+    if (!Number.isInteger(offsetFrames) || offsetFrames < 0) {
+      setLoadError("Cue offset must be a whole number of frames, zero or greater."); return;
+    }
     const savedMapId = await saveMap();
     if (!savedMapId) return;
-    const current = await getSong({ data: { orgId, songId: song.id } });
-    const map = current.cueMaps.find(
-      (candidate) => candidate.id === savedMapId,
-    );
-    if (!map) return;
-    const events = buildSongAutomationEvents({
-      song: current,
-      cues: map.cues,
-      format: parseFormat(map.format),
-      target,
-      offsetFrames,
-      ppPresentationUuid: current.ppPresentationUuid,
-      cueMapId: map.id,
-    });
-    const sourceKey = events[0]?.sourceKey;
-    if (!sourceKey) return;
-    timecode.replaceEventGroup(sourceKey, events);
-    setNotice(
-      `${events.length} lyric automation events loaded into Timecode. Loading this map again will replace them.`,
-    );
+    const controller = new AbortController();
+    cueLoad.current = controller;
+    setLoadingCues(true);
+    try {
+      const current = await withOperationTimeout(getSong({ data: { orgId, songId: song.id }, signal: controller.signal }), 10_000, "The saved map could not be read. Retry Load cues.");
+      if (controller.signal.aborted || cueLoad.current !== controller) return;
+      const live = currentTimecode.current;
+      if (live.showId !== timecode.showId || !live.connected || !live.state || live.state.running) throw new Error("The show's connection or clock changed. Stop the clock, then retry loading cues.");
+      const map = current.cueMaps.find(candidate => candidate.id === savedMapId);
+      if (!map) throw new Error("The saved cue map was removed. Review the song before loading cues.");
+      const parsed = readSongCueFormat(map.format, live.state.format);
+      if ("error" in parsed) throw new Error(parsed.error);
+      const events = buildSongAutomationEvents({ song: current, cues: map.cues, format: parsed.format,
+        target, offsetFrames, ppPresentationUuid: current.ppPresentationUuid, cueMapId: map.id });
+      const sourceKey = events[0]?.sourceKey;
+      if (!sourceKey) throw new Error("Add at least one cue before loading this map.");
+      await live.replaceEventGroup(sourceKey, events);
+      if (!controller.signal.aborted && cueLoad.current === controller) setNotice(`${events.length} lyric automation events confirmed by Timecode. Loading this map again will replace them.`);
+    } catch (error) {
+      if (!controller.signal.aborted && cueLoad.current === controller) setLoadError(error instanceof Error ? error.message : "Cue loading could not be confirmed. Retry Load cues.");
+    } finally {
+      controller.abort();
+      if (cueLoad.current === controller) { cueLoad.current = null; setLoadingCues(false); }
+    }
   };
   const nudgeCue = (index: number, delta: number) => {
     const parsed = parseTimecodeString(cues[index]?.triggerTc ?? "", format);
@@ -381,40 +452,23 @@ function SongStudioPage() {
     );
   };
   const moveSection = async (from: number, to: number) => {
-    if (
-      from === to ||
-      from < 0 ||
-      to < 0 ||
-      from >= sections.length ||
-      to >= sections.length
-    )
-      return;
+    if (locked || from === to || from < 0 || to < 0 || from >= sections.length || to >= sections.length) return;
     const next = [...sections];
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
-    setSections(next);
-    try {
-      await reorderSongSections({
-        data: {
-          orgId,
-          songId: song.id,
-          sectionIds: next.map((item) => item.id),
-        },
-      });
-      const order = new Map(next.map((section, index) => [section.id, index]));
-      setSavedDraft((current) => ({
-        ...current,
-        sections: [...current.sections].sort(
-          (left, right) =>
-            (order.get(left.id) ?? 0) - (order.get(right.id) ?? 0),
-        ),
-      }));
-    } catch (cause) {
-      setSections(sections);
-      setNotice(
-        cause instanceof Error ? cause.message : "Section order did not save.",
-      );
-    }
+    await write.start({
+      label: "Reorder sections",
+      write: (requestId, signal) => reorderSongSections({ signal, data: {
+        orgId, songId: song.id, sectionIds: next.map(item => item.id), requestId,
+      } }),
+      finish: (_, signal) => refreshSavedSong(signal),
+      apply: () => {
+        setSections(next);
+        const order = new Map(next.map((section, index) => [section.id, index]));
+        setSavedDraft(current => ({ ...current, sections: [...current.sections].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)) }));
+        setNotice("Section order saved.");
+      },
+    });
   };
   const reimport = async () => {
     if (!song.ppPresentationUuid) return;
@@ -428,52 +482,64 @@ function SongStudioPage() {
       });
       if (!discard) return;
     }
-    setBusy(true);
-    setNotice(null);
-    try {
-      const presentation = await getProPresenterSong({
-        data: { orgId, presentationUuid: song.ppPresentationUuid },
-      });
-      await importProPresenterSong({
-        data: { orgId, presentation, strategy: "merge" },
-      });
-      await refresh();
-      const updated = await getSong({ data: { orgId, songId: song.id } });
-      const nextDraft = draftFromSong(updated, mapId);
-      setMetadata(nextDraft.metadata);
-      setSections(updated.sections);
-      setMapId(nextDraft.cueMap.id);
-      setMapName(nextDraft.cueMap.name);
-      setFormat(nextDraft.cueMap.format);
-      setCues(nextDraft.cueMap.cues);
-      setSavedDraft(nextDraft);
-      setNotice(
-        "Updated from ProPresenter. Existing section IDs and cue maps were preserved.",
-      );
-    } catch (cause) {
-      setNotice(
-        cause instanceof Error ? cause.message : "ProPresenter update failed.",
-      );
-    } finally {
-      setBusy(false);
-    }
+    const presentationUuid = song.ppPresentationUuid;
+    let presentation: Awaited<ReturnType<typeof getProPresenterSong>> | null = null;
+    await write.start({
+      label: "Update from ProPresenter",
+      write: async (requestId, signal) => {
+        if (!presentation) {
+          const read = await getProPresenterSong({ signal, data: { orgId, presentationUuid } });
+          if (signal.aborted) throw new Error("Reading ProPresenter was cancelled. Retry to read it again.");
+          presentation = read;
+        }
+        return importProPresenterSong({ signal, data: { orgId, presentation, strategy: "merge", requestId } });
+      },
+      apply: () => {},
+      finish: async (result, signal) => {
+        const [updated] = await Promise.all([getSong({ signal, data: { orgId, songId: song.id } }), refreshLibrary(signal)]);
+        if (signal.aborted) return;
+        setStoredSong(updated);
+        const nextDraft = draftFromSong(updated, mapId);
+        setMetadata(nextDraft.metadata); setSections(updated.sections); setMapId(nextDraft.cueMap.id);
+        setMapName(nextDraft.cueMap.name); setFormat(nextDraft.cueMap.format); setCues(nextDraft.cueMap.cues); setSavedDraft(nextDraft);
+        const preserved = result.preservedMappedSections?.length ?? 0;
+        setNotice(preserved ? `Updated from ProPresenter. ${preserved} mapped sections were preserved; review their timing before loading cues.`
+          : "Updated from ProPresenter. Existing section IDs and cue maps were preserved.");
+      },
+    });
   };
 
-  const removeSong = async () => {
-    setDeleteBusy(true);
-    setDeleteError(null);
-    try {
-      await deleteSong({ data: { orgId, songId: song.id } });
-      if (timecode.state?.lyrics?.songId === song.id) timecode.clearLyrics();
+  const removeSong = () => write.start({
+    label: "Delete song",
+    write: (requestId, signal) => deleteSong({ signal, data: { orgId, songId: song.id, requestId } }),
+    apply: () => { if (timecode.state?.lyrics?.songId === song.id) timecode.clearLyrics(); },
+    finish: async (_, signal) => {
+      await refreshLibrary(signal);
+      if (signal.aborted) return;
       allowNavigationRef.current = true;
       await router.navigate({ to: "/$slug/songs", params: { slug } });
-      await router.invalidate();
-    } catch (cause) {
-      setDeleteError(
-        cause instanceof Error ? cause.message : "Song could not be deleted.",
-      );
+    },
+  });
+  const abandonWrite = async () => {
+    if (reviewRead.current || !await confirm({
+      title: "Review the stored song and keep your drafts?",
+      description: "The earlier change may already be saved. Read the stored song before editing again. Your current text and cue drafts will stay here and be compared with that saved version.",
+      confirmLabel: "Keep drafts and edit", variant: "warning",
+    })) return;
+    const controller = new AbortController();
+    reviewRead.current = controller; setReviewBusy(true); setReviewError(null);
+    try {
+      const [updated] = await withOperationTimeout(Promise.all([
+        getSong({ signal: controller.signal, data: { orgId, songId: song.id } }), refreshLibrary(controller.signal),
+      ]), 10_000, "Could not read the stored song. Retry reviewing it; your drafts are still here.");
+      if (controller.signal.aborted || reviewRead.current !== controller) return;
+      setStoredSong(updated); setSavedDraft(draftFromSong(updated, mapId));
+      write.discard(); setNotice("Stored song reviewed. Your current drafts were preserved.");
+    } catch (error) {
+      if (!controller.signal.aborted && reviewRead.current === controller) setReviewError(error instanceof Error ? error.message : "Could not review the saved song.");
     } finally {
-      setDeleteBusy(false);
+      controller.abort();
+      if (reviewRead.current === controller) { reviewRead.current = null; setReviewBusy(false); }
     }
   };
 
@@ -505,11 +571,11 @@ function SongStudioPage() {
                 <span
                   className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${dirty ? "border-amber-400/30 bg-amber-400/10 text-amber-300" : "border-board-border text-board-muted"}`}
                 >
-                  {dirty ? "Unsaved changes" : "All changes saved"}
+                  {loadingCues ? "Waiting for Timecode…" : busy ? "Saving changes…" : locked ? "Change needs review" : dirty ? "Unsaved changes" : "All changes saved"}
                 </span>
                 {dirty && <button
                   type="button"
-                  disabled={busy}
+                  disabled={locked}
                   onClick={() => void saveAll()}
                   className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-fire-500 px-3 text-xs font-bold text-black disabled:opacity-40"
                 >
@@ -520,7 +586,7 @@ function SongStudioPage() {
             ) : null}
             {song.ppPresentationUuid && canManage ? (
               <button
-                disabled={busy}
+                disabled={locked}
                 onClick={() => void reimport()}
                 className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-board-border bg-board-card px-3 text-xs font-semibold text-board-text disabled:opacity-40"
               >
@@ -531,8 +597,8 @@ function SongStudioPage() {
             {canManage ? (
               <button
                 type="button"
+                disabled={locked}
                 onClick={() => {
-                  setDeleteError(null);
                   setDeleteOpen(true);
                 }}
                 className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/5 px-3 text-xs font-semibold text-red-300 hover:bg-red-500/10"
@@ -555,7 +621,21 @@ function SongStudioPage() {
             )}
           </div>
         </header>
-        {notice ? (
+        {loadError && <div role="alert" className="space-y-2 rounded-xl border border-red-500/30 p-4 text-sm text-red-300">
+          <p>{loadError}</p><button type="button" disabled={locked} onClick={() => void loadCues()} className="min-h-11 rounded-lg border border-red-400/40 px-3 disabled:opacity-40">Retry Load cues</button>
+        </div>}
+        {write.state.status === "failed" && <div role="alert" className="space-y-2 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
+          <p>{write.state.label}: {write.state.saved ? "Saved, but the view could not be refreshed. Retry will not repeat the write." : "Result unconfirmed. Retry the same request to recover its result."}</p>
+          <p>{write.state.message}</p>
+          {reviewError && <p>{reviewError}</p>}
+          {reviewBusy && <p role="status">Reading the stored song before editing…</p>}
+          <p className="text-xs">Last attempt: {new Date(write.state.at).toLocaleTimeString()}</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={reviewBusy} onClick={() => void write.retry()} className="min-h-11 rounded-lg border border-red-400/40 px-3">Retry {write.state.label.toLowerCase()}</button>
+            <button type="button" disabled={reviewBusy} onClick={() => void abandonWrite()} className="min-h-11 rounded-lg border border-board-border px-3">Keep drafts and edit</button>
+          </div>
+        </div>}
+        {notice && !locked ? (
           <p
             role="status"
             className="rounded-xl border border-board-border bg-board-card px-4 py-3 text-sm text-board-muted"
@@ -568,19 +648,19 @@ function SongStudioPage() {
             <section className="rounded-2xl border border-board-border bg-board-card p-5">
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field
-                  readOnly={!canManage}
+                  readOnly={!canManage || locked}
                   label="Title"
                   value={metadata.title}
                   onChange={(title) => setMetadata({ ...metadata, title })}
                 />
                 <Field
-                  readOnly={!canManage}
+                  readOnly={!canManage || locked}
                   label="Artist"
                   value={metadata.artist}
                   onChange={(artist) => setMetadata({ ...metadata, artist })}
                 />
                 <Field
-                  readOnly={!canManage}
+                  readOnly={!canManage || locked}
                   label="CCLI number"
                   value={metadata.ccliNumber}
                   onChange={(ccliNumber) =>
@@ -589,13 +669,13 @@ function SongStudioPage() {
                 />
                 <div className="grid grid-cols-2 gap-3">
                   <Field
-                    readOnly={!canManage}
+                    readOnly={!canManage || locked}
                     label="BPM"
                     value={metadata.bpm}
                     onChange={(bpm) => setMetadata({ ...metadata, bpm })}
                   />
                   <Field
-                    readOnly={!canManage}
+                    readOnly={!canManage || locked}
                     label="Key"
                     value={metadata.keySignature}
                     onChange={(keySignature) =>
@@ -607,39 +687,8 @@ function SongStudioPage() {
               {canManage ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    setBusy(true);
-                    setNotice(null);
-                    void saveSongMetadata({
-                      data: {
-                        orgId,
-                        songId: song.id,
-                        title: metadata.title,
-                        artist: metadata.artist,
-                        ccliNumber: metadata.ccliNumber,
-                        bpm: metadata.bpm ? Number(metadata.bpm) : null,
-                        keySignature: metadata.keySignature,
-                      },
-                    })
-                      .then(() => {
-                        setSavedDraft((current) => ({
-                          ...current,
-                          metadata,
-                        }));
-                        setNotice(
-                        "Song details saved without changing your other drafts.",
-                        );
-                      })
-                      .catch((cause: unknown) =>
-                        setNotice(
-                          cause instanceof Error
-                            ? cause.message
-                            : "Song details did not save.",
-                        ),
-                      )
-                      .finally(() => setBusy(false));
-                  }}
-                  disabled={busy}
+                  onClick={() => void saveMetadata()}
+                  disabled={locked}
                   className="mt-4 inline-flex items-center gap-2 rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-bold text-black"
                 >
                   <Save className="h-4 w-4" />
@@ -658,30 +707,8 @@ function SongStudioPage() {
                 {canManage ? (
                   <button
                     type="button"
-                    onClick={async () => {
-                      const created = await saveSongSection({
-                        data: {
-                          orgId,
-                          songId: song.id,
-                          label: `Section ${sections.length + 1}`,
-                          lyrics: "",
-                          sourceSlideIndex: null,
-                        },
-                      });
-                      setSections((current) => [...current, created]);
-                      setSavedDraft((current) => ({
-                        ...current,
-                        sections: [
-                          ...current.sections,
-                          {
-                            id: created.id,
-                            label: created.label,
-                            lyrics: created.lyrics,
-                            sourceSlideIndex: created.sourceSlideIndex,
-                          },
-                        ],
-                      }));
-                    }}
+                    disabled={locked}
+                    onClick={() => void addSection()}
                     className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs font-semibold text-board-text"
                   >
                     <Plus className="h-3.5 w-3.5" />
@@ -693,7 +720,7 @@ function SongStudioPage() {
                 {sections.map((section, index) => (
                   <div
                     key={section.id}
-                    draggable={canManage}
+                    draggable={canManage && !locked}
                     onDragStart={() => setDraggedSectionId(section.id)}
                     onDragEnd={() => setDraggedSectionId(null)}
                     onDragOver={(event) => event.preventDefault()}
@@ -716,7 +743,7 @@ function SongStudioPage() {
                         </span>
                       ) : null}
                       <input
-                        readOnly={!canManage}
+                        readOnly={!canManage || locked}
                         value={section.label}
                         onChange={(event) =>
                           setSections((current) =>
@@ -733,7 +760,7 @@ function SongStudioPage() {
                         <>
                           <button
                             aria-label="Move section up"
-                            disabled={index === 0}
+                            disabled={locked || index === 0}
                             onClick={() => void moveSection(index, index - 1)}
                             className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-fire-400 disabled:opacity-20"
                           >
@@ -741,7 +768,7 @@ function SongStudioPage() {
                           </button>
                           <button
                             aria-label="Move section down"
-                            disabled={index === sections.length - 1}
+                            disabled={locked || index === sections.length - 1}
                             onClick={() => void moveSection(index, index + 1)}
                             className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-fire-400 disabled:opacity-20"
                           >
@@ -751,7 +778,7 @@ function SongStudioPage() {
                       ) : null}
                     </div>
                     <textarea
-                      readOnly={!canManage}
+                      readOnly={!canManage || locked}
                       value={section.lyrics}
                       onChange={(event) =>
                         setSections((current) =>
@@ -763,7 +790,7 @@ function SongStudioPage() {
                         )
                       }
                       onPaste={
-                        canManage
+                        canManage && !locked
                           ? (event) => {
                               event.preventDefault();
                               const lyrics = insertPastedLyrics({
@@ -808,99 +835,16 @@ function SongStudioPage() {
                         </button>
                         <div className="flex gap-2">
                           <button
-                            onClick={() =>
-                              void saveSongSection({
-                                data: {
-                                  orgId,
-                                  songId: song.id,
-                                  sectionId: section.id,
-                                  label: section.label,
-                                  lyrics: section.lyrics,
-                                  sourceSlideIndex: section.sourceSlideIndex,
-                                },
-                              }).then((saved) => {
-                                setSections((current) =>
-                                  current.map((item) =>
-                                    item.id === saved.id
-                                      ? { ...item, ...saved }
-                                      : item,
-                                  ),
-                                );
-                                setSavedDraft((current) =>
-                                  reconcileSavedSection(current, {
-                                    id: saved.id,
-                                    label: saved.label,
-                                    lyrics: saved.lyrics,
-                                    sourceSlideIndex: saved.sourceSlideIndex,
-                                  }),
-                                );
-                                setNotice(
-                                  `${saved.label} saved without changing your other drafts.`,
-                                );
-                              })
-                            }
+                            disabled={locked}
+                            onClick={() => void saveSection(section)}
                             className="text-xs font-semibold text-fire-500"
                           >
                             Save section
                           </button>
                           <button
                             aria-label={`Delete ${section.label}`}
-                            onClick={async () => {
-                              const mapped = song.cueMaps.some((map) =>
-                                map.cues.some(
-                                  (cue) => cue.sectionId === section.id,
-                                ),
-                              );
-                              if (mapped) {
-                                const approved = await confirm({
-                                  title: `Delete ${section.label}?`,
-                                  description:
-                                    "This section is used in a cue map. Deleting it also removes every cue mapped to it.",
-                                  confirmLabel: "Delete section",
-                                  variant: "danger",
-                                });
-                                if (!approved) return;
-                              }
-                              void deleteSongSection({
-                                data: {
-                                  orgId,
-                                  songId: song.id,
-                                  sectionId: section.id,
-                                  confirmMapped: mapped,
-                                },
-                              })
-                                .then(() => {
-                                  setSections((current) =>
-                                    current.filter(
-                                      (item) => item.id !== section.id,
-                                    ),
-                                  );
-                                  setCues((current) =>
-                                    current.filter(
-                                      (cue) => cue.sectionId !== section.id,
-                                    ),
-                                  );
-                                  setSavedDraft((current) => ({
-                                    ...current,
-                                    sections: current.sections.filter(
-                                      (item) => item.id !== section.id,
-                                    ),
-                                    cueMap: {
-                                      ...current.cueMap,
-                                      cues: current.cueMap.cues.filter(
-                                        (cue) => cue.sectionId !== section.id,
-                                      ),
-                                    },
-                                  }));
-                                })
-                                .catch((cause: unknown) =>
-                                  setNotice(
-                                    cause instanceof Error
-                                      ? cause.message
-                                      : "Section did not delete.",
-                                  ),
-                                );
-                            }}
+                            disabled={locked}
+                            onClick={() => void removeSection(section)}
                             className="text-red-400"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -931,7 +875,7 @@ function SongStudioPage() {
               onClear={canManage ? timecode.clearLyrics : undefined}
             />
             {canManage ? (
-              <section className="rounded-2xl border border-board-border bg-board-card p-5">
+              <fieldset disabled={locked} className="rounded-2xl border border-board-border bg-board-card p-5">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="min-w-0 text-xs text-board-muted">
                     Cue map
@@ -943,7 +887,7 @@ function SongStudioPage() {
                       className="mt-2 w-full rounded-xl border border-board-border bg-board-bg p-2.5 text-sm text-board-text"
                     >
                       <option value="">New cue map</option>
-                      {song.cueMaps.map((map) => (
+                      {storedSong.cueMaps.map((map) => (
                         <option key={map.id} value={map.id}>
                           {map.name}
                         </option>
@@ -1140,7 +1084,7 @@ function SongStudioPage() {
                     <option value="both">Both outputs</option>
                   </select>
                   <button
-                    disabled={busy || !cues.length}
+                    disabled={locked || !cues.length || !timecode.connected || Boolean(timecode.state?.running)}
                     onClick={() => void loadCues()}
                     className="inline-flex items-center gap-2 rounded-xl bg-fire-500 px-4 text-sm font-bold text-black disabled:opacity-40"
                   >
@@ -1149,13 +1093,13 @@ function SongStudioPage() {
                   </button>
                 </div>
                 <button
-                  disabled={busy}
+                  disabled={locked}
                   onClick={() => void saveMap()}
                   className="mt-2 w-full rounded-xl border border-board-border p-2.5 text-sm font-semibold text-board-text"
                 >
                   {busy ? "Saving…" : "Save cue map"}
                 </button>
-              </section>
+              </fieldset>
             ) : (
               <section className="rounded-2xl border border-board-border bg-board-card p-5">
                 <h2 className="text-sm font-semibold text-board-text">
@@ -1165,8 +1109,8 @@ function SongStudioPage() {
                   Timing maps are view-only in Reader mode.
                 </p>
                 <div className="mt-4 flex flex-col gap-2">
-                  {song.cueMaps.length ? (
-                    song.cueMaps.map((map) => (
+                  {storedSong.cueMaps.length ? (
+                    storedSong.cueMaps.map((map) => (
                       <div
                         key={map.id}
                         className="flex items-center justify-between rounded-lg bg-board-bg px-3 py-2 text-xs"
@@ -1193,13 +1137,14 @@ function SongStudioPage() {
           <DeleteSongModal
             title={metadata.title}
             sectionCount={song.sections.length}
-            cueMapCount={song.cueMaps.length}
+            cueMapCount={storedSong.cueMaps.length}
             busy={deleteBusy}
+            saved={write.state.status !== "idle" && write.state.label === "Delete song" && write.state.saved}
             error={deleteError}
             onClose={() => {
               if (!deleteBusy) setDeleteOpen(false);
             }}
-            onDelete={() => void removeSong()}
+            onDelete={() => void (write.state.status === "failed" ? write.retry() : removeSong())}
           />
         ) : null}
         <Dialog
@@ -1217,8 +1162,8 @@ function SongStudioPage() {
                 Save your song changes?
               </DialogTitle>
               <DialogDescription className="text-board-muted">
-                This song has unsaved details, lyrics, or cue-map changes. Save
-                them before leaving, discard them deliberately, or keep editing.
+                {locked ? "A song change is unconfirmed or still refreshing. Stay to retry it. Leaving does not undo a write that reached the server."
+                  : "This song has unsaved details, lyrics, or cue-map changes. Save them before leaving, discard them deliberately, or keep editing."}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="gap-2 sm:gap-2">
@@ -1240,7 +1185,7 @@ function SongStudioPage() {
               </button>
               <button
                 type="button"
-                disabled={busy}
+                disabled={locked}
                 onClick={() => {
                   void saveAll(false).then((saved) => {
                     if (saved) blocker.proceed?.();
