@@ -1,10 +1,14 @@
+import { useGraphicsOutput } from "@/hooks/useGraphicsOutput";
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useGraphicLibraryMutation } from "@/hooks/useGraphicLibraryMutation";
 import { LibraryMutationNotice } from "@/components/graphics/LibraryMutationNotice";
 import { previewSamples } from "@/lib/workspace/preview-samples";
 import { useWorkspace } from "@/components/workspace/WorkspaceProvider";
-import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -20,12 +24,9 @@ import {
 } from "lucide-react";
 import { ContextHelp } from "@/components/ui/context-help";
 import {
-  deleteGraphicScene,
-  clearActiveGraphics,
   getActiveGraphics,
   getGraphicScenes,
-  publishGraphicComposition,
-  saveGraphicScene,
+  type GraphicLibraryOperation,
   type GraphicCompositionItem,
   type SavedGraphicScene,
 } from "@/lib/graphics";
@@ -120,7 +121,9 @@ function ControlPanel({
             <button
               key={p.value}
               onClick={() => update({ accentColor: p.value })}
-              className="group relative"
+              className="group relative min-w-11 min-h-11 flex items-center justify-center"
+              aria-label={`Accent color: ${p.label}`}
+              aria-pressed={controls.accentColor === p.value}
               title={p.label}
             >
               <div
@@ -133,12 +136,13 @@ function ControlPanel({
               />
             </button>
           ))}
-          <label className="relative w-7 h-7 rounded-full border-2 border-dashed border-board-muted/30 cursor-pointer overflow-hidden hover:border-board-muted/60 transition-colors">
+          <label className="relative w-11 h-11 rounded-full border-2 border-dashed border-board-muted/30 cursor-pointer overflow-hidden hover:border-board-muted/60 transition-colors">
             <input
               type="color"
+              aria-label="Custom accent color"
               value={controls.accentColor}
               onChange={(e) => update({ accentColor: e.target.value })}
-              className="absolute inset-0 opacity-0 cursor-pointer"
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
             />
             <span className="absolute inset-0 flex items-center justify-center text-board-muted text-[10px]">+</span>
           </label>
@@ -154,9 +158,9 @@ function ControlPanel({
           <span className="text-[10px] text-board-muted font-mono">{controls.bgOpacity}%</span>
         </div>
         <input
-          type="range" min={30} max={100} value={controls.bgOpacity}
+          aria-label="Background opacity" type="range" min={30} max={100} value={controls.bgOpacity}
           onChange={(e) => update({ bgOpacity: Number(e.target.value) })}
-          className="w-full h-1.5 rounded-full appearance-none bg-board-border [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
+          className="w-full h-11 accent-fire-500"
         />
       </div>
 
@@ -169,9 +173,9 @@ function ControlPanel({
           <span className="text-[10px] text-board-muted font-mono">{controls.primarySize}px</span>
         </div>
         <input
-          type="range" min={PRIMARY_SIZE_RANGE.min} max={PRIMARY_SIZE_RANGE.max} value={controls.primarySize}
+          aria-label="Primary text size" type="range" min={PRIMARY_SIZE_RANGE.min} max={PRIMARY_SIZE_RANGE.max} value={controls.primarySize}
           onChange={(e) => update({ primarySize: Number(e.target.value) })}
-          className="w-full h-1.5 rounded-full appearance-none bg-board-border [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
+          className="w-full h-11 accent-fire-500"
         />
       </div>
 
@@ -184,9 +188,9 @@ function ControlPanel({
           <span className="text-[10px] text-board-muted font-mono">{controls.secondarySize}px</span>
         </div>
         <input
-          type="range" min={SECONDARY_SIZE_RANGE.min} max={SECONDARY_SIZE_RANGE.max} value={controls.secondarySize}
+          aria-label="Secondary text size" type="range" min={SECONDARY_SIZE_RANGE.min} max={SECONDARY_SIZE_RANGE.max} value={controls.secondarySize}
           onChange={(e) => update({ secondarySize: Number(e.target.value) })}
-          className="w-full h-1.5 rounded-full appearance-none bg-board-border [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
+          className="w-full h-11 accent-fire-500"
         />
       </div>
 
@@ -213,7 +217,7 @@ function ControlPanel({
                 aria-label={`Position lower third ${preset.label}`}
                 aria-pressed={isActive}
                 title={preset.label}
-                className={`aspect-video rounded transition-all flex items-center justify-center ${
+                className={`min-h-11 aspect-video rounded transition-all flex items-center justify-center ${
                   isActive
                     ? "bg-fire-500/25 border border-fire-500/40"
                     : "bg-board-border/30 border border-transparent hover:bg-board-border/60"
@@ -230,17 +234,17 @@ function ControlPanel({
           <div className="flex items-center gap-2">
             <span className="text-[9px] text-board-muted w-4 shrink-0">X</span>
             <input
-              type="range" min={0} max={100} value={controls.posX}
+              aria-label="Horizontal position" type="range" min={0} max={100} value={controls.posX}
               onChange={(e) => update({ posX: Number(e.target.value) })}
-              className="flex-1 h-1 rounded-full appearance-none bg-board-border [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
+              className="min-w-0 flex-1 h-11 accent-fire-500"
             />
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[9px] text-board-muted w-4 shrink-0">Y</span>
             <input
-              type="range" min={0} max={100} value={controls.posY}
+              aria-label="Vertical position" type="range" min={0} max={100} value={controls.posY}
               onChange={(e) => update({ posY: Number(e.target.value) })}
-              className="flex-1 h-1 rounded-full appearance-none bg-board-border [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:cursor-pointer"
+              className="min-w-0 flex-1 h-11 accent-fire-500"
             />
           </div>
         </div>
@@ -260,7 +264,8 @@ function ControlPanel({
             <button
               key={s}
               onClick={() => update({ animSpeed: s })}
-              className={`px-2 py-1.5 rounded-lg text-[10px] font-medium capitalize transition-colors ${
+              aria-pressed={controls.animSpeed === s}
+              className={`min-h-11 px-2 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${
                 controls.animSpeed === s
                   ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
                   : "text-board-muted border border-board-border hover:border-board-muted/50"
@@ -275,7 +280,7 @@ function ControlPanel({
       {/* Reset */}
       <button
         onClick={onReset}
-        className="flex items-center gap-1.5 text-[10px] font-medium text-board-muted hover:text-board-text transition-colors"
+        className="min-h-11 flex items-center gap-1.5 text-xs font-medium text-board-muted hover:text-board-text transition-colors"
       >
         <RotateCcw className="w-3 h-3" />
         Reset to defaults
@@ -293,7 +298,17 @@ function TemplatePreviewRoute() {
 function TemplatePreviewPage() {
   const SAMPLES = previewSamples(useWorkspace().type);
   const { orgId, activeIds: initialActiveIds, scenes: initialScenes, role, grantedPermissions, slug } = Route.useLoaderData();
-  const router = useRouter();
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
+  const [sceneRevision, setSceneRevision] = useState(0);
+  const retainedScenes = useRef(initialScenes);
+  const sceneRead = useOperatorRead({ key: JSON.stringify([orgId, sceneRevision]), initialValue: retainedScenes.current,
+    read: useCallback((signal: AbortSignal) => getGraphicScenes({ data: { orgId }, signal }), [orgId]),
+    errorMessage: "Saved scenes could not refresh. Showing the last confirmed library.",
+  });
+  const savedScenes = sceneRead.value;
+  retainedScenes.current = savedScenes;
+  const refreshScenes = () => setSceneRevision(value => value + 1);
+  const sceneMutation = useGraphicLibraryMutation(orgId);
   const canConfigureGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:configure");
   const canTriggerGraphics = hasEffectivePermission(role, grantedPermissions, "lowerthird:trigger");
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -304,18 +319,23 @@ function TemplatePreviewPage() {
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
   const [customPrimary, setCustomPrimary] = useState("");
   const [customSecondary, setCustomSecondary] = useState("");
-  const [activeIds, setActiveIds] = useState<string[]>(initialActiveIds);
+  const output = useGraphicsOutput(orgId, initialActiveIds, canTriggerGraphics);
+  const activeIds = output.activeIds;
   // The current scene — additional LTs composed alongside the one being edited.
   const [scene, setScene] = useState<SceneItem[]>([]);
-  const [savedScenes, setSavedScenes] = useState<SavedGraphicScene[]>(initialScenes);
   const [sceneId, setSceneId] = useState<string | null>(null);
   const [sceneName, setSceneName] = useState("");
   const libraryMutation = useGraphicLibraryMutation(orgId);
   const saving = libraryMutation.pending;
-  const [savingScene, setSavingScene] = useState(false);
-  const [pushing, setPushing] = useState(false);
+  const savingScene = sceneMutation.pending;
+  const pushing = output.pending?.kind === "publish";
   const [savedMsg, setSavedMsg] = useState("");
   const [operationError, setOperationError] = useState("");
+  useEffect(() => {
+    if (!savedMsg) return;
+    const timer = setTimeout(() => setSavedMsg(""), 4000);
+    return () => clearTimeout(timer);
+  }, [savedMsg]);
 
   const template = TEMPLATES[currentIndex];
 
@@ -382,7 +402,8 @@ function TemplatePreviewPage() {
     }
   };
 
-  const removeFromScene = (key: string) => {
+  const removeFromScene = async (key: string) => {
+    if (!await confirm({ title: "Remove preview layer?", description: "This removes the layer from Preview. Program stays unchanged.", confirmLabel: "Remove layer" })) return;
     setScene((prev) => prev.filter((s) => s.key !== key));
   };
 
@@ -422,7 +443,8 @@ function TemplatePreviewPage() {
     style: JSON.stringify({ type: "lower-third", templateId: item.templateId, controls: item.controls }),
   }));
 
-  const loadScene = (savedScene: SavedGraphicScene) => {
+  const loadScene = async (savedScene: SavedGraphicScene) => {
+    if (!await confirm({ title: "Replace Preview?", description: "This replaces the current preview with the saved scene. Unsaved preview changes are discarded; Program stays unchanged.", confirmLabel: "Load scene", variant: "warning" })) return;
     const restored = savedScene.items.flatMap((item) => {
       try {
         const style = JSON.parse(item.style) as {
@@ -445,63 +467,42 @@ function TemplatePreviewPage() {
     setOperationError(restored.length === savedScene.items.length ? "" : "Some saved layers could not be restored.");
   };
 
+  const sceneConfirmed = (operation: GraphicLibraryOperation | undefined) => {
+    if (!operation) return;
+    if (operation.kind === "create-scene" || operation.kind === "update-scene") {
+      setSceneId(operation.id);
+      setSavedMsg("Scene save confirmed");
+    } else if (operation.kind === "delete-scene" && sceneId === operation.id) {
+      setSceneId(null); setSceneName("");
+    }
+    refreshScenes();
+  };
   const handleSaveScene = async () => {
-    if (!canConfigureGraphics) return;
+    if (!canConfigureGraphics || sceneMutation.locked) return;
     const items = compositionItems();
     if (!sceneName.trim() || items.length === 0) return;
-    setSavingScene(true);
-    setOperationError("");
-    try {
-      const saved = await saveGraphicScene({ data: { orgId, ...(sceneId ? { sceneId } : {}), name: sceneName.trim(), items } });
-      setSceneId(saved.id);
-      setSavedScenes((current) => [saved, ...current.filter((candidate) => candidate.id !== saved.id)]);
-      setSavedMsg("Scene saved");
-      setTimeout(() => setSavedMsg(""), 2000);
-    } catch (error) {
-      setOperationError(error instanceof Error ? error.message : "The scene could not be saved.");
-    } finally {
-      setSavingScene(false);
-    }
+    setSavedMsg("");
+    const operation: GraphicLibraryOperation = { kind: sceneId ? "update-scene" : "create-scene", id: sceneId ?? crypto.randomUUID(), name: sceneName.trim(), items };
+    if (await sceneMutation.run(operation)) sceneConfirmed(operation);
   };
-
   const handleDeleteScene = async (savedScene: SavedGraphicScene) => {
-    try {
-      await deleteGraphicScene({ data: { orgId, sceneId: savedScene.id } });
-      setSavedScenes((current) => current.filter((candidate) => candidate.id !== savedScene.id));
-      if (sceneId === savedScene.id) { setSceneId(null); setSceneName(""); }
-    } catch (error) {
-      setOperationError(error instanceof Error ? error.message : "The scene could not be deleted.");
-    }
+    if (!canConfigureGraphics || sceneMutation.locked) return;
+    if (!await confirm({ title: "Delete saved scene?", description: `Delete “${savedScene.name}” from the library? Program stays unchanged.`, confirmLabel: "Delete scene" })) return;
+    setSavedMsg("");
+    const operation: GraphicLibraryOperation = { kind: "delete-scene", id: savedScene.id };
+    if (await sceneMutation.run(operation)) sceneConfirmed(operation);
   };
-
-  // Push the whole composition live at once — the output matches the preview.
   const handlePushLive = async () => {
-    if (!canTriggerGraphics) return;
+    if (!canTriggerGraphics || !output.fresh) return;
     const items = compositionItems();
     if (items.length === 0) return;
-    setPushing(true);
-    setOperationError("");
-    try {
-      const result = await publishGraphicComposition({ data: { orgId, requestId: crypto.randomUUID(), items } });
-      setActiveIds(result.activeIds);
-      if (!result.isActive) setOperationError("A newer Program revision is active. Preview was not put on air.");
-      router.invalidate();
-    } catch (error) {
-      setOperationError(error instanceof Error ? error.message : "Program could not be changed. The prior output remains active.");
-    } finally {
-      setPushing(false);
-    }
+    if (!await confirm({ title: "Take Preview live?", description: `Replace Program with these ${items.length} preview ${items.length === 1 ? "layer" : "layers"}? This changes every connected output.`, confirmLabel: "Take live", variant: "warning" })) return;
+    await output.run({ kind: "publish", requestId: crypto.randomUUID(), items });
   };
-
   const handleClearLive = async () => {
     if (!canTriggerGraphics) return;
-    setOperationError("");
-    try {
-      await clearActiveGraphics({ data: { orgId } });
-      setActiveIds([]);
-    } catch (error) {
-      setOperationError(error instanceof Error ? error.message : "Program could not be cleared.");
-    }
+    if (!await confirm({ title: "Clear Program?", description: "Remove all live graphics from connected outputs? Preview and saved scenes stay unchanged.", confirmLabel: "Clear Program" })) return;
+    await output.run({ kind: "clear" });
   };
 
   const sample = getCurrentText();
@@ -509,26 +510,27 @@ function TemplatePreviewPage() {
 
   return (
     <div className="h-full overflow-auto bg-[#07090d]">
+      {ConfirmDialogEl}
       {/* Header */}
-      <div className="sticky top-0 z-20 border-b border-board-border bg-[#090c12]/95 px-4 py-3 backdrop-blur-xl lg:px-6">
-        <div className="flex items-center justify-between">
+      <div className="relative lg:sticky top-0 z-20 border-b border-board-border bg-[#090c12]/95 px-4 py-3 backdrop-blur-xl lg:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
             <Link
               to="/$slug/streaming/graphics"
               params={{ slug }}
-              className="inline-flex items-center gap-1 text-xs text-board-muted hover:text-board-text transition-colors mb-1"
+              className="min-h-11 inline-flex items-center gap-1 text-xs text-board-muted hover:text-board-text transition-colors mb-1"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
               Back to Lower Thirds
             </Link>
             <div className="flex items-center gap-2">
               <h1 className="font-display text-lg font-semibold text-board-text">Template Studio</h1>
-              <ContextHelp title="Template Studio" description="Build the next composition in Preview. Save graphic stores only the selected lower third, Save scene stores every preview layer, Take Live atomically replaces Program, and Clear removes Program from connected outputs." className="size-7" />
+              <ContextHelp title="Template Studio" description="Build the next composition in Preview. Save graphic stores only the selected lower third, Save scene stores every preview layer, Take Live atomically replaces Program, and Clear removes Program from connected outputs." className="size-11" />
             </div>
           </div>
           <button
             onClick={() => setShowControls((v) => !v)}
-            className={`hidden items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors lg:flex ${
+            className={`min-h-11 hidden items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors lg:flex ${
               showControls
                 ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
                 : "text-board-muted hover:text-board-text border border-board-border"
@@ -537,7 +539,7 @@ function TemplatePreviewPage() {
             <Sliders className="w-3.5 h-3.5" />
             Controls
           </button>
-          <button onClick={() => setMobileControlsOpen(true)} className="flex items-center gap-1.5 rounded-lg border border-board-border px-3 py-1.5 text-xs font-medium text-board-text lg:hidden">
+          <button onClick={() => setMobileControlsOpen(true)} className="min-h-11 flex items-center gap-1.5 rounded-lg border border-board-border px-3 py-1.5 text-xs font-medium text-board-text lg:hidden">
             <Sliders className="h-3.5 w-3.5" />
             Controls
           </button>
@@ -562,15 +564,20 @@ function TemplatePreviewPage() {
           </aside>
           {/* Main content */}
           <div className="min-w-0 flex-1 space-y-3">
+            <ReadFailureNotice error={sceneRead.error} refreshing={sceneRead.refreshing} retry={sceneRead.retry} label="Refresh saved scenes" />
+            <LibraryMutationNotice label="Scene library confirmation" retryLabel="Retry scene change" mutation={sceneMutation} onConfirmed={() => sceneConfirmed(sceneMutation.attempt?.operation)} />
+            <ReadFailureNotice error={output.readFailure} refreshing={output.refreshing} retry={output.retry} label="Refresh Program" />
+            {output.failure && <div role="alert" aria-label="Program confirmation" className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm text-amber-200">{output.failure.message} <time dateTime={new Date(output.failure.occurredAt).toISOString()}>{new Date(output.failure.occurredAt).toLocaleTimeString()}</time></div>}
+            {output.pending && <p role="status" className="text-sm text-amber-200">Waiting for Program confirmation…</p>}
             {savedScenes.length > 0 && (
               <section className="rounded-xl border border-board-border bg-board-card/55 p-2.5" aria-label="Saved scenes">
                 <div className="mb-2 flex items-center gap-2"><Layers className="h-3.5 w-3.5 text-fire-400" /><span className="text-[10px] font-semibold uppercase tracking-widest text-board-muted">Saved scenes</span></div>
                 <div className="flex gap-2 overflow-x-auto pb-1">
                   {savedScenes.map((savedScene) => (
-                    <div key={savedScene.id} className="flex shrink-0 items-center rounded-lg border border-board-border bg-board-bg">
-                      <button type="button" onClick={() => loadScene(savedScene)} className="px-3 py-2 text-left"><span className="block max-w-48 truncate text-xs font-semibold text-board-text">{savedScene.name}</span><span className="block text-[9px] text-board-muted">{savedScene.items.length} {savedScene.items.length === 1 ? "layer" : "layers"}</span></button>
+                    <div key={savedScene.id} className="min-h-11 flex shrink-0 items-center rounded-lg border border-board-border bg-board-bg">
+                      <button type="button" disabled={sceneMutation.locked} aria-label={`Load scene ${savedScene.name}`} onClick={() => void loadScene(savedScene)} className="min-h-11 px-3 py-2 text-left"><span className="block max-w-48 truncate text-xs font-semibold text-board-text">{savedScene.name}</span><span className="block text-[9px] text-board-muted">{savedScene.items.length} {savedScene.items.length === 1 ? "layer" : "layers"}</span></button>
                       {canConfigureGraphics && (
-                        <button type="button" aria-label={`Delete scene ${savedScene.name}`} onClick={() => void handleDeleteScene(savedScene)} className="p-2 text-board-muted hover:text-red-400"><X className="h-3.5 w-3.5" /></button>
+                        <button type="button" disabled={sceneMutation.locked} aria-label={`Delete scene ${savedScene.name}`} onClick={() => void handleDeleteScene(savedScene)} className="min-w-11 min-h-11 flex items-center justify-center text-board-muted hover:text-red-400"><X className="h-3.5 w-3.5" /></button>
                       )}
                     </div>
                   ))}
@@ -582,7 +589,7 @@ function TemplatePreviewPage() {
               <div className="flex items-center gap-1.5 overflow-x-auto">
                 <button
                   onClick={() => setSampleKey("custom")}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                  className={`min-h-11 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                     sampleKey === "custom"
                       ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
                       : "text-board-muted hover:text-board-text border border-transparent"
@@ -594,7 +601,7 @@ function TemplatePreviewPage() {
                   <button
                     key={key}
                     onClick={() => setSampleKey(key)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium capitalize whitespace-nowrap transition-colors ${
+                    className={`min-h-11 px-2.5 py-1 rounded-lg text-xs font-medium capitalize whitespace-nowrap transition-colors ${
                       sampleKey === key
                         ? "bg-fire-500/15 text-fire-500 border border-fire-500/25"
                         : "text-board-muted hover:text-board-text border border-transparent"
@@ -608,7 +615,7 @@ function TemplatePreviewPage() {
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={toggle}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                  className={`min-h-11 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
                     visible
                       ? "bg-green-500/15 text-green-400 border border-green-500/25"
                       : "bg-board-bg text-board-muted border border-board-border hover:text-board-text"
@@ -624,7 +631,7 @@ function TemplatePreviewPage() {
                   onClick={prev}
                   aria-label="Previous lower-third template"
                   title="Previous lower-third template"
-                  className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+                  className="min-w-11 min-h-11 flex items-center justify-center rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
@@ -633,7 +640,7 @@ function TemplatePreviewPage() {
                   onClick={next}
                   aria-label="Next lower-third template"
                   title="Next lower-third template"
-                  className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+                  className="min-w-11 min-h-11 flex items-center justify-center rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
@@ -647,17 +654,19 @@ function TemplatePreviewPage() {
                   type="text"
                   value={customPrimary}
                   onChange={(e) => setCustomPrimary(e.target.value)}
+                  aria-label="Primary text"
                   placeholder="Primary text (name, title, verse...)"
                   maxLength={500}
-                  className="min-w-0 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+                  className="min-h-11 min-w-0 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
                 />
                 <input
                   type="text"
                   value={customSecondary}
                   onChange={(e) => setCustomSecondary(e.target.value)}
+                  aria-label="Secondary text"
                   placeholder="Secondary text (optional)"
                   maxLength={500}
-                  className="min-w-0 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
+                  className="min-h-11 min-w-0 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
                 />
               </div>
             )}
@@ -668,7 +677,7 @@ function TemplatePreviewPage() {
                 onClick={addToScene}
                 disabled={!draftHasText}
                 title="Add this lower third to the scene, then design the next one"
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fire-500/30 text-fire-500 text-xs font-medium hover:bg-fire-500/10 disabled:opacity-40 transition-colors"
+                className="min-h-11 flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fire-500/30 text-fire-500 text-xs font-medium hover:bg-fire-500/10 disabled:opacity-40 transition-colors"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Add LT
@@ -676,8 +685,8 @@ function TemplatePreviewPage() {
               {canTriggerGraphics && (
                 <button
                   onClick={handlePushLive}
-                  disabled={pushing || composedCount === 0}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50 transition-colors"
+                  disabled={!output.fresh || composedCount === 0}
+                  className="min-h-11 flex items-center gap-1.5 px-4 py-2 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 disabled:opacity-50 transition-colors"
                 >
                   <Play className="w-3.5 h-3.5" />
                   {pushing
@@ -687,10 +696,11 @@ function TemplatePreviewPage() {
                     : "Take Live"}
                 </button>
               )}
-              {canTriggerGraphics && activeIds.length > 0 && (
+              {canTriggerGraphics && (
                 <button
                   onClick={handleClearLive}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
+                  disabled={output.pending !== null}
+                  className="min-h-11 flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/30 transition-colors"
                 >
                   <Square className="w-3.5 h-3.5" />
                   Clear Program
@@ -700,29 +710,27 @@ function TemplatePreviewPage() {
                 <button
                   onClick={handleSave}
                   disabled={libraryMutation.locked || (sampleKey === "custom" && !customPrimary.trim())}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 disabled:opacity-50 transition-colors"
+                  className="min-h-11 flex items-center gap-1.5 px-4 py-2 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 disabled:opacity-50 transition-colors"
                 >
                   <Save className="w-3.5 h-3.5" />
                   {saving ? "Saving..." : "Save graphic"}
                 </button>
               )}
               {canConfigureGraphics && (
-                <div className="flex min-w-[15rem] flex-1 items-center gap-2 sm:max-w-md">
-                  <input aria-label="Scene name" value={sceneName} onChange={(event) => setSceneName(event.target.value)} maxLength={200} placeholder="Scene name" className="min-w-0 flex-1 rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none focus:border-fire-500" />
-                  <button type="button" onClick={() => void handleSaveScene()} disabled={savingScene || !sceneName.trim() || composedCount === 0} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-text disabled:opacity-40"><Layers className="h-3.5 w-3.5" />{savingScene ? "Saving…" : sceneId ? "Update scene" : "Save scene"}</button>
+                <div className="flex min-w-0 w-full flex-1 flex-wrap items-center gap-2 sm:max-w-md">
+                  <input aria-label="Scene name" disabled={sceneMutation.locked} value={sceneName} onChange={(event) => setSceneName(event.target.value)} maxLength={200} placeholder="Scene name" className="min-h-11 min-w-24 flex-1 rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none focus:border-fire-500" />
+                  <button type="button" onClick={() => void handleSaveScene()} disabled={sceneMutation.locked || !sceneName.trim() || composedCount === 0} className="min-h-11 flex shrink-0 items-center gap-1.5 rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-text disabled:opacity-40"><Layers className="h-3.5 w-3.5" />{savingScene ? "Saving…" : sceneId ? "Update scene" : "Save scene"}</button>
                 </div>
               )}
               {savedMsg && (
                 <span className="text-xs text-green-400 font-medium">{savedMsg}</span>
               )}
-              {activeIds.length > 0 && (
-                <div className="flex items-center gap-1.5 ml-auto">
-                  <div className="w-2 h-2 rounded-full bg-fire-500 animate-pulse" />
+              <div className="flex items-center gap-1.5 ml-auto">
+                  <div className={`w-2 h-2 rounded-full ${output.fresh && activeIds.length > 0 ? "bg-fire-500 motion-safe:animate-pulse" : "bg-board-muted"}`} />
                   <span className="text-xs font-medium text-fire-500">
-                    {activeIds.length === 1 ? "Program: 1 layer" : `Program: ${activeIds.length} layers`}
+                    {output.fresh ? (activeIds.length === 1 ? "Program: 1 layer" : `Program: ${activeIds.length} layers`) : `Last confirmed Program: ${activeIds.length} ${activeIds.length === 1 ? "layer" : "layers"}`}
                   </span>
-                </div>
-              )}
+              </div>
             </div>
             <LibraryMutationNotice mutation={libraryMutation} onConfirmed={() => setSavedMsg("Graphic saved to library")} />
             {operationError && (
@@ -762,14 +770,15 @@ function TemplatePreviewPage() {
                       <button
                         onClick={() => removeFromScene(item.key)}
                         title="Remove from scene"
-                        className="p-0.5 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        aria-label={`Remove layer ${item.primary}`}
+                        className="min-w-11 min-h-11 flex items-center justify-center rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
                       >
                         <X className="w-3 h-3" />
                       </button>
                     </div>
                   ))}
                   {draftHasText && (
-                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-fire-500/10 border border-dashed border-fire-500/30">
+                    <div className="min-h-11 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-fire-500/10 border border-dashed border-fire-500/30">
                       <span className="text-[9px] font-mono text-fire-500 shrink-0">
                         {posLabel(controls)}
                       </span>
@@ -841,7 +850,7 @@ function TemplatePreviewPage() {
               {/* Status */}
               <div className="absolute top-4 right-4 flex items-center gap-2 pointer-events-none z-20">
                 {visible ? (
-                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-500/20">
+                  <div className="min-h-11 flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-500/20">
                     <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
                     <span className="text-[10px] text-red-400 font-mono uppercase tracking-widest">draft shown</span>
                   </div>
@@ -882,10 +891,8 @@ function TemplatePreviewPage() {
                   }}
                   aria-label={`Select ${t.name} template`}
                   aria-current={i === currentIndex ? "true" : undefined}
-                  className={`h-2 rounded-full transition-all ${
-                    i === currentIndex ? "bg-fire-500 w-6" : "bg-board-border hover:bg-board-muted w-2"
-                  }`}
-                />
+                  className="size-11 flex items-center justify-center rounded-lg focus-visible:outline-2"
+                ><span aria-hidden="true" className={`h-2 rounded-full transition-all ${i === currentIndex ? "bg-fire-500 w-6" : "bg-board-border w-2"}`} /></button>
               ))}
             </div>
 
@@ -944,8 +951,8 @@ function TemplatePreviewPage() {
         </div>
       </div>
       <Dialog open={mobileControlsOpen} onOpenChange={setMobileControlsOpen}>
-        <DialogContent className="max-h-[88vh] overflow-y-auto border-board-border bg-board-card text-board-text lg:hidden">
-          <DialogHeader><DialogTitle>Style & position</DialogTitle><DialogDescription>Adjust the selected Preview layer.</DialogDescription></DialogHeader>
+        <DialogContent showCloseButton={false} className="max-h-[88vh] overflow-y-auto border-board-border bg-board-card text-board-text lg:hidden">
+          <div className="flex items-start justify-between gap-2"><DialogHeader><DialogTitle>Style & position</DialogTitle><DialogDescription>Adjust the selected Preview layer.</DialogDescription></DialogHeader><button type="button" aria-label="Close style controls" onClick={() => setMobileControlsOpen(false)} className="size-11 shrink-0 flex items-center justify-center rounded-lg border border-board-border"><X className="size-4" /></button></div>
           <ControlPanel controls={controls} onChange={setControls} onReset={() => setControls(DEFAULT_CONTROLS)} />
         </DialogContent>
       </Dialog>

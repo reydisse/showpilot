@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { addActiveGraphic, removeActiveGraphic, clearActiveGraphics, getActiveGraphics } from "@/lib/graphics";
+import { addActiveGraphic, removeActiveGraphic, clearActiveGraphics, getActiveGraphics, publishGraphicComposition, type GraphicCompositionItem } from "@/lib/graphics";
 import { useOperatorRead, type OperatorReadFailure } from "./useOperatorRead";
 
-export type GraphicsOutputOperation = { kind: "show" | "hide"; graphicId: string } | { kind: "clear" };
+export type GraphicsOutputOperation = { kind: "show" | "hide"; graphicId: string } | { kind: "clear" } | { kind: "publish"; requestId: string; items: GraphicCompositionItem[] };
 interface OutputControl {
   orgId: string;
   generation: number;
@@ -49,19 +49,31 @@ export function useGraphicsOutput(orgId: string, initialIds: string[], canTrigge
     const seed = { ids: context.output.value.ids, confirmed: false };
     setControl(previous => ({ orgId: context.orgId, generation: previous.generation + 1, seed, pending: operation, failure: null }));
     try {
-      const args = { data: { orgId: context.orgId, graphicId: operation.kind === "clear" ? "" : operation.graphicId }, signal: pending.controller.signal };
+      let superseded = false;
+      const send = async () => {
+        const signal = pending.controller.signal;
+        if (operation.kind === "publish") {
+          const result = await publishGraphicComposition({ data: { orgId: context.orgId, requestId: operation.requestId, items: operation.items }, signal });
+          if (result?.revision !== operation.requestId || typeof result.isActive !== "boolean") throw new Error("Missing publication acknowledgement");
+          superseded = !result.isActive;
+          return result.activeIds;
+        }
+        if (operation.kind === "clear") return clearActiveGraphics({ data: { orgId: context.orgId }, signal });
+        const args = { data: { orgId: context.orgId, graphicId: operation.graphicId }, signal };
+        return operation.kind === "show" ? addActiveGraphic(args) : removeActiveGraphic(args);
+      };
       const ids = await Promise.race([
-        operation.kind === "show" ? addActiveGraphic(args)
-          : operation.kind === "hide" ? removeActiveGraphic(args)
-          : clearActiveGraphics({ data: { orgId: context.orgId }, signal: pending.controller.signal }),
+        send(),
         new Promise<never>((_resolve, reject) => {
           pending.deadline = setTimeout(() => { pending.controller.abort(); reject(new Error("Graphics confirmation timed out")); }, 10_000);
         }),
       ]);
       if (pendingWrite.current !== pending || latest.current.orgId !== context.orgId) return false;
       if (!Array.isArray(ids) || !ids.every(id => typeof id === "string")) throw new Error("Missing output acknowledgement");
-      setControl(previous => ({ orgId: context.orgId, generation: previous.generation + 1, seed: { ids, confirmed: true }, pending: null, failure: null }));
-      return true;
+      setControl(previous => ({ orgId: context.orgId, generation: previous.generation + 1, seed: { ids, confirmed: true }, pending: null, failure: superseded ? {
+        message: "A newer Program change is active. Your publication will not be repeated. Review the current output before another action.", occurredAt: Date.now(),
+      } : null }));
+      return !superseded;
     } catch {
       if (pendingWrite.current !== pending || latest.current.orgId !== context.orgId) return false;
       setControl(previous => ({ orgId: context.orgId, generation: previous.generation + 1, seed, pending: null, failure: {
