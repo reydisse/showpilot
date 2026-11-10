@@ -2862,7 +2862,7 @@ from a backup as an automatic rollback step.
 
 ### Current state
 
-The production manifest records every migration through `0058_audio_write_receipts.sql`.
+The production manifest records every migration through `0059_device_write_receipts.sql`.
 Migration 0048 was applied on 2026-11-05 after a clean preflight and a saved
 Time Travel bookmark. Its postcondition verified three empty tables, five
 named indexes, an unchanged legacy key count, and no foreign key violations.
@@ -2882,6 +2882,9 @@ Migrations 0057 (`song.writeRevision`, ten song revision triggers and
 postconditions verified the NOT NULL integer column with default 0 and every
 existing song at revision 0, all ten triggers, the empty receipt tables and
 named index, unchanged existing row counts, and no foreign key violations.
+Migration 0059 (`device_write_receipt`) was applied on 2026-11-10 after a clean
+preflight and a saved Time Travel bookmark. Its postcondition verified the
+empty table and no foreign key violations.
 Migrations 0030 through 0035 were applied in order on 2026-08-28. Migrations
 0036 and 0037 were applied in order on 2026-09-10. Migrations 0038 and 0039
 were applied in order on 2026-09-18. Before each rollout, every
@@ -3366,8 +3369,8 @@ in progress; this evidence covers Audio only.
 Apply `apps/web/prisma/migrations/0059_device_write_receipts.sql` after 0058
 before deploying the matching web build. It adds only the scoped command receipt
 table. Receipts remain after device deletion and contain no settings or credential
-payload. The migration was applied only to disposable local and Worker-test
-databases; the production migration manifest is unchanged.
+payload. It was applied to production on 2026-11-10 and is recorded in the
+remote migration manifest.
 
 The preceding Devices UI stayed on Saving or Removing after a lost successful
 reply and gave toggle failures no Retry. Search disappeared below the desktop
