@@ -2862,7 +2862,7 @@ from a backup as an automatic rollback step.
 
 ### Current state
 
-The production manifest records every migration through `0059_device_write_receipts.sql`.
+The production manifest records every migration through `0061_stream_output_commands.sql`.
 Migration 0048 was applied on 2026-11-05 after a clean preflight and a saved
 Time Travel bookmark. Its postcondition verified three empty tables, five
 named indexes, an unchanged legacy key count, and no foreign key violations.
@@ -2885,6 +2885,12 @@ named index, unchanged existing row counts, and no foreign key violations.
 Migration 0059 (`device_write_receipt`) was applied on 2026-11-10 after a clean
 preflight and a saved Time Travel bookmark. Its postcondition verified the
 empty table and no foreign key violations.
+Migration 0060 (`stream_destination_write_receipt`) was applied on 2026-11-10 after a clean
+preflight and a saved Time Travel bookmark. Its postcondition verified the
+empty table and no foreign key violations.
+Migration 0061 (`stream_output_command`, `stream_output_intent`) was applied on 2026-11-10 after a clean
+preflight and a saved Time Travel bookmark. Its postcondition verified the
+empty tables, named index, and no foreign key violations.
 Migrations 0030 through 0035 were applied in order on 2026-08-28. Migrations
 0036 and 0037 were applied in order on 2026-09-10. Migrations 0038 and 0039
 were applied in order on 2026-09-18. Before each rollout, every
@@ -3556,8 +3562,8 @@ also passes.
 
 Migration 0060_stream_destination_write_receipts.sql is required before deployment.
 New/replaced keys require the existing CREDENTIAL_ENCRYPTION_KEYS configuration.
-No production migration, deployment, native release, real organization write or
-paid provider action was performed. The 20 necessary tracked Markdown files
+It was applied to production on 2026-11-10 and is recorded in the
+remote migration manifest. The 20 necessary tracked Markdown files
 remain. Phase 2 stays 46/79. Go Live, Stop All, destination selection/deletion and
 ingest mutation confirmations/recovery remain to be completed before its gate.
 
@@ -3636,9 +3642,8 @@ before the final configuration-fencing follow-up; CI reruns coverage on the push
 head. Compiled output-status and destination-editor browser regressions pass.
 The final command browser run uses the rebuilt configuration-fencing code.
 
-Migration 0061 remains unapplied to production. No production deployment, native
-release, real organization mutation, real provider request or paid service was
-used. Twenty necessary tracked Markdown files remain. Phase 2 stays 46/79:
+Migration 0061 was applied to production on 2026-11-10 and is recorded in the
+remote migration manifest. Twenty necessary tracked Markdown files remain. Phase 2 stays 46/79:
 ingest mutation recovery, native/Companion client request retention and the
 remaining product-wide/catalog/gate checks are still outstanding. Phase 3 has
 not started.
