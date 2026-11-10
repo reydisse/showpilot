@@ -422,12 +422,11 @@ also passed both CI jobs on run
 
 `timecode-device-command-contracts.test.ts` runs literal wire-command goldens
 through `resolveTimecodeDeviceAction` with a fake D1. It covers ATEM, both DMX
-transports, PJLink, VISCA, TCP and a registered test-only WoL profile, including
+transports, Home Assistant, PJLink, VISCA, TCP and a registered test-only WoL profile, including
 legacy payloads, scoped bindings and rejected parameters. It does not claim a
-built-in WoL product profile. Home Assistant remains a known automation gap:
-mobile discovers available actions through the Bridge, but timecode uses an empty
-static action list and rejects a valid scene action. Trusted discovery in target
-selection and dispatch, plus its passing resolver golden, remain required.
+built-in WoL product profile. Home Assistant's resolver golden uses the validated
+discovery response; the relay and browser tests below cover actual discovery and
+service dispatch.
 
 Internal clock tests cover both ticker and elapsed-sample deduplication. Reconnect
 tests require an explicit new Start, fresh master permission and confirmed relay
@@ -440,6 +439,46 @@ Final local verification passed 1,956 unit tests, 718 Worker tests, nine Bridge
 desktop tests and web typecheck. These changes add tests only; production code is
 unchanged from the parser build. Hardware, remaining command coverage and the
 broader Phase 2 gate remain open. No deployment was performed.
+
+### Home Assistant timecode actions
+
+The cue editor lists enabled Home Assistant devices by name. Selecting one reads
+its current supported actions through the selected venue Bridge. Connect the
+device in Devices first; discovery does not open connections or return device
+configuration. Failed or malformed discovery keeps Save disabled and offers
+Refresh actions. Changing selection discards old replies immediately.
+
+Each cue execution discovers again before sending the service command. Removed
+entities fail visibly. Connection credentials use the existing encrypted Bridge
+envelope; discovery and service dispatch stay pinned to one installation. The
+automation kill switch, controller authority and execution deadline remain in
+force across discovery. Discovery has an eight-second deadline; a late reply
+cannot send a service. A rejected service never counts as acknowledged.
+
+Deploy the matching web client and Worker together. There is no migration or
+Bridge protocol change. Existing current-protocol Bridges support these HTTP
+commands. No deployment or native release has been performed for this change.
+
+After web and Bridge builds, run:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-homeassistant-cues.mjs
+```
+
+This rehearsal uses real local authentication, D1, relays, the compiled Bridge
+and a local HTTP simulator. It passed malformed discovery/Refresh, saved cue
+execution, fresh rejection after an entity disappears, explicit Retry and two
+authenticated service calls. Discovery replies contained no token, target URL or
+private entity attributes; D1 held an encrypted credential. Recovery controls
+passed at 320/768/1440px with no browser errors, and the 320px screenshot was
+inspected. This is simulator evidence, not physical Home Assistant validation.
+
+Final local verification passed 1,961 unit tests and 728 Worker tests, web
+typecheck, production build and Bridge build. Ten Home Assistant Worker tests
+cover real encrypted connection/discovery/service, permissions, malformed and
+missing entities, service rejection, timeout/late reply, kill switch and Bridge
+handoff. The command-golden requirement is verified; the remaining Phase 2
+requirements and hardware acceptance are still open.
 
 ### Timecode label validation
 

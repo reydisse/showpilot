@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { homeAssistantAutomationActions } from "../homeassistant-automation.server";
 import { resolveTimecodeDeviceAction } from "../timecode-device-actions";
 import { moduleRegistry } from "../device-modules/registry";
 import { profileToModuleDefinition } from "../device-modules/profiles/profile-registry";
@@ -31,6 +32,9 @@ interface Golden {
 }
 // Literal wire expectations: do not derive these with the production builder.
 const goldens: Golden[] = [
+  { name: "Home Assistant scene", adapterType: "homeassistant", settings: { baseUrl: "http://ha.fixture:8123", accessToken: "fixture-token" },
+    actionId: "ha:scene:turn_on:scene.service", params: {}, protocol: "http-command", target: "http://ha.fixture:8123",
+    command: 'POST /api/services/scene/turn_on {"entity_id":"scene.service"}', connectionSettings: { authToken: "fixture-token" } },
   { name: "ATEM program input", adapterType: "atem", settings: { host: "192.0.2.10", port: 9910 },
     actionId: "set_program_input", params: { input: "4" }, protocol: "atem", target: "192.0.2.10:9910",
     command: '{"actionId":"set_program_input","params":{"input":4}}', connectionSettings: { host: "192.0.2.10", port: 9910 } },
@@ -56,29 +60,33 @@ function resolve(golden: Golden, payloadStyle: "explicit" | "legacy" = "explicit
   const event: Pick<AutomationEvent, "action" | "payload" | "targetDeviceId" | "targetActionId"> = payloadStyle === "explicit"
     ? { action: "device-action", targetDeviceId: row.id, targetActionId: golden.actionId, payload: { params: golden.params } }
     : { action: "device-action", payload: { deviceId: row.id, actionId: golden.actionId, ...golden.params } };
-  return { ...fixture, result: resolveTimecodeDeviceAction(fixture.db, "fixture-org", event) };
+  const discovery = vi.fn(async () => homeAssistantAutomationActions('[{"entity_id":"scene.service","state":"scening","attributes":{"friendly_name":"Service"}}]'));
+  return { ...fixture, discovery, result: resolveTimecodeDeviceAction(fixture.db, "fixture-org", event, undefined, discovery) };
 }
 afterEach(() => vi.restoreAllMocks());
 describe("timecode device command goldens", () => {
   for (const payloadStyle of ["explicit", "legacy"] as const) {
     it.each(goldens)(`${payloadStyle}: $name reaches its real command builder`, async golden => {
-      const { result, db, statement } = resolve(golden, payloadStyle);
+      const { result, db, statement, discovery } = resolve(golden, payloadStyle);
       await expect(result).resolves.toEqual({ deviceId: "fixture-device", deviceName: golden.name,
         protocol: golden.protocol, target: golden.target, command: golden.command, connectionSettings: golden.connectionSettings });
       expect(db.prepare).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/WHERE id = \? AND orgId = \?/));
       expect(statement.bind).toHaveBeenCalledExactlyOnceWith("fixture-device", "fixture-org");
       expect(statement.first).toHaveBeenCalledOnce();
+      if (golden.adapterType === "homeassistant") expect(discovery).toHaveBeenCalledExactlyOnceWith({ deviceId: "fixture-device", deviceName: golden.name,
+        protocol: golden.protocol, target: golden.target, connectionSettings: golden.connectionSettings });
+      else expect(discovery).not.toHaveBeenCalled();
       expect(db.batch).not.toHaveBeenCalled(); expect(statement.run).not.toHaveBeenCalled();
     });
   }
 
   it.each([
-    { index: 0, params: { input: -1 } },
-    { index: 1, params: { channel: 513, value: 0 } },
-    { index: 2, params: { channel: 1, value: 256 } },
-    { index: 3, params: { input: "serial" } },
-    { index: 4, params: { preset: 255 } },
-    { index: 5, params: { input: 3.5, output: 1 } },
+    { index: 1, params: { input: -1 } },
+    { index: 2, params: { channel: 513, value: 0 } },
+    { index: 3, params: { channel: 1, value: 256 } },
+    { index: 4, params: { input: "serial" } },
+    { index: 5, params: { preset: 255 } },
+    { index: 6, params: { input: 3.5, output: 1 } },
   ])("rejects invalid command parameters for golden $index", async ({ index, params }) => {
     await expect(resolve({ ...goldens[index], params }).result).rejects.toThrow();
   });
@@ -93,12 +101,12 @@ describe("timecode device command goldens", () => {
   );
 
   it("rejects unknown actions and invalid connection settings", async () => {
-    await expect(resolve({ ...goldens[0], actionId: "arbitrary-command" }).result).rejects.toThrow("not available");
-    await expect(resolve({ ...goldens[0], settings: { host: "192.0.2.10", port: 65536 } }).result).rejects.toThrow("does not support remote control");
+    await expect(resolve({ ...goldens[1], actionId: "arbitrary-command" }).result).rejects.toThrow("not available");
+    await expect(resolve({ ...goldens[1], settings: { host: "192.0.2.10", port: 65536 } }).result).rejects.toThrow("does not support remote control");
   });
 
   it("lets explicit event routing win without leaking legacy routing keys into parameters", async () => {
-    const row = { id: "fixture-device", name: "ATEM", category: "video", adapterType: "atem", settings: JSON.stringify(goldens[0].settings), enabled: 1 };
+    const row = { id: "fixture-device", name: "ATEM", category: "video", adapterType: "atem", settings: JSON.stringify(goldens[1].settings), enabled: 1 };
     const { db, statement } = database(row);
     const result = await resolveTimecodeDeviceAction(db, "fixture-org", { action: "device-action", targetDeviceId: row.id,
       targetActionId: "set_program_input", payload: { deviceId: "other-device", targetDeviceId: "another-device", actionId: "cut", targetActionId: "auto", input: 3 } });

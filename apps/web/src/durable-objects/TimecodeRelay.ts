@@ -28,6 +28,7 @@ import {
   type LiveSessionAuthorityClaim,
 } from "@/lib/live-rundown-authority.server";
 import { resolveTimecodeDeviceAction } from "@/lib/timecode-device-actions";
+import { discoverHomeAssistantActions } from "@/lib/homeassistant-automation.server";
 import { automationDispatchFrame, deviceTimingForEvent, MAX_AUTOMATION_LEAD_MS, MAX_DEVICE_LATENCY_MS, type DeviceTiming } from "@/lib/automation-timing";
 import { startPositionProblem, timecodeStartPositionSchema } from "@/lib/timecode-start";
 import { z } from "zod";
@@ -1616,34 +1617,38 @@ export class TimecodeRelay extends DurableObject {
     };
 
     const executeDeviceCommand = async () => {
-      const resolved = await resolveTimecodeDeviceAction(env.DB, this.orgId,
-        { ...event, targetDeviceId: event.timingDeviceId ?? event.targetDeviceId }, env.CREDENTIAL_ENCRYPTION_KEYS);
-      assertCanDispatch();
       const relay = env.BRIDGE_RELAY.get(env.BRIDGE_RELAY.idFromName(this.orgId));
-      const status = await relay.getBridgeStatus();
-      assertCanDispatch();
-      if (!status.bridgeOnline) throw new Error("Venue Bridge is offline.");
-      const installationId = status.activeInstallation?.installationId;
-      if (!installationId) throw new Error("Venue Bridge installation is unavailable.");
-      if (!status.connectedTargets.includes(resolved.target)) {
-        const connected = await relay.dispatchBridgeMessage({
-          type: "connect-device",
-          protocol: resolved.protocol,
-          target: resolved.target,
-          settings: resolved.connectionSettings,
-        }, { source: "automation", actorUserId: this.controlOwner()?.attachment.authClaim?.userId ?? null, executionId: event.executionId ?? event.id }, installationId);
+      let installationId: string | undefined;
+      const actor = { source: "automation", actorUserId: this.controlOwner()?.attachment.authClaim?.userId ?? null,
+        executionId: event.executionId ?? event.id } as const;
+      const connect = async (device: Omit<Awaited<ReturnType<typeof resolveTimecodeDeviceAction>>, "command">) => {
         assertCanDispatch();
-        if (!connected.success) {
-          throw new Error(connected.error ?? `Could not connect to ${resolved.deviceName}.`);
+        const status = await relay.getBridgeStatus();
+        assertCanDispatch();
+        if (!status.bridgeOnline) throw new Error("Venue Bridge is offline.");
+        const selected = status.activeInstallation?.installationId;
+        if (!selected) throw new Error("Venue Bridge installation is unavailable.");
+        if (installationId && selected !== installationId) throw new Error("Active Venue Bridge changed during the cue. Check the output before retrying.");
+        installationId = selected;
+        if (!status.connectedTargets.includes(device.target)) {
+          const connected = await relay.dispatchBridgeMessage({ type: "connect-device", protocol: device.protocol,
+            target: device.target, settings: device.connectionSettings }, actor, installationId);
+          assertCanDispatch();
+          if (!connected.success) throw new Error(connected.error ?? `Could not connect to ${device.deviceName}.`);
         }
-      }
+      };
+      const resolved = await resolveTimecodeDeviceAction(env.DB, this.orgId,
+        { ...event, targetDeviceId: event.timingDeviceId ?? event.targetDeviceId }, env.CREDENTIAL_ENCRYPTION_KEYS,
+        async device => {
+          await connect(device);
+          return discoverHomeAssistantActions({ relay, target: device.target, actor, installationId, assertCanDispatch });
+        });
+      await connect(resolved);
+      assertCanDispatch();
       const result = await relay.dispatchBridgeMessage({
-        type: "command",
-        id: event.executionId ?? crypto.randomUUID(),
-        protocol: resolved.protocol,
-        target: resolved.target,
-        command: resolved.command,
-      }, { source: "automation", actorUserId: this.controlOwner()?.attachment.authClaim?.userId ?? null, executionId: event.executionId ?? event.id }, installationId);
+        type: "command", id: event.executionId ?? crypto.randomUUID(), protocol: resolved.protocol,
+        target: resolved.target, command: resolved.command,
+      }, actor, installationId);
       signal.throwIfAborted();
       if (!result.success) throw new Error(result.error ?? `Command to ${resolved.deviceName} failed.`);
       logResult(event.action, "success", `${event.label} acknowledged by ${resolved.deviceName}.`);
