@@ -2862,7 +2862,7 @@ from a backup as an automatic rollback step.
 
 ### Current state
 
-The production manifest records every migration through `0056_invitation_responses.sql`.
+The production manifest records every migration through `0058_audio_write_receipts.sql`.
 Migration 0048 was applied on 2026-11-05 after a clean preflight and a saved
 Time Travel bookmark. Its postcondition verified three empty tables, five
 named indexes, an unchanged legacy key count, and no foreign key violations.
@@ -2876,6 +2876,12 @@ Migrations 0052 through 0056 (`operational_error`,
 2026-11-10 after a clean preflight and a saved Time Travel bookmark. Each
 postcondition verified its empty table, columns, and named indexes, existing
 row counts were unchanged, and no foreign key violations were reported.
+Migrations 0057 (`song.writeRevision`, ten song revision triggers and
+`song_write_receipt`) and 0058 (`audio_write_receipt`) were applied in order on
+2026-11-10 after a clean preflight and a saved Time Travel bookmark. Their
+postconditions verified the NOT NULL integer column with default 0 and every
+existing song at revision 0, all ten triggers, the empty receipt tables and
+named index, unchanged existing row counts, and no foreign key violations.
 Migrations 0030 through 0035 were applied in order on 2026-08-28. Migrations
 0036 and 0037 were applied in order on 2026-09-10. Migrations 0038 and 0039
 were applied in order on 2026-09-18. Before each rollout, every
@@ -3211,8 +3217,8 @@ that finding; the UI rehearsal alone did not prove atomic writes.
 Apply `apps/web/prisma/migrations/0057_song_write_receipts.sql` before deploying
 this web build. It adds `song.writeRevision`, revision triggers and org/actor
 scoped command receipts. Keep this additive migration if rolling the Worker back.
-It has only been applied to disposable local/test databases; do not add it to the
-remote migration manifest until an authorized production migration succeeds.
+It was applied to production on 2026-11-10 and is recorded in the remote
+migration manifest.
 
 The D1 Prisma adapter did not make nested song creation or `$transaction` writes
 atomic. Five real D1 failure tests reproduced partial song creation, mixed
@@ -3298,8 +3304,8 @@ typecheck and the production build. No deployment or native release was run.
 
 Apply `apps/web/prisma/migrations/0058_audio_write_receipts.sql` before the matching
 web build. The new receipt table is scoped to organization, actor and request;
-receipts remain after channel deletion. It was applied only to disposable local
-and Worker-test databases. The production migration manifest is unchanged.
+receipts remain after channel deletion. It was applied to production on
+2026-11-10 and is recorded in the remote migration manifest.
 
 The previous Audio UI stayed on Saving after a lost successful reply and deleted
 channels without confirmation. Its mute/edit/delete calls had no failure state,
