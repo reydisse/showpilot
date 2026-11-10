@@ -67,3 +67,4 @@
 0060_stream_destination_write_receipts.sql
 0061_stream_output_commands.sql
 0062_stream_input_lifecycle.sql
+0063_team_command_receipts.sql
