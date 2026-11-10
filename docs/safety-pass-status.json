@@ -1435,8 +1435,10 @@
       "phase": "2",
       "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
       "line": 231,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06: LiveRundownBar always renders loading, idle, ended, missing-item or active state for a known workspace. Disconnect and failed active-target refresh show a polite Reconnecting, showing last known state notice, freeze the displayed clock and disable transport. Lookup waits are bounded to ten seconds; late replies and workspace changes cannot restore an old target. Shared Previous/Pause-or-Resume/Next buttons are 44px with focus indicators and wrap on mobile. Final-item confirmation remains guarded after disconnect or stop. Eleven rendered tests cover lifecycle states, clock hold without rewind, errors, timeout/retry, stale replies, organization isolation and confirmation guards. Full suite passed 1668 unit and 614 Worker tests; tsc and production build passed. smoke-live-rundown-bar.mjs passed with real fixture login/relay, transport acknowledgements, final confirmation, 1440px and 320px hit areas, failed target lookup, server outage/reconnect and visible Show ended. Screenshots inspected; no production data used."
+      ]
     },
     {
       "id": "1283cc80a4754024",
