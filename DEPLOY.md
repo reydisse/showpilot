@@ -312,19 +312,59 @@ their dedicated commands. Existing field permissions, credential encryption and
 masked responses still apply.
 
 This closes a reproduced bypass where a technical manager could overwrite
-internal records through `updateOrgSetting`. The batch and credential variants
-now reject those keys before any write. No data migration or new secret is
-required. Existing internal rows remain available to their owning server code.
+internal records through `updateOrgSetting`. The credential editor rejects
+those keys too. The unused unconditional bulk-update and arbitrary-key delete
+RPCs have been removed. No data migration or new secret is required. Existing internal rows remain available to their owning server code.
 Future Settings fields must be added to the registry with an explicit permission.
 
 Run `node apps/web/scripts/smoke-settings-boundary.mjs` after building to exercise
 the compiled RPCs with real authentication and disposable D1 data. Deployment
 and production verification are still pending.
 
-Local verification passed 1,393 unit tests, 390 Worker tests, typecheck, the
-production build and the compiled-RPC smoke check. The smoke check rejects 21
-internal-key writes, then inspects D1 to confirm unchanged internal records,
-no partial invalid batch, and encrypted credentials.
+### Settings save acknowledgement and recovery
+
+General Settings writes now carry the last confirmed value and a UUID request
+ID. The server checks current permissions and atomically records the result with
+the conditional setting write. A retry checks that same receipt and reports the
+current value; it cannot overwrite a later edit. Conflicts require the operator
+to choose the saved value or apply their edit against the reviewed value.
+
+Keep `setting-write:*` records for the lifetime of the organization. Deleting a
+receipt would allow an old request to be interpreted as a new operation. These
+internal records are excluded from editable Settings reads and writes. The
+unused bulk-update and arbitrary-key delete RPCs have no remaining callers.
+Old Settings tabs must reload after deployment because unconditional payloads
+are rejected. Deploy the web client and Worker together.
+
+Each field has a ten-second confirmation deadline, its own persistent error and
+timestamp, and an exact-request Retry. A newer edit waits until the uncertain
+write is resolved. ProPresenter Apply & test waits for confirmed setting saves.
+Confidence layout Apply uses the same protocol while preserving newer preview
+edits. Leaving an unsaved Settings page or closing a dirty confidence editor
+requires confirmation. The separate encrypted credential editor still uses its
+existing API and is not covered by this autosave recovery change.
+
+Run `node apps/web/scripts/smoke-settings-autosave.mjs` after building. It uses
+real authentication, two fixture operators, compiled RPCs, disposable D1 and
+Chrome to check lost responses, concurrent edits, conflict review, navigation,
+ProPresenter test blocking and confidence preview recovery. It also checks
+320px, 768px and 1440px widths, then inspects persisted values and receipts.
+
+If Wrangler's local ProxyWorker exits with `Network connection lost`, run the
+same script with `SHOWPILOT_SMOKE_RUNTIME=miniflare`. This opt-in fixture backend
+runs the same compiled Worker and local bindings through Wrangler's installed
+Miniflare/workerd without its development proxy. It uses the same disposable
+persistence as the D1 seed and inspection commands. It does not fix or hide a
+production Worker error, restart a failed process, or change authentication.
+The default fixture backend remains Wrangler. Both backends are local only.
+
+Local validation passed 1,891 unit tests, 695 Worker tests, typecheck and the
+production build. The direct-runtime browser rehearsal passed with 19 browser
+write attempts and exactly 18 total unique operation receipts, including fixture
+and second-operator writes. No browser errors occurred with an en-GB browser
+locale and America/Toronto timezone. The organization Created date now uses an
+explicit locale and UTC, fixing a reproduced server/client hydration mismatch.
+Deployment and production verification remain pending.
 
 ### Organization credential encryption
 
@@ -668,8 +708,111 @@ is needed. A reported Wrangler proxy exit can trigger one fixture restart, but
 only after its process has actually terminated; browser state is preserved and
 read Retry must recover without repeating a write. A failure while the server is
 still running is not retried by the fixture. This does not complete the product-wide loading/mutation audit:
-Checklist, Incidents, remaining Settings reads and write confirmation/recovery
-still require follow-up.
+Checklist and Incident recovery are covered below. Remaining Settings reads and
+write confirmation/recovery still require follow-up.
+
+### Checklist confirmation and recovery
+
+Checklist and smart-draft reads use eight-second deadlines, cancellation and
+separate read-only Retry. The list retains confirmed checks during an outage;
+changing shows hides the previous show's entries until the new read completes.
+Failures do not render a false empty state. Suggestions remain selected across
+refreshes, and leaving a draft or uncertain save requires an explicit choice.
+
+Web checklist add, completion, department, removal and smart-draft application
+now use one captured operation with a request ID. Confirmation expires after ten
+seconds; Retry reuses that exact operation. An atomic D1 receipt and conditional
+writes prevent duplicate additions, stale edits and recreation after deletion.
+Smart-draft entries and templates commit together or roll back together. Every
+retry checks permission again. Receipt rows use the existing app_setting table;
+there is no migration. Do not prune these receipts while clients may retry them.
+
+Department edits made through the mobile API also advance the shared revision,
+so changing a category away and back cannot make an old web edit look current.
+The mobile API's request shape is unchanged; this does not add receipts to its
+separate mutation endpoints. Web saves finish on acknowledgement and invalidate
+any older read. A failed follow-up refresh cannot turn that success into another
+save attempt. Checklist controls have labels, visible delete actions and 44px
+hit targets, with wrapping rows and forms at narrow widths.
+
+After building, run `node apps/web/scripts/smoke-checklist-recovery.mjs`. It uses
+real authentication, local D1 and Chrome with disposable data, loses responses
+after actual writes, retries captured operations, replays an old add after
+removal, checks draft/navigation and show isolation, and measures controls at
+320/768/1440px. It inspects persisted entries and receipts after stopping the
+server. The verified run completed without proxy restarts or browser errors.
+The fixture permits at most one restart only after a confirmed terminal local
+proxy process, never to hide a timeout while the server remains running.
+
+Deploy browser and Worker together and reload cached clients: the five old web
+checklist mutation RPCs were removed after migrating their only caller. No native
+binary is required. Feature-branch pushes do not deploy this change. Incident
+recovery is covered below; remaining product-wide loading, mutation and
+accessibility audits remain open.
+
+### Incident confirmation and discussion recovery
+
+The web Incident Log reads incidents, comments and reactions as one org/show
+snapshot. Reads expire after eight seconds and show timestamped, read-only Retry.
+Confirmed discussion and local drafts remain visible during same-show failures;
+changing shows hides the previous discussion. Loading never accompanies a false
+empty state. Relay hydration waits for the same pending read instead of issuing
+a second snapshot request. Recovery controls remain in the sticky header, and
+inside the report dialog while it is open.
+
+Report, comment, reaction and delete commands capture an operation and request
+ID before sending. After ten seconds without acknowledgement, Retry sends that
+same operation. D1 commits its receipt and conditional mutations atomically;
+permission is checked again on every retry. Replaying a report after deletion
+acknowledges the old save without recreating it. Reactions send desired state
+and the last observed own-reaction ID, so Retry cannot toggle twice or overwrite
+a newer reaction intent. Deletion compares the current incident fields and
+comment count before removing the incident, discussion and related reactions.
+A stale edit requires reviewing the refreshed log before trying again.
+Existing mobile incidents without a show keep their discussion and delete
+controls. Their reads and commands match only date-only rows for that organization
+and date; they cannot touch another show's incident. Creating a new web report
+still requires selecting a show. Database and built-browser tests cover this path.
+
+Acknowledgement completes a save independently of the subsequent refresh.
+Retrying a failed read never repeats that write. A newer comment draft survives
+confirmation of the older comment. Drafts and uncertain saves require an explicit
+choice before leaving. Report fields are labelled and use the shared focus-trapped
+Dialog. Delete actions are visible without hover; discussion controls and
+reaction chips have 44px targets, with a bounded reaction picker on phones.
+
+Only the request that claims a new applied receipt schedules its notification.
+Cloudflare waitUntil preserves the existing best-effort inbox/push delivery
+without holding the save response open. This is not a durable notification
+outbox. The separate mobile mutation endpoints retain their current behavior.
+
+After building, run `node apps/web/scripts/smoke-incident-recovery.mjs`. The
+rehearsal uses real authentication, local D1 and Chrome with disposable data. It
+withholds real write responses, retries exact operations, checks navigation and
+show isolation, measures discussion/form controls, and inspects persisted
+reports, receipts, notification recipients and deletion cleanup after stopping
+the local server. The verified run retained one report, ten write receipts and
+exactly four expected notifications, with no browser errors or document reload.
+Controls passed at 320/768/1440px and the report dialog at 320x480; screenshots
+were inspected. The full suite passed 1879 unit and 674 Worker tests, typecheck
+and production build. The initial full run timed out in an existing five-second
+timecode isolation test; the rerun passed without changing that test or timeout.
+Run the checklist recovery rehearsal too when changing the shared operator-read
+hook. On this build, two diagnostic runs completed the Checklist browser
+assertions, but a complete browser-plus-D1 rerun remains unverified. Several
+runs stopped after Wrangler ProxyWorker reported Network connection lost and
+the CLI exited with code 1. The fixture still permits only one restart after
+confirmed terminal process state. Debug logging cannot pollute JSON query output
+now, and the query helper passed a direct fixture check. Responsive target checks
+wait for reachability without changing required dimensions or app deadlines.
+The proxy failure remains a separate verification follow-up.
+
+Deploy browser and Worker together and reload cached clients: the old web
+incident/comment/reaction RPCs were removed after migrating their sole caller,
+and the build permission contracts now check their replacements. No migration
+or native binary is required. Keep incident-write receipts while clients may
+retry them. Feature-branch pushes do not deploy this change; remaining Settings
+writes and product-wide recovery/accessibility audits remain open.
 
 ### Workspace and Settings navigation
 

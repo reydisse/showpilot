@@ -35,7 +35,7 @@ export async function invoke(command, args) {
 `);
 writeFileSync(join(fixture, "settings.ts"), `
 export const getManageableOrgSettings = async () => ({});
-export const updateOrgSetting = async ({ data }) => { window.savedLayout = JSON.parse(data.value); return data; };
+export const updateOrgSetting = async ({ data }) => { window.savedLayout = JSON.parse(data.value); return { key: data.key, requestId: data.requestId, outcome: "applied", currentValue: data.value }; };
 `);
 writeFileSync(join(fixture, "index.html"), '<html class="dark"><meta name="viewport" content="width=device-width, initial-scale=1"><div id="root"></div><script type="module" src="/main.tsx"></script></html>');
 writeFileSync(join(fixture, "fixture.css"), '@import "../src/styles.css"; @source "../src"; @source "./main.tsx";');

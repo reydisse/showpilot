@@ -12,7 +12,7 @@ import { hashPassword } from "better-auth/crypto";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, unverifiedOperator = false, paidPlan = false, damagedGraphicScenes = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, unverifiedOperator = false, paidPlan = false, damagedGraphicScenes = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), "showpilot-display-smoke-"));
   const session = `display-smoke-${process.pid}`;
   const secret = randomUUID();
@@ -43,7 +43,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     return result.data;
   }
   async function wrangler(...args) {
-    return run("pnpm", ["exec", "wrangler", ...args], { cwd: web, timeout: 60_000, maxBuffer: 2_000_000 });
+    return run("pnpm", ["exec", "wrangler", ...args], { cwd: web, timeout: 60_000, maxBuffer: 2_000_000, env: args.includes("--json") ? { ...process.env, WRANGLER_LOG: "log" } : process.env });
   }
   function signFixtureToken(payload) {
     const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
@@ -116,6 +116,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     const seed = `
   INSERT INTO organization (id,name,slug,createdAt) VALUES ('display-smoke','Display fixture','display-smoke',CURRENT_TIMESTAMP), ('display-other','Other fixture','display-other',CURRENT_TIMESTAMP);
   ${damagedScenesSeed}
+  ${dateOnlyIncident ? "INSERT INTO incident(id,orgId,category,severity,description,reportedBy,serviceDate) VALUES ('smoke-date-incident','display-smoke','audio','high','Date-only fixture incident','Mobile fixture','2000-01-01');" : ""}
   ${paidPlan ? "UPDATE organization SET plan = 'pro' WHERE id = 'display-smoke';" : ""}
   INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-operator','Fixture operator','operator@display-smoke.invalid',1,CURRENT_TIMESTAMP);
   INSERT INTO account (id,accountId,providerId,userId,password,issuer,updatedAt) VALUES ('smoke-account','smoke-operator','credential','smoke-operator','${passwordHash}','local:credential',CURRENT_TIMESTAMP);
@@ -138,13 +139,15 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     await writeFile(sqlPath, `${schema}\n${seed}`);
     await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state, "--file", sqlPath);
     const startServer = async () => {
-      worker = spawn("pnpm", ["exec", "wrangler", "dev", "--local", "--config", configPath, "--persist-to", state, "--port", String(port), "--inspector-port", "0", "--ip", "127.0.0.1"], { cwd: web, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+      worker = process.env.SHOWPILOT_SMOKE_RUNTIME === "miniflare"
+        ? spawn(process.execPath, [join(web, "scripts/local-smoke-runtime.mjs"), configPath, state, String(port)], { cwd: web, detached: true, stdio: ["ignore", "pipe", "pipe"] })
+        : spawn("pnpm", ["exec", "wrangler", "dev", "--local", "--config", configPath, "--persist-to", state, "--port", String(port), "--inspector-port", "0", "--ip", "127.0.0.1"], { cwd: web, detached: true, stdio: ["ignore", "pipe", "pipe"] });
       worker.stdout.on("data", (chunk) => { workerLog += chunk; });
       worker.stderr.on("data", (chunk) => { workerLog += chunk; });
       let ready = false;
       for (let attempt = 0; attempt < 100; attempt++) {
         assert.equal(worker.exitCode, null, "Local Worker exited before becoming ready");
-        try { ready = (await fetch(`${origin}/api/overlay/${orgId}`)).status === 401; } catch { /* Starting. */ }
+        try { const response = await fetch(`${origin}/api/overlay/${orgId}`); ready = response.status === 401; await response.arrayBuffer(); } catch { /* Starting. */ }
         if (ready) break;
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
@@ -157,6 +160,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     assert.equal(login.status, 200, "Fixture operator login");
     const cookie = login.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
     assert.ok(cookie);
+    await login.arrayBuffer();
     const stage = await fetch(`${origin}/api/rundown/${orgId}/command?showId=smoke-show&serviceDate=${date}`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie, Origin: origin }, body: JSON.stringify({ action: "stage-message", payload: { message: "Fixture private stage message" } }) });
     assert.equal(stage.status, 200, "Fixture live stage message");
     assert.equal((await stage.json()).ok, true);

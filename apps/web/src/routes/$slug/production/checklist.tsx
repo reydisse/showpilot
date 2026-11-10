@@ -1,18 +1,13 @@
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useBlocker } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { CheckCircle2, Circle, ListChecks, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   getChecklistEntries,
-  addChecklistItem,
-  toggleChecklistEntry,
-  deleteChecklistEntry,
-  updateChecklistTemplate,
   getSmartChecklistDraft,
-  applySmartChecklistDraft,
   type SmartChecklistDraft,
 } from "@/lib/data";
 import {
@@ -28,6 +23,12 @@ import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { getRundownOpeningDate } from "@/lib/rundown";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
+import { Button } from "@/components/ui/button";
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { useChecklistWrite } from "@/hooks/useChecklistWrite";
+import type { ChecklistOperation } from "@/lib/checklist-writes";
+import { normalizeChecklistLabel } from "@/lib/smart-checklist-rules";
 import {
   Dialog,
   DialogContent,
@@ -44,13 +45,14 @@ function formatDisplayDate(dateStr: string): string {
 
 export const Route = createFileRoute("/$slug/production/checklist")({
   pendingComponent: () => <PageSkeleton />,
-  loader: async ({ context }) => {
+  loader: async ({ context, abortController }) => {
+    const signal = abortController.signal;
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, ["checklist:view", "checklist:access"], context.slug, context.orgId);
-    const settings = await getOrgSettings({ data: { orgId: context.orgId } });
+    const settings = await getOrgSettings({ data: { orgId: context.orgId }, signal });
     const today = getTodayDateString(settings["org-timezone"]);
-    const opening = await getRundownOpeningDate({ data: { orgId: context.orgId, today } });
-    const entries = await getChecklistEntries({ data: { orgId: context.orgId, serviceDate: opening.serviceDate, showId: opening.showId } });
+    const opening = await getRundownOpeningDate({ data: { orgId: context.orgId, today }, signal });
+    const entries = await getChecklistEntries({ data: { orgId: context.orgId, serviceDate: opening.serviceDate, showId: opening.showId }, signal });
     return {
       entries,
       serviceDate: opening.serviceDate,
@@ -66,63 +68,59 @@ export const Route = createFileRoute("/$slug/production/checklist")({
 });
 
 function ChecklistPage() {
+  const initial = Route.useLoaderData();
+  return <ChecklistWorkspace key={initial.orgId} initial={initial} />;
+}
+
+type ChecklistInitial = Awaited<ReturnType<typeof Route.useLoaderData>>;
+type ChecklistEntry = Awaited<ReturnType<typeof getChecklistEntries>>[number];
+
+export function ChecklistWorkspace({ initial }: { initial: ChecklistInitial }) {
   const workspaceTerms = useWorkspaceTerms();
-  const { entries: initialEntries, serviceDate: initialServiceDate, showId: initialShowId, shows, orgId, role, grantedPermissions, orgTimezone } = Route.useLoaderData();
-  const [serviceDate, setServiceDate] = useState(initialServiceDate);
-  const [showId, setShowId] = useState<string | undefined>(initialShowId);
-  const [entries, setEntries] = useState(initialEntries as Array<{
-    id: string;
-    templateId: string;
-    checked: boolean;
-    checkedBy: string | null;
-    checkedAt: string | Date | null;
-    category: string;
-    revision: number;
-    template?: { label: string; category: string } | null;
-  }>);
-  const [loadingEntries, setLoadingEntries] = useState(false);
+  const { entries: initialEntries, serviceDate: initialServiceDate, showId: initialShowId, shows, orgId, role, grantedPermissions, orgTimezone } = initial;
+  const [selection, setSelection] = useState({ serviceDate: initialServiceDate, showId: initialShowId });
+  const { serviceDate } = selection;
+  const scopeKey = JSON.stringify([orgId, serviceDate, selection.showId]);
+  const readEntries = useCallback(async (signal: AbortSignal) => {
+    const opening = await getRundownOpeningDate({ data: { orgId, today: serviceDate, serviceDate, showId: selection.showId }, signal });
+    signal.throwIfAborted();
+    const entries = await getChecklistEntries({ data: { orgId, serviceDate, showId: opening.showId }, signal });
+    return { showId: opening.showId, entries };
+  }, [orgId, serviceDate, selection.showId]);
+  const entryRead = useOperatorRead<{ showId: string | undefined; entries: ChecklistEntry[] } | null>({
+    key: scopeKey,
+    initialValue: serviceDate === initialServiceDate && selection.showId === initialShowId ? { showId: initialShowId, entries: initialEntries } : null,
+    read: readEntries, errorMessage: "Could not refresh this checklist. Previously confirmed checks are kept. Retry to get the latest state.",
+  });
+  const showId = entryRead.value?.showId ?? selection.showId;
+  const entries = entryRead.value?.entries ?? [];
+  const loadingEntries = !entryRead.value && !entryRead.error;
+  const writes = useChecklistWrite({ orgId, serviceDate, showId: showId ?? "" });
+  const writeLocked = writes.state.kind !== "idle";
+  const [savedNotice, setSavedNotice] = useState("");
   const [newLabel, setNewLabel] = useState("");
   const [newCategory, setNewCategory] = useState<DepartmentKey>("general");
-  const [adding, setAdding] = useState(false);
   const [generatorOpen, setGeneratorOpen] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [applyingDraft, setApplyingDraft] = useState(false);
-  const [draft, setDraft] = useState<SmartChecklistDraft[]>([]);
-  const [selectedSuggestionIds, setSelectedSuggestionIds] = useState<Set<string>>(new Set());
-  const [generatorError, setGeneratorError] = useState("");
-  const checklistRequestRef = useRef(0);
-
-  const loadEntries = useCallback(async (date: string, requestedShowId?: string) => {
-    const requestId = ++checklistRequestRef.current;
-    setLoadingEntries(true);
-    try {
-      const opening = await getRundownOpeningDate({ data: { orgId, today: date, serviceDate: date, showId: requestedShowId } });
-      const resolvedShowId = opening.showId;
-      const latest = await getChecklistEntries({ data: { orgId, serviceDate: date, showId: resolvedShowId } });
-      if (checklistRequestRef.current !== requestId) return;
-      setShowId(resolvedShowId);
-      setEntries(latest as typeof entries);
-    } finally {
-      if (checklistRequestRef.current === requestId) setLoadingEntries(false);
-    }
-  }, [orgId]);
-
-  useEffect(() => {
-    setEntries(initialEntries as typeof entries);
-  }, [initialEntries]);
-
-  useEffect(() => {
-    void loadEntries(serviceDate, showId);
-  }, [loadEntries, serviceDate, showId]);
-
-  useServiceDateRollover({
-    serviceDate,
-    timeZone: orgTimezone,
-    onTodayChanged: (nextToday) => {
-      setShowId(undefined);
-      setServiceDate(nextToday);
-    },
+  const [draftSelection, setDraftSelection] = useState<Set<string> | null>(null);
+  const readDraft = useCallback((signal: AbortSignal) => getSmartChecklistDraft({ data: { orgId, serviceDate, showId }, signal }), [orgId, serviceDate, showId]);
+  const draftRead = useOperatorRead<SmartChecklistDraft[] | null>({
+    key: scopeKey, initialValue: null, read: readDraft, enabled: generatorOpen,
+    errorMessage: "Could not analyze this rundown. Retry to load suggestions.",
   });
+  const draft = draftRead.value ?? [];
+  const generating = !draftRead.value && !draftRead.error;
+  const applyingDraft = writes.state.kind === "pending" && writes.state.attempt.operation.kind === "draft";
+  const selectedSuggestionIds = new Set(draft.filter(item => draftSelection === null || draftSelection.has(item.id)).map(item => item.id));
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
+  const dirty = writeLocked || !!newLabel.trim();
+  const blocker = useBlocker({ shouldBlockFn: () => dirty, enableBeforeUnload: dirty, withResolver: true });
+  const selectShow = async (next: typeof selection) => {
+    if (dirty && !await confirm({ title: "Leave this checklist?", description: "An unconfirmed save may still complete. Leaving discards the local draft and its retry controls. Review this checklist when you return.", confirmLabel: "Leave checklist" })) return;
+    setSelection(next); setNewLabel(""); setSavedNotice(""); setGeneratorOpen(false);
+  };
+  useServiceDateRollover({ serviceDate, timeZone: orgTimezone, onTodayChanged: nextToday => {
+    if (!dirty) void selectShow({ serviceDate: nextToday, showId: undefined });
+  } });
 
   // Empty departments are omitted, and the headings only appear once
   // there is more than one department to distinguish — a list that is
@@ -136,101 +134,39 @@ function ChecklistPage() {
   const checkedCount = entries.filter((e) => e.checked).length;
   const totalCount = entries.length;
   const progress = totalCount > 0 ? Math.round((checkedCount / totalCount) * 100) : 0;
-  const canManageChecklist =
-    hasEffectivePermission(role, grantedPermissions, "checklist:access") && Boolean(showId);
-
-  const handleToggle = async (entryId: string, checked: boolean, expectedRevision: number) => {
-    if (!canManageChecklist) return;
-    await toggleChecklistEntry({ data: { orgId, id: entryId, checked: !checked, expectedRevision } });
-    await loadEntries(serviceDate, showId);
+  const canManageChecklist = hasEffectivePermission(role, grantedPermissions, "checklist:access") && Boolean(showId);
+  const canWrite = canManageChecklist && !!entryRead.value && !entryRead.refreshing && !entryRead.error && !writeLocked;
+  const save = async (operation?: ChecklistOperation) => {
+    if (operation && !canWrite) return;
+    setSavedNotice("");
+    const ack = await writes.run(operation);
+    if (!ack) return;
+    // The write has its own acknowledgement. A following read cannot turn it
+    // back into a failed save, and Retry of that read never repeats the write.
+    entryRead.invalidate();
+    if (ack.result.outcome !== "applied") return;
+    setSavedNotice("Change saved. Refreshing the checklist does not repeat it.");
+    if (ack.attempt.operation.kind === "add") setNewLabel("");
+    if (ack.attempt.operation.kind === "draft") setGeneratorOpen(false);
   };
-
-  const handleAddTemplate = async (e: React.FormEvent) => {
+  const expected = (entry: ChecklistEntry) => ({ id: entry.id, expectedRevision: entry.revision, expectedCategory: entry.category });
+  const handleToggle = (entry: ChecklistEntry) => save({ kind: "toggle", ...expected(entry), checked: !entry.checked });
+  const handleAddTemplate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canManageChecklist) return;
-    if (!newLabel.trim()) return;
-    setAdding(true);
-    try {
-      await addChecklistItem({
-        data: { orgId, label: newLabel.trim(), category: newCategory, serviceDate, showId },
-      });
-      setNewLabel("");
-      // The department is deliberately sticky. Checks are written in
-      // runs — five audio items, then four camera items — and resetting
-      // to General after each one is how a list ends up uncategorised.
-      await loadEntries(serviceDate, showId);
-    } finally {
-      setAdding(false);
-    }
+    if (normalizeChecklistLabel(newLabel)) void save({ kind: "add", label: newLabel.trim(), category: newCategory });
   };
-
-  /**
-   * Retag an item. Categories exist for the dashboard's benefit: a
-   * department card can only report "2 checks outstanding" if the checks
-   * know which department they belong to.
-   */
-  const handleCategoryChange = async (entryId: string, category: DepartmentKey) => {
-    if (!canManageChecklist) return;
-    setEntries((prev) =>
-      prev.map((e) =>
-        e.id === entryId && e.template
-          ? { ...e, category, template: { ...e.template, category } }
-          : e,
-      ),
-    );
-    await updateChecklistTemplate({ data: { orgId, id: entryId, updates: { category } } });
+  const handleCategoryChange = (entry: ChecklistEntry, category: DepartmentKey) => save({ kind: "category", ...expected(entry), category });
+  const handleDeleteEntry = async (entry: ChecklistEntry) => {
+    if (!canWrite) return;
+    const ok = await confirm({ title: "Remove checklist item", description: workspaceCopy("Remove this item from the selected service? Other services and the reusable checklist template will not be changed.", workspaceTerms), confirmLabel: "Remove" });
+    if (ok) await save({ kind: "delete", ...expected(entry) });
   };
-
-  const { confirm, ConfirmDialogEl } = useConfirmDialog();
-
-  const handleDeleteEntry = async (id: string) => {
-    if (!canManageChecklist) return;
-    const ok = await confirm({
-      title: "Remove checklist item",
-      description: workspaceCopy(
-        "Remove this item from the selected service? Other services and the reusable checklist template will not be changed.",
-        workspaceTerms,
-      ),
-      confirmLabel: "Remove",
-    });
-    if (!ok) return;
-    await deleteChecklistEntry({ data: { orgId, id } });
-    await loadEntries(serviceDate, showId);
-  };
-
-  const handleGenerateDraft = async () => {
-    if (!canManageChecklist) return;
-    setGeneratorOpen(true);
-    setGenerating(true);
-    setGeneratorError("");
-    try {
-      const suggestions = await getSmartChecklistDraft({ data: { orgId, serviceDate, showId } });
-      setDraft(suggestions);
-      setSelectedSuggestionIds(new Set(suggestions.map((suggestion) => suggestion.id)));
-    } catch (error) {
-      setDraft([]);
-      setGeneratorError(error instanceof Error ? error.message : "Could not analyze this rundown.");
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const handleApplyDraft = async () => {
-    if (selectedSuggestionIds.size === 0) return;
-    setApplyingDraft(true);
-    setGeneratorError("");
-    try {
-      await applySmartChecklistDraft({
-        data: { orgId, serviceDate, showId, suggestionIds: Array.from(selectedSuggestionIds) },
-      });
-      await loadEntries(serviceDate, showId);
-      setGeneratorOpen(false);
-    } catch (error) {
-      setGeneratorError(error instanceof Error ? error.message : "Could not add the selected checks.");
-    } finally {
-      setApplyingDraft(false);
-    }
-  };
+  const handleApplyDraft = () => { if (selectedSuggestionIds.size > 0) void save({ kind: "draft", suggestionIds: [...selectedSuggestionIds] }); };
+  const writeNotice = writes.state.kind === "uncertain" || writes.state.kind === "conflict" ? (
+    <ReadFailureNotice error={writes.state.failure} refreshing={writes.state.kind === "conflict" && (entryRead.refreshing || !!entryRead.error)}
+      retry={() => writes.state.kind === "conflict" ? writes.clearConflict() : void save()}
+      label={writes.state.kind === "conflict" ? "I reviewed the refreshed checklist" : "Retry checklist save"} />
+  ) : writes.state.kind === "pending" ? <p role="status" className="px-4 py-3 text-sm text-board-muted">Saving checklist change…</p> : null;
 
   return (
     <div className="h-full overflow-auto">
@@ -239,21 +175,23 @@ function ChecklistPage() {
           <div className="flex min-w-0 items-center gap-3">
             <h1 className="text-lg font-semibold text-board-text">Pre-Show Checklist</h1>
           </div>
-          <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
+          <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end [&_button]:min-h-11">
             <ShowSwitcherMenu
+              disabled={writes.state.kind === "pending"}
               selectedId={showId}
               shows={shows}
               timeZone={orgTimezone}
               onSelect={(selected) => {
-                setShowId(selected.id);
-                setServiceDate(selected.serviceDate);
+                void selectShow({ showId: selected.id, serviceDate: selected.serviceDate });
               }}
             />
             {canManageChecklist && (
               <button
                 type="button"
-                onClick={() => void handleGenerateDraft()}
-                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-fire-500/30 bg-fire-500/10 px-2.5 text-xs font-semibold text-fire-400 transition-colors hover:bg-fire-500/20"
+                disabled={!canWrite}
+                aria-label="Generate checklist from rundown"
+                onClick={() => { setDraftSelection(null); setGeneratorOpen(true); }}
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-fire-500/30 bg-fire-500/10 px-2.5 text-xs font-semibold text-fire-400 transition-colors hover:bg-fire-500/20"
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Generate from rundown</span>
@@ -264,7 +202,10 @@ function ChecklistPage() {
         </div>
       </div>
 
-      <div className="p-6 max-w-xl mx-auto">
+      <div className="p-4 sm:p-6 max-w-3xl mx-auto space-y-4">
+        <ReadFailureNotice error={entryRead.error} refreshing={entryRead.refreshing} retry={entryRead.retry} label="Retry checklist" />
+        {!generatorOpen && writeNotice}
+        {savedNotice && <p role="status" className="text-sm text-emerald-400">{savedNotice}</p>}
         {/* Progress */}
         {totalCount > 0 && (
           <div className="mb-6">
@@ -284,30 +225,30 @@ function ChecklistPage() {
             <div key={key}>
               {showGroupHeadings && (
                 <div className="flex items-baseline justify-between mb-2 px-1">
-                  <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-board-muted">
+                  <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-board-muted">
                     {DEPARTMENT_LABELS[key]}
                   </h2>
-                  <span className="text-[11px] text-board-muted tabular-nums">
+                  <span className="text-xs text-board-muted tabular-nums">
                     {items.filter((e) => e.checked).length}/{items.length}
                   </span>
                 </div>
               )}
               <div className="space-y-2">
                 {items.map((entry) => (
-                  <div key={entry.id} className="group flex items-center gap-3 p-3 rounded-xl bg-board-card border border-board-border hover:border-fire-500/20 transition-all">
-                    <button onClick={() => handleToggle(entry.id, entry.checked, entry.revision)} className="shrink-0" disabled={!canManageChecklist} aria-label={`${entry.checked ? "Mark incomplete" : "Mark complete"}: ${entry.template?.label || "Untitled"}`}>
+                  <div key={entry.id} className="group flex flex-wrap items-center gap-2 p-3 rounded-xl bg-board-card border border-board-border hover:border-fire-500/20 transition-all">
+                    <button onClick={() => handleToggle(entry)} className="min-h-11 min-w-11 flex items-center justify-center shrink-0 rounded-lg focus-visible:outline-2 focus-visible:outline-fire-500 disabled:opacity-50" disabled={!canWrite} aria-label={`${entry.checked ? "Mark incomplete" : "Mark complete"}: ${entry.template?.label || "Untitled"}`}>
                       {entry.checked ? (
                         <CheckCircle2 className="w-5 h-5 text-green-500" />
                       ) : (
                         <Circle className="w-5 h-5 text-board-muted" />
                       )}
                     </button>
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 basis-32">
                       <span className={`block text-sm ${entry.checked ? "text-board-muted line-through" : "text-board-text"}`}>
                         {entry.template?.label || "Untitled"}
                       </span>
                       {entry.checked && entry.checkedBy && (
-                        <span className="mt-0.5 block truncate text-[10px] text-board-muted">
+                        <span className="mt-0.5 block truncate text-xs text-board-muted">
                           Completed by {entry.checkedBy}{entry.checkedAt ? ` · ${new Date(entry.checkedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}
                         </span>
                       )}
@@ -322,11 +263,12 @@ function ChecklistPage() {
                         </label>
                         <select
                           id={`cat-${entry.id}`}
+                          disabled={!canWrite}
                           value={normalizeCategory(entry.template?.category ?? "")}
                           onChange={(e) =>
-                            void handleCategoryChange(entry.id, e.target.value as DepartmentKey)
+                            void handleCategoryChange(entry, normalizeCategory(e.target.value))
                           }
-                          className="shrink-0 text-[11px] bg-transparent border border-board-border rounded-lg px-2 py-1 text-board-muted hover:text-board-text hover:border-fire-500/30 outline-none focus:border-fire-500/50 transition-colors"
+                          className="min-h-11 max-w-full shrink-0 text-xs bg-transparent border border-board-border rounded-lg px-2 py-1 text-board-muted hover:text-board-text hover:border-fire-500/30 outline-none focus:border-fire-500/50 transition-colors"
                         >
                           {DEPARTMENT_ORDER.map((key) => (
                             <option key={key} value={key}>
@@ -336,8 +278,9 @@ function ChecklistPage() {
                         </select>
                         <button
                           type="button"
-                          onClick={() => handleDeleteEntry(entry.id)}
-                          className="rounded-lg p-2 text-board-muted opacity-100 transition-all hover:bg-red-500/20 hover:text-red-400 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 focus-visible:opacity-100"
+                          disabled={!canWrite}
+                          onClick={() => handleDeleteEntry(entry)}
+                          className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted transition-all hover:bg-red-500/20 hover:text-red-400 focus-visible:outline-2 focus-visible:outline-fire-500 disabled:opacity-50"
                           aria-label={`Remove ${entry.template?.label || "checklist item"} from this service`}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -353,7 +296,7 @@ function ChecklistPage() {
           {loadingEntries ? (
             <p className="text-center text-sm text-board-muted py-8">Loading checklist...</p>
           ) : (
-            totalCount === 0 && (
+            !entryRead.error && totalCount === 0 && (
               <EmptyState
                 icon={ListChecks}
                 title="No checklist items for this date"
@@ -372,22 +315,27 @@ function ChecklistPage() {
 
         {/* Add new */}
         {canManageChecklist ? (
-          <form onSubmit={handleAddTemplate} className="flex gap-2">
+          <form onSubmit={handleAddTemplate} className="flex flex-wrap gap-2">
+            <label htmlFor="checklist-new-label" className="sr-only">Checklist item</label>
             <input
+              id="checklist-new-label"
               type="text"
+              maxLength={200}
+              disabled={writeLocked}
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
               placeholder="Add checklist item..."
-              className="flex-1 min-w-0 px-4 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 transition-all"
+              className="min-h-11 flex-1 basis-48 min-w-0 px-4 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 transition-all"
             />
             <label className="sr-only" htmlFor="new-category">
               Department
             </label>
             <select
               id="new-category"
+              disabled={writeLocked}
               value={newCategory}
-              onChange={(e) => setNewCategory(e.target.value as DepartmentKey)}
-              className="shrink-0 px-3 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50 transition-all"
+              onChange={(e) => setNewCategory(normalizeCategory(e.target.value))}
+              className="min-h-11 shrink-0 px-3 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50 transition-all"
             >
               {DEPARTMENT_ORDER.map((key) => (
                 <option key={key} value={key}>
@@ -397,8 +345,8 @@ function ChecklistPage() {
             </select>
             <button
               type="submit"
-              disabled={adding || !newLabel.trim()}
-              className="px-4 py-2.5 rounded-xl font-semibold text-sm text-black disabled:opacity-50 transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
+              disabled={!canWrite || !normalizeChecklistLabel(newLabel)}
+              className="min-h-11 min-w-11 px-4 py-2.5 rounded-xl font-semibold text-sm text-black disabled:opacity-50 transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
               style={{ background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)" }}
               aria-label="Add checklist item"
             >
@@ -410,6 +358,12 @@ function ChecklistPage() {
         )}
       </div>
       {ConfirmDialogEl}
+      <Dialog open={blocker.status === "blocked"} onOpenChange={open => { if (!open) blocker.reset?.(); }}>
+        <DialogContent><DialogHeader><DialogTitle>Leave this checklist?</DialogTitle>
+          <DialogDescription>An unconfirmed save may still complete. Leaving discards the local draft and its retry controls. Review this checklist when you return.</DialogDescription></DialogHeader>
+          <DialogFooter><Button variant="outline" onClick={() => blocker.reset?.()}>Stay</Button><Button onClick={() => blocker.proceed?.()}>Leave checklist</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={generatorOpen} onOpenChange={setGeneratorOpen}>
         <DialogContent className="max-h-[85vh] overflow-hidden border-board-border bg-board-card p-0 text-board-text sm:max-w-2xl">
           <DialogHeader className="border-b border-board-border px-6 py-5 pr-12">
@@ -425,14 +379,14 @@ function ChecklistPage() {
           </DialogHeader>
 
           <div className="max-h-[55vh] overflow-y-auto px-6 py-4">
+            <ReadFailureNotice error={entryRead.error} refreshing={entryRead.refreshing} retry={entryRead.retry} label="Retry checklist" />
+            {writeNotice}
             {generating ? (
               <div className="flex items-center justify-center gap-2 py-12 text-sm text-board-muted">
                 <Loader2 className="h-4 w-4 animate-spin" /> Analyzing rundown cues…
               </div>
-            ) : generatorError ? (
-              <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-300">
-                {generatorError}
-              </div>
+            ) : draftRead.error ? (
+              <ReadFailureNotice error={draftRead.error} refreshing={draftRead.refreshing} retry={draftRead.retry} label="Retry checklist suggestions" />
             ) : draft.length === 0 ? (
               <div className="py-10 text-center">
                 <ListChecks className="mx-auto mb-3 h-8 w-8 text-board-muted" />
@@ -447,12 +401,13 @@ function ChecklistPage() {
                   <span>{selectedSuggestionIds.size} of {draft.length} selected</span>
                   <button
                     type="button"
-                    onClick={() => setSelectedSuggestionIds(
+                    disabled={writeLocked}
+                    onClick={() => setDraftSelection(
                       selectedSuggestionIds.size === draft.length
                         ? new Set()
                         : new Set(draft.map((suggestion) => suggestion.id)),
                     )}
-                    className="font-medium text-fire-400 hover:text-fire-300"
+                    className="min-h-11 px-2 font-medium text-fire-400 hover:text-fire-300"
                   >
                     {selectedSuggestionIds.size === draft.length ? "Clear all" : "Select all"}
                   </button>
@@ -468,23 +423,24 @@ function ChecklistPage() {
                     >
                       <input
                         type="checkbox"
+                        disabled={writeLocked}
                         checked={selected}
-                        onChange={() => setSelectedSuggestionIds((current) => {
-                          const next = new Set(current);
+                        onChange={() => setDraftSelection(() => {
+                          const next = new Set(selectedSuggestionIds);
                           if (next.has(suggestion.id)) next.delete(suggestion.id);
                           else next.add(suggestion.id);
                           return next;
                         })}
                         className="mt-1 h-4 w-4 accent-amber-500"
                       />
-                      <span className="min-w-0 flex-1">
+                      <span className="min-w-0 flex-1 basis-32">
                         <span className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-medium text-board-text">{suggestion.label}</span>
-                          <span className="rounded-full border border-board-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-board-muted">
+                          <span className="rounded-full border border-board-border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-board-muted">
                             {DEPARTMENT_LABELS[suggestion.category]}
                           </span>
                           {suggestion.existingTemplateId && (
-                            <span className="text-[10px] font-medium text-emerald-400">Existing template</span>
+                            <span className="text-xs font-medium text-emerald-400">Existing template</span>
                           )}
                         </span>
                         <span className="mt-1 block text-xs leading-relaxed text-board-muted">
@@ -505,15 +461,15 @@ function ChecklistPage() {
             <button
               type="button"
               onClick={() => setGeneratorOpen(false)}
-              className="rounded-lg border border-board-border px-4 py-2 text-sm font-medium text-board-muted hover:text-board-text"
+              className="min-h-11 rounded-lg border border-board-border px-4 py-2 text-sm font-medium text-board-muted hover:text-board-text"
             >
               Cancel
             </button>
             <button
               type="button"
               onClick={() => void handleApplyDraft()}
-              disabled={generating || applyingDraft || selectedSuggestionIds.size === 0}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 px-4 py-2 text-sm font-semibold text-black disabled:opacity-50"
+              disabled={!canWrite || generating || !!draftRead.error || draftRead.refreshing || selectedSuggestionIds.size === 0}
+              className="min-h-11 inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 px-4 py-2 text-sm font-semibold text-black disabled:opacity-50"
             >
               {applyingDraft && <Loader2 className="h-4 w-4 animate-spin" />}
               Add {selectedSuggestionIds.size || "selected"} checks

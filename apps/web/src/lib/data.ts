@@ -6,19 +6,10 @@ import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { EQUIPMENT_CATEGORIES, EQUIPMENT_STATUSES } from "@showpilot/shared";
 import type { Permission } from "@/lib/app-permissions";
-import {
-  createChecklistTemplateId,
-  deleteChecklistEntryCore,
-  findChecklistTemplateId,
-  type ChecklistTemplateWrite,
-} from "@/lib/checklist-core";
-import { persistChecklistItem } from "@/lib/checklist-write.server";
-import {
-  setChecklistEntryCategory,
-  transitionChecklistEntry,
-} from "@/lib/checklist-toggle.server";
+import { checklistWriteSchema } from "@/lib/checklist-writes";
+import { applyChecklistWrite } from "@/lib/checklist-writes.server";
+import { getD1 } from "@/lib/d1";
 import { getPrisma } from "@/lib/db";
-import { DEPARTMENT_ORDER } from "@/lib/departments";
 import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
 import { getRundownStateForOrg } from "@/lib/rundown";
 import {
@@ -27,7 +18,6 @@ import {
 } from "@/lib/smart-checklist-rules";
 import {
   idSchema,
-  labelSchema,
   parseOrThrow,
   serviceDateSchema,
 } from "@/lib/validation";
@@ -285,92 +275,6 @@ export const getPublicCrewMemberByMemberId = createServerFn({ method: "GET" })
 
 // ─── Checklist ──────────────────────────────────────────────
 
-export const addChecklistItem = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        label: labelSchema,
-        category: z.enum(DEPARTMENT_ORDER),
-        serviceDate: serviceDateSchema,
-        showId: idSchema,
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "checklist:access");
-    const prisma = getPrisma();
-    const [show, templates] = await Promise.all([
-      prisma.rundown.findFirst({
-        where: {
-          id: data.showId,
-          orgId: data.orgId,
-          serviceDate: data.serviceDate,
-        },
-        select: { id: true },
-      }),
-      prisma.checklistTemplate.findMany({
-        where: { orgId: data.orgId },
-        select: { id: true, label: true },
-        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      }),
-    ]);
-    if (!show) throw new Error("Show not found");
-
-    const label = data.label.trim();
-    const existingTemplateId = findChecklistTemplateId(templates, label);
-    const template: ChecklistTemplateWrite = existingTemplateId
-      ? { kind: "existing", id: existingTemplateId, category: data.category }
-      : {
-          kind: "new",
-          id: await createChecklistTemplateId(data.orgId, label),
-          label,
-          category: data.category,
-        };
-    return persistChecklistItem({
-      orgId: data.orgId,
-      showId: data.showId,
-      serviceDate: data.serviceDate,
-      template,
-    });
-  });
-
-export const updateChecklistTemplate = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        id: idSchema,
-        updates: z.object({ category: z.enum(DEPARTMENT_ORDER) }),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "checklist:access");
-    return setChecklistEntryCategory({
-      orgId: data.orgId,
-      entryId: data.id,
-      category: data.updates.category,
-    });
-  });
-
-export const deleteChecklistEntry = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "checklist:access");
-    const prisma = getPrisma();
-    return deleteChecklistEntryCore({
-      entry: { id: data.id, orgId: data.orgId },
-      store: {
-        deleteMany: (where) => prisma.checklistEntry.deleteMany({ where }),
-      },
-    });
-  });
-
 export const getChecklistEntries = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) =>
     parseOrThrow(
@@ -401,34 +305,6 @@ export const getChecklistEntries = createServerFn({ method: "GET" })
       ...entry,
       template: { ...entry.template, category: entry.category },
     }));
-  });
-
-export const toggleChecklistEntry = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        id: idSchema,
-        checked: z.boolean(),
-        expectedRevision: z.number().int().min(0),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "checklist:access");
-    const { getAuth } = await import("@/lib/auth");
-    const session = await getAuth().api.getSession({
-      headers: getRequestHeaders(),
-    });
-    if (!session) throw new Error("Unauthorized");
-    return transitionChecklistEntry({
-      orgId: data.orgId,
-      entryId: data.id,
-      checked: data.checked,
-      expectedRevision: data.expectedRevision,
-      actorName: session.user.name,
-    });
   });
 
 export type SmartChecklistDraft = ReturnType<
@@ -488,216 +364,16 @@ export const getSmartChecklistDraft = createServerFn({ method: "GET" })
     return buildSmartChecklistDraft(data.orgId, data.serviceDate, data.showId);
   });
 
-/** Apply only selected server-generated suggestions, re-deriving them to reject invented client input. */
-export const applySmartChecklistDraft = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        serviceDate: serviceDateSchema,
-        showId: idSchema,
-        suggestionIds: z.array(z.string().min(1).max(100)).max(30),
-      }),
-      data,
-    ),
-  )
+/** Retry always rechecks authorization, then acknowledges the captured operation. */
+export const mutateChecklist = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(checklistWriteSchema, data))
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "checklist:access");
-    const requested = new Set(data.suggestionIds);
-    const draft = await buildSmartChecklistDraft(
-      data.orgId,
-      data.serviceDate,
-      data.showId,
-    );
-    const selected = draft.filter((suggestion) => requested.has(suggestion.id));
-    let added = 0;
-
-    for (const suggestion of selected) {
-      const template: ChecklistTemplateWrite = suggestion.existingTemplateId
-        ? {
-            kind: "existing",
-            id: suggestion.existingTemplateId,
-            category: suggestion.category,
-          }
-        : {
-            kind: "new",
-            id: await createChecklistTemplateId(data.orgId, suggestion.label),
-            label: suggestion.label,
-            category: suggestion.category,
-          };
-      const result = await persistChecklistItem({
-        orgId: data.orgId,
-        showId: data.showId,
-        serviceDate: data.serviceDate,
-        template,
-      });
-      if (result.added) added += 1;
-    }
-
-    return { added };
-  });
-
-// ─── Incidents ──────────────────────────────────────────────
-
-export const getIncidents = createServerFn({ method: "GET" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        serviceDate: serviceDateSchema,
-        showId: idSchema.optional(),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, [
-      "incidents:report",
-      "incidents:access",
-    ]);
-    const prisma = getPrisma();
-    return await prisma.incident.findMany({
-      where: {
-        orgId: data.orgId,
-        ...(data.showId
-          ? { showId: data.showId }
-          : { serviceDate: data.serviceDate }),
-      },
-      orderBy: { timestamp: "desc" },
-    });
-  });
-
-export const addIncident = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        category: z.string().max(100),
-        severity: z.string().max(50),
-        description: longTextSchema,
-        reportedBy: z.string().max(200),
-        serviceDate: serviceDateSchema,
-        showId: idSchema,
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, [
-      "incidents:report",
-      "incidents:access",
-    ]);
-    const prisma = getPrisma();
-    const show = await prisma.rundown.findFirst({
-      where: {
-        id: data.showId,
-        orgId: data.orgId,
-        serviceDate: data.serviceDate,
-      },
-      select: { id: true },
-    });
-    if (!show) throw new Error("Show not found");
-    const incident = await prisma.incident.create({
-      data: {
-        orgId: data.orgId,
-        showId: data.showId,
-        category: data.category,
-        severity: data.severity,
-        description: data.description,
-        reportedBy: data.reportedBy,
-        serviceDate: data.serviceDate,
-      },
-    });
     const { getAuth } = await import("@/lib/auth");
-    const session = await getAuth().api.getSession({
-      headers: getRequestHeaders(),
-    });
-    const { notifyOperationalEvent } =
-      await import("@/lib/operational-notifications.server");
-    await notifyOperationalEvent({
-      orgId: data.orgId,
-      actorId: session?.user.id,
-      includeLeadership: true,
-      category: "incidents",
-      type: "incident-created",
-      severity:
-        data.severity === "critical" || data.severity === "high"
-          ? "critical"
-          : "warning",
-      title: `New ${data.severity} ${data.category} issue`,
-      message: data.description.slice(0, 240),
-      actionUrl: `production/incidents?date=${encodeURIComponent(data.serviceDate)}&show=${encodeURIComponent(data.showId)}&incident=${encodeURIComponent(incident.id)}`,
-      source: incident.id,
-      pushTag: `incident-${incident.id}`,
-    });
-    return incident;
-  });
-
-export const updateIncident = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        id: idSchema,
-        updates: z
-          .object({
-            category: z.string().max(100),
-            severity: z.string().max(50),
-            description: longTextSchema,
-          })
-          .partial(),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "incidents:access");
-    const prisma = getPrisma();
-    const existing = await prisma.incident.findFirst({
-      where: { id: data.id, orgId: data.orgId },
-      select: { id: true },
-    });
-    if (!existing) throw new Error("Incident not found");
-    const incident = await prisma.incident.update({
-      where: { id: data.id },
-      data: data.updates,
-    });
-    const { getAuth } = await import("@/lib/auth");
-    const session = await getAuth().api.getSession({
-      headers: getRequestHeaders(),
-    });
-    const { notifyOperationalEvent } =
-      await import("@/lib/operational-notifications.server");
-    await notifyOperationalEvent({
-      orgId: data.orgId,
-      actorId: session?.user.id,
-      includeLeadership: true,
-      category: "incidents",
-      type: "incident-updated",
-      severity:
-        incident.severity === "critical" || incident.severity === "high"
-          ? "critical"
-          : "warning",
-      title: "Operational issue updated",
-      message: incident.description.slice(0, 240),
-      actionUrl: `production/incidents?date=${encodeURIComponent(incident.serviceDate)}${incident.showId ? `&show=${encodeURIComponent(incident.showId)}` : ""}&incident=${encodeURIComponent(incident.id)}`,
-      source: incident.id,
-      pushTag: `incident-${incident.id}`,
-    });
-    return incident;
-  });
-
-export const deleteIncident = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), data),
-  )
-  .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "incidents:access");
-    const prisma = getPrisma();
-    const result = await prisma.incident.deleteMany({
-      where: { id: data.id, orgId: data.orgId },
-    });
-    if (result.count === 0) throw new Error("Incident not found");
+    const session = await getAuth().api.getSession({ headers: getRequestHeaders() });
+    if (!session) throw new Error("Unauthorized");
+    return applyChecklistWrite(getD1(), data, session.user.name,
+      () => buildSmartChecklistDraft(data.orgId, data.serviceDate, data.showId));
   });
 
 // ─── Mic Assignments ────────────────────────────────────────

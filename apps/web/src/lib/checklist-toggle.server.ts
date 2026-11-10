@@ -32,8 +32,8 @@ export async function setChecklistEntryCategory({
   database?: ChecklistToggleDatabase;
 }) {
   const result = await database.prepare(
-    "UPDATE checklist_entry SET category = ? WHERE id = ? AND orgId = ?",
-  ).bind(category, entryId, orgId).run();
+    "UPDATE checklist_entry SET revision = CASE WHEN category = ? THEN revision ELSE revision + 1 END, category = ? WHERE id = ? AND orgId = ?",
+  ).bind(category, category, entryId, orgId).run();
   if ((result.meta?.changes ?? 0) === 0) throw new Error("Checklist item not found.");
   return { ok: true as const };
 }

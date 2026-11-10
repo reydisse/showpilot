@@ -5,20 +5,25 @@ import { ConfidenceOutputControls } from "@/components/settings/ConfidenceOutput
 import { ConfidenceSection } from "@/components/settings/ConfidenceSection";
 import { useConfidenceOutput } from "@/lib/use-confidence-output";
 import { getManageableOrgSettings } from "@/lib/settings";
+import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CONFIDENCE_LAYOUT_KEY } from "@/lib/confidence-layout";
 
 export function ConfidenceToolbar({ slug, orgId }: { slug: string; orgId?: string }) {
   const output = useConfidenceOutput(slug);
   const [open, setOpen] = useState(false);
-  const [layout, setLayout] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const { confirm, ConfirmDialogEl } = useConfirmDialog();
+  const [layout, setLayout] = useState<string | null | undefined>(null);
   const [layoutError, setLayoutError] = useState("");
+  const [layoutOrg, setLayoutOrg] = useState(orgId);
   useEffect(() => {
     if (!open || !orgId) return;
     let active = true;
     setLayout(null);
+    setLayoutOrg(orgId);
     setLayoutError("");
     void getManageableOrgSettings({ data: { orgId } }).then((settings) => {
-      if (active) setLayout(settings[CONFIDENCE_LAYOUT_KEY] ?? "");
+      if (active) setLayout(settings[CONFIDENCE_LAYOUT_KEY]);
     }).catch(() => {
       if (active) setLayoutError("Could not load the screen style. Close and reopen to retry.");
     });
@@ -58,17 +63,18 @@ export function ConfidenceToolbar({ slug, orgId }: { slug: string; orgId?: strin
           <Power aria-hidden="true" className="size-4" />
         </button>
       </div>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={async next => { if (!next && dirty && !await confirm({ title: "Close confidence settings?", description: "An unconfirmed apply may still complete. Closing discards local preview edits and retry controls.", confirmLabel: "Close settings" })) return; setOpen(next); }}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto bg-board-bg text-board-text sm:max-w-3xl">
           <DialogTitle>Confidence display</DialogTitle>
           <DialogDescription>Choose an output and adjust what your team sees.</DialogDescription>
           <ConfidenceOutputControls slug={slug} output={output} />
           {layoutError && <p role="alert" className="text-sm text-red-400">{layoutError}</p>}
-          {orgId && layout !== null && (
-            <ConfidenceSection orgId={orgId} slug={slug} initialValue={layout} onApplied={setLayout} showOutputs={false} />
+          {orgId && layoutOrg === orgId && layout !== null && (
+            <ConfidenceSection key={orgId} orgId={orgId} slug={slug} initialValue={layout} onApplied={setLayout} onDirtyChange={setDirty} showOutputs={false} />
           )}
         </DialogContent>
       </Dialog>
+      {ConfirmDialogEl}
     </>
   );
 }
