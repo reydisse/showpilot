@@ -178,7 +178,7 @@ try {
           `${form} input[placeholder="00:05:00:00"]`,
           "00:01:00:00",
         );
-        await browser("select", `${form} select`, action);
+        await browser("select", `${form} select >> nth=0`, action);
         if (action === "pp-trigger-prop") {
           await browser(
             "find",

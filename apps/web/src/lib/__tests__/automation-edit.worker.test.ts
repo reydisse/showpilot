@@ -3,6 +3,7 @@ import { abortAllDurableObjects, evictDurableObject } from "cloudflare:test";
 import { afterEach, expect, it } from "vitest";
 import { timecodeFixture } from "@/test/timecode-fixtures";
 import { automationEditReview } from "@/lib/automation-edit";
+import { resolveTimecodeDeviceAction } from "@/lib/timecode-device-actions";
 import { cueReviewState } from "@/lib/automation-cues";
 import type { AutomationEvent, TimecodeFormat } from "@/types/timecode";
 
@@ -97,4 +98,24 @@ it("validates webhook targets on save and leaves rejected changes unapplied", as
   }
   await test.command("update-event", { id: cue.id, updates: { payload: { url: "https://example.com/updated" } } });
   expect(await test.current()).toMatchObject({ label: "Original", fired: false, payload: { url: "https://example.com/updated" } });
+});
+
+
+it("applies a structured device selection over legacy routing fields without re-arming", async () => {
+  const test = await fixture();
+  for (const [id, host] of [["old", "10.0.0.1"], ["new", "10.0.0.2"]]) {
+    await env.DB.prepare("INSERT INTO device (id,orgId,name,adapterType,category,settings,enabled,createdAt,updatedAt) VALUES (?,?,?,'atem','video',?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
+      .bind(`${test.orgId}-${id}`, test.orgId, id, JSON.stringify({ host })).run();
+  }
+  await test.command("add-event", { ...cue, action: "device-action", targetDeviceId: `${test.orgId}-old`, targetActionId: "set_preview_input", payload: { input: 1 } });
+  const before = await test.current();
+  await test.command("update-event", { id: cue.id, expected: automationEditReview(before), updates: { payload: { deviceId: `${test.orgId}-new`, actionId: "set_program_input", params: { input: 3 } } } });
+  const edited = await test.current();
+  expect(edited.targetDeviceId).toBeUndefined(); expect(edited.targetActionId).toBeUndefined();
+  expect(edited).toMatchObject({ id: cue.id, fired: false, executionAttempts: 0 });
+  const resolved = await resolveTimecodeDeviceAction(env.DB, test.orgId, edited);
+  expect(resolved).toMatchObject({ deviceId: `${test.orgId}-new`, target: "10.0.0.2:9910" });
+  expect(JSON.parse(resolved.command)).toEqual({ actionId: "set_program_input", params: { input: 3 } });
+  await test.command("update-event", { id: cue.id, updates: { payload: { deviceId: "", actionId: "set_program_input" } } }, 400);
+  expect(await test.current()).toEqual(edited);
 });

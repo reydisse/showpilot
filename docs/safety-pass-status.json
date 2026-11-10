@@ -1469,9 +1469,9 @@
       "phase": "2",
       "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
       "line": 235,
-      "status": "in_progress",
+      "status": "verified",
       "evidence": [
-        "2026-11-06: Inline timecode validation now disables submission immediately and names the current rate as fps plus NDF/DF. Webhook URLs have a structured validated field. Unit and built-browser checks passed. Remaining generic JSON actions, device/song/section selectors and global frame-rate wording are not complete."
+        "2026-11-06: Removed the raw JSON editor. Named fields cover lower thirds, stage/crew messages, signed-second adjustments, media, timers, webhook URLs, ProPresenter targets and no-detail actions. Device/action/typed-parameter selectors use a permission-scoped settings-free server catalog and existing parameter rules; saved song/section selectors build full native lyrics or mapped ProPresenter payloads. Start Item and Jump select current-show items. Tolerance and inline timecode validation retain the same fps NDF/DF wording as the source selector. Bounded loaders reject stale, missing and failed selections. Full suite passed 1644 unit and 613 Worker tests, typecheck and build. Built-app smoke-cue-fields.mjs and smoke-timecode-latency.mjs passed: real saved selections, lyric/stage output, device timing and 320px forms. Physical equipment output remains a separate rehearsal gate."
       ]
     },
     {

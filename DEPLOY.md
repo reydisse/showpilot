@@ -585,12 +585,41 @@ reloads the latest cue. Dispatching cues cannot be edited.
 Timecode validation runs while typing and uses the current frame rate. Webhook
 cues have a URL field; saved URL changes must pass the public HTTPS validator.
 DNS resolution, webhook HMAC and the remaining fixed-schema hardening are still
-Phase 3 work. This does not complete the structured fields for every action.
+Phase 3 work.
 
 Run `node apps/web/scripts/smoke-cue-editing.mjs` against the built app. It uses
 disposable accounts and a real local relay to check save acknowledgement,
 identity and execution history, invalid timecode, concurrent changes, offline
 draft retention, a 320px dialog and webhook URL validation.
+
+### Structured cue fields
+
+The event editor uses named fields instead of raw JSON. Lower thirds preserve free-text, person, scripture and style-only formats; stage and crew messages have text fields; rundown adjustments
+use signed seconds. Start Item and Jump select a saved rundown item. Clear,
+advance, previous, pause and resume actions need no extra payload.
+
+Device actions select an enabled device, then an action and its typed fields.
+The server returns only names, IDs and action definitions, scoped to the member's
+organization and permissions. Connection settings and credentials stay private.
+The editor uses the same number ranges, select options and parameter validation
+as the device modules. Lighting scenes select a lighting device's scene recall
+action. Explicit target edits replace older top-level target aliases; metadata
+edits preserve their effective destination. Editing does not re-arm a cue.
+
+Lyrics cues select a saved song and section, preview its text, and save the
+complete section payload including the next section label. ProPresenter slide
+cues select a saved imported presentation and its mapped section; an unmapped
+section cannot be saved. Next, Previous and Clear expose the optional connected
+ProPresenter target. Loading selectors is bounded to ten seconds, errors offer
+refresh, and late responses cannot replace choices from a newer workspace or
+song selection.
+
+After building, run `node apps/web/scripts/smoke-cue-fields.mjs` and
+`node apps/web/scripts/smoke-timecode-latency.mjs`. These use disposable local
+accounts and real saved songs/devices. They exercise structured saves, lyric and
+stage output, narrow layout and device timing. They do not test physical device
+rendering. Unit and Worker tests cover typed parameters, stale responses,
+missing mappings, target changes, organization isolation and credential masking.
 
 ### Named countdown timers
 

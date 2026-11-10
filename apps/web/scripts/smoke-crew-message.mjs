@@ -23,7 +23,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await browser("wait", '[data-testid="chat-panel"]');
   await browser("tab", "0");
   const form = 'form:has(input[placeholder="00:05:00:00"])';
-  await browser("select", `${form} select`, "crew-message");
+  await browser("select", `${form} select >> nth=0`, "crew-message");
   await browser("fill", `${form} input[placeholder="00:05:00:00"]`, "00:01:00:00");
   const message = "Standby cameras\nCamera 2 next";
   await browser("find", "label", "Crew message", "fill", message);

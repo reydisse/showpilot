@@ -1194,12 +1194,24 @@ export class TimecodeRelay extends DurableObject {
         const updates = parsed.data;
         if (updates.triggerTimecode && !isValidTimecode(updates.triggerTimecode, this.state.format)) throw new TimecodeCommandRejection("The cue time is not valid at the current frame rate.");
         const candidate = { ...event, ...updates };
+        const deviceDetails = updates.payload && (event.action === "device-action" || event.action === "lighting-scene" || event.action === "lighting-blackout") ? updates.payload : null;
+        const replacesDevice = deviceDetails !== null && Object.hasOwn(deviceDetails, "deviceId");
+        const replacesAction = deviceDetails !== null && Object.hasOwn(deviceDetails, "actionId");
+        for (const key of ["deviceId", "actionId"] as const) {
+          if (deviceDetails && Object.hasOwn(deviceDetails, key) && !z.string().trim().min(1).max(200).safeParse(deviceDetails[key]).success) throw new TimecodeCommandRejection("Choose a valid device and action.");
+        }
+        // Explicit structured selections replace older top-level routing aliases.
+        // Metadata-only edits send those saved targets unchanged in the payload.
+        if (replacesDevice) delete candidate.targetDeviceId;
+        if (replacesAction) delete candidate.targetActionId;
         if (updates.payload && event.action === "custom-webhook" && !isSafeAutomationWebhookUrl(updates.payload.url)) {
           throw new TimecodeCommandRejection("Custom webhook target must be a public HTTPS URL.");
         }
         const problem = automationPayloadProblem(candidate);
         if (problem) throw new TimecodeCommandRejection(problem);
         Object.assign(event, updates);
+        if (replacesDevice) delete event.targetDeviceId;
+        if (replacesAction) delete event.targetActionId;
         event.editRevision = crypto.randomUUID();
         if (updates.triggerTimecode) event.triggerFrame = timecodeToFrames(updates.triggerTimecode, this.state.format);
         this.applyEventTiming(event);
