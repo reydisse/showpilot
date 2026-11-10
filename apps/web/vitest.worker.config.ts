@@ -5,6 +5,7 @@ import {
   readD1Migrations,
 } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
+import { coverageOptions } from "./coverage.config";
 
 export default defineConfig(async () => {
   const migrations = await readD1Migrations(
@@ -53,6 +54,7 @@ export default defineConfig(async () => {
       },
     },
     test: {
+      coverage: coverageOptions("worker"),
       include: ["src/**/*.worker.test.{ts,tsx}"],
       setupFiles: ["./src/test/apply-worker-migrations.ts"],
     },
