@@ -11,14 +11,13 @@ import { hasPermission, normalizeRole } from "./permissions";
 //   hand-maintained. A new org-scoped model is picked up automatically; a
 //   model whose org FK can't be identified makes derivation throw before
 //   anything is deleted (fail closed).
-// - D1 does not support real transactions — Prisma's D1 adapter runs
-//   $transaction batches as sequential individual queries. Atomicity is
-//   therefore approximated by (a) strict child-before-parent delete order,
-//   so an interrupted run never leaves rows referencing deleted parents, and
-//   (b) idempotency: every step is a no-op when its work is already done, so
-//   a partial failure is safely re-runnable.
-// - The organization row itself is deleted LAST; while it exists, a re-run
-//   can always resume.
+// - Prisma's D1 adapter runs $transaction batches as individual queries.
+//   App cleanup therefore uses child-before-parent ordering and idempotent
+//   steps so interrupted cleanup can resume. D1's own batches are atomic;
+//   Prisma's $transaction must not be mistaken for that guarantee.
+// - The organization row is deleted LAST. Its single SQLite DELETE cascades
+//   to memberships and the deletion marker atomically, so a failed final
+//   statement keeps the owner's authority and the retry path intact.
 
 export interface RuntimeDataModelField {
   name: string;
@@ -258,7 +257,6 @@ export async function deleteOrganizationCore(opts: {
 
   const plan = deriveOrgDeletionPlan(getRuntimeDataModel(prisma));
   const appTargets = plan.filter((t) => !FINAL_ORG_MODELS.has(t.model));
-  const finalTargets = plan.filter((t) => FINAL_ORG_MODELS.has(t.model));
   const d = delegates(prisma);
 
   // 1. Stripe first — never delete a paying org's data while its
@@ -287,18 +285,15 @@ export async function deleteOrganizationCore(opts: {
   // 3. R2 objects under the org's prefix.
   const r2ObjectsDeleted = await opts.deleteR2Prefix(orgId);
 
-  // 4. Better Auth memberships/invitations, stale session pointers, then the
-  //    organization row itself — last, so any earlier failure stays resumable.
-  await prisma.$transaction([
-    prisma.session.updateMany({
-      where: { activeOrganizationId: orgId },
-      data: { activeOrganizationId: null },
-    }),
-    ...finalTargets.map((t) =>
-      d[t.delegate].deleteMany({ where: { [t.orgField]: orgId } }),
-    ),
-    prisma.organization.deleteMany({ where: { id: orgId } }),
-  ]);
+  // 4. Keep memberships and the deletion marker until the organization DELETE
+  // commits. Their ON DELETE CASCADE constraints run inside that one SQLite
+  // statement. Prisma D1 $transaction is not atomic: deleting members first can
+  // strand a surviving organization without an owner after a final-step failure.
+  await prisma.session.updateMany({
+    where: { activeOrganizationId: orgId },
+    data: { activeOrganizationId: null },
+  });
+  await prisma.organization.deleteMany({ where: { id: orgId } });
 
   return {
     alreadyDeleted: false,

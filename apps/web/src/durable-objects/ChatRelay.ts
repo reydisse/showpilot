@@ -588,19 +588,8 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    await this.ensureHistoryLoaded();
-
-    if (url.pathname === "/internal/delete-user-data" && request.method === "POST") {
-      const suppliedSecret = request.headers.get("x-showpilot-internal-secret");
-      if (!this.env.BETTER_AUTH_SECRET || suppliedSecret !== this.env.BETTER_AUTH_SECRET) {
-        return new Response("Unauthorized", { status: 401 });
-      }
-      const body: { userId?: unknown } = await request.json<{ userId?: unknown }>().catch(() => ({}));
-      const userId = typeof body.userId === "string" ? body.userId.trim() : "";
-      if (!userId || userId.length > 200) return new Response("Bad Request", { status: 400 });
-      return Response.json(await this.deleteUserData(userId));
-    }
-
+    // A resumed organization deletion may purge this instance again after its
+    // SQL tables were dropped. Authorize and purge before loading any history.
     if (url.pathname === "/internal/purge-org" && request.method === "POST") {
       const suppliedSecret = request.headers.get("x-showpilot-internal-secret");
       if (!this.env.BETTER_AUTH_SECRET || suppliedSecret !== this.env.BETTER_AUTH_SECRET) {
@@ -614,6 +603,20 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       this.lastGatewayStatus = null;
       return Response.json({ ok: true });
     }
+
+    await this.ensureHistoryLoaded();
+
+    if (url.pathname === "/internal/delete-user-data" && request.method === "POST") {
+      const suppliedSecret = request.headers.get("x-showpilot-internal-secret");
+      if (!this.env.BETTER_AUTH_SECRET || suppliedSecret !== this.env.BETTER_AUTH_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      const body: { userId?: unknown } = await request.json<{ userId?: unknown }>().catch(() => ({}));
+      const userId = typeof body.userId === "string" ? body.userId.trim() : "";
+      if (!userId || userId.length > 200) return new Response("Bad Request", { status: 400 });
+      return Response.json(await this.deleteUserData(userId));
+    }
+
 
     const requestedOrgId = url.searchParams.get("orgId") ?? "";
     const requestedRoomId = url.searchParams.get("room") ?? "production";

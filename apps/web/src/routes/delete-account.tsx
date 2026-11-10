@@ -3,7 +3,7 @@ import { AlertTriangle, ArrowRight, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { getAccountDeletionStatus } from "@/lib/account-deletion";
 import { authClient } from "@/lib/auth-client";
-import { deleteOrganization } from "@/lib/org-deletion";
+import { DeleteOrganization } from "@/components/settings/DeleteOrganization";
 import type { AccountDeletionOwnershipBlocker } from "@/lib/account-deletion-core";
 
 export const Route = createFileRoute("/delete-account")({
@@ -58,7 +58,7 @@ function DeleteAccountPage() {
                 <div><p className="text-sm font-semibold">Choose what happens to your workspaces</p><p className="mt-1 text-xs leading-5 text-board-muted">You are the last owner of these workspaces. Transfer ownership to keep a workspace for your team, or delete it here to continue. Deleting a workspace removes its shared data for everyone and cancels its ShowPilot subscription.</p></div>
               </div>
               <div className="mt-4 space-y-4">{status.blockers.map((blocker) => (
-                <WorkspaceDeletion key={blocker.id} workspace={blocker} onDeleted={() => router.invalidate()} />
+                <WorkspaceDeletion key={blocker.id} workspace={blocker} userId={status.userId} onDeleted={() => router.invalidate()} />
               ))}</div>
             </>
           ) : (
@@ -84,33 +84,14 @@ function DeleteAccountPage() {
   );
 }
 
-function WorkspaceDeletion({ workspace, onDeleted }: {
+function WorkspaceDeletion({ workspace, userId, onDeleted }: {
   workspace: AccountDeletionOwnershipBlocker;
+  userId: string;
   onDeleted: () => Promise<void>;
 }) {
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  async function remove() {
-    setBusy(true);
-    setError(null);
-    try {
-      await deleteOrganization({ data: { orgId: workspace.id, confirmName: name, continueAccountDeletion: true } });
-      await onDeleted();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Workspace deletion failed. Please retry.");
-    } finally {
-      setBusy(false);
-    }
-  }
-  return <div className="rounded-xl border border-board-border bg-board-bg/50 p-4">
+  return <div className="space-y-3 rounded-xl border border-board-border bg-board-bg/50 p-4">
     <h2 className="font-semibold">{workspace.name}</h2>
-    <Link to="/$slug/team" params={{ slug: workspace.slug }} className="mt-2 inline-block text-sm text-fire-400">Transfer ownership to a team member</Link>
-    <p className="mt-4 text-sm text-board-muted">To permanently delete this workspace and all its shared data, type <strong>{workspace.name}</strong>.</p>
-    <label className="mt-3 block text-sm">Workspace name
-      <input value={name} onChange={(event) => setName(event.target.value)} autoComplete="off" className="mt-2 w-full rounded-xl border border-board-border bg-board-bg px-4 py-3 text-base outline-none focus:border-red-500/60" />
-    </label>
-    {error ? <p role="alert" className="mt-3 text-sm text-red-300">{error} <Link to="/login" search={{ returnTo: "/delete-account" }} className="underline">Sign in again</Link></p> : null}
-    <button type="button" onClick={remove} disabled={busy || name !== workspace.name} className="mt-4 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white disabled:opacity-45">{busy ? "Deleting workspace…" : "Delete workspace and continue"}</button>
+    <Link to="/$slug/team" params={{ slug: workspace.slug }} className="inline-flex min-h-11 items-center text-sm text-fire-400">Transfer ownership to a team member</Link>
+    <DeleteOrganization orgId={workspace.id} orgName={workspace.name} userId={userId} onDeleted={onDeleted} />
   </div>;
 }
