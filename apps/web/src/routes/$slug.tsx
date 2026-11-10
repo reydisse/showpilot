@@ -1,3 +1,4 @@
+import { RundownHandoffNotice } from "@/components/layout/RundownHandoffNotice";
 import { getWorkspaceProfile } from "@/lib/workspace/profile";
 import {
   WorkspaceProvider,
@@ -108,6 +109,9 @@ function OrgContent() {
       <ThemeProvider>
         <TimecodeProvider enabled={canUseTimecode} orgId={context.orgId}>
           <div className={wrapperClassName}>
+            <div className="fixed inset-x-0 top-0 z-[80]">
+              <RundownHandoffNotice orgId={context.orgId} slug={context.slug} />
+            </div>
             <AccessGrantSyncController
             orgId={context.orgId}
             revision={context.accessRevision}

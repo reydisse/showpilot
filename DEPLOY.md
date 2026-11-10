@@ -621,6 +621,57 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Rundown connection recovery
+
+The rundown page and live rundown bar show timestamped connection failures and
+an explicit Reconnect rundown button. Initial connection shows a connecting
+state. Socket opening and initial state have a five-second deadline; backoff
+resets only after a valid state for the selected show arrives. Socket creation,
+sends, malformed frames and mismatched show state all produce visible errors.
+
+Recovery retains the last known rundown and pending edits. Each retry keeps its
+original command ID and expected revision. Transport commands still expire after
+five seconds, including when manually reconnecting, and their expiry warning
+remains visible after unrelated edits succeed. An acknowledgement without an
+explicit boolean acceptance and valid revision cannot mark a command confirmed.
+Changing shows clears the previous show's error and ProPresenter preview.
+
+After building, run `node apps/web/scripts/smoke-rundown-connection-recovery.mjs`.
+It stops/restarts a disposable Worker, checks retained state and timestamps at
+320px, verifies queued edits use the same ID and confirmed revision in order,
+checks disabled transport stays stopped after reconnect, and exercises the live
+bar's reconnect control. Also run the existing handoff and show-day safety
+rehearsals. No migration is required.
+
+### Rundown changes during navigation
+
+When a rundown socket closes for navigation, its pending commands retain their
+original IDs, expected revisions and live-action deadlines. The HTTP handoff now
+requires an explicit successful acknowledgement before sending the next change.
+An HTTP rejection, missing acknowledgement, expired transport action or an
+eight-second confirmation timeout stops the sequence and leaves a timestamped
+review notice. A failed response cannot supply the revision for later changes.
+
+The notice appears in the workspace shell and on standalone Board, Check-in and
+Crew Chat pages. Review rundown opens the original show/date without replaying
+commands. An operator can dismiss the notice after checking current state.
+Browser session storage retains only notice metadata, never command bodies,
+credentials, stage messages or show content. A pending notice restored after a
+reload becomes unconfirmed. If session storage is disabled, the notice remains
+available in memory but cannot survive a reload.
+
+The `pagehide` handler also hands pending commands off on full-page navigation.
+It drains the same queue as route cleanup, so a later cleanup cannot submit the
+batch twice. Browser shutdown can still interrupt acknowledgement; the restored
+notice prompts review and never assumes success.
+
+After building, run `node apps/web/scripts/smoke-rundown-handoff.mjs`. With a
+built Worker, real authentication and disposable relay data, it queues two stage
+changes, navigates away, loses the first HTTP response after its real commit,
+checks that the second change remains unsent, and reviews the original show.
+It also checks reload persistence, standalone visibility, 320px controls and
+full-page unload. No migration is required.
+
 ### Device connection recovery
 
 Device panels now show timestamped connection and configuration errors. Invalid

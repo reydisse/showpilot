@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import type { NativeTimerState } from "@/types/rundown";
 import { ACTIVE_RUNDOWN_CHANGED_EVENT, LiveRundownBar } from "../LiveRundownBar";
 
-const mocks = vi.hoisted(() => ({ getTarget: vi.fn(), sync: vi.fn(), sendCommand: vi.fn() }));
+const mocks = vi.hoisted(() => ({ getTarget: vi.fn(), sync: vi.fn(), sendCommand: vi.fn(), reconnect: vi.fn() }));
 vi.mock("@tanstack/react-router", () => ({ Link: ({ children, className }: { children: ReactNode; className?: string }) => <a href="/fixture/rundown" className={className}>{children}</a> }));
 vi.mock("@/lib/rundown", () => ({ getActiveRundownTarget: mocks.getTarget }));
 vi.mock("@/hooks/useRundownSync", () => ({ useRundownSync: mocks.sync }));
@@ -14,7 +14,7 @@ function synced() {
   return {
     items: [{ id: "item-1", title: "Welcome", duration: 300_000, status: "live", type: "segment" }],
     timer,
-    serviceName: "Sunday Morning", connected: true, hydrated: true, lastError: null as string | null, sendCommand: mocks.sendCommand,
+    serviceName: "Sunday Morning", connected: true, hydrated: true, lastError: null as string | null, lastErrorAt: null as number | null, retryConnection: mocks.reconnect, sendCommand: mocks.sendCommand,
   };
 }
 const props = { orgId: "org-1", slug: "fixture", canControl: true };
@@ -166,4 +166,18 @@ describe("LiveRundownBar", () => {
     await screen.findByText("Welcome");
     expect(screen.queryByRole("button", { name: "Resume rundown" })).toBeNull();
   });
+
+  it("shows a timestamped socket failure and a reconnect control", async () => {
+    state.connected = false;
+    state.lastError = "Rundown connection lost. Reconnecting.";
+    state.lastErrorAt = 123_000;
+    render(<LiveRundownBar {...props} />);
+    const failure = await screen.findByRole("alert");
+    expect(failure.textContent).toContain("Rundown connection lost");
+    expect(failure.querySelector("time")?.dateTime).toBe(new Date(123_000).toISOString());
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect rundown" }));
+    expect(mocks.reconnect).toHaveBeenCalledOnce();
+    expect(mocks.sendCommand).not.toHaveBeenCalled();
+  });
+
 });

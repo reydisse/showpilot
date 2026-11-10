@@ -118,7 +118,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, stopServer, s
   await browser("click", "h1");
   await browser("press", "Shift+Space");
   await browser("tab", "0");
-  await browser("wait", "text=Timecode disconnected. Controls will be available after reconnecting.");
+  await browser("wait", "text=Reconnecting, showing last known timecode state.");
   assert.equal((await browser("eval", "document.querySelector('input[placeholder=\"00:05:00:00\"]').value")).result, "00:01:00:00");
   assert.equal((await browser("eval", "[...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Add Event').matches(':disabled')")).result, true);
   assert.equal((await browser("eval", "[...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Start Internal Generator').matches(':disabled')")).result, true);
