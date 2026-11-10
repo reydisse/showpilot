@@ -103,10 +103,13 @@ await withLocalSmokeFixture(async({origin,orgId,stopServer,queryFixture,serverSt
   assert.equal(writes[2].requestId,writes[3].requestId);
   console.log(JSON.stringify({browserPassed:true,anonymous:true,freshIdentityRequired:true,lateResponseIgnored:true,oldRetryPreservesCheckout:true,viewports:[320,768,1440],errors:0}));
   await page('Page.navigate',{url:`${origin}/checkin/absent-fixture-org`});
-  await check(`document.body.textContent.includes('Organization not found')`,'invalid org stays on explicit error page');
+  // Page.navigate acknowledges navigation before the new document has a body.
+  // Require the destination as well as its content so the next check cannot
+  // accidentally accept the previous error page during navigation.
+  await check(`location.pathname==='/checkin/absent-fixture-org'&&document.body?.textContent.includes('Organization not found')`,'invalid org stays on explicit error page');
   assert.equal(await evaluate('location.pathname'),'/checkin/absent-fixture-org');
   await page('Page.navigate',{url:`${origin}/checkin/${'a'.repeat(65)}`});
-  await check(`document.body.textContent.includes('Organization not found')`,'malformed org link');
+  await check(`location.pathname==='/checkin/${'a'.repeat(65)}'&&document.body?.textContent.includes('Organization not found')`,'malformed org link');
   assert.deepEqual(await evaluate('window.kioskErrors'),[]);
  });
  await stopServer();
