@@ -2862,7 +2862,7 @@ from a backup as an automatic rollback step.
 
 ### Current state
 
-The production manifest records every migration through `0062_stream_input_lifecycle.sql`.
+The production manifest records every migration through `0063_team_command_receipts.sql`.
 Migration 0048 was applied on 2026-11-05 after a clean preflight and a saved
 Time Travel bookmark. Its postcondition verified three empty tables, five
 named indexes, an unchanged legacy key count, and no foreign key violations.
@@ -2894,6 +2894,11 @@ empty tables, named index, and no foreign key violations.
 Migration 0062 (`stream_input_command`, `stream_input_lifecycle`, `stream_input_health`) was applied on 2026-11-10 after a clean
 preflight and a saved Time Travel bookmark. Its postcondition verified the
 empty tables and no foreign key violations.
+Migration 0063 (`member.managementRevision`, `member_management_revision`, `team_command_receipt`) was applied on 2026-11-10 after a clean
+preflight and a saved Time Travel bookmark. Its postcondition verified the
+NOT NULL integer column with default 0 and every existing member at revision 0,
+the trigger, the empty receipt table, unchanged existing row counts, and no
+foreign key violations.
 Migrations 0030 through 0035 were applied in order on 2026-08-28. Migrations
 0036 and 0037 were applied in order on 2026-09-10. Migrations 0038 and 0039
 were applied in order on 2026-09-18. Before each rollout, every
@@ -3796,7 +3801,8 @@ payload returned by Better Auth's in-process API; HTTP status alone does not
 cause that API to reject. Mobile cancellation and removal can recover after the
 original target has already changed. Both membership endpoints still await the
 existing relay authority refresh. Apply 0063 after 0062 before deploying this
-code; no production migration has been applied.
+code. It was applied to production on 2026-11-10 and is recorded in the
+remote migration manifest.
 
 The Team workspace now retains one unfinished command across tabs, bounds reads
 and writes, and distinguishes Retry change from Retry refresh. Removal uses the
