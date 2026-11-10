@@ -127,4 +127,89 @@ describe("BridgeProxy", () => {
 
     expect(FakeWebSocket.instances).toHaveLength(1);
   });
+
+  it("reports constructor failures and backs off until a status snapshot arrives", () => {
+    const construct = vi.fn();
+    vi.stubGlobal("WebSocket", class {
+      constructor() { construct(); throw new Error("blocked"); }
+    });
+    const proxy = new BridgeProxy("org-constructor");
+    proxy.connect();
+    expect(proxy.getLastError()).toContain("Could not open");
+    expect(construct).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1000);
+    expect(construct).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(1999);
+    expect(construct).toHaveBeenCalledTimes(2);
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    vi.advanceTimersByTime(1);
+    const socket = FakeWebSocket.instances[0];
+    socket.open(); socket.receive({ type: "bridge-status", online: true });
+    expect(proxy.getLastError()).toBeNull();
+    socket.close();
+    vi.advanceTimersByTime(1000);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    proxy.disconnect();
+  });
+
+  it.each([false, true])("bounds a missing Bridge snapshot when socket opened=%s", (opened) => {
+    const proxy = new BridgeProxy("org-timeout"); proxy.connect();
+    const socket = FakeWebSocket.instances[0];
+    if (opened) socket.open();
+    vi.advanceTimersByTime(5000);
+    expect(socket.readyState).toBe(3);
+    expect(proxy.getLastError()).toContain("five seconds");
+    expect(proxy.isBridgeOnline()).toBe(false);
+    vi.advanceTimersByTime(1000);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    proxy.disconnect();
+    vi.advanceTimersByTime(60_000);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it.each(["close", "offline", "send failure"])("immediately rejects pending work on %s and never replays a command", async (failure) => {
+    const proxy = new BridgeProxy("org-pending"); const status = vi.fn();
+    proxy.onDeviceStatus(status); proxy.connect();
+    const socket = FakeWebSocket.instances[0];
+    socket.open(); socket.receive({ type: "bridge-status", online: true });
+    const command = proxy.sendCommand("atem", "venue:9910", "cut");
+    const rejected = expect(command).rejects.toThrow(/unconfirmed/);
+    proxy.connectDevice("atem", "venue:9910");
+    if (failure === "close") socket.close();
+    else if (failure === "offline") socket.receive({ type: "bridge-status", online: false });
+    else {
+      vi.spyOn(socket, "send").mockImplementation(() => { throw new Error("network failure"); });
+      await expect(proxy.sendCommand("atem", "venue:9910", "auto")).rejects.toThrow(/unconfirmed/);
+    }
+    await rejected;
+    expect(status).toHaveBeenCalledWith("venue:9910", false, expect.stringMatching(/unconfirmed/));
+    expect(proxy.isBridgeOnline()).toBe(false);
+    if (failure === "offline") socket.receive({ type: "bridge-status", online: true });
+    else {
+      vi.advanceTimersByTime(1000);
+      const replacement = FakeWebSocket.instances[1]; replacement.open();
+      replacement.receive({ type: "bridge-status", online: true });
+      socket.receive({ type: "bridge-status", online: false });
+      socket.onclose?.(); socket.onerror?.();
+      expect(proxy.isBridgeOnline()).toBe(true);
+      expect(replacement.sent).toEqual([]);
+    }
+    expect(socket.sent).toHaveLength(2);
+    proxy.disconnect();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(['{broken', 'null', '{"type":"bridge-status","online":"false"}', '{"type":"device-status","target":"venue","connected":1}'])("surfaces malformed frames and recovers: %s", (frame) => {
+    const proxy = new BridgeProxy("org-invalid"); proxy.connect();
+    const socket = FakeWebSocket.instances[0]; socket.open();
+    socket.receive({ type: "bridge-status", online: true });
+    socket.onmessage?.({ data: frame });
+    expect(proxy.isBridgeOnline()).toBe(false);
+    expect(proxy.getLastError()).toContain("could not be read");
+    expect(socket.readyState).toBe(3);
+    vi.advanceTimersByTime(1000);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    proxy.disconnect();
+  });
+
 });
