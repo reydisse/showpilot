@@ -621,6 +621,36 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Timecode transport and timeline
+
+Start, Stop, Pause and Resume stay beside the clock in the sticky timecode
+header. The clock also states Running, Paused, Stopped, Signal lost or
+Disconnected. Choose start position opens the existing reviewed-seek form;
+cancel keeps its draft, and a changed show, clock, format or control ownership
+blocks a stale confirmation. Frame-rate and input settings remain in the source
+panel. The source and MIDI panels have distinct show-scoped React keys.
+
+Timeline rows render a sorted copy in nominal cue-time order. Next and its
+countdown use the same compensated dispatch order as the relay and controller
+feedback, including while stopped or paused. A later nominal cue can therefore
+be Next when its lead or device latency requires sending it first. Late cues
+show Overdue within tolerance or Missed after the tolerance expires. Failed rows
+show FAILED and their own Retry action; retries retain existing relay guards.
+
+Rows show device names (including disabled devices), tolerance and short action
+parameters. Device names come from an organization- and permission-scoped
+endpoint without settings or credentials. Names can be refreshed after edits.
+Webhook summaries show only the destination origin, excluding URL credentials,
+paths and query strings. Captured lighting targets use the device selected for
+dispatch when the source started.
+
+After building, run `node apps/web/scripts/smoke-timecode-timeline.mjs` and
+`node apps/web/scripts/smoke-timecode-start-position.mjs`. They use disposable
+accounts, D1 and relay state to exercise sticky transport at desktop and 320px
+widths, 44px row actions, long labels, row retries after a real Bridge-offline
+failure, disconnect/reconnect, reviewed custom starts and drop-frame validation.
+No physical device or production organization participates in these rehearsals.
+
 ### Named countdown timers
 
 `timer-start` accepts `{name, durationMs}` and starts or restarts one named

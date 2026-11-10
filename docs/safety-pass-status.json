@@ -1443,16 +1443,20 @@
       "phase": "2",
       "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
       "line": 232,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06: Timeline renders a nominal triggerFrame-sorted copy without mutating relay events. Next and countdown share compensated dispatch ordering with the relay/controller, including held clocks; late cues distinguish overdue within tolerance from missed. Failed rows show FAILED plus guarded Retry. Rendered tests cover ordering, held/disconnected countdowns, overdue/missed/failure distinctions and single-row retry. Built smoke-timecode-timeline.mjs passed against real fixture relay state, including a Bridge-offline failure followed by a new attempt from row Retry."
+      ]
     },
     {
       "id": "776578ceddc0c2cf",
       "phase": "2",
       "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
       "line": 233,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06: Rows show saved device names (including disabled and source-start-captured lighting targets), tolerance and bounded action parameters. Organization- and permission-scoped names endpoint returns no configuration; real D1 Worker tests prove disabled names and foreign-org rejection. Webhook summaries expose origin only, omitting credentials/path/query. Built timeline rehearsal verified device name, input parameter, tolerance, webhook redaction, long labels and 44px row actions at 320px and desktop widths."
+      ]
     },
     {
       "id": "73308e1b9c8f0297",
@@ -1489,8 +1493,10 @@
       "phase": "2",
       "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
       "line": 237,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06: Start/Stop/Pause/Resume and explicit clock state now remain in the sticky header. Custom start uses the existing reviewed seek in a dialog, preserving cancel drafts and stale-state/permission guards. Distinct source/timeline component keys prevent sibling collisions with MIDI/media panels. Built smoke-timecode-timeline.mjs verified reachable transport after scrolling at 1440x900 and 320x480, real start/pause/resume/stop, offline disable/reconnect. smoke-timecode-start-position.mjs verified exact normal and drop-frame first frames, confirmation/cancel, held-frame resume, single source panel after clock updates and 320px dialog. Full web suite passed 1658 unit and 614 Worker tests; typecheck and production build passed. No physical equipment or production data was used."
+      ]
     },
     {
       "id": "e17aa5259080e863",

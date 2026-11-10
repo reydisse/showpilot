@@ -113,7 +113,7 @@ describe("automation safety controls", () => {
     const attention = screen.getByRole("region", { name: "Missed or failed cues" });
     expect(within(attention).getAllByRole("listitem")).toHaveLength(2);
     expect(within(attention).queryByText(/Disabled graphic/)).toBeNull();
-    fireEvent.click(within(attention).getByRole("button", { name: "Retry Failed graphic" }));
+    fireEvent.click(within(attention).getByRole("button", { name: "Retry Failed graphic from attention list" }));
     expect(props.onRetryEvent).toHaveBeenCalledWith("Failed graphic");
     expect(props.onResetEvents).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("checkbox", { name: "Enable Disabled graphic" }));
@@ -180,4 +180,49 @@ it("offers a reachable Edit action and blocks it during dispatch or disconnectio
   props.rerender({ connected: false });
   expect(edit).toHaveProperty("disabled", true);
   expect(props.onFireEvent).not.toHaveBeenCalled();
+});
+
+
+it("renders a nominal-time copy while previewing the compensated next cue on a held clock", () => {
+  const events = [
+    cue("Later nominal", { triggerFrame: 90, dispatchFrame: 45 }),
+    cue("Earlier nominal", { triggerFrame: 60 }),
+    cue("Past", { triggerFrame: 1 }),
+  ];
+  const props = setup(events, true, { ...state, running: false });
+  expect([...document.querySelectorAll("[data-automation-event]")].map(row => row.getAttribute("data-automation-event")))
+    .toEqual(["Past", "Earlier nominal", "Later nominal"]);
+  expect(events.map(event => event.id)).toEqual(["Later nominal", "Earlier nominal", "Past"]);
+  expect(document.querySelector("[data-next-cue]")?.textContent).toBe("Next: Later nominal · in 0.5s · Clock held");
+  props.rerender({ connected: false });
+  expect(document.querySelector("[data-next-cue]")?.textContent).toContain("Last known next:");
+  expect(screen.getByRole("button", { name: "Fire next" })).toHaveProperty("disabled", true);
+});
+
+it("distinguishes overdue within tolerance, missed, upcoming and failed rows", () => {
+  const props = setup([
+    cue("Late", { triggerFrame: 28 }), cue("Missed", { triggerFrame: 24 }),
+    cue("Upcoming", { triggerFrame: 31 }), cue("Rejected", { triggerFrame: 40, executionStatus: "failed" }),
+  ]);
+  const row = (id: string) => document.querySelector(`[data-automation-event="${id}"]`)!;
+  expect(row("Late").textContent).toContain("Overdue · within tolerance");
+  expect(row("Missed").textContent).toContain("Missed");
+  expect(row("Upcoming").textContent).toContain("Next");
+  expect(row("Rejected").textContent).toContain("FAILED");
+  expect(screen.getByRole("region", { name: "Missed or failed cues" }).textContent).not.toContain("Late");
+  fireEvent.click(screen.getByRole("button", { name: "Retry Rejected" }));
+  expect(props.onRetryEvent).toHaveBeenCalledExactlyOnceWith("Rejected");
+});
+
+it("shows saved device names, safe action details, webhook origin and tolerance", () => {
+  const props = setup([]);
+  render(<AutomationTimeline {...props} events={[
+    cue("Camera", { action: "device-action", targetDeviceId: "switcher", targetActionId: "set_program_input", payload: { params: { input: 3 } }, toleranceFrames: 12 }),
+    cue("Webhook", { action: "custom-webhook", payload: { url: "https://operator:secret@example.com/private/path?token=secret" } }),
+  ]} deviceNames={{ status: "ready", value: [{ id: "switcher", label: "Main ATEM", enabled: false }] }} />);
+  expect(screen.getByText("Device: Main ATEM (disabled)")).toBeTruthy();
+  expect(screen.getByText("set program input · input: 3")).toBeTruthy();
+  expect(screen.getByText("Tolerance ±12 frames")).toBeTruthy();
+  expect(screen.getByText("POST https://example.com")).toBeTruthy();
+  expect(document.body.textContent).not.toContain("secret");
 });

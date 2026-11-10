@@ -14,12 +14,14 @@ interface TimecodeDisplayProps {
   connected: boolean;
   /** "large" for kiosk/confidence monitor, "compact" for inline rundown */
   size?: "large" | "compact";
+  showState?: boolean;
 }
 
 export function TimecodeDisplay({
   state,
   connected,
   size = "compact",
+  showState = false,
 }: TimecodeDisplayProps) {
   const { display, stale } = useTimecodePresentation(state, connected);
   const running = connected && !stale && (state?.running ?? false);
@@ -54,7 +56,7 @@ export function TimecodeDisplay({
             {!connected
               ? "Disconnected"
               : mismatch ? "Format mismatch · clock held" : lost ? "Signal lost · clock held" : running
-                ? `Running · ${state?.format.frameRate}fps ${state?.format.dropFrame === "df" ? "DF" : "NDF"}`
+                ? `Running · ${state?.format.frameRate} fps ${state?.format.dropFrame === "df" ? "DF" : "NDF"}`
                 : paused ? "Paused · position held" : "Stopped · position held"}
           </span>
           {state?.source && (
@@ -91,7 +93,8 @@ export function TimecodeDisplay({
       >
         {display}
       </span>
-      {connected && (lost || mismatch) && <span className="text-xs text-amber-400">{mismatch ? "Format mismatch" : "Signal lost"}</span>}
+      {showState && <span className={`text-xs ${connected && !lost && !mismatch ? "text-board-text" : "text-amber-200"}`}>{statusLabel}</span>}
+      {!showState && connected && (lost || mismatch) && <span className="text-xs text-amber-400">{mismatch ? "Format mismatch" : "Signal lost"}</span>}
     </div>
   );
 }
