@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getPrisma } from "@/lib/db";
+import { withPrimaryDatabase } from "@/lib/request-database.server";
 import type { Permission } from "@/lib/app-permissions";
 import { assertOrgPermission } from "@/lib/org-access";
 import { z } from "zod";
@@ -254,12 +255,13 @@ async function resolveActive(prisma: PrismaClientLike, orgId: string) {
 /** Returns every active graphic, in display order. */
 export const getActiveGraphics = createServerFn({ method: "GET" })
   .inputValidator((data: { orgId: string }) => data)
-  .handler(async ({ data }) => {
+  .handler(async ({ data }) => withPrimaryDatabase(async () => {
+    // Live output and recovery after an uncertain write must not use a stale replica.
     await assertGraphicPermission(data.orgId, "lowerthird:view");
     const prisma = getPrisma();
     const { templates } = await resolveActive(prisma, data.orgId);
     return templates;
-  });
+  }));
 
 /** Replace the entire active set with the given IDs. */
 export const setActiveGraphics = createServerFn({ method: "POST" })
@@ -328,6 +330,8 @@ export const clearActiveGraphics = createServerFn({ method: "POST" })
     await assertGraphicPermission(data.orgId, "lowerthird:trigger");
     const prisma = getPrisma();
     await writeActiveIds(prisma, data.orgId, []);
+    // Another operator can publish immediately after Clear. Return observed state.
+    return (await resolveActive(prisma, data.orgId)).ids;
   });
 
 // ─── Backward-compatible single-graphic helpers ─────────────
