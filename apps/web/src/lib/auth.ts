@@ -1,4 +1,8 @@
 import { betterAuth } from "better-auth";
+import { createAuthEndpoint, getAuthoritativeSessionFromCtx } from "better-auth/api";
+import { createOrganizationAtomically } from "./organization-creation.server";
+import { orgSlugSchema } from "./validation";
+import { getD1 } from "./d1";
 import { expo } from "@better-auth/expo";
 import { organization } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
@@ -57,28 +61,6 @@ const orgConfig = {
     afterAcceptInvitation: refreshMemberAuthority,
     afterRemoveMember: refreshMemberAuthority,
     afterUpdateMemberRole: refreshMemberAuthority,
-    // Every new org gets a 14-day pro trial, no card required. On expiry
-    // the org naturally evaluates as free via getEffectivePlan — no cron.
-    //
-    // Cloud lower thirds default ON for new orgs (beta wow factor > cost —
-    // see SHOWPILOT-FIXES-SPEC Task A). Set explicitly here so the flag is
-    // ON regardless of which insert path Better Auth uses; the schema
-    // @default(true) is the secondary belt. Existing orgs are untouched.
-    afterCreateOrganization: async ({ organization }: { organization: { id: string } }) => {
-      try {
-        const prisma = getPrisma();
-        await prisma.organization.update({
-          where: { id: organization.id },
-          data: {
-            trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-            cloud_enabled: true,
-          },
-        });
-      } catch (err) {
-        // A missing trial / flag must never block org creation.
-        console.error("[auth] failed to set trial/cloud defaults for new org:", err);
-      }
-    },
   },
   sendInvitationEmail: async (data: {
     id: string;
@@ -114,11 +96,51 @@ const emailPasswordConfig = {
   },
 };
 
+// Keep Better Auth's endpoint schema, organization middleware, HTTP rate limits,
+// origin checks and cookie/plugin hooks. Only creation's storage operation changes.
+function showPilotOrganization() {
+  const plugin = organization(orgConfig);
+  const original = plugin.endpoints.createOrganization;
+  return {
+    ...plugin,
+    endpoints: {
+      ...plugin.endpoints,
+      createOrganization: createAuthEndpoint(original.path, original.options, async ctx => {
+        const failure = (status: 400 | 401 | 403 | 500, code: string, message: string) => {
+          ctx.setStatus(status);
+          return ctx.json({ code, message });
+        };
+        const session = await getAuthoritativeSessionFromCtx(ctx);
+        if (!session) return failure(401, "UNAUTHORIZED", "Sign in to create an organization.");
+        if (!orgConfig.allowUserToCreateOrganization(session.user)) {
+          return failure(403, "YOU_ARE_NOT_ALLOWED_TO_CREATE_A_NEW_ORGANIZATION", "Verify your email to create an organization.");
+        }
+        const name = ctx.body.name.trim();
+        if (!name || name.length > 160 || !orgSlugSchema.safeParse(ctx.body.slug).success) {
+          return failure(400, "INVALID_ORGANIZATION", "Enter an organization name and a valid workspace address.");
+        }
+        const db = getD1();
+        let created;
+        try {
+          created = await createOrganizationAtomically(db, { userId: session.user.id, sessionId: session.session.id }, { ...ctx.body, name });
+        } catch (error) {
+          const taken = await db.prepare("SELECT id FROM organization WHERE slug = ?").bind(ctx.body.slug).first();
+          if (taken) return failure(400, "ORGANIZATION_ALREADY_EXISTS", "This workspace address is already in use.");
+          console.error("[auth] organization creation transaction failed", error);
+          return failure(500, "ORGANIZATION_CREATION_UNCONFIRMED", "Organization creation was not confirmed. Check your workspaces before retrying.");
+        }
+        if (!created) return failure(401, "UNAUTHORIZED", "Your account changed. Sign in again before creating an organization.");
+        return ctx.json(created);
+      }),
+    },
+  };
+}
+
 // Static instance for Better Auth CLI schema generation only.
 // Do NOT use this at runtime — use getAuth() instead.
 export const auth = betterAuth({
   database: prismaAdapter(undefined as any, { provider: "sqlite" }),
-  plugins: [expo(), organization(orgConfig)],
+  plugins: [expo(), showPilotOrganization()],
   emailAndPassword: emailPasswordConfig,
 });
 
@@ -190,7 +212,7 @@ export function getAuth() {
     },
     plugins: [
       expo(),
-      organization(orgConfig),
+      showPilotOrganization(),
       tanstackStartCookies(), // must be last
     ],
     emailAndPassword: emailPasswordConfig,
