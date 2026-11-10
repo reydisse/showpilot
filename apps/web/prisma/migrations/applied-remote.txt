@@ -72,3 +72,4 @@
 0065_crew_roster_recovery.sql
 0066_access_write_recovery.sql
 0067_notification_preference_receipts.sql
+0068_chat_history_clear_receipts.sql
