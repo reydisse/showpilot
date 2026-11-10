@@ -56,3 +56,8 @@
 0049_bridge_target_allowlist.sql
 0050_credential_backfill_cursor.sql
 0051_device_latency.sql
+0052_operational_errors.sql
+0053_organization_creation_receipts.sql
+0054_chat_pass_revocations.sql
+0055_chat_pass_creation_receipts.sql
+0056_invitation_responses.sql
