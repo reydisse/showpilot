@@ -3495,3 +3495,68 @@ This status-read repair does not claim those paths are complete.
 Run 42375622195 passed Native Rust and all typechecks but timed out in the first Audio receipt test. A local coverage timing probe measured 1,976 ms of real-auth fixture setup versus 61 ms for the concurrent saves. Move authenticated fixture setup into `beforeEach`, retaining the mutation assertions and their default five-second deadline. No production code, timeout setting, or permission check changed.
 
 Validation: the clean full `test:coverage` run passes 2,186 unit tests, 863 Worker tests, the boundary/migration/coverage checks, and all coverage thresholds; web typecheck passes. An earlier full local run timed out in the separate same-day timecode scoping case. That case completed in 84 ms when instrumented, then passed an instrumented full Worker run and the clean full coverage run; no timecode code or test change is retained. GitHub CI must confirm the pushed revision before the next PR.
+
+### 2026-11-07: recover stream destination configuration saves
+
+Parent PR #192 now passes both main CI and Native Rust on commit
+538bd2a709622f21d1aa19fe9ce58a4bbfe11fc6, run 42377131598. This clears the
+Audio test timeout before the next draft PR.
+
+Reproduced duplicate destinations when a create response is lost, raw stream
+keys in create/update responses, and a real Chrome editor stuck on Saving after
+D1 had committed. Destination configuration now uses an org/actor/request receipt
+and atomic receipt-plus-mutation batch. Retry keeps the exact submitted request;
+changed payloads are rejected, revoked membership is rechecked, replay cannot
+restore deleted destinations or overwrite later edits, and preparation conflicts
+roll back the receipt. The HMAC receipt contains no payload or stream key.
+
+New and replaced destination keys use the existing credential vault, bound to
+organization and destination. Create, update and web toggle responses redact the
+stored key, including legacy plaintext. Blank edits preserve the exact stored
+key. Legacy plaintext remains readable and is not backfilled by this change.
+The mobile API uses the same save core and accepts optional request IDs; existing
+native clients that omit an ID do not yet recover lost creates automatically.
+No mobile UI completion is claimed.
+
+A reproduced race let Go Live use credentials replaced after its initial read.
+The connection claim now compares the stored RTMP URL and key as well as its
+existing selection/output conditions. The real-D1 regression confirms a stale
+snapshot makes no provider request. The connection core is explicitly server-only;
+the production import-protection check caught and prevented a client import of
+the credential helper during development.
+
+The web editor retains failed drafts across closing/reopening, exposes bounded
+Retry, and retries only reads after an acknowledged save. Refresh failures retain
+confirmed destinations. The shared Dialog provides labels, keyboard focus,
+Escape, explicit draft discard, navigation protection and reachable 44px controls.
+The fields scroll independently of its header and footer on narrow screens.
+
+Rehearsal:
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-stream-destination-recovery.mjs`
+
+Its `--audit` mode reproduced the previous compiled behavior. Final compiled-app
+Chrome checks pass lost create/edit responses, exact request reuse, retained keys
+and drafts, refresh-only Retry, navigation Stay, Tab/Enter/Escape, discard
+confirmation and 320/768/1440px layouts. Phone screenshot inspected. Actual D1
+contains two destinations and four receipts despite seven save attempts; stored
+keys are encrypted and both destinations remain disabled. A rerun initially
+clicked during the initial refresh; the click helper now rechecks enabled state
+after layout settles, and the final run passes.
+
+Nine Worker tests use real login, D1, permissions, crypto and a fake provider to
+cover the save/replay/security/concurrency cases. Four component regressions cover
+retained requests, refresh-only Retry, bounded reads and old-workspace replies.
+Full suite passes 2,190 unit tests, 872 Worker tests, migration/client boundaries
+and all four coverage-gate tests. Typecheck and production build pass. Final
+focused tests pass after removing obsolete mobile test-fixture SQL. Existing
+output-status browser regression passes seven polls/seven provider reads with all
+four destinations unchanged; the seven-screen empty-action browser regression
+also passes.
+
+Migration 0060_stream_destination_write_receipts.sql is required before deployment.
+New/replaced keys require the existing CREDENTIAL_ENCRYPTION_KEYS configuration.
+No production migration, deployment, native release, real organization write or
+paid provider action was performed. The 20 necessary tracked Markdown files
+remain. Phase 2 stays 46/79. Go Live, Stop All, destination selection/deletion and
+ingest mutation confirmations/recovery remain to be completed before its gate.
