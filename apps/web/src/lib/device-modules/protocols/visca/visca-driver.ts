@@ -50,13 +50,13 @@ export class ViscaDriver implements ProtocolDriver {
         reject(new Error("Device connect timeout"));
       }, 5000);
 
-      const unsubscribe = this.proxy!.onDeviceStatus((target, isConnected) => {
+      const unsubscribe = this.proxy!.onDeviceStatus((target, isConnected, error) => {
         if (target !== this.target) return;
         clearTimeout(timeout);
         unsubscribe();
         this.connected = isConnected;
         if (isConnected) resolve();
-        else reject(new Error("Bridge could not connect to device"));
+        else reject(new Error(error ?? "Bridge could not connect to device"));
       });
 
       this.proxy!.connectDevice(this.protocolId, this.target, settings);

@@ -56,7 +56,7 @@ export function useDeviceModule(
     const proxy = getSharedBridgeProxy(orgId);
     setBridgeOnline(proxy.isBridgeOnline());
 
-    const unsub = proxy.onBridgeStatus((online) => {
+    const unsub = proxy.onBridgeStatus((online, reason) => {
       setBridgeOnline(online);
       // Bridge availability and device connectivity are separate states. A
       // bridge-status heartbeat can arrive immediately after device-status.
@@ -64,6 +64,7 @@ export function useDeviceModule(
       // disconnected and turned the Connect button into a silent no-op.
       if (!online) {
         setStatus("bridge-required");
+        if (reason) setError(reason);
       }
     });
 

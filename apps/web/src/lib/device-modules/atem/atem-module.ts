@@ -101,12 +101,12 @@ class ATEMModule extends BaseDeviceModule {
           unsubscribe();
           reject(new Error("ATEM connection timed out"));
         }, 8_000);
-        const unsubscribe = this.proxy!.onDeviceStatus((target, connected) => {
+        const unsubscribe = this.proxy!.onDeviceStatus((target, connected, error) => {
           if (target !== this.target) return;
           window.clearTimeout(timeout);
           unsubscribe();
           if (connected) resolve();
-          else reject(new Error("Local device engine could not connect to the ATEM"));
+          else reject(new Error(error ?? "Local device engine could not connect to the ATEM"));
         });
         this.proxy!.connectDevice("atem", this.target, this.settings);
       });
