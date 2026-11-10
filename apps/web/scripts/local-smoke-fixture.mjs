@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, streamOutputs = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, damagedGraphicScenes = false, chatNotificationFailure = false, invitationResponses = false, teamRecovery = false, streamOutputs = false } = {}) {
   if (streamOutputs) {
     assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Stream status requires the isolated outbound handler");
     assert.equal(captureEmail, false, "Use separate fixtures for email and Stream status");
@@ -154,6 +154,10 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
   INSERT INTO account (id,accountId,providerId,userId,password,issuer,updatedAt) VALUES ('smoke-second-account','smoke-second-operator','credential','smoke-second-operator','${passwordHash}','local:credential',CURRENT_TIMESTAMP);
   INSERT INTO member (id,organizationId,userId,role,createdAt) VALUES ('smoke-second-member','display-smoke','smoke-second-operator','${secondOperatorMember ? "member" : "owner"}',CURRENT_TIMESTAMP);
   ` : ""}
+  ${teamRecovery ? `
+  INSERT INTO invitation(id,organizationId,email,role,status,expiresAt,inviterId,createdAt) VALUES ('team-fixture-invitation','display-smoke','invited@display-smoke.invalid','member','pending','${new Date(Date.now()+3600_000).toISOString()}','smoke-operator',CURRENT_TIMESTAMP);
+  INSERT INTO content_report(id,orgId,reporterUserId,targetType,targetId,targetAuthorId,reason,details,status) VALUES ('team-fixture-report','display-smoke','smoke-operator','chat-message','fixture-message','smoke-second-operator','other','Please review this fixture message.','open');
+  ` : ""}
   ${unverifiedOperator ? `
   INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-unverified','Unverified operator','unverified@display-smoke.invalid',0,CURRENT_TIMESTAMP);
   INSERT INTO account (id,accountId,providerId,userId,password,issuer,updatedAt) VALUES ('smoke-unverified-account','smoke-unverified','credential','smoke-unverified','${passwordHash}','local:credential',CURRENT_TIMESTAMP);
@@ -177,6 +181,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
   INSERT INTO app_setting (id,orgId,key,value) VALUES ('smoke-message','display-smoke','rundown-message:smoke-show','Fixture private stage message'), ('smoke-active','display-smoke','active-graphics','["smoke-graphic"]'), ('smoke-show-setting','display-smoke','active-show-id','smoke-show');
   INSERT INTO graphic_template (id,orgId,name,title,subtitle,updatedAt) VALUES ('smoke-graphic','display-smoke','Fixture','Fixture overlay title','Fixture subtitle',CURRENT_TIMESTAMP);
   `;
+    if (teamRecovery) assert.ok(secondOperator && secondOperatorMember, "Team recovery needs a removable second fixture member");
     if (chatNotificationFailure) assert.ok(secondOperator, "Chat notification failure needs the second fixture member");
     const chatNotificationFault = chatNotificationFailure ? `CREATE TRIGGER fixture_chat_notification_failure BEFORE INSERT ON notification
       WHEN NEW.orgId='display-smoke' AND NEW.userId='smoke-second-operator' AND NEW.type='chat-planning-invite'
