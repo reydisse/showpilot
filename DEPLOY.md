@@ -672,6 +672,44 @@ passed 320/768/1440px; screenshots were inspected after animations settled.
 The invitation-specific and mobile signup screens and the remaining setup
 repair still need their own audits. No deployment, migration, external email delivery or native release is included.
 
+### Setup team validation and responsive controls
+
+The last setup step validates every entered crew and invitation row before any
+write. Incomplete rows, duplicate email addresses and values rejected by the
+server's field limits block submission, preserve the draft and show a row count
+plus linked field errors. Clear row explicitly removes an optional entry. Names
+and positions are trimmed; invitation addresses are trimmed and lowercased.
+Controls have visible labels, keyboard submission and at least 44px targets.
+Fields lock during submission. Finish setup describes saving the team and
+opening the workspace without starting show transport or outputs.
+
+The header counts all six steps and wraps at narrow widths. Its initial clock
+is a fixed placeholder; local time starts after hydration. The previous epoch
+Date still rendered different hours in different server/browser time zones.
+
+After building, run:
+
+```sh
+SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-setup-team.mjs
+```
+
+Twelve component regressions passed, including a real SSR/hydration mismatch
+reproduction. Full validation passed 2,044 unit tests, 733 Worker tests, four
+coverage-gate tests, web typecheck and the production build. The compiled
+Worker/Chrome rehearsal proved invalid rows make no writes, explicit clearing
+and correction work, and final D1 contains exactly one intended crew member and
+one pending invitation. One invitation email was captured locally with all
+external networking blocked. No browser errors occurred. Labels, full control
+bounds, 44px targets and header separation passed at 320/768/1440px; both phone
+screenshots were inspected.
+
+This fixes validation before submission. Partial-save acknowledgement, failed
+invitation delivery, safe retry, setup Back/exit and seeding recovery remain
+open. Better Auth's installed invitation path catches email-hook failures and
+can acknowledge an invitation whose email was not delivered; recovering saves
+must distinguish record creation from email delivery. This change does not
+alter that path. No deployment, migration or native release is included.
+
 ### Timecode label validation
 
 `parseTimecodeString` now requires the selected format. It rejects frame numbers
