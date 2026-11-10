@@ -4,12 +4,13 @@ import { createRequire } from "node:module";
 import { createBridgeSettingsRecipient } from "../../../packages/shared/src/bridge-settings.mjs";
 import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
 const { WebSocket } = createRequire(new URL("../../bridge/package.json", import.meta.url))("ws");
-await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorEmail, operatorPassword }) => {
+await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorEmail, operatorPassword, queryFixture }) => {
   const recipient = await createBridgeSettingsRecipient();
   const target = "propresenter:192.0.2.99:50001";
   const evaluate = async expression => (await browser("eval", expression)).result;
   const click = name => browser("find", "role", "button", "click", "--name", name, "--exact");
   const bridgeMessages = [];
+  const commands = [];
   let bridge; let heartbeat; let currentText = "Opening fixture lyric"; let connected = false;
   const publish = text => bridge.send(JSON.stringify({ type: "device-event", target, eventName: "slide", data: text === null ? "null" : JSON.stringify({ text, nextText: "Upcoming fixture lyric", slideId: text, presentationName: "Fixture service" }) }));
   try {
@@ -19,6 +20,9 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorEmail
     await browser("wait", 'h3:text-is("ProPresenter")');
     await evaluate(`(() => { const heading = [...document.querySelectorAll('h3')].find(el => el.textContent === 'ProPresenter'); [...heading.parentElement.parentElement.querySelectorAll('button')].find(el => el.textContent.trim() === 'Connect').click(); return true; })()`);
     await browser("fill", 'input[placeholder="192.168.1.100"]', "192.0.2.99"); await browser("press", "Tab");
+    await browser("fill", 'input[placeholder="1025"]', "1025"); await browser("press", "Tab");
+    await browser("click", '[role="switch"][aria-label="Allow SP to send cues to ProPresenter"]');
+    await browser("wait", '[role="switch"][aria-label="Allow SP to send cues to ProPresenter"][aria-checked="true"]');
     await browser("open", `${origin}/${orgId}/settings?section=api`);
     await browser("wait", 'input[placeholder="Main room computer"]');
     await browser("fill", 'input[placeholder="Main room computer"]', "ProPresenter recovery fixture");
@@ -46,6 +50,12 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorEmail
             clearTimeout(deadline); resolve();
           }
           if (message.type === "bridge-policy") bridge.send(JSON.stringify({ type: "bridge-policy-applied", policyId: message.policyId }));
+          if (message.type === "command") {
+            commands.push(message.command);
+            currentText = message.command === "clear" ? null : `Confirmed command lyric ${commands.length}`;
+            publish(currentText);
+            bridge.send(JSON.stringify({ type: "command-response", id: message.id, success: true, response: "Fixture applied" }));
+          }
           if (message.type === "connect-device") {
             assert.equal(message.target, target);
             connected = true;
@@ -87,7 +97,9 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorEmail
     currentText = "Rundown fixture lyric"; publish(currentText);
     await browser("set", "viewport", "1440", "900");
     await browser("open", `${origin}/${orgId}/rundown?show=smoke-show&date=${date}`);
-    await browser("wait", 'button:text-is("Off")'); await click("Off");
+    await browser("wait", 'button:text-is("Off")');
+    if (await evaluate("[...document.querySelectorAll('button')].some(el => el.textContent.trim() === 'Dismiss shortcuts')")) await click("Dismiss shortcuts");
+    await click("Off");
     await browser("wait", "text=Rundown fixture lyric");
     bridge.terminate();
     await browser("wait", '[role="alert"][aria-label="Reconnect ProPresenter feed"] time');
@@ -97,7 +109,51 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorEmail
     await openBridge();
     await browser("wait", 'button:text-is("Streaming")');
     await browser("wait", "--fn", "!document.querySelector('[role=\"alert\"][aria-label=\"Reconnect ProPresenter feed\"]')");
-    console.log(JSON.stringify({passed:true,graphicsDisconnectHonesty:true,retainedSlide:true,timestampedRetry:true,manualReconnect:true,explicitClear:true,rundownRecovery:true,fits320:true,physicalProPresenter:false}));
+    // Drop an actual successful command response after the Bridge applies it.
+    await evaluate(`(() => {
+      const original = window.fetch; window.__ppLoseNextPost = false; window.__ppCapturedPosts = [];
+      window.fetch = async (input, init) => {
+        const url = typeof input === 'string' ? input : input.url;
+        const lose = window.__ppLoseNextPost && init?.method === 'POST' && url.includes('/_serverFn/');
+        if (lose) { window.__ppLoseNextPost = false; window.__ppCapturedPosts.push(init.body); }
+        const response = await original(input, init);
+        if (lose && response.ok) { await response.text(); throw new TypeError('Fixture lost confirmation after execution'); }
+        return response;
+      }; return true;
+    })()`);
+    await browser("wait", 'button[title="Next slide"]:not(:disabled)');
+    await evaluate("window.__ppLoseNextPost = true");
+    await browser("click", 'button[title="Next slide"]');
+    await browser("wait", 'text=Next slide was not confirmed.');
+    assert.deepEqual(commands, ["next"]);
+    await browser("wait", "text=Confirmed command lyric 1");
+    assert.equal(await evaluate("document.querySelector('button[title=\"Next slide\"]').disabled"), true);
+    assert.ok(await evaluate("document.querySelector('[aria-label=\"ProPresenter command confirmation\"] time')?.dateTime"));
+    await browser("set", "viewport", "320", "740");
+    await browser("scrollintoview", 'button:text-is("I\'ve checked the output")');
+    const reviewBounds = await evaluate("(() => { const el = [...document.querySelectorAll('button')].find(el => el.textContent === \"I've checked the output\"); const r = el.getBoundingClientRect(); return {left:r.left,right:r.right,height:r.height}; })()");
+    assert.ok(reviewBounds.left >= 0 && reviewBounds.right <= 320 && reviewBounds.height >= 44, JSON.stringify(reviewBounds));
+    await browser("screenshot", "/tmp/showpilot-pp-command-320.png");
+    await click("I've checked the output");
+    assert.deepEqual(commands, ["next"], "Review acknowledgement must not resend the command");
+    await browser("click", 'button[title="Previous slide"]');
+    await browser("wait", "text=Previous slide confirmed.");
+    assert.deepEqual(commands, ["next", "previous"]);
+    // Kiosk failure must be visible with the feed switched off.
+    await click("Streaming"); await browser("wait", 'button:text-is("Off")');
+    await evaluate("window.__ppLoseNextPost = true");
+    await click("Kiosk Off"); await browser("wait", "text=Kiosk output change was not confirmed.");
+    const [savedOutput] = await queryFixture(`SELECT value FROM app_setting WHERE orgId='${orgId}' AND key='propresenter-stage-display'`);
+    assert.equal(savedOutput.value, "true", "Kiosk change committed before the response was lost");
+    assert.equal(await evaluate("document.querySelector('[aria-label=\"ProPresenter command confirmation\"]') !== null"), true);
+    await click("I've checked the output");
+    await browser("wait", 'button:text-is("On Kiosk")');
+    const afterReview = await queryFixture(`SELECT value FROM app_setting WHERE orgId='${orgId}' AND key='propresenter-stage-display'`);
+    assert.equal(afterReview[0].value, "true");
+    await click("On Kiosk"); await browser("wait", "text=Kiosk output change confirmed.");
+    await browser("wait", 'button:text-is("Kiosk Off")');
+    assert.deepEqual(commands, ["next", "previous"]);
+    console.log(JSON.stringify({passed:true,graphicsDisconnectHonesty:true,retainedSlide:true,timestampedRetry:true,manualReconnect:true,explicitClear:true,rundownRecovery:true,fits320:true,physicalProPresenter:false,lostCommandResponseAfterExecution:true,commandsNeverReplayed:true,reviewDoesNotSend:true,kioskErrorVisibleWithFeedOff:true}));
   } catch (error) {
     console.error(JSON.stringify({ bridgeMessages, page: await evaluate("document.body.innerText") }));
     await browser("screenshot", "/tmp/showpilot-pp-feed-diagnostic.png");

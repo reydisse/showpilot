@@ -621,6 +621,33 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### ProPresenter command confirmation
+
+Rundown slide and kiosk-output actions now share a synchronous pending guard and
+a twenty-second confirmation deadline. The deadline allows the existing Bridge
+connection/command envelopes of eight and ten seconds. Only an explicit positive
+acknowledgement shows confirmation. Timeout, rejection or a lost response produces
+a timestamped unconfirmed notice and blocks further ProPresenter actions until
+the operator checks the output. The acknowledgement button sends no request and
+does not replay the original action. Browser cancellation does not undo an action
+already sent to the venue or committed by the server.
+
+Kiosk errors and progress remain visible when the feed is off or slide cues are
+disabled. Slide actions require current control access and a connected feed/show;
+kiosk changes require edit access and a connected show. Workspace/show/target
+changes abort the old request and ignore its late completion. Unexpected
+transport details are omitted from operator copy; declared server errors and
+timeouts remain visible.
+
+Run `node apps/web/scripts/smoke-propresenter-feed-recovery.mjs` after building.
+The rehearsal now executes a Next through the fixture Bridge, discards its
+successful HTTP response, verifies one execution and a timestamped warning,
+acknowledges review without sending, then executes a deliberate Previous. It also
+loses a kiosk response after real D1 persistence and checks that the warning is
+visible with the feed switched off. Eight hook tests cover acknowledgement,
+duplicate prevention, deadlines, late responses, scope changes, permissions and
+review without replay. No migration or native release is required.
+
 ### ProPresenter feed recovery
 
 The shared ProPresenter observer bounds feed reads at eight seconds and aborts
@@ -644,8 +671,7 @@ Bridge fixture to verify both pages, disconnect retention, timestamps, manual
 retry, automatic recovery, explicit clear and the 320px preview. It does not
 exercise physical ProPresenter. Hook tests cover stalled/late reads, backoff,
 push precedence, hidden tabs, workspace/target changes and disable/re-enable.
-No migration is required. ProPresenter mutation confirmation and the remaining
-operator-error audit are separate follow-up work.
+No migration is required. The remaining operator-error audit continues separately.
 
 ### Operator read recovery
 
