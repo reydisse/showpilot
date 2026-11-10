@@ -158,66 +158,6 @@ export function buildTemplateRundownItems(
   }));
 }
 
-// ─── Seed orchestration ──────────────────────────────────────
-// The store interface keeps the seed logic unit-testable; the server
-// function in onboarding.ts supplies the Prisma-backed implementation.
-
-export interface TemplateSeedStore {
-  getSeedMarker(): Promise<string | null>;
-  setSeedMarker(value: string): Promise<void>;
-  itemId(templateId: OnboardingTemplateId, index: number): string;
-  checklistId(index: number): string;
-  persistRundownItems(items: RundownItem[]): Promise<void>;
-  createChecklistTemplates(
-    rows: { id: string; label: string; category: string; sortOrder: number }[],
-  ): Promise<void>;
-  createCueRows(rows: OnboardingTemplateCueRow[]): Promise<void>;
-  getExistingItems(): Promise<RundownItem[]>;
-}
-
-export interface TemplateSeedResult {
-  items: RundownItem[];
-  alreadySeeded: boolean;
-}
-
-/**
- * Seed an org from a template, exactly once. A marker recorded after the
- * first successful seed makes re-runs (double click, refresh replay) return
- * the existing rundown instead of duplicating rows.
- */
-export async function runTemplateSeed(
-  store: TemplateSeedStore,
-  template: OnboardingTemplate,
-): Promise<TemplateSeedResult> {
-  const marker = await store.getSeedMarker();
-  if (marker !== null) {
-    return { items: await store.getExistingItems(), alreadySeeded: true };
-  }
-
-  const items = buildTemplateRundownItems(template).map((item, index) => ({
-    ...item,
-    id: store.itemId(template.id, index),
-  }));
-  if (items.length > 0) {
-    await store.persistRundownItems(items);
-  }
-  if (template.checklist.length > 0) {
-    await store.createChecklistTemplates(
-      template.checklist.map((row, index) => ({
-        ...row,
-        id: store.checklistId(index),
-        sortOrder: index,
-      })),
-    );
-  }
-  if (template.cueRows.length > 0) {
-    await store.createCueRows(template.cueRows);
-  }
-  await store.setSeedMarker(template.id);
-
-  return { items, alreadySeeded: false };
-}
-
 const EXTRA_TEMPLATES: readonly OnboardingTemplate[] = [
   {
     id: "keynote",

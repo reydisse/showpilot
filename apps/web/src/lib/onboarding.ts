@@ -1,17 +1,11 @@
 import { getWorkspaceProfileForOrg } from "./workspace/profile.server";
-import {
-  templatesForWorkspace,
-  ALL_ONBOARDING_TEMPLATES,
-} from "./workspace/templates";
+import { templatesForWorkspace } from "./workspace/templates";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { getPrisma } from "@/lib/db";
 import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
-import {
-  persistRundownItemsForOrg,
-  getRundownStateForOrg,
-} from "@/lib/rundown";
-import { runTemplateSeed, type TemplateSeedStore } from "@/lib/templates";
+import { ONBOARDING_SEED_KEY, onboardingSeedInputSchema, onboardingSeedMarkerSchema } from "./onboarding-seed-contract";
+import { commitOnboardingSeed, readOnboardingSeed } from "./onboarding-seed.server";
 import {
   buildOnboardingRoleValue,
   isOnboardingArchetype,
@@ -22,10 +16,8 @@ import {
   idSchema,
   orgSlugSchema,
   parseOrThrow,
-  serviceDateSchema,
 } from "@/lib/validation";
 import { getD1 } from "@/lib/d1";
-import { seedDefaultCueColumnsOnce } from "@/lib/cue-column-seed";
 
 // ─────────────────────────────────────────────────────────────
 // Onboarding wizard server functions. Wizard progress lives in
@@ -33,7 +25,6 @@ import { seedDefaultCueColumnsOnce } from "@/lib/cue-column-seed";
 // refresh mid-wizard resumes at the right scene with no localStorage.
 // ─────────────────────────────────────────────────────────────
 
-const ONBOARDING_SEED_KEY = "onboarding-template-seeded";
 const ONBOARDING_STARTED_KEY = "onboarding-started";
 const ONBOARDING_COMPLETED_KEY = "onboarding-completed";
 
@@ -69,27 +60,12 @@ interface SeedMarker {
 function parseSeedMarker(value: string | null | undefined): SeedMarker | null {
   if (!value) return null;
   try {
-    const parsed = JSON.parse(value) as SeedMarker;
-    if (
-      typeof parsed?.template === "string" &&
-      typeof parsed?.serviceDate === "string"
-    ) {
-      return parsed;
-    }
+    const parsed = onboardingSeedMarkerSchema.safeParse(JSON.parse(value));
+    if (parsed.success) return parsed.data;
   } catch {
-    // Treat unreadable markers as seeded — never duplicate.
+    // The seed result screen explains unreadable markers and refuses to reseed.
   }
   return { template: "", serviceDate: "" };
-}
-
-export async function getSeedMarkerForOrg(
-  orgId: string,
-): Promise<SeedMarker | null> {
-  const prisma = getPrisma();
-  const setting = await prisma.appSetting.findUnique({
-    where: { orgId_key: { orgId, key: ONBOARDING_SEED_KEY } },
-  });
-  return parseSeedMarker(setting?.value);
 }
 
 // ─── Wizard progress (resume derivation source) ──────────────
@@ -400,186 +376,27 @@ export const checkOrgSlug = createServerFn({ method: "GET" })
     },
   );
 
-/**
- * Seed the org's first show from an onboarding template: rundown items,
- * checklist templates, and sample cue rows. Idempotent — re-running for
- * an org that already seeded returns the existing rundown unchanged.
- */
-export const seedOrgTemplate = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        template: z
-          .string()
-          .refine(
-            (value) =>
-              ALL_ONBOARDING_TEMPLATES.some(
-                (template) => template.id === value,
-              ),
-            "Unknown template",
-          ),
-        serviceDate: serviceDateSchema,
-      }),
-      data,
-    ),
-  )
+/** Read-only result recovery. It never starts or repeats a template write. */
+export const getOnboardingSeed = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertEffectiveOrgPermission(data.orgId, "rundown:edit");
+    return readOnboardingSeed(getD1(), data.orgId);
+  });
 
+export const seedOrgTemplate = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(onboardingSeedInputSchema, data))
+  .handler(async ({ data }) => {
+    await assertEffectiveOrgPermission(data.orgId, "rundown:edit");
+    const db = getD1();
+    const existing = await readOnboardingSeed(db, data.orgId);
+    if (existing.status === "saved" || (existing.status === "review" && data.template !== "blank")) return existing;
     const workspace = await getWorkspaceProfileForOrg(data.orgId);
-    const template = templatesForWorkspace(workspace.type).find(
-      (template) => template.id === data.template,
-    );
+    const template = templatesForWorkspace(workspace.type).find(template => template.id === data.template);
     if (!template) throw new Error("Unknown template");
-
-    const prisma = getPrisma();
-    const seedShowId = `${data.orgId}:onboarding:show`;
-    let seededShowId: string | undefined;
-    let seededItems: Array<{ id: string; title: string }> = [];
-
-    const store: TemplateSeedStore = {
-      getSeedMarker: async () => {
-        const marker = await getSeedMarkerForOrg(data.orgId);
-        return marker ? JSON.stringify(marker) : null;
-      },
-      setSeedMarker: async () => {
-        const value = JSON.stringify({
-          template: template.id,
-          serviceDate: data.serviceDate,
-        });
-        await prisma.appSetting.upsert({
-          where: { orgId_key: { orgId: data.orgId, key: ONBOARDING_SEED_KEY } },
-          update: { value },
-          create: { orgId: data.orgId, key: ONBOARDING_SEED_KEY, value },
-        });
-      },
-      itemId: (_templateId, index) => `${data.orgId}:onboarding:item:${index}`,
-      checklistId: (index) => `${data.orgId}:onboarding:checklist:${index}`,
-      persistRundownItems: async (items) => {
-        seededItems = items.map((item) => ({ id: item.id, title: item.title }));
-        const existing = await prisma.rundown.findFirst({
-          where: { id: seedShowId, orgId: data.orgId },
-          select: { id: true },
-        });
-        if (!existing) {
-          const { checkPlanLimit } = await import("@/lib/plan-limits");
-          const showCount = await prisma.rundown.count({
-            where: { orgId: data.orgId },
-          });
-          await checkPlanLimit(data.orgId, "shows", showCount);
-          await prisma.rundown.upsert({
-            where: { id: seedShowId },
-            update: {},
-            create: {
-              id: seedShowId,
-              orgId: data.orgId,
-              serviceDate: data.serviceDate,
-              name: template.name,
-              status: "stopped",
-            },
-          });
-        }
-        seededShowId = await persistRundownItemsForOrg(
-          data.orgId,
-          data.serviceDate,
-          items,
-          seedShowId,
-        );
-      },
-      createChecklistTemplates: async (rows) => {
-        await Promise.all(
-          rows.map((row) =>
-            prisma.checklistTemplate.upsert({
-              where: { id: row.id },
-              update: {
-                label: row.label,
-                category: row.category,
-                sortOrder: row.sortOrder,
-              },
-              create: {
-                id: row.id,
-                orgId: data.orgId,
-                label: row.label,
-                category: row.category,
-                sortOrder: row.sortOrder,
-              },
-            }),
-          ),
-        );
-      },
-      createCueRows: async (rows) => {
-        if (!seededShowId)
-          throw new Error("Cannot seed cue notes without a show");
-        const db = getD1();
-        const now = new Date().toISOString();
-        await seedDefaultCueColumnsOnce(db, data.orgId, now);
-        const columns = await db
-          .prepare(
-            `SELECT id, label FROM cue_column
-              WHERE orgId = ? AND label IN ('Show Caller', 'Production')`,
-          )
-          .bind(data.orgId)
-          .all<{ id: string; label: string }>();
-        const columnByLabel = new Map(
-          (columns.results ?? []).map((column) => [column.label, column.id]),
-        );
-        const statements = rows.flatMap((row) => {
-          const item = seededItems.find(
-            (candidate) => candidate.title === row.rundownItem,
-          );
-          if (!item) return [];
-          return [
-            {
-              columnId: columnByLabel.get("Production"),
-              text: row.cameraAssignments,
-            },
-            { columnId: columnByLabel.get("Show Caller"), text: row.notes },
-          ].flatMap(({ columnId, text }) =>
-            columnId && text.trim()
-              ? [
-                  db
-                    .prepare(
-                      `INSERT INTO cue_note
-                         (id, orgId, showId, serviceDate, itemId, columnId, text, updatedAt, updatedBy)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                       ON CONFLICT(orgId, showId, itemId, columnId)
-                       DO UPDATE SET text = excluded.text, updatedAt = excluded.updatedAt,
-                                     updatedBy = excluded.updatedBy`,
-                    )
-                    .bind(
-                      crypto.randomUUID(),
-                      data.orgId,
-                      seededShowId,
-                      data.serviceDate,
-                      item.id,
-                      columnId,
-                      text.trim(),
-                      now,
-                      "Onboarding template",
-                    ),
-                ]
-              : [],
-          );
-        });
-        if (statements.length > 0) await db.batch(statements);
-      },
-      getExistingItems: async () => {
-        const marker = await getSeedMarkerForOrg(data.orgId);
-        const serviceDate = marker?.serviceDate || data.serviceDate;
-        const state = await getRundownStateForOrg({
-          orgId: data.orgId,
-          serviceDate,
-        });
-        return state.items;
-      },
-    };
-
-    const result = await runTemplateSeed(store, template);
-    return {
-      items: result.items,
-      alreadySeeded: result.alreadySeeded,
-      template: template.id,
-      serviceDate: data.serviceDate,
-    };
+    if (template.items.length) {
+      const { checkPlanLimit } = await import("./plan-limits");
+      await checkPlanLimit(data.orgId, "shows", await getPrisma().rundown.count({ where: { orgId: data.orgId } }));
+    }
+    return commitOnboardingSeed(db, data, template);
   });
