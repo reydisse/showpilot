@@ -1,3 +1,4 @@
+import { RundownClockCard, RundownOffset, RundownProgress, formatOperatorDuration as formatDuration } from "@/components/rundown/RundownClock";
 import { useProPresenterCommands } from "@/hooks/useProPresenterCommands";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
@@ -178,19 +179,6 @@ const TYPE_CONFIG: Record<
   },
 };
 
-function formatDuration(ms: number): string {
-  const negative = ms < 0;
-  const abs = Math.abs(ms);
-  const totalSeconds = Math.floor(abs / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const prefix = negative ? "-" : "";
-  if (hours > 0)
-    return `${prefix}${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-  return `${prefix}${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
-
 /** Parse duration for item creation — bare number = minutes (e.g. "5" → 5 min) */
 function parseDurationInput(str: string): number {
   const trimmed = str.trim();
@@ -228,18 +216,6 @@ function formatDisplayDate(dateStr: string): string {
     month: "short",
     day: "numeric",
   });
-}
-
-function formatOffset(deltaMs: number): string {
-  if (Math.abs(deltaMs) < 1000) return "";
-  const negative = deltaMs < 0;
-  const abs = Math.abs(deltaMs);
-  const totalSeconds = Math.floor(abs / 1000);
-  if (totalSeconds < 60) return `${negative ? "-" : "+"}${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (seconds === 0) return `${negative ? "-" : "+"}${minutes}m`;
-  return `${negative ? "-" : "+"}${minutes}m${seconds}s`;
 }
 
 export const Route = createFileRoute("/$slug/rundown")({
@@ -784,7 +760,6 @@ function RundownPage() {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showOptionsModal, setShowOptionsModal] = useState(false);
-  const [now, setNow] = useState(initialNow);
   const [message, setMessage] = useState("");
   const [messagePriority, setMessagePriority] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -827,7 +802,6 @@ function RundownPage() {
 
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [customAdjust, setCustomAdjust] = useState("1:00");
-  const [progressReset, setProgressReset] = useState(false);
   const [ppEnabled, setPpEnabled] = useState(false);
   const ppConfiguration = useOperatorRead<Record<string, string>>({
     key: orgId, initialValue: {}, enabled: canControlRundown,
@@ -841,11 +815,8 @@ function RundownPage() {
   const [ppCurrentSlide, setPpCurrentSlide] = useState<PPSlidePayload | null>(
     null,
   );
-  const rafRef = useRef<number>(0);
-  const prevItemIdRef = useRef<string | null>(null);
   const timerRef = useRef(timer);
   const itemsRef = useRef(items);
-  const progressResetRef = useRef(false);
   const relayNeedsPriming =
     syncHydrated &&
     !syncedInitialized &&
@@ -1006,10 +977,9 @@ function RundownPage() {
     },
   });
 
-  // Keep refs in sync for RAF access
+  // Commands read the latest local state
   timerRef.current = timer;
   itemsRef.current = items;
-  progressResetRef.current = progressReset;
 
   const sendRundownCommand = useCallback(
     (action: string, payload?: Record<string, unknown>) => {
@@ -1045,77 +1015,7 @@ function RundownPage() {
     ],
   );
 
-  // The text changes at second boundaries; sampling at 10 Hz keeps it precise
-  // without rerendering this dense operator page on every animation frame.
-  useEffect(() => {
-    const timerId = window.setInterval(() => setNow(Date.now()), 100);
-    return () => window.clearInterval(timerId);
-  }, []);
-
-  // Keep the narrow progress bars visually fluid without involving React.
-  useEffect(() => {
-    let running = true;
-    const tick = () => {
-      if (!running) return;
-      const n = Date.now();
-
-      // Direct DOM update for progress bars — sole owner of width
-      const t = timerRef.current;
-      const ci = t.currentItemId
-        ? itemsRef.current.find((i) => i.id === t.currentItemId)
-        : null;
-      const bars = [
-        document.getElementById("rundown-progress-fill"),
-        document.getElementById("rundown-item-progress"),
-      ];
-      for (const bar of bars) {
-        if (!bar) continue;
-        if (progressResetRef.current) {
-          bar.style.transition = "width 0.3s ease-out";
-          bar.style.width = "0%";
-        } else {
-          bar.style.transition = "none";
-          if (ci && ci.duration > 0) {
-            const el =
-              t.playback === "play" && t.startedAt
-                ? t.elapsed + (n - t.startedAt)
-                : t.elapsed;
-            const pct = Math.min(100, (el / ci.duration) * 100);
-            bar.style.width = `${pct}%`;
-          }
-        }
-      }
-
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      running = false;
-      cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
-
-  // Compute elapsed inline from `now` — drives both countdown and progress bar
   const currentItem = items.find((i) => i.id === timer.currentItemId);
-  const elapsed =
-    timer.playback === "play" && timer.startedAt
-      ? timer.elapsed + (now - timer.startedAt)
-      : timer.elapsed;
-  const remaining = currentItem ? currentItem.duration - elapsed : 0;
-  const isOvertime = remaining < 0 && overtimeBehavior !== "stop";
-  const isWarning = !isOvertime && remaining <= 120000; // ≤2 minutes
-
-  // Detect item change for progress bar reset animation
-  // progressReset=true → animate shrink to 0, then after 350ms start filling
-  useEffect(() => {
-    if (timer.currentItemId && timer.currentItemId !== prevItemIdRef.current) {
-      setProgressReset(true);
-      const t = setTimeout(() => setProgressReset(false), 350);
-      prevItemIdRef.current = timer.currentItemId;
-      return () => clearTimeout(t);
-    }
-    prevItemIdRef.current = timer.currentItemId;
-  }, [timer.currentItemId]);
 
   const handleStart = useCallback(
     (itemId: string) => {
@@ -1983,85 +1883,8 @@ function RundownPage() {
           <div className="rundown-columns flex-1 overflow-hidden flex flex-row gap-6 px-4 py-5 sm:px-6 max-w-[1400px] mx-auto w-full min-h-0">
             {/* Left: Timer + Controls + Message */}
             <div className="rundown-panel-left w-[360px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar min-h-0">
-              {/* Timer */}
-              <div
-                className={`p-6 rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"}`}
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  {timer.playback === "play" ? (
-                    <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" />
-                  ) : timer.playback === "pause" ? (
-                    <Pause className="w-3.5 h-3.5 text-yellow-400" />
-                  ) : (
-                    <Square className="w-3.5 h-3.5 text-board-muted" />
-                  )}
-                  <span className="text-xs font-medium text-board-muted uppercase tracking-widest">
-                    {timer.playback === "stop"
-                      ? "Stopped"
-                      : timer.playback === "play"
-                        ? "Playing"
-                        : "Paused"}
-                  </span>
-                  {isOvertime && (
-                    <span className="text-xs font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">
-                      Overtime
-                    </span>
-                  )}
-                </div>
-
-                <p
-                  className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : "text-board-text"}`}
-                >
-                  {currentItem
-                    ? timer.mode === "clock"
-                      ? new Date().toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          second: "2-digit",
-                        })
-                      : timer.mode === "count-down"
-                        ? remaining < 0
-                          ? overtimeBehavior === "stop"
-                            ? "00:00"
-                            : formatDuration(remaining)
-                          : formatDuration(remaining)
-                        : formatDuration(elapsed)
-                    : "--:--"}
-                </p>
-
-                {/* Progress bar — resets smoothly on item change */}
-                {currentItem && (
-                  <div className="mt-3 h-1.5 rounded-full bg-board-border overflow-hidden">
-                    <div
-                      id="rundown-progress-fill"
-                      className={`h-full rounded-full ${isOvertime ? "bg-red-500" : isWarning ? "bg-yellow-500" : "bg-white"}`}
-                      style={{ width: "0%" }}
-                    />
-                  </div>
-                )}
-
-                {currentItem && (
-                  <div className="mt-3 pt-3 border-t border-board-border/40">
-                    <p className="text-sm font-medium text-board-text truncate">
-                      {currentItem.title}
-                    </p>
-                    <p className="text-xs text-board-muted mt-0.5">
-                      Duration: {formatDuration(currentItem.duration)}
-                      {currentItem.assignee && ` · ${currentItem.assignee}`}
-                    </p>
-                  </div>
-                )}
-
-                {nextItem && (
-                  <p className="text-xs text-board-muted mt-2">
-                    Next:{" "}
-                    <span className="text-board-text/70">{nextItem.title}</span>
-                    <span className="text-board-muted ml-1">
-                      ({formatDuration(nextItem.duration)})
-                    </span>
-                  </p>
-                )}
-              </div>
+              <RundownClockCard timer={timer} currentItem={currentItem} nextItem={nextItem}
+                initialNow={initialNow} overtimeBehavior={overtimeBehavior} />
 
               {/* Timer controls */}
               {canControlRundown && (
@@ -2537,8 +2360,6 @@ function RundownPage() {
                       const isCurrent = item.id === timer.currentItemId;
                       const config = TYPE_CONFIG[item.type];
                       const Icon = config.icon;
-                      const isItemOvertime =
-                        isCurrent && elapsed > item.duration;
                       const isDraggingItem = draggedItemId === item.id;
                       const isDropTarget =
                         dropTargetItemId === item.id &&
@@ -2784,18 +2605,7 @@ function RundownPage() {
                                 )}
                               </div>
 
-                              {/* Offset chip (OnTime-style) */}
-                              {isCurrent && elapsed > 0 && (
-                                <span
-                                  className={`rundown-row-offset text-xs font-mono font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                                    isItemOvertime
-                                      ? "bg-red-500/20 text-red-400 animate-pulse"
-                                      : "bg-green-500/15 text-green-400"
-                                  }`}
-                                >
-                                  {formatOffset(elapsed - item.duration)}
-                                </span>
-                              )}
+                              {isCurrent && <RundownOffset timer={timer} duration={item.duration} initialNow={initialNow} />}
 
                               {/* Row actions stay visible for pointer, keyboard and touch operators */}
                               {canEditRundown && (
@@ -2855,11 +2665,8 @@ function RundownPage() {
                             {/* Progress bar for current item */}
                             {isCurrent && (
                               <div className="h-0.5 w-full bg-board-border/20">
-                                <div
-                                  id="rundown-item-progress"
-                                  className={`h-full ${isItemOvertime && overtimeBehavior !== "stop" ? "bg-red-500" : isWarning ? "bg-yellow-500" : "bg-white"}`}
-                                  style={{ width: "0%" }}
-                                />
+                                <RundownProgress timer={timer} duration={item.duration} initialNow={initialNow}
+                                  overtimeBehavior={overtimeBehavior} id="rundown-item-progress" />
                               </div>
                             )}
                           </div>

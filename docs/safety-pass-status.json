@@ -1596,8 +1596,13 @@
       "phase": "2",
       "section": "2.8 Error visibility and render cost (audit H25, H26, H27, H28)",
       "line": 247,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "2026-11-06: extracted the rundown clock card and current-item offset into memoized display components. Only those displays sample at 10 Hz; each progress bar owns its DOM animation and reset, eliminating route-level clock/reset state and per-frame item scans. Existing transport command paths remain unchanged.",
+        "Built-browser smoke-rundown-clock-rendering.mjs reproduced 28 route re-renders in the old observation window, then measured zero after extraction while displayed seconds advanced. Real authenticated relay commands verified warning/overtime colors, paused clock/progress and next-item reset. Five rendered component tests cover parent/static-row render counts, timer cleanup, paused adjustments, clock/count-up/stop-at-zero modes and server reference time.",
+        "Full web suite passed 1798 unit and 648 Worker tests, typecheck and production build. Existing smoke-rundown-layout.mjs passed all five widths from 320 to 2560px, keyboard start/reorder, drag reorder, focus, readable controls and dialogs. The show polls already pause/back off through useOperatorRead in #141. Rundown/cue-sheet virtualization above about 100 items remains; this combined requirement is not verified.",
+        "Per-message ProPresenter log audit: no [PP WS] occurrence remains under apps. useProPresenter.ts and web ProPresenter helpers have no console log/debug/info calls. The standalone Bridge handleMessage logs only the authentication response; its slide and timer handling has no per-message log. Connection/recovery diagnostics remain."
+      ]
     },
     {
       "id": "b9551c2b15107646",
