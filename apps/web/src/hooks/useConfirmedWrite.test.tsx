@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useSongWrite } from "./useSongWrite";
+import { useConfirmedWrite } from "./useConfirmedWrite";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 function deferred<T>() {
@@ -9,13 +9,13 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-describe("song write recovery", () => {
+describe("confirmed write recovery", () => {
   it("retries the same request after a lost reply and ignores its late completion", async () => {
     vi.useFakeTimers();
     const late = deferred<{ id: string }>();
     const write = vi.fn().mockReturnValueOnce(late.promise).mockResolvedValueOnce({ id: "saved" });
     const apply = vi.fn();
-    const { result } = renderHook(() => useSongWrite("org/song"));
+    const { result } = renderHook(() => useConfirmedWrite("org/song"));
     let first!: Promise<boolean>;
     act(() => { first = result.current.start({ label: "Save section", write, apply }); });
     await act(() => vi.advanceTimersByTimeAsync(10_000));
@@ -35,7 +35,7 @@ describe("song write recovery", () => {
     const write = vi.fn(() => response.promise);
     const otherWrite = vi.fn();
     const apply = vi.fn();
-    const { result, rerender } = renderHook(() => useSongWrite("org/song"));
+    const { result, rerender } = renderHook(() => useConfirmedWrite("org/song"));
     let first!: Promise<boolean>;
     act(() => { first = result.current.start({ label: "Save original", write, apply }); });
     rerender();
@@ -49,7 +49,7 @@ describe("song write recovery", () => {
     const write = vi.fn().mockResolvedValue({ id: "saved" });
     const apply = vi.fn();
     const finish = vi.fn().mockRejectedValueOnce(new Error("Could not open page")).mockResolvedValueOnce(undefined);
-    const { result } = renderHook(() => useSongWrite("org/new"));
+    const { result } = renderHook(() => useConfirmedWrite("org/new"));
     await act(async () => { await result.current.start({ label: "Create song", write, apply, finish }); });
     expect(result.current.state).toMatchObject({ status: "failed", saved: true, message: "Could not open page" });
     await act(async () => { await result.current.retry(); });
@@ -62,7 +62,7 @@ describe("song write recovery", () => {
     vi.useFakeTimers();
     const write = vi.fn().mockResolvedValue("saved");
     const finish = vi.fn().mockImplementationOnce(() => new Promise(() => {})).mockResolvedValueOnce(undefined);
-    const { result } = renderHook(() => useSongWrite("org/new"));
+    const { result } = renderHook(() => useConfirmedWrite("org/new"));
     act(() => { void result.current.start({ label: "Create song", write, apply: vi.fn(), finish }); });
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     expect(result.current.state).toMatchObject({ status: "failed", saved: true });
@@ -75,7 +75,7 @@ describe("song write recovery", () => {
     const late = deferred<string>();
     const apply = vi.fn();
     const write = vi.fn(() => late.promise);
-    const { result, unmount } = renderHook(() => useSongWrite("org/song"));
+    const { result, unmount } = renderHook(() => useConfirmedWrite("org/song"));
     let pending!: Promise<boolean>;
     await act(async () => { pending = result.current.start({ label: "Save", write, apply }); });
     unmount();
@@ -88,7 +88,7 @@ describe("song write recovery", () => {
   it("isolates a different song and a return to the original song", async () => {
     const late = deferred<string>();
     const apply = vi.fn();
-    const { result, rerender } = renderHook(({ scope }) => useSongWrite(scope), { initialProps: { scope: "org/a" } });
+    const { result, rerender } = renderHook(({ scope }) => useConfirmedWrite(scope), { initialProps: { scope: "org/a" } });
     await act(async () => { void result.current.start({ label: "Save A", write: () => late.promise, apply }); });
     rerender({ scope: "org/b" });
     expect(result.current.state.status).toBe("idle");

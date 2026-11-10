@@ -19,7 +19,7 @@ import {
   Upload,
 } from "lucide-react";
 import { hasEffectivePermission } from "@/lib/app-permissions";
-import { useSongWrite } from "@/hooks/useSongWrite";
+import { useConfirmedWrite } from "@/hooks/useConfirmedWrite";
 import { useSongLibraryRefresh } from "@/components/SongLibraryRefresh";
 import { withOperationTimeout } from "@/lib/operation-timeout";
 import { DeleteSongModal } from "@/components/SongDialogs";
@@ -186,7 +186,7 @@ function SongStudioPage() {
   );
   const [offsetFrames, setOffsetFrames] = useState(0);
   const [tapIndex, setTapIndex] = useState<number | null>(null);
-  const write = useSongWrite(`${orgId}/${song.id}`);
+  const write = useConfirmedWrite(`${orgId}/${song.id}`);
   const [loadingCues, setLoadingCues] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const cueLoad = useRef<AbortController | null>(null);
