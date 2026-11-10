@@ -33,7 +33,7 @@ export default defineConfig(async () => {
             RUNDOWN_RELAY: { className: "TestRundownRelay", useSQLite: true },
             TIMECODE_RELAY: { className: "TestTimecodeRelay", useSQLite: true },
             LOWER_THIRDS_RELAY: { className: "TestLowerThirdsRelay", useSQLite: true },
-            CUE_SHEET_RELAY: { className: "CueSheetRelay", useSQLite: true },
+            CUE_SHEET_RELAY: { className: "TestCueSheetRelay", useSQLite: true },
           },
           bindings: {
             TEST_MIGRATIONS: migrations,

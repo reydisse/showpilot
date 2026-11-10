@@ -23,6 +23,44 @@ async function fixture() {
 }
 
 describe("cue-sheet authority", () => {
+  it("keeps a failed broadcast out of socket state and resumes through the real relay", async () => {
+    const test = await fixture();
+    const messages: Array<{ type: string; sequence: number }> = [];
+    const response = await test.stub.fetch(test.url("/ws"), { headers: { Upgrade: "websocket" } });
+    const socket = response.webSocket;
+    if (!socket) throw new Error("Missing cue-sheet listener");
+    socket.addEventListener("message", event => { messages.push(JSON.parse(String(event.data))); });
+    socket.accept();
+    await expect.poll(() => messages.length).toBe(1);
+    const initialSequence = messages[0].sequence;
+    const inject = async (status: number) => {
+      const response = await test.stub.fetch(test.url("/test/status"), { method: "POST", body: String(status) });
+      expect(response.status).toBe(200); await response.text();
+    };
+    const publish = () => test.stub.fetch(test.url("/broadcast"), { method: "POST", body: JSON.stringify(note) });
+    await inject(503);
+    await evictDurableObject(test.stub);
+    const rejected = await publish();
+    expect(rejected.status).toBe(503); await rejected.text();
+    socket.send(JSON.stringify({ type: "sync" }));
+    await expect.poll(() => messages.length).toBe(2);
+    expect(messages).toEqual([
+      expect.objectContaining({ type: "hydrate", sequence: initialSequence }),
+      expect.objectContaining({ type: "hydrate", sequence: initialSequence }),
+    ]);
+    await inject(200);
+    const accepted = await publish();
+    expect(accepted.status).toBe(200); await accepted.text();
+    await expect.poll(() => messages.length).toBe(3);
+    expect(messages[2]).toMatchObject({ ...note, sequence: initialSequence + 1 });
+    // Removing the outage must not bypass the production permission boundary.
+    await env.DB.prepare("DELETE FROM member WHERE organizationId=? AND userId=?").bind(test.orgId, test.authority.userId).run();
+    const forbidden = await publish();
+    expect(forbidden.status).toBe(401); await forbidden.text();
+    expect(messages.filter(message => message.type === "note")).toHaveLength(1);
+    socket.close();
+  });
+
   it("checks each event permission even when the URL requests every scope", async () => {
     const test = await fixture();
     await env.DB.prepare("UPDATE member SET role='tm' WHERE organizationId=? AND userId=?").bind(test.orgId, test.authority.userId).run();
