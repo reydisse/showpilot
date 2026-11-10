@@ -1,3 +1,5 @@
+import { notificationPreferenceCommandSchema } from "./notification-preference-contract";
+import { readNotificationPreferences, readPreferenceActor, writeNotificationPreference, NotificationPreferenceError } from "./notification-preferences.server";
 import { readAccessActor, retryAccessNotice } from "./access-write.server";
 import { grantAccessSchema, revokeAccessSchema } from "./access-write-contract";
 import { crewActor, writeCrewProfile } from "./crew-roster.server";
@@ -21,13 +23,9 @@ import {
   writeWorkspaceProfile,
 } from "./workspace/profile.server";
 import {
-  DEFAULT_NOTIFICATION_PREFERENCES,
   EQUIPMENT_CATEGORIES,
   EQUIPMENT_STATUSES,
   isEmojiReaction,
-  NOTIFICATION_CATEGORIES,
-  type NotificationCategory,
-  type NotificationPreference,
 } from "@showpilot/shared";
 import { getAuth } from "./auth";
 import { getCrewScheduleResponseWindow } from "./crew-schedule-response";
@@ -5682,48 +5680,6 @@ async function notificationPage(
   });
 }
 
-interface MobileNotificationPreferenceRow {
-  category: string;
-  deviceAlerts: number | boolean;
-}
-
-function isNotificationCategory(value: unknown): value is NotificationCategory {
-  return (
-    typeof value === "string" &&
-    (NOTIFICATION_CATEGORIES as readonly string[]).includes(value)
-  );
-}
-
-async function readMobileNotificationPreferences(
-  db: MobileApiDatabase,
-  orgId: string,
-  userId: string,
-): Promise<NotificationPreference[]> {
-  const result = await db
-    .prepare(
-      `SELECT category, deviceAlerts
-     FROM notification_preference
-     WHERE orgId = ? AND userId = ?`,
-    )
-    .bind(orgId, userId)
-    .all<MobileNotificationPreferenceRow>();
-  const saved = new Map(
-    (result.results ?? [])
-      .filter(
-        (
-          row,
-        ): row is MobileNotificationPreferenceRow & {
-          category: NotificationCategory;
-        } => isNotificationCategory(row.category),
-      )
-      .map((row) => [row.category, Boolean(row.deviceAlerts)]),
-  );
-  return DEFAULT_NOTIFICATION_PREFERENCES.map((preference) => ({
-    category: preference.category,
-    deviceAlerts: saved.get(preference.category) ?? preference.deviceAlerts,
-  }));
-}
-
 async function mobileNotificationPreferences(
   request: Request,
   url: URL,
@@ -5740,44 +5696,17 @@ async function mobileNotificationPreferences(
   if (access instanceof Response) return access;
 
   if (request.method === "POST") {
-    if (
-      !body ||
-      !isNotificationCategory(body.category) ||
-      typeof body.deviceAlerts !== "boolean"
-    )
-      return json(
-        {
-          error:
-            "Choose a valid notification category and delivery preference.",
-        },
-        400,
-      );
-    await db
-      .prepare(
-        `INSERT INTO notification_preference
-         (id, orgId, userId, category, deviceAlerts, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-       ON CONFLICT(orgId, userId, category) DO UPDATE SET
-         deviceAlerts = excluded.deviceAlerts,
-         updatedAt = CURRENT_TIMESTAMP`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        access.orgId,
-        access.identity.userId,
-        body.category,
-        body.deviceAlerts ? 1 : 0,
-      )
-      .run();
+    const parsed = notificationPreferenceCommandSchema.safeParse(body);
+    if (!parsed.success) return json({ error: "Choose a valid notification category and delivery preference." }, 400);
+    try {
+      const result = await writeNotificationPreference({ command: parsed.data, actor: await readPreferenceActor(request.headers), database: db });
+      return json({ ...result, preferences: await readNotificationPreferences(access.orgId,access.identity.userId,db) });
+    } catch (error) {
+      if (error instanceof NotificationPreferenceError) return json({ error: error.message }, error.status);
+      throw error;
+    }
   }
-
-  return json({
-    preferences: await readMobileNotificationPreferences(
-      db,
-      access.orgId,
-      access.identity.userId,
-    ),
-  });
+  return json({ preferences: await readNotificationPreferences(access.orgId,access.identity.userId,db) });
 }
 
 function canonicalDirectMessageParticipants(

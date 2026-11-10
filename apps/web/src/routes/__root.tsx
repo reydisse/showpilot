@@ -4,7 +4,8 @@ import {
   Scripts,
   createRootRoute,
 } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DesktopBridgeController } from "@/components/layout/DesktopBridgeController";
 import { DesktopNotificationController } from "@/components/layout/DesktopNotificationController";
 import { registerNotificationWorker } from "@/lib/notifications";
@@ -69,12 +70,16 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
+  // One cache per rendered app, never a module singleton shared by SSR requests.
+  // Personal data and mutation keys include both account and organization IDs.
+  const [queryClient] = useState(() => new QueryClient());
   useEffect(() => { void registerNotificationWorker(); }, []);
+  useEffect(() => () => queryClient.clear(), [queryClient]);
   return (
-    <>
+    <QueryClientProvider client={queryClient}>
       <DesktopBridgeController />
       <DesktopNotificationController />
       <Outlet />
-    </>
+    </QueryClientProvider>
   );
 }
