@@ -68,3 +68,4 @@
 0061_stream_output_commands.sql
 0062_stream_input_lifecycle.sql
 0063_team_command_receipts.sql
+0064_team_invitation_delivery.sql
