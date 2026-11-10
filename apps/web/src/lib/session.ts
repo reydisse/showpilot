@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeaders } from "@tanstack/react-start/server";
+import { getRequestHeaders, setResponseHeader } from "@tanstack/react-start/server";
 import { getAuth } from "@/lib/auth";
 import { getPrisma } from "@/lib/db";
 import { getD1 } from "@/lib/d1";
@@ -11,6 +11,7 @@ import { hasPermission, normalizeRole } from "@/lib/app-permissions";
 import { resolveMemberRoleForOrg } from "@/lib/org-role";
 import { z } from "zod";
 import { emailSchema, idSchema, parseOrThrow } from "@/lib/validation";
+import { withPrimaryDatabase } from "./request-database.server";
 
 // Role names are org-defined (dynamic access control) — bound, not enumerated.
 const roleNameSchema = z.string().min(1).max(50);
@@ -341,10 +342,11 @@ export const cancelInvitation = createServerFn({ method: "POST" })
   });
 
 export const getUserInvitations = createServerFn({ method: "GET" }).handler(
-  async () => {
+  () => withPrimaryDatabase(async () => {
+    setResponseHeader("Cache-Control", "private, no-store");
     const auth = getAuth();
     const headers = getRequestHeaders();
-    const session = await auth.api.getSession({ headers });
+    const session = await auth.api.getSession({ headers, query: { disableCookieCache: true } });
     if (!session) return [];
     const prisma = getPrisma();
     const invitations = await prisma.invitation.findMany({
@@ -352,21 +354,17 @@ export const getUserInvitations = createServerFn({ method: "GET" }).handler(
       include: { organization: { select: { id: true, name: true, slug: true, logo: true } } },
       orderBy: { createdAt: "desc" },
     });
-    return invitations;
-  }
+    return invitations.map(invitation => ({ ...invitation, emailVerified: session.user.emailVerified }));
+  })
 );
 
 export const getInvitationDetails = createServerFn({ method: "GET" })
-  .inputValidator((data: string) => data)
+  .inputValidator((data: unknown) => parseOrThrow(idSchema, data))
   .handler(async ({ data }) => {
-    const prisma = getPrisma();
-    return await prisma.invitation.findUnique({
-      where: { id: data },
-      include: {
-        organization: { select: { id: true, name: true, slug: true, logo: true } },
-        user: { select: { name: true, email: true } },
-      },
-    });
+    setResponseHeader("Cache-Control", "private, no-store");
+    const session = await withPrimaryDatabase(() => getAuth().api.getSession({ headers: getRequestHeaders(), query: { disableCookieCache: true } }));
+    const { readInvitationView } = await import("./invitation-response.server");
+    return readInvitationView(getD1(), session?.user ?? null, data);
   });
 
 export const acceptInvitation = createServerFn({ method: "POST" })
@@ -374,10 +372,11 @@ export const acceptInvitation = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const auth = getAuth();
     const headers = getRequestHeaders();
-    return await auth.api.acceptInvitation({
+    return checkedInvitationResponse(await auth.api.acceptInvitation({
       headers,
       body: { invitationId: data },
-    });
+      asResponse: true,
+    }));
   });
 
 export const rejectInvitation = createServerFn({ method: "POST" })
@@ -385,8 +384,21 @@ export const rejectInvitation = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const auth = getAuth();
     const headers = getRequestHeaders();
-    return await auth.api.rejectInvitation({
+    return checkedInvitationResponse(await auth.api.rejectInvitation({
       headers,
       body: { invitationId: data },
-    });
+      asResponse: true,
+    }));
   });
+
+async function checkedInvitationResponse(response: Response) {
+  const value: unknown = await response.json();
+  if (!response.ok) {
+    const error = z.object({ message: z.string() }).safeParse(value);
+    throw new Error(error.success ? error.data.message : "Your response could not be confirmed. Check the invitation status before retrying.");
+  }
+  return z.object({
+    invitation: z.object({ id: idSchema, organizationId: idSchema, status: z.enum(["accepted", "rejected"]) }),
+    member: z.object({ id: idSchema, organizationId: idSchema, userId: idSchema, role: z.string() }).nullable(),
+  }).parse(value);
+}

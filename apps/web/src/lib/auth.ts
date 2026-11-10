@@ -3,7 +3,8 @@ import { createAuthEndpoint, getAuthoritativeSessionFromCtx } from "better-auth/
 import { createOrganizationAtomically, readOrganizationCreation, OrganizationCreationReceiptError } from "./organization-creation.server";
 import { z } from "zod";
 import { creationRequestIdSchema } from "./organization-creation-contract";
-import { orgSlugSchema } from "./validation";
+import { idSchema, orgSlugSchema } from "./validation";
+import { respondToInvitationAtomically, InvitationResponseError, type InvitationDecision } from "./invitation-response.server";
 import { getD1 } from "./d1";
 import { expo } from "@better-auth/expo";
 import { organization } from "better-auth/plugins";
@@ -99,14 +100,37 @@ const emailPasswordConfig = {
 };
 
 // Keep Better Auth's endpoint schema, organization middleware, HTTP rate limits,
-// origin checks and cookie/plugin hooks. Only creation's storage operation changes.
+// origin checks and cookie/plugin hooks. Creation and invitation responses use
+// atomic D1 storage instead of Prisma's unsupported interactive transactions.
 function showPilotOrganization() {
   const plugin = organization(orgConfig);
   const original = plugin.endpoints.createOrganization;
+  const responseEndpoint = (endpoint: typeof plugin.endpoints.acceptInvitation | typeof plugin.endpoints.rejectInvitation, decision: InvitationDecision) =>
+    createAuthEndpoint(endpoint.path, endpoint.options, async ctx => {
+      ctx.setHeader("Cache-Control", "private, no-store");
+      const failure = (status: 400 | 401 | 403 | 404 | 409 | 500, code: string, message: string) => {
+        ctx.setStatus(status); return ctx.json({ code, message });
+      };
+      const session = await getAuthoritativeSessionFromCtx(ctx);
+      if (!session) return failure(401, "UNAUTHORIZED", "Sign in before responding to this invitation.");
+      const parsed = idSchema.safeParse(ctx.body.invitationId);
+      if (!parsed.success) return failure(400, "INVALID_INVITATION", "This invitation link is invalid.");
+      try {
+        const result = await respondToInvitationAtomically(getD1(), { userId: session.user.id, sessionId: session.session.id }, parsed.data, decision);
+        if (result.member) await refreshMemberAuthority({ member: result.member });
+        return ctx.json(result);
+      } catch (error) {
+        if (error instanceof InvitationResponseError) return failure(error.status, error.code, error.message);
+        console.error("[auth] invitation response transaction failed", error);
+        return failure(500, "INVITATION_RESPONSE_UNCONFIRMED", "Your response could not be confirmed. Check the invitation status before retrying.");
+      }
+    });
   return {
     ...plugin,
     endpoints: {
       ...plugin.endpoints,
+      acceptInvitation: responseEndpoint(plugin.endpoints.acceptInvitation, "accepted"),
+      rejectInvitation: responseEndpoint(plugin.endpoints.rejectInvitation, "rejected"),
       createOrganization: createAuthEndpoint(original.path, original.options, async ctx => {
         const failure = (status: 400 | 401 | 403 | 409 | 410 | 500, code: string, message: string) => {
           ctx.setStatus(status);
