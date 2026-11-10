@@ -51,7 +51,9 @@ try {
     });
     const text=value=>check(`document.body?.innerText.includes(${JSON.stringify(value)})`,value);
     const target=selector=>`document.querySelector(${JSON.stringify(selector)})`;
-    const point=selector=>`(()=>{const n=${target(selector)};if(!n)return null;n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return n.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`;
+    // Measure loaded controls after an immediate fixture scroll; smooth scrolling
+    // can move a different download under the saved coordinates before input.
+    const point=selector=>`(()=>{if(document.readyState!=='complete'||document.fonts.status!=='loaded')return null;const n=${target(selector)};if(!n)return null;n.scrollIntoView({block:'center',behavior:'instant'});const r=n.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return n.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`;
     const click=async selector=>{
       const p=await check(point(selector),`reachable ${selector}`);
       await page("Input.dispatchMouseEvent",{type:"mousePressed",...p,button:"left",clickCount:1});
