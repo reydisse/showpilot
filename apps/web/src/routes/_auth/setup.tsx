@@ -1,14 +1,17 @@
+import { useSetupChoices } from "@/hooks/useSetupChoices";
+import { SetupChoiceStatus } from "@/components/onboarding/SetupChoiceStatus";
+import { parseSetupRole } from "@/lib/setup-choices-contract";
 import { useOnboardingSeed } from "@/hooks/useOnboardingSeed";
 import { SetupRundownResult } from "@/components/onboarding/SetupRundownResult";
 import { SetupTeam } from "@/components/onboarding/SetupTeam";
 import { WorkspacePicker } from "@/components/workspace/WorkspacePicker";
 import { WorkspaceProvider } from "@/components/workspace/WorkspaceProvider";
 import {
+  parseWorkspaceCustom,
   resolveWorkspaceProfile,
   type WorkspaceProfile,
 } from "@showpilot/shared";
 import {
-  saveWorkspaceType,
   getWorkspaceProfile,
 } from "@/lib/workspace/profile";
 import { archetypesForWorkspace } from "@/lib/workspace/archetypes";
@@ -34,10 +37,10 @@ import {
   checkOrgSlug,
   getOnboardingProgress,
   markOnboardingStarted,
-  saveOnboardingRole,
 } from "@/lib/onboarding";
 import {
   archetypeLanding,
+  isOnboardingArchetype,
   deriveResumeScene,
   type OnboardingArchetype,
 } from "@/lib/onboarding-flow";
@@ -193,17 +196,14 @@ function SetupWizard() {
     user: { id?: string; email: string; emailVerified?: boolean } | null;
   };
 
-  const [workspace, setWorkspace] =
-    useState<WorkspaceProfile>(initialWorkspace);
-  const [workspaceBusy, setWorkspaceBusy] = useState(false);
-  const [workspaceError, setWorkspaceError] = useState("");
   const [scene, setScene] = useState<SceneNumber>(initialScene);
   const [cut, setCut] = useState(false);
   const [skip, setSkip] = useState(false);
   const [org, setOrg] = useState<WizardOrg | null>(progress.org);
-  const [archetype, setArchetype] = useState<OnboardingArchetype | null>(
-    (progress.archetype as OnboardingArchetype | null) ?? null,
-  );
+  const choices = useSetupChoices(org?.id ?? null);
+  const workspace = choices.snapshot ? resolveWorkspaceProfile(choices.snapshot.settings) : initialWorkspace;
+  const archetype = choices.snapshot ? parseSetupRole(choices.snapshot.roleValue)?.archetype ?? null
+    : typeof progress.archetype === "string" && isOnboardingArchetype(progress.archetype) ? progress.archetype : null;
   const [flash, setFlash] = useState(false);
   const seed = useOnboardingSeed(org?.id ?? null);
 
@@ -214,10 +214,14 @@ function SetupWizard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const transition = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (transition.current) clearTimeout(transition.current); }, []);
+
   // Broadcast cut between scenes: dip to black, 220ms, with a breath.
   const go = (next: SceneNumber) => {
     setCut(true);
-    setTimeout(() => {
+    if (transition.current) clearTimeout(transition.current);
+    transition.current = setTimeout(() => {
       setScene(next);
       setSkip(false);
       setCut(false);
@@ -259,63 +263,30 @@ function SetupWizard() {
             />
           )}
           {scene === "1b" && org && (
-            <div className="pt-10">
-              {workspaceError && (
-                <p role="alert" className="mb-4 text-red-400">
-                  {workspaceError}
-                </p>
-              )}
-              <WorkspacePicker
-                busy={workspaceBusy}
+            <div className="space-y-5 pt-10">
+              <SetupChoiceStatus choices={choices} step="workspace" onContinue={() => go(2)} />
+              {choices.snapshot && <WorkspacePicker busy={choices.busy}
+                initial={workspace.isExplicit ? { type: workspace.type, custom: parseWorkspaceCustom(choices.snapshot.settings["workspace-custom"]) ?? undefined, modules: workspace.modules } : undefined}
                 onSelect={async (type, custom, modules) => {
-                  setWorkspace(
-                    resolveWorkspaceProfile({
-                      "workspace-type": type,
-                      "workspace-custom": JSON.stringify(custom),
-                      "workspace-modules": modules
-                        ? JSON.stringify(modules)
-                        : undefined,
-                    }),
-                  );
-                  setWorkspaceBusy(true);
-                  setWorkspaceError("");
-                  try {
-                    const next = await saveWorkspaceType({
-                      data: { orgId: org.id, type, custom, modules },
-                    });
-                    setWorkspace(next);
-                    track("workspace_type_selected", {
-                      type,
-                      moduleCount: next.modules.length,
-                    });
+                  if (await choices.workspace({ type, custom, modules })) {
+                    track("workspace_type_selected", { type });
                     go(2);
-                  } catch (e) {
-                    setWorkspaceError(
-                      e instanceof Error
-                        ? e.message
-                        : "Could not save workspace. Try again.",
-                    );
-                  } finally {
-                    setWorkspaceBusy(false);
                   }
-                }}
-              />
+                }} />}
             </div>
           )}
           {scene === 2 && org && (
-            <SceneRole
-              workspace={workspace}
-              onSelect={(selected) => {
-              setArchetype(selected);
-              track("role_selected", { role: selected });
-              // Optimistic: advance on tap, persist in the background.
-              // A failed write just means a refresh re-asks the question.
-              void saveOnboardingRole({ data: { orgId: org.id, archetype: selected } }).catch(
-                () => {},
-              );
-              go(3);
-            }}
-            />
+            <div className="space-y-5 pt-10">
+              <SetupChoiceStatus choices={choices} step="role" onContinue={() => go(3)} />
+              <SceneRole workspace={workspace} disabled={choices.busy || !choices.snapshot}
+                selected={choices.pending?.kind === "role" ? choices.pending.archetype : archetype}
+                onSelect={async selected => {
+                  if (await choices.role(selected)) {
+                    track("role_selected", { role: selected });
+                    go(3);
+                  }
+                }} />
+            </div>
           )}
           {scene === 3 && org && seed.snapshot?.status === "empty" && !seed.busy && !seed.failure && (
             <SceneTemplates workspace={workspace} onSelect={template => {
@@ -356,9 +327,13 @@ const ARCHETYPE_ICONS: Record<OnboardingArchetype, LucideIcon> = {
 function SceneRole({
   onSelect,
   workspace,
+  disabled,
+  selected,
 }: {
   workspace: WorkspaceProfile;
   onSelect: (archetype: OnboardingArchetype) => void;
+  disabled: boolean;
+  selected: OnboardingArchetype | null;
 }) {
   return (
     <div className="rise">
@@ -373,12 +348,14 @@ function SceneRole({
             <button
               key={archetype.id}
               type="button"
-              className="card rise rounded-[14px] border px-[18px] py-5 text-left"
+              disabled={disabled}
+              aria-pressed={selected === archetype.id}
+              className="card rise rounded-[14px] border px-[18px] py-5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 disabled:opacity-50"
               onClick={() => onSelect(archetype.id)}
               style={{
                 animationDelay: `${i * 90}ms`,
                 background: T.panel,
-                borderColor: T.border,
+                borderColor: selected === archetype.id ? T.amber : T.border,
                 color: T.text,
               }}
             >

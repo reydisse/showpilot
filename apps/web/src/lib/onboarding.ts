@@ -6,11 +6,6 @@ import { getPrisma } from "@/lib/db";
 import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
 import { ONBOARDING_SEED_KEY, onboardingSeedInputSchema, onboardingSeedMarkerSchema } from "./onboarding-seed-contract";
 import { commitOnboardingSeed, readOnboardingSeed } from "./onboarding-seed.server";
-import {
-  buildOnboardingRoleValue,
-  isOnboardingArchetype,
-  type OnboardingArchetype,
-} from "@/lib/onboarding-flow";
 import { z } from "zod";
 import {
   idSchema,
@@ -207,39 +202,6 @@ export const markOnboardingStarted = createServerFn({ method: "POST" })
     );
     return { ok: true };
   });
-
-/**
- * Checkpoint #2: persist the Scene 2 archetype as membership metadata
- * (display + analytics only). This intentionally never reads or writes
- * the Better Auth `role` field — the wizard runner stays `owner`.
- */
-export const saveOnboardingRole = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        archetype: z
-          .string()
-          .max(20)
-          .refine(isOnboardingArchetype, "Unknown archetype"),
-      }),
-      data,
-    ),
-  )
-  .handler(async ({ data }) => {
-    const user = await getSessionUser();
-    await getOrgMemberRole(data.orgId); // membership check only — role untouched
-    await upsertOrgSetting(
-      data.orgId,
-      onboardingRoleKey(user.id),
-      buildOnboardingRoleValue(
-        data.archetype as OnboardingArchetype,
-        (await getWorkspaceProfileForOrg(data.orgId)).modules,
-      ),
-    );
-    return { ok: true };
-  });
-
 
 // ─── First Session Checklist (post-GO LIVE, show page) ───────
 // Stored per user in org appSettings — the same storage UI prefs use.

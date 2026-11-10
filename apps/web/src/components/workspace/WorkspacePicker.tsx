@@ -20,6 +20,7 @@ const icons = { Church, RadioTower, GraduationCap, Drama, SlidersHorizontal };
 export function WorkspacePicker({
   onSelect,
   busy = false,
+  initial,
 }: {
   onSelect: (
     type: WorkspaceType,
@@ -27,12 +28,14 @@ export function WorkspacePicker({
     modules?: ModuleId[],
   ) => void;
   busy?: boolean;
+  initial?: { type: WorkspaceType; custom?: WorkspaceCustom; modules: ModuleId[] };
 }) {
-  const [customType, setCustomType] = useState<WorkspaceType | null>(null);
-  const [label, setLabel] = useState("");
-  const [event, setEvent] = useState("");
-  const [item, setItem] = useState("");
-  const [modules, setModules] = useState<ModuleId[]>([...MODULE_IDS]);
+  const [customType, setCustomType] = useState<WorkspaceType | null>(initial && WORKSPACE_DEFINITIONS[initial.type].customizable ? initial.type : null);
+  const [selected, setSelected] = useState<WorkspaceType | null>(initial?.type ?? null);
+  const [label, setLabel] = useState(initial?.custom?.label ?? "");
+  const [event, setEvent] = useState(initial?.custom?.terms.event ?? "");
+  const [item, setItem] = useState(initial?.custom?.terms.item ?? "");
+  const [modules, setModules] = useState<ModuleId[]>(initial?.modules ?? [...MODULE_IDS]);
   return (
     <div className="space-y-5">
       <h1 className="text-3xl font-bold">What are you running?</h1>
@@ -48,9 +51,12 @@ export function WorkspacePicker({
               type="button"
               key={type}
               disabled={busy}
-              onClick={() =>
-                definition.customizable ? setCustomType(type) : onSelect(type)
-              }
+              aria-pressed={selected === type}
+              onClick={() => {
+                setSelected(type);
+                if (definition.customizable) setCustomType(type);
+                else { setCustomType(null); onSelect(type); }
+              }}
               className="min-h-24 rounded-xl border border-white/15 bg-white/[0.03] p-5 text-left transition-colors hover:border-amber-400/50 focus-visible:outline-amber-400 disabled:opacity-50"
             >
               <Icon className="mb-3 size-5 text-amber-400" />
@@ -67,6 +73,7 @@ export function WorkspacePicker({
           className="space-y-4 rounded-xl border border-white/15 p-5"
           onSubmit={(e) => {
             e.preventDefault();
+            if (busy) return;
             onSelect(
               customType,
               {
@@ -84,6 +91,7 @@ export function WorkspacePicker({
             What do you call your productions?
             <input
               className="mt-2 block w-full rounded-lg border border-white/20 bg-transparent p-3"
+              disabled={busy}
               maxLength={80}
               value={label}
               onChange={(e) => setLabel(e.target.value)}
@@ -95,6 +103,7 @@ export function WorkspacePicker({
               Event noun
               <input
                 className="mt-2 block w-full rounded-lg border border-white/20 bg-transparent p-3"
+                disabled={busy}
                 maxLength={24}
                 value={event}
                 onChange={(e) => setEvent(e.target.value)}
@@ -105,6 +114,7 @@ export function WorkspacePicker({
               Item noun
               <input
                 className="mt-2 block w-full rounded-lg border border-white/20 bg-transparent p-3"
+                disabled={busy}
                 maxLength={24}
                 value={item}
                 onChange={(e) => setItem(e.target.value)}
@@ -118,7 +128,7 @@ export function WorkspacePicker({
                 <input
                   type="checkbox"
                   checked={modules.includes(id)}
-                  disabled={CORE_MODULES.includes(id)}
+                  disabled={busy || CORE_MODULES.includes(id)}
                   onChange={(e) =>
                     setModules((current) =>
                       e.target.checked
@@ -146,9 +156,7 @@ export function WorkspacePicker({
         type="button"
         disabled={busy}
         className="min-h-11 text-sm opacity-60 hover:opacity-100"
-        onClick={() =>
-          onSelect("custom", { label: "", terms: {} }, [...MODULE_IDS])
-        }
+        onClick={() => { setSelected("custom"); onSelect("custom", { label: "", terms: {} }, [...MODULE_IDS]); }}
       >
         Set up later
       </button>

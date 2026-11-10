@@ -1,3 +1,4 @@
+import { workspaceCommandSchema } from "../workspace/profile-contract";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
@@ -18,7 +19,6 @@ import {
   type WorkspaceSettings,
 } from "@showpilot/shared";
 import {
-  workspaceCommandSchema,
   writeWorkspaceProfile,
   type WorkspaceStore,
 } from "../workspace/profile.server";

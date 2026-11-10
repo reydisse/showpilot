@@ -1,65 +1,17 @@
-import { z } from "zod";
+import { WORKSPACE_REVISION_KEY, type WorkspaceCommand } from "./profile-contract";
 import {
-  WORKSPACE_TYPES,
   WORKSPACE_SETTING_KEYS,
-  MODULE_IDS,
   DEFAULT_WORKSPACE_MODULES,
   WORKSPACE_DEFINITIONS,
   resolveWorkspaceProfile,
   resolveModules,
   legacyTerminologyProfile,
   legacyWorkspaceType,
-  isWorkspaceTerm,
   type WorkspaceSettings,
   type WorkspaceProfile,
 } from "@showpilot/shared";
 import type { MobileApiDatabase } from "../mobile-api.server";
 
-const term = z
-  .string()
-  .trim()
-  .refine(isWorkspaceTerm, "Use 1–24 plain-text characters");
-export const workspaceCustomSchema = z
-  .object({
-    label: z
-      .string()
-      .trim()
-      .max(80)
-      .refine((value) => !/[<>\x00-\x1f\x7f]/.test(value), "Use plain text"),
-    terms: z
-      .object({
-        event: term.optional(),
-        events: term.optional(),
-        item: term.optional(),
-        items: term.optional(),
-      })
-      .strict()
-      .default({}),
-  })
-  .strict();
-export const workspaceTypeSchema = z.enum(WORKSPACE_TYPES);
-export const workspaceModulesSchema = z.array(z.enum(MODULE_IDS));
-export const workspaceCommandSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("initial"),
-    type: workspaceTypeSchema,
-    custom: workspaceCustomSchema.optional(),
-    modules: workspaceModulesSchema.optional(),
-    onlyIfUnconfigured: z.boolean().default(false),
-  }),
-  z.object({
-    kind: z.literal("type"),
-    type: workspaceTypeSchema,
-    resetModules: z.boolean(),
-  }),
-  z.object({ kind: z.literal("modules"), modules: workspaceModulesSchema }),
-  z.object({ kind: z.literal("custom"), custom: workspaceCustomSchema }),
-  z.object({
-    kind: z.literal("legacy"),
-    terminologyProfile: z.enum(["general", "church"]).optional(),
-  }),
-]);
-export type WorkspaceCommand = z.infer<typeof workspaceCommandSchema>;
 export interface WorkspaceStore {
   read(): Promise<WorkspaceSettings>;
   write(
@@ -86,7 +38,7 @@ export function workspaceD1Store(
     async write(entries, onlyIfUnconfigured = false) {
       // Put the explicit type last so an initial batch tests the same condition
       // for every row. D1 batches execute atomically, including concurrent calls.
-      const ordered = [...entries].sort(
+      const ordered = [...entries, [WORKSPACE_REVISION_KEY, crypto.randomUUID()]].sort(
         ([a], [b]) =>
           Number(a === "workspace-type") - Number(b === "workspace-type"),
       );
@@ -125,9 +77,16 @@ export async function workspacePrismaStore(
       });
       return Object.fromEntries(rows.map((row) => [row.key, row.value]));
     },
-    async write(entries) {
+    async write(entries, onlyIfUnconfigured = false) {
+      if (onlyIfUnconfigured) {
+        const { getD1 } = await import("../d1");
+        const { markDatabaseWrite } = await import("../request-database.server");
+        markDatabaseWrite();
+        await workspaceD1Store(getD1(), orgId).write(entries, true);
+        return;
+      }
       await prisma.$transaction(
-        entries.map(([key, value]) =>
+        [...entries, [WORKSPACE_REVISION_KEY, crypto.randomUUID()]].map(([key, value]) =>
           prisma.appSetting.upsert({
             where: { orgId_key: { orgId, key } },
             update: { value },
