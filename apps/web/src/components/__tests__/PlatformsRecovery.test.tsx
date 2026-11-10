@@ -87,7 +87,7 @@ it("ignores a late save from a previous organization", async () => {
 });
 
 
-const input = { id:"fixture-input",orgId:"fixture",name:"Fixture ingest",cfInputId:"provider-input",cfInputUid:"",rtmpUrl:"",srtUrl:"",status:"idle",hasRtmpKey:true,createdAt:new Date() };
+const input = { setupState: "ready" as const, id:"fixture-input",orgId:"fixture",name:"Fixture ingest",cfInputId:"provider-input",cfInputUid:"",rtmpUrl:"",srtUrl:"",status:"idle",hasRtmpKey:true,createdAt:new Date() };
 const selected = {...row,enabled:true};
 async function renderOutputs() {
   api.read.mockResolvedValue([selected]);api.inputs.mockResolvedValue([input]);

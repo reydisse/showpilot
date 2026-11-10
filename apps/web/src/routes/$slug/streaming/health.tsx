@@ -1,8 +1,8 @@
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, useBlocker } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import {
   Activity,
@@ -12,7 +12,6 @@ import {
   Copy,
   Check,
   Radio,
-  AlertTriangle,
   ChevronDown,
   ChevronRight,
   Monitor,
@@ -29,12 +28,22 @@ import {
   getLiveInputs,
   createLiveInput,
   deleteLiveInput,
-  getLiveInputStatus,
+  resumeLiveInput,
 } from "@/lib/stream";
 
+import { RouteError } from "@/components/ui/RouteRecovery";
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { useConfirmedWrite } from "@/hooks/useConfirmedWrite";
+import { useLiveInputHealth } from "@/hooks/useLiveInputHealth";
+import { ConfirmedWriteNotice } from "@/components/layout/ConfirmedWriteNotice";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+
+const controlClass = "min-h-11 rounded-lg border border-board-border px-3 py-2 text-sm text-board-text outline-none hover:bg-board-bg focus-visible:ring-2 focus-visible:ring-fire-500 disabled:opacity-40";
 export const Route = createFileRoute("/$slug/streaming/health")({
   pendingComponent: () => <PageSkeleton />,
-  loader: async ({ context }) => {
+  errorComponent: RouteError,
+  loader: async ({ context, abortController }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(context.role, "stream_health:view", context.slug, context.orgId);
     const canManageStreamHealth = hasEffectivePermission(
@@ -42,7 +51,7 @@ export const Route = createFileRoute("/$slug/streaming/health")({
       context.grantedPermissions,
       "stream_health:manage",
     );
-    const inputs = await getLiveInputs({ data: { orgId: context.orgId, includeCredentials: canManageStreamHealth } });
+    const inputs = await getLiveInputs({ data: { orgId: context.orgId, includeCredentials: canManageStreamHealth }, signal: abortController.signal });
     return {
       inputs,
       orgId: context.orgId,
@@ -53,116 +62,68 @@ export const Route = createFileRoute("/$slug/streaming/health")({
   component: StreamHealthPage,
 });
 
+type Initial = Awaited<ReturnType<typeof getLiveInputs>>;
 function StreamHealthPage() {
+  const initial = Route.useLoaderData();
+  const canManage = hasEffectivePermission(initial.role, initial.grantedPermissions, "stream_health:manage");
+  return <StreamHealthWorkspace key={initial.orgId} orgId={initial.orgId} initialInputs={initial.inputs} canManageStreamHealth={canManage} />;
+}
+
+export function StreamHealthWorkspace({ orgId, initialInputs, canManageStreamHealth }: { orgId: string; initialInputs: Initial; canManageStreamHealth: boolean }) {
   const workspaceTerms = useWorkspaceTerms();
-  const { inputs, orgId, role, grantedPermissions } = Route.useLoaderData();
-  const canManageStreamHealth = hasEffectivePermission(
-    role,
-    grantedPermissions,
-    "stream_health:manage",
-  );
-  const router = useRouter();
+  const readInputs = useCallback((signal: AbortSignal) => getLiveInputs({ data: { orgId, includeCredentials: canManageStreamHealth }, signal }), [orgId, canManageStreamHealth]);
+  const read = useOperatorRead({ key: JSON.stringify([orgId, initialInputs, canManageStreamHealth]), initialValue: initialInputs, read: readInputs, errorMessage: "Inputs could not be refreshed. Previously confirmed configuration is shown. Retry before making changes." });
+  const inputs = read.value;
+  const healthRead = useLiveInputHealth(orgId, inputs);
+  const statuses = healthRead.value;
+  const polling = healthRead.refreshing;
+  const lastCheckedAt = healthRead.confirmedAt;
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState("");
-  const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [statuses, setStatuses] = useState<
-    Record<
-      string,
-      {
-        status: string;
-        providerStatus: string;
-        checkedAt: string;
-        error?: string;
-      }
-    >
-  >({});
   const [expandedGuide, setExpandedGuide] = useState<string | null>(null);
-  const [polling, setPolling] = useState(false);
-  const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const writes = useConfirmedWrite(orgId);
+  const busy = writes.state.status === "saving", locked = writes.state.status !== "idle";
+  const controlsDisabled = locked || read.refreshing || !!read.error;
+  const dirty = locked || newName.length > 0;
+  const blocker = useBlocker({ shouldBlockFn: () => dirty, enableBeforeUnload: dirty, withResolver: true });
+  useEffect(() => { if (!dirty && blocker.status === "blocked") blocker.proceed(); }, [dirty, blocker]);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
-
-  // Poll statuses
-  useEffect(() => {
-    if (inputs.length === 0) return;
-    let active = true;
-    let polling = false;
-
-    const pollStatuses = async () => {
-      if (document.visibilityState !== "visible" || polling) return;
-      polling = true;
-      setPolling(true);
-      try {
-        const results = await Promise.all(inputs.map(async (input) => {
-          try {
-            return await getLiveInputStatus({
-              data: { orgId, inputId: input.id },
-            });
-          } catch {
-            return { inputId: input.id, status: "unknown", providerStatus: "request_failed", checkedAt: new Date().toISOString(), error: "Could not check this input" };
-          }
-        }));
-        if (!active) return;
-        setStatuses(Object.fromEntries(results.filter(Boolean).map((result) => [result!.inputId, result!])));
-        setLastCheckedAt(new Date().toISOString());
-      } finally {
-        polling = false;
-        if (active) setPolling(false);
-      }
-    };
-
-    void pollStatuses();
-    const interval = setInterval(pollStatuses, 10000);
-    const pollWhenVisible = () => {
-      if (document.visibilityState === "visible") void pollStatuses();
-    };
-    document.addEventListener("visibilitychange", pollWhenVisible);
-    return () => {
-      active = false;
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", pollWhenVisible);
-    };
-  }, [inputs, orgId]);
-
-  const handleCreate = async (e: React.FormEvent) => {
+  const finish = async (_result: unknown, signal: AbortSignal) => {
+    const refreshed = await read.refresh(); signal.throwIfAborted();
+    if (!refreshed) throw new Error("The input change completed, but the list could not be refreshed. Retry refresh without repeating the change.");
+  };
+  const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim()) return;
-    setCreating(true);
-    setError("");
-
-    try {
-      await createLiveInput({ data: { orgId, name: newName.trim() } });
-      setNewName("");
-      setShowAddForm(false);
-      router.invalidate();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create input");
-    } finally {
-      setCreating(false);
-    }
+    if (!newName.trim() || controlsDisabled) return;
+    const name = newName.trim();
+    void writes.start({ label: "Create live input", write: (requestId, signal) => createLiveInput({ data: { orgId, name, requestId }, signal }),
+      apply: () => read.invalidate(), finish: async (result, signal) => { await finish(result, signal); setNewName(""); setShowAddForm(false); },
+    });
   };
-
-  const handleDelete = async (inputId: string) => {
-    const ok = await confirm({ title: "Delete live input?", description: "This removes the Cloudflare ingest point and its stream key. Encoders using it will stop connecting.", confirmLabel: "Delete input", variant: "danger" });
-    if (!ok) return;
-    await deleteLiveInput({ data: { orgId, inputId } });
-    router.invalidate();
+  const handleDelete = async (input: Initial[number]) => {
+    if (controlsDisabled || !await confirm({ title: `Delete ${input.name}?`, description: "This removes the ingest point and its stream key. Encoders using it will stop connecting. Stop every destination output first.", confirmLabel: "Delete input", variant: "danger" })) return;
+    void writes.start({ label: `Delete ${input.name}`, write: (requestId, signal) => deleteLiveInput({ data: { orgId, inputId: input.id, requestId }, signal }), apply: () => read.invalidate(), finish });
   };
-
-  const copyToClipboard = (text: string, field: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
+  const handleResume = (input: Initial[number]) => {
+    if (controlsDisabled) return;
+    void writes.start({ label: `Resume ${input.name}`, write: (_requestId, signal) => resumeLiveInput({ data: { orgId, inputId: input.id }, signal }), apply: () => read.invalidate(), finish });
   };
-
-  const liveCount = inputs.filter(
-    (i) => statuses[i.id]?.status === "streaming"
-  ).length;
-  const connectedCount = inputs.filter(
-    (i) => ["streaming", "connecting"].includes(statuses[i.id]?.status)
-  ).length;
-  const unknownCount = inputs.filter((i) => !statuses[i.id] || statuses[i.id]?.status === "unknown").length;
+  const closeEditor = async () => {
+    if (busy) return;
+    if (locked) { setShowAddForm(false); return; }
+    if (newName && !await confirm({ title: "Discard input draft?", description: "The unsaved input name will be discarded.", confirmLabel: "Discard draft" })) return;
+    setNewName(""); setShowAddForm(false);
+  };
+  const reviewStored = async () => {
+    if (reviewing || writes.state.status !== "failed") return;
+    if (!await confirm({ title: "Review stored inputs?", description: "The previous request may still complete. Resume any pending input instead of creating another. Your draft will be kept; submitting it again starts a new creation.", confirmLabel: "Review inputs", variant: "warning" })) return;
+    setReviewing(true); if (await read.refresh()) writes.discard(); setReviewing(false);
+  };
+  const notice = <ConfirmedWriteNotice collectionLabel="inputs" state={writes.state} retry={() => void writes.retry()} review={() => void reviewStored()} reviewing={reviewing} />;
+  const liveCount = healthRead.error ? 0 : inputs.filter(i => statuses[i.id]?.status === "streaming").length;
+  const connectedCount = healthRead.error ? 0 : inputs.filter(i => ["streaming", "connecting"].includes(statuses[i.id]?.status)).length;
+  const unknownCount = healthRead.unknownCount;
 
   return (
     <div className="h-full overflow-auto">
@@ -183,6 +144,7 @@ function StreamHealthPage() {
             {canManageStreamHealth && inputs.length > 0 && (
               <button
                 onClick={() => setShowAddForm(true)}
+                disabled={controlsDisabled}
                 className="flex min-h-[44px] items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors"
               >
                 <Plus className="w-3 h-3" />
@@ -234,16 +196,12 @@ function StreamHealthPage() {
           </div>
         </div>
 
-        {/* Error banner */}
-        {error && (
-          <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-            <p className="text-sm text-red-400">{error}</p>
-          </div>
-        )}
-
+        <ReadFailureNotice error={read.error} refreshing={read.refreshing} retry={read.retry} label="Retry inputs" />
+        <ReadFailureNotice error={healthRead.failure} refreshing={polling} retry={healthRead.retry} label="Retry input health" />
+        {!showAddForm && notice}
+        {!showAddForm && newName && <button className={controlClass} onClick={() => setShowAddForm(true)}>Review input draft</button>}
         {/* Stats row */}
-        {inputs.length === 0 ? (
+        {inputs.length === 0 && (read.refreshing || read.error) ? <p role="status" className="text-sm text-board-muted">{read.refreshing ? "Loading inputs…" : "Input list unavailable. Retry above."}</p> : inputs.length === 0 ? (
           <EmptyState
             icon={Activity}
             title="No live inputs configured"
@@ -260,7 +218,7 @@ function StreamHealthPage() {
           <div className="space-y-4">
             {inputs.map((input) => {
               const health = statuses[input.id];
-              const status = health?.status ?? "unknown";
+              const status = healthRead.error ? "unknown" : health?.status ?? "unknown";
               const isLive = status === "streaming";
               const isConnected = status === "connecting";
 
@@ -275,8 +233,8 @@ function StreamHealthPage() {
                         : "bg-board-card border-board-border"
                   }`}
                 >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex items-center gap-2.5">
+                  <div className="flex items-start justify-between gap-2 mb-4">
+                    <div className="flex min-w-0 items-center gap-2.5">
                       <div
                         className={`w-3 h-3 rounded-full ${
                           isLive
@@ -286,8 +244,8 @@ function StreamHealthPage() {
                               : "bg-board-muted"
                         }`}
                       />
-                      <div>
-                        <p className="text-sm font-semibold text-board-text">
+                      <div className="min-w-0">
+                        <p className="break-words text-sm font-semibold text-board-text">
                           {input.name}
                         </p>
                         <span
@@ -302,7 +260,7 @@ function StreamHealthPage() {
                           {isLive ? "Streaming" : isConnected ? "Reconnecting" : status === "error" ? "Fault" : status === "unknown" ? "Unknown" : status === "disabled" ? "Disabled" : "Idle"}
                         </span>
                         {health && (
-                          <p className="mt-1 text-[9px] text-board-muted">Cloudflare: {health.providerStatus.replaceAll("_", " ")}</p>
+                          <p className="mt-1 text-[9px] text-board-muted">{healthRead.error ? "Last confirmed" : "Provider"}: {health.providerStatus.replaceAll("_", " ")} · {new Date(health.checkedAt).toLocaleTimeString()}</p>
                         )}
                         {health?.error && (
                           <p className="mt-1 text-[10px] text-red-400">{health.error}</p>
@@ -312,25 +270,27 @@ function StreamHealthPage() {
                     {canManageStreamHealth && (
                       <button
                         type="button"
-                        onClick={() => handleDelete(input.id)}
+                        onClick={() => void handleDelete(input)}
+                        disabled={controlsDisabled}
                         aria-label={`Delete ${input.name} stream input`}
                         title={`Delete ${input.name} stream input`}
-                        className="p-1.5 rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        className="min-h-11 min-w-11 shrink-0 flex items-center justify-center rounded-lg text-board-muted hover:text-red-400 hover:bg-red-500/10 disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-fire-500"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     )}
                   </div>
 
-                  {/* Stats row */}
+                  {input.setupState !== "ready" && <div className="mb-4 space-y-2 text-sm text-amber-200">
+                    <p>{input.setupState === "deleting" ? "Removal is pending. Retry removal to confirm the result." : "Setup is pending. Resume to recover the same input."}</p>
+                    {canManageStreamHealth && <button className={controlClass} disabled={controlsDisabled} onClick={() => input.setupState === "deleting" ? void handleDelete(input) : handleResume(input)}>{input.setupState === "deleting" ? "Retry removal" : "Resume setup"}</button>}
+                  </div>}
                   <div className="space-y-2">
                     {input.rtmpUrl && (
                       <CopyField
                         label="RTMPS URL"
                         value={input.rtmpUrl}
                         fieldId={`rtmp-${input.id}`}
-                        copiedField={copiedField}
-                        onCopy={copyToClipboard}
                       />
                     )}
                     {input.rtmpKey && (
@@ -338,8 +298,6 @@ function StreamHealthPage() {
                         label="Stream Key"
                         value={input.rtmpKey}
                         fieldId={`key-${input.id}`}
-                        copiedField={copiedField}
-                        onCopy={copyToClipboard}
                         secret
                       />
                     )}
@@ -348,8 +306,6 @@ function StreamHealthPage() {
                         label="SRT URL"
                         value={input.srtUrl}
                         fieldId={`srt-${input.id}`}
-                        copiedField={copiedField}
-                        onCopy={copyToClipboard}
                       />
                     )}
                   </div>
@@ -570,63 +526,22 @@ function StreamHealthPage() {
         </div>
 
         {/* Stats row */}
-        {showAddForm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
-              <div className="flex items-center justify-between mb-5">
-                <h2 className="text-lg font-semibold text-board-text">
-                  New Live Input
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAddForm(false);
-                    setError("");
-                  }}
-                  aria-label="Close live input editor"
-                  className="p-1 rounded-lg hover:bg-board-border transition-colors text-board-muted"
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
-              <form onSubmit={handleCreate} className="space-y-4">
-                <div>
-                  <label className="block text-sm text-board-muted mb-1.5">
-                    Input Name
-                  </label>
-                  <input
-                    type="text"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="e.g. ATEM Program, Main Camera"
-                    className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500 transition-colors text-sm"
-                    autoFocus
-                  />
-                </div>
-                {error && <p className="text-red-400 text-sm">{error}</p>}
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowAddForm(false);
-                      setError("");
-                    }}
-                    className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={creating || !newName.trim()}
-                    className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
-                  >
-                    {creating ? "Creating..." : "Create"}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
+        <Dialog open={showAddForm} onOpenChange={open => { if (!open) void closeEditor(); }}>
+          <DialogContent aria-modal="true" showCloseButton={false} className="max-h-[90dvh] overflow-y-auto border-board-border bg-board-card text-board-text">
+            <div className="flex items-start justify-between gap-3"><div className="space-y-2"><DialogTitle>New Live Input</DialogTitle><DialogDescription>Create an ingest point for your encoder. Destination forwarding is controlled separately.</DialogDescription></div>
+              <button className={controlClass} aria-label="Close live input editor" disabled={busy} onClick={() => void closeEditor()}><X className="size-4" /></button></div>
+            <form onSubmit={handleCreate} className="space-y-4">
+              <label htmlFor="live-input-name" className="block text-sm">Input Name</label>
+              <input id="live-input-name" value={newName} onChange={e => setNewName(e.target.value)} maxLength={200} disabled={locked} placeholder="e.g. ATEM Program, Main Camera" className="min-h-11 w-full min-w-0 rounded-lg border border-board-border bg-board-bg px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-fire-500" />
+              {notice}
+              {read.error && <ReadFailureNotice error={read.error} refreshing={read.refreshing} retry={read.retry} label="Retry inputs" />}
+              <div className="flex flex-wrap gap-3"><button type="button" className={controlClass} disabled={busy} onClick={() => void closeEditor()}>Cancel</button><button type="submit" className={controlClass} disabled={controlsDisabled || !newName.trim()}>{busy ? "Creating…" : "Create"}</button></div>
+            </form>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={blocker.status === "blocked"} onOpenChange={open => { if (!open && blocker.status === "blocked") blocker.reset(); }}>
+          <DialogContent aria-modal="true" showCloseButton={false} className="border-board-border bg-board-card text-board-text"><DialogTitle>Leave Stream?</DialogTitle><DialogDescription>Your draft and retry controls will be discarded. An unconfirmed request may still complete. Review pending inputs when you return.</DialogDescription><div className="flex flex-wrap gap-2"><button className={controlClass} onClick={() => blocker.status === "blocked" && blocker.reset()}>Stay</button><button className={controlClass} onClick={() => blocker.status === "blocked" && blocker.proceed()}>Leave Stream</button></div></DialogContent>
+        </Dialog>
       </div>
       {ConfirmDialogEl}
     </div>
@@ -635,65 +550,36 @@ function StreamHealthPage() {
 
 /* ─── Copy Field ─────────────────────────────────────────── */
 
-function CopyField({
-  label,
-  value,
-  fieldId,
-  copiedField,
-  onCopy,
-  secret,
-}: {
-  label: string;
-  value: string;
-  fieldId: string;
-  copiedField: string | null;
-  onCopy: (text: string, field: string) => void;
-  secret?: boolean;
-}) {
+function CopyField({ label, value, fieldId, secret }: { label: string; value: string; fieldId: string; secret?: boolean }) {
   const [revealed, setRevealed] = useState(false);
-  const displayValue = secret && !revealed ? "••••••••••••••••" : value;
-
-  return (
-    <div className="flex items-center gap-2">
-      <span className="text-[10px] font-medium text-board-muted uppercase tracking-wider w-20 shrink-0">
-        {label}
-      </span>
-      <code
-        className="flex-1 text-[11px] text-board-muted bg-board-bg px-2.5 py-1.5 rounded-lg truncate font-mono select-all"
-      >
-        {displayValue}
-      </code>
-      {secret && (
-        <button
-          onClick={() => setRevealed(!revealed)}
-          className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors shrink-0"
-          title={revealed ? "Hide" : "Reveal"}
-        >
-          {revealed ? (
-            <EyeOff className="w-3.5 h-3.5" />
-          ) : (
-            <Eye className="w-3.5 h-3.5" />
-          )}
-        </button>
-      )}
-      <button
-        onClick={() => onCopy(value, fieldId)}
-        className="p-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors shrink-0"
-        title="Copy to clipboard"
-      >
-        {copiedField === fieldId ? (
-          <Check className="w-3.5 h-3.5 text-green-400" />
-        ) : (
-          <Copy className="w-3.5 h-3.5" />
-        )}
-      </button>
+  const [copyState, setCopyState] = useState<"idle" | "copying" | "copied" | "failed">("idle");
+  const generation = useRef(0);
+  useEffect(() => { setCopyState("idle"); setRevealed(false); return () => { generation.current++; }; }, [value]);
+  const copy = async () => {
+    const current = ++generation.current; setCopyState("copying");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([navigator.clipboard.writeText(value), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error("Copy timed out")), 5_000); })]);
+      if (generation.current === current) setCopyState("copied");
+    } catch { if (generation.current === current) setCopyState("failed"); }
+    finally { clearTimeout(timer); }
+  };
+  return <div className="min-w-0 space-y-1">
+    <span className="text-xs font-medium text-board-muted" id={`${fieldId}-label`}>{label}</span>
+    <div className="flex min-w-0 items-center gap-1">
+      <code aria-labelledby={`${fieldId}-label`} className="min-w-0 flex-1 select-all truncate rounded-lg bg-board-bg px-2.5 py-2 text-xs text-board-muted">{secret && !revealed ? "••••••••••••••••" : value}</code>
+      {secret && <button className={`${controlClass} min-w-11 shrink-0`} aria-label={`${revealed ? "Hide" : "Reveal"} ${label}`} onClick={() => setRevealed(!revealed)}>{revealed ? <EyeOff className="size-4" /> : <Eye className="size-4" />}</button>}
+      <button className={`${controlClass} min-w-11 shrink-0`} disabled={copyState === "copying"} aria-label={`${copyState === "failed" ? "Retry copying" : "Copy"} ${label}`} onClick={() => void copy()}>{copyState === "copied" ? <Check className="size-4 text-green-400" /> : <Copy className="size-4" />}</button>
     </div>
-  );
+    {copyState === "failed" && <p role="alert" className="text-xs text-amber-200">Could not copy {label}. Retry copying or select the value manually.</p>}
+    {copyState === "copied" && <p role="status" className="text-xs text-board-muted">{label} copied.</p>}
+  </div>;
 }
 
 /* ─── Setup Guide Accordion ─────────────────────────────── */
 
 function SetupGuide({
+  id,
   icon,
   title,
   subtitle,
@@ -713,6 +599,8 @@ function SetupGuide({
     <div className="rounded-xl border border-board-border bg-board-card overflow-hidden">
       <button
         onClick={onToggle}
+        aria-expanded={expanded}
+        aria-controls={`guide-${id}`}
         className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-board-border/20 transition-colors"
       >
         <div className="p-2 rounded-lg bg-board-bg border border-board-border text-board-muted shrink-0">
@@ -729,7 +617,7 @@ function SetupGuide({
         )}
       </button>
       {expanded && (
-        <div className="px-4 pb-4 pt-1 border-t border-board-border">
+        <div id={`guide-${id}`} className="px-4 pb-4 pt-1 border-t border-board-border">
           {children}
         </div>
       )}
