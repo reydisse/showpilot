@@ -1,3 +1,4 @@
+vi.mock("../KioskDutyRoster", () => ({ KioskDutyRoster: () => null }));
 vi.mock("../KioskTeamEditor", () => ({ KioskTeamEditor: () => null }));
 vi.mock("../KioskDisplayControl", () => ({ KioskDisplayControl: () => null }));
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -6,7 +7,7 @@ const api = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), revoke: vi.fn() 
 vi.mock("@/lib/companion", () => ({ createCompanionToken: api.create, listCompanionTokens: api.list, revokeCompanionToken: api.revoke }));
 vi.mock("@/lib/kiosk", () => ({ createKioskToken: api.create, listKioskTokens: api.list, revokeKioskToken: api.revoke }));
 vi.mock("@/lib/kiosk-display", () => ({ getKioskBlankState: async () => false, setKioskBlankState: vi.fn() }));
-vi.mock("@/lib/kiosk-admin", () => ({ getKioskTeams: async () => [], getRosterRoles: async () => [] }));
+vi.mock("@/lib/kiosk-admin", () => ({ getKioskTeams: async () => [] }));
 import { CompanionSection } from "../CompanionSection";
 import { KioskSection } from "../KioskSection";
 

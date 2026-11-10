@@ -1,3 +1,4 @@
+vi.mock("./KioskDutyRoster", () => ({ KioskDutyRoster: () => null }));
 vi.mock("./KioskTeamEditor", () => ({ KioskTeamEditor: () => null }));
 vi.mock("./KioskDisplayControl", () => ({ KioskDisplayControl: () => null }));
 import { renderToString } from 'react-dom/server';
@@ -9,13 +10,13 @@ import { CompanionSection } from './CompanionSection';
 
 const mocks = vi.hoisted(() => ({ list:vi.fn(), create:vi.fn(), revoke:vi.fn() }));
 vi.mock('@/lib/companion', () => ({ listCompanionTokens:mocks.list, createCompanionToken:mocks.create, revokeCompanionToken:mocks.revoke }));
-const kiosk = vi.hoisted(() => ({ teams:vi.fn(), roles:vi.fn(), week:vi.fn(), tokens:vi.fn(), blank:vi.fn() }));
-vi.mock('@/lib/kiosk-admin', () => ({ getKioskTeams:kiosk.teams, getRosterRoles:kiosk.roles, getRosterWeek:kiosk.week, seedRosterRoles:vi.fn(), createRosterRole:vi.fn(), deleteRosterRole:vi.fn(), saveRosterWeek:vi.fn() }));
+const kiosk = vi.hoisted(() => ({ teams:vi.fn(), tokens:vi.fn(), blank:vi.fn() }));
+vi.mock('@/lib/kiosk-admin', () => ({ getKioskTeams:kiosk.teams }));
 vi.mock('@/lib/kiosk', () => ({ listKioskTokens:kiosk.tokens, createKioskToken:vi.fn(), revokeKioskToken:vi.fn() }));
 vi.mock('@/lib/kiosk-display', () => ({ getKioskBlankState:kiosk.blank, setKioskBlankState:vi.fn() }));
 beforeEach(() => {
   vi.useFakeTimers(); vi.resetAllMocks();
-  kiosk.teams.mockResolvedValue([]); kiosk.roles.mockResolvedValue([]); kiosk.tokens.mockResolvedValue([]); kiosk.blank.mockResolvedValue({ blanked:false });
+  kiosk.teams.mockResolvedValue([]); kiosk.tokens.mockResolvedValue([]); kiosk.blank.mockResolvedValue({ blanked:false });
 });
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 const tick = async (ms = 0) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
@@ -70,8 +71,7 @@ it('cancels token reads when the organization changes', async () => {
 });
 
 it('bounds the org-chart read without showing a partial result and leaves token access reachable', async () => {
-  kiosk.teams.mockResolvedValue([{id:'team',name:'Unconfirmed team',members:[],color:'#000000'}]);
-  kiosk.roles.mockImplementation(() => new Promise(() => {}));
+  kiosk.teams.mockImplementation(() => new Promise(() => {}));
   render(<KioskSection userId="fixture-user" orgId="one" slug="one" members={[]} />);
   await tick(8000);
   expect(screen.queryByText('Loading kiosk organization…')).toBeNull();
@@ -79,27 +79,6 @@ it('bounds the org-chart read without showing a partial result and leaves token 
   expect(screen.getByRole('button',{name:'Retry kiosk organization'})).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:'Access Tokens'})); await tick();
   expect(screen.getByText(/No tokens yet/)).toBeTruthy();
-});
-
-it('isolates roster weeks and retains a draft when a refresh fails', async () => {
-  let oldReply: (value: unknown) => void = () => {};
-  kiosk.roles.mockResolvedValue([{id:'audio',code:'audio',name:'Audio',short:'Audio'}]);
-  kiosk.week.mockImplementationOnce(() => new Promise(done => { oldReply = done; }))
-    .mockResolvedValueOnce({tech:{},pmUserId:null}).mockImplementationOnce(() => new Promise(() => {})).mockResolvedValue({tech:{},pmUserId:null});
-  render(<KioskSection userId="fixture-user" orgId="one" slug="one" members={[{user:{id:'person',name:'Fixture person',image:null}}]} />);
-  await tick(); fireEvent.click(screen.getByRole('button',{name:'On-Duty Roster'})); await tick();
-  expect(screen.getByText('Loading roster week…')).toBeTruthy();
-  expect(screen.queryByLabelText('Audio assignment')).toBeNull();
-  fireEvent.change(screen.getByLabelText('Roster week starting Sunday'), {target:{value:'2031-02-02'}}); await tick();
-  expect(kiosk.week.mock.calls[0][0].signal.aborted).toBe(true);
-  await act(async () => oldReply({tech:{audio:'person'},pmUserId:'person'}));
-  expect(screen.getByLabelText('Audio assignment')).toHaveProperty('value','');
-  fireEvent.change(screen.getByLabelText('Audio assignment'), {target:{value:'person'}});
-  act(() => document.dispatchEvent(new Event('visibilitychange'))); await tick(8000);
-  expect(screen.getByRole('button',{name:'Retry roster week'})).toBeTruthy();
-  expect(screen.getByLabelText('Audio assignment')).toHaveProperty('value','person');
-  fireEvent.click(screen.getByRole('button',{name:'Retry roster week'})); await tick();
-  expect(screen.getByLabelText('Audio assignment')).toHaveProperty('value','person');
 });
 
 it('hydrates the Companion page on a non-production origin without changing server markup', async () => {

@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { withLocalSmokeFixture } from './local-smoke-fixture.mjs';
 import { poll, withRealBrowser } from './real-browser-fixture.mjs';
 
-const names = ['listCompanionTokens','createCompanionToken','revokeCompanionToken','getRecentWebhookEvents','getKioskTeams','getRosterRoles','listKioskTokens','createKioskToken','revokeKioskToken','getRosterWeek'];
+const names = ['listCompanionTokens','createCompanionToken','revokeCompanionToken','getRecentWebhookEvents','getKioskTeams','listKioskTokens','createKioskToken','revokeKioskToken','getDutyRosterState'];
 const ids = {};
 const assets = resolve(import.meta.dirname,'../dist/server/assets');
 for (const file of (await readdir(assets)).filter(file => file.endsWith('.js'))) {
@@ -17,6 +17,7 @@ assert.ok(names.every(name => ids[name]), 'Resolve the real server functions fro
 await withLocalSmokeFixture(async ({origin,orgId,operatorCookie,queryFixture,stopServer,startServer,serverState}) => {
   await withRealBrowser({origin,cookie:operatorCookie}, async ({page,evaluate}) => {
     await page('Page.enable');
+    await page('Emulation.setFocusEmulationEnabled',{enabled:true});
     await page('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
     await page('Page.addScriptToEvaluateOnNewDocument',{source:`
       window.settingsErrors=[]; addEventListener('error',e=>window.settingsErrors.push(e.message)); addEventListener('unhandledrejection',e=>window.settingsErrors.push(String(e.reason)));
@@ -89,7 +90,7 @@ await withLocalSmokeFixture(async ({origin,orgId,operatorCookie,queryFixture,sto
     await setMode('getRecentWebhookEvents','normal'); await click('Retry webhook events'); await recovered('Retry webhook events'); await release('getRecentWebhookEvents');
     await poll(()=>evaluate(`document.querySelector('main').textContent.includes('No recent events')`),'confirmed empty webhook history');
 
-    await setMode('getRosterRoles','hold'); await section('Kiosk Displays'); await failed('Retry kiosk organization');
+    await setMode('getKioskTeams','hold'); await section('Kiosk Displays'); await failed('Retry kiosk organization');
     assert.equal(await evaluate(`document.querySelector('main').textContent.includes('Loading kiosk organization') || document.querySelector('main').textContent.includes('No teams yet')`),false);
     // Tokens remain accessible when the unrelated org-chart read is unavailable.
     await setMode('listKioskTokens','hold'); await click('Access Tokens'); await failed('Retry kiosk tokens');
@@ -103,26 +104,29 @@ await withLocalSmokeFixture(async ({origin,orgId,operatorCookie,queryFixture,sto
       if(width===320) {const shot=await page('Page.captureScreenshot',{format:'png'}); await writeFile('/tmp/showpilot-settings-list-error-320.png',Buffer.from(shot.data,'base64'));}
     }
     await setMode('listKioskTokens','normal'); await click('Retry kiosk tokens'); await recovered('Retry kiosk tokens'); await release('listKioskTokens');
-    await click('Org Chart'); await setMode('getRosterRoles','normal'); await click('Retry kiosk organization'); await recovered('Retry kiosk organization'); await release('getRosterRoles');
+    await click('Org Chart'); await setMode('getKioskTeams','normal'); await click('Retry kiosk organization'); await recovered('Retry kiosk organization'); await release('getKioskTeams');
     await poll(()=>evaluate(`document.querySelector('main').textContent.includes('No teams yet')`),'org read recovered');
 
     await click('On-Duty Roster');
-    await poll(()=>evaluate(`document.querySelector('main').textContent.includes('No roster roles defined yet.')`),'no roster roles');
-    await setMode('getRosterWeek','hold'); await click('Add default roles (TM, Audio, Cam 1/2, Pro, Stream)');
+    await poll(()=>evaluate(`document.querySelector('main').textContent.includes('No technical roster roles are defined yet.')`),'no roster roles');
+    await click('Add default roles (TM, Audio, Cam 1/2, Pro, Stream)');
+    await poll(()=>evaluate(`document.querySelectorAll('select[aria-label$=" assignment"]').length===7`),'default roles acknowledged');
+    await setMode('getDutyRosterState','hold');
+    await fill('input[aria-label="Roster week starting Sunday"]','2031-01-26');
     await failed('Retry roster week');
     assert.equal(await evaluate(`document.querySelector('main').textContent.includes('Loading roster week')`),false);
     assert.equal(await evaluate(`document.querySelectorAll('select[aria-label$=" assignment"]').length`),0,'unknown week cannot look unassigned');
-    await setMode('getRosterWeek','normal');
+    await setMode('getDutyRosterState','normal');
     await fill('input[aria-label="Roster week starting Sunday"]','2031-02-02');
     await poll(()=>evaluate(`document.querySelectorAll('select[aria-label$=" assignment"]').length>0 && !document.querySelector('[role="alert"][aria-label="Retry roster week"]')`),'another roster week loads');
-    await release('getRosterWeek');
+    await release('getDutyRosterState');
     assert.equal(await evaluate(`document.querySelector('input[aria-label="Roster week starting Sunday"]').value`),'2031-02-02');
     await evaluate(`const node=document.querySelector('select[aria-label$=" assignment"]'); node.value='smoke-operator'; node.dispatchEvent(new Event('change',{bubbles:true})); true`);
-    await setMode('getRosterWeek','hold');
-    await evaluate(`document.dispatchEvent(new Event('visibilitychange')); true`);
+    await setMode('getDutyRosterState','hold');
+    await evaluate(`window.dispatchEvent(new Event('visibilitychange')); true`);
     await failed('Retry roster week');
     assert.equal(await evaluate(`document.querySelector('select[aria-label$=" assignment"]').value`),'smoke-operator');
-    await setMode('getRosterWeek','normal'); await click('Retry roster week'); await recovered('Retry roster week'); await release('getRosterWeek');
+    await setMode('getDutyRosterState','normal'); await click('Retry roster week'); await recovered('Retry roster week'); await release('getDutyRosterState');
     assert.equal(await evaluate(`document.querySelector('select[aria-label$=" assignment"]').value`),'smoke-operator','read Retry preserves the draft');
     assert.equal(await evaluate('window.settingsDocument'),documentId); assert.deepEqual(await evaluate('window.settingsErrors'),[]);
     console.log(JSON.stringify({fixtureProxyRestarts:proxyRestarts}));
