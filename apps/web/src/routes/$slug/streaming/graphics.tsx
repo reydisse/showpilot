@@ -1,3 +1,4 @@
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, useRouter, Link } from "@tanstack/react-router";
@@ -293,14 +294,14 @@ function GraphicsPage() {
           <section className="rounded-xl border border-board-border bg-board-card/60 p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className={`w-2 h-2 rounded-full ${proPresenterConnected ? "bg-green-400" : proPresenterConnecting ? "bg-yellow-400 animate-pulse" : "bg-board-muted/40"}`} />
                   <h2 className="text-sm font-semibold text-board-text">ProPresenter import</h2>
-                  <span className="text-[10px] uppercase tracking-wider text-board-muted/60">
+                  <span className="text-xs uppercase tracking-wider text-board-muted/60">
                     {proPresenter.status === "connected"
                       ? "Connected through venue Bridge"
-                      : currentProPresenterSlide
-                        ? "Connected through Bridge"
+                      : proPresenter.error
+                        ? "Reconnecting, showing last confirmed slide"
                         : proPresenterEnabled && bridgeOnline
                           ? "Bridge online · waiting for slide"
                           : proPresenterEnabled
@@ -314,7 +315,7 @@ function GraphicsPage() {
               </div>
               <button
                 onClick={() => setProPresenterEnabled((enabled) => !enabled)}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${proPresenterEnabled ? "border-red-500/25 text-red-400 hover:bg-red-500/10" : "border-fire-500/30 text-fire-500 hover:bg-fire-500/10"}`}
+                className={`min-h-11 shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${proPresenterEnabled ? "border-red-500/25 text-red-400 hover:bg-red-500/10" : "border-fire-500/30 text-fire-500 hover:bg-fire-500/10"}`}
               >
                 {proPresenterEnabled ? "Disconnect" : "Connect ProPresenter"}
               </button>
@@ -325,15 +326,13 @@ function GraphicsPage() {
                 Add the ProPresenter host and ports in Settings → Integrations before connecting.
               </p>
             )}
-            {proPresenter.error && (
-              <p className="mt-3 text-xs text-red-400">{proPresenter.error}</p>
-            )}
+            <ReadFailureNotice error={proPresenter.error && proPresenter.errorAt !== null ? { message: proPresenter.error, occurredAt: proPresenter.errorAt } : null} refreshing={proPresenter.refreshing} retry={proPresenter.connect} label="Reconnect ProPresenter feed" />
             {currentProPresenterSlide && (
               <div className="mt-3 rounded-lg border border-board-border bg-board-bg p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[10px] uppercase tracking-widest text-board-muted/60">Current slide</p>
-                    <p className="mt-1 text-sm text-board-text whitespace-pre-wrap line-clamp-4">{currentProPresenterSlide.text}</p>
+                <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
+                  <div className="min-w-0 w-full sm:flex-1">
+                    <p className="text-xs uppercase tracking-widest text-board-muted/60">{proPresenterConnected ? "Current slide" : "Last confirmed slide"}</p>
+                    <p aria-label="ProPresenter slide text" className="mt-1 break-words text-sm text-board-text whitespace-pre-wrap line-clamp-4">{currentProPresenterSlide.text}</p>
                     {(currentProPresenterSlide.notes || currentProPresenterSlide.presentationName) && (
                       <p className="mt-1 text-xs text-board-muted truncate">
                         {currentProPresenterSlide.notes || currentProPresenterSlide.presentationName}
@@ -341,9 +340,9 @@ function GraphicsPage() {
                     )}
                   </div>
                   <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                    <button onClick={() => void generateFromProPresenter("scripture")} className="px-2.5 py-1.5 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-500/25 text-[10px] font-medium hover:bg-purple-500/25">Scripture</button>
-                    <button onClick={() => void generateFromProPresenter("lower-third")} className="px-2.5 py-1.5 rounded-lg bg-blue-500/15 text-blue-300 border border-blue-500/25 text-[10px] font-medium hover:bg-blue-500/25">Lower third</button>
-                    <button onClick={() => void generateFromProPresenter("title")} className="px-2.5 py-1.5 rounded-lg bg-green-500/15 text-green-300 border border-green-500/25 text-[10px] font-medium hover:bg-green-500/25">Title</button>
+                    <button onClick={() => void generateFromProPresenter("scripture")} className="min-h-11 px-2.5 py-1.5 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-500/25 text-xs font-medium hover:bg-purple-500/25">Scripture</button>
+                    <button onClick={() => void generateFromProPresenter("lower-third")} className="min-h-11 px-2.5 py-1.5 rounded-lg bg-blue-500/15 text-blue-300 border border-blue-500/25 text-xs font-medium hover:bg-blue-500/25">Lower third</button>
+                    <button onClick={() => void generateFromProPresenter("title")} className="min-h-11 px-2.5 py-1.5 rounded-lg bg-green-500/15 text-green-300 border border-green-500/25 text-xs font-medium hover:bg-green-500/25">Title</button>
                   </div>
                 </div>
               </div>

@@ -1,3 +1,5 @@
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ResetRundownDialog } from "@/components/rundown/ResetRundownDialog";
@@ -828,10 +830,15 @@ function RundownPage() {
   const [customAdjust, setCustomAdjust] = useState("1:00");
   const [progressReset, setProgressReset] = useState(false);
   const [ppEnabled, setPpEnabled] = useState(false);
-  const [ppHost, setPpHost] = useState("");
-  const [ppPort, setPpPort] = useState(50001);
-  const [ppApiPort, setPpApiPort] = useState(0);
-  const [ppCuesEnabled, setPpCuesEnabled] = useState(false);
+  const ppConfiguration = useOperatorRead<Record<string, string>>({
+    key: orgId, initialValue: {}, enabled: canControlRundown,
+    read: useCallback(signal => getProPresenterConfiguration({ data: { orgId }, signal }), [orgId]),
+    errorMessage: "ProPresenter configuration could not be loaded. Retry before using its controls.",
+  });
+  const ppHost = ppConfiguration.value["propresenter-host"] || "";
+  const ppPort = parseInt(ppConfiguration.value["propresenter-port"] || "50001", 10);
+  const ppApiPort = parseInt(ppConfiguration.value["propresenter-api-port"] || "0", 10);
+  const ppCuesEnabled = ppConfiguration.value["propresenter-send-cues"] === "true";
   const [ppOutputPending, setPpOutputPending] = useState(false);
   const [ppCmdError, setPpCmdError] = useState("");
   const [ppCmdPending, setPpCmdPending] = useState<
@@ -851,23 +858,6 @@ function RundownPage() {
     !syncedInitialized &&
     syncedServiceDate === serviceDate &&
     (!showId || syncedShowId === showId);
-
-  // Load PP settings from org config
-  useEffect(() => {
-    if (!canControlRundown) return;
-    getProPresenterConfiguration({ data: { orgId } })
-      .then((settings) => {
-        const host = settings["propresenter-host"] || "";
-        const port = parseInt(settings["propresenter-port"] || "50001", 10);
-        const apiPort = parseInt(settings["propresenter-api-port"] || "0", 10);
-        const cues = settings["propresenter-send-cues"] === "true";
-        setPpHost(host);
-        setPpPort(port);
-        setPpApiPort(apiPort);
-        setPpCuesEnabled(cues);
-      })
-      .catch(() => {});
-  }, [canControlRundown, orgId]);
 
   // The authenticated venue feed updates the local preview.
   const handlePPSlideChange = useCallback(
@@ -1981,6 +1971,7 @@ function RundownPage() {
         </div>
       )}
 
+      <ReadFailureNotice {...ppConfiguration} label="Retry ProPresenter configuration" />
       {canControlRundown && <RundownShortcutBanner />}
       {(!syncConnected || unconfirmedCount > 0) && (
         <div role="status" aria-live="polite" className="shrink-0 flex flex-wrap items-center gap-3 border-b border-amber-500/25 bg-amber-500/10 px-4 py-2 text-sm text-amber-200">
@@ -2320,7 +2311,7 @@ function RundownPage() {
                 <div
                   className={`rounded-xl border p-4 transition-colors ${ppEnabled ? "border-purple-500/30 bg-purple-500/5" : "border-board-border bg-board-card"}`}
                 >
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                     <div className="flex items-center gap-2">
                       <Tv className="w-3.5 h-3.5 text-purple-400" />
                       <p className="text-xs font-medium text-board-muted uppercase tracking-widest">
@@ -2331,7 +2322,7 @@ function RundownPage() {
                       <>
                         <Button variant="ghost"
                           onClick={togglePP}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium uppercase tracking-wider transition-colors ${
+                          className={`min-h-11 flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium uppercase tracking-wider transition-colors ${
                             ppEnabled
                               ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
                               : "bg-board-bg text-board-muted hover:bg-board-border"
@@ -2342,13 +2333,13 @@ function RundownPage() {
                           ) : (
                             <WifiOff className="w-3 h-3" />
                           )}
-                          {ppEnabled ? "Streaming" : "Off"}
+                          {ppEnabled ? pp.isStreaming ? "Streaming" : "Reconnecting" : "Off"}
                         </Button>
                         <Button variant="ghost"
                           onClick={togglePPOnKiosk}
                           disabled={ppOutputPending}
                           aria-busy={ppOutputPending}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium uppercase tracking-wider transition-colors ${
+                          className={`min-h-11 flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium uppercase tracking-wider transition-colors ${
                             ppOnKiosk
                               ? "bg-blue-500/15 text-blue-300 hover:bg-blue-500/25"
                               : "bg-board-bg text-board-muted hover:bg-board-border hover:text-board-text"
@@ -2391,7 +2382,7 @@ function RundownPage() {
                         />
                         <span className="text-xs text-board-muted">
                           {pp.status === "error"
-                            ? pp.error ?? "Venue Bridge disconnected"
+                            ? "Reconnecting, showing last confirmed slide"
                             : ppIsConnected
                               ? "Connected through venue Bridge"
                               : pp.status === "connecting"
@@ -2399,6 +2390,8 @@ function RundownPage() {
                                 : "Waiting for venue Bridge..."}
                         </span>
                       </div>
+
+                      <ReadFailureNotice error={pp.error && pp.errorAt !== null ? { message: pp.error, occurredAt: pp.errorAt } : null} refreshing={pp.refreshing} retry={pp.connect} label="Reconnect ProPresenter feed" />
 
                       {/* PP Control Buttons */}
                       {canEditRundown &&

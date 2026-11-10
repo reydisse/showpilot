@@ -90,14 +90,24 @@ async function setup() {
 async function feedClock(
   test: Awaited<ReturnType<typeof setup>>,
   continuous = true,
+  socketFirst = false,
 ) {
   const socket = test.controlSocket;
   if (!socket) throw new Error("Missing clock owner socket");
   await test.command("start");
   const format = { frameRate: 30, dropFrame: "ndf" } as const;
   let frame = 0;
-  // The first feed waits for the cue. Continue sending frames independently,
-  // as a real source does while ProPresenter acknowledges its commands.
+  if (socketFirst) {
+    socket.send(JSON.stringify({
+      type: "command",
+      action: "feed-tc",
+      payload: { timecode: atZero, format },
+    }));
+    await expect.poll(async () => (await test.events())[0]?.executionStatus)
+      .toBe("dispatching");
+  }
+  // Continue sending frames independently, as a real source does while
+  // ProPresenter acknowledges its commands.
   const interval = continuous
     ? setInterval(() => {
         socket.send(JSON.stringify({
@@ -107,8 +117,17 @@ async function feedClock(
         }));
       }, 50)
     : undefined;
+  const request = test.command("feed-tc", { timecode: atZero, format });
   return {
-    finished: test.command("feed-tc", { timecode: atZero, format }),
+    async waitForCompletion() {
+      await request;
+      // A socket frame may own dispatch before the HTTP frame arrives. Its
+      // response then confirms only that frame, not the pending cue execution.
+      await expect.poll(async () => {
+        const status = (await test.events())[0]?.executionStatus;
+        return status === "acknowledged" || status === "failed";
+      }).toBe(true);
+    },
     stop: () => clearInterval(interval),
   };
 }
@@ -121,7 +140,7 @@ it("resolves the exact prop before clearing only props, waits, then triggers wit
   });
   const feed = await feedClock(test);
   try {
-    await feed.finished;
+    await feed.waitForCompletion();
   } finally {
     feed.stop();
   }
@@ -137,13 +156,17 @@ it("resolves the exact prop before clearing only props, waits, then triggers wit
   ]);
 });
 
-it.each([true, false])(
-  "finishes a slow automatic prop sequence only with a continuous feed: %s",
-  async (continuous) => {
+it.each([
+  { continuous: true, socketFirst: false },
+  { continuous: true, socketFirst: true },
+  { continuous: false, socketFirst: false },
+])(
+  "finishes a slow automatic prop sequence: continuous=$continuous, socketFirst=$socketFirst",
+  async ({ continuous, socketFirst }) => {
     const test = await setup();
     test.pause("clear-props");
     await test.command("add-event", cue);
-    const feed = await feedClock(test, continuous);
+    const feed = await feedClock(test, continuous, socketFirst);
     try {
       await expect.poll(() => test.received.at(-1)?.action).toBe("clear-props");
       await new Promise((resolve) => setTimeout(resolve, TIMECODE_FEED_STALL_MS + 250));
@@ -151,7 +174,7 @@ it.each([true, false])(
       const clear = test.received.find((row) => row.action === "clear-props");
       if (clear) test.acknowledge(clear.id, clear.action);
       try {
-        await feed.finished;
+        await feed.waitForCompletion();
       } finally {
         feed.stop();
       }
