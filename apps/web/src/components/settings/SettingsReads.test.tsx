@@ -1,3 +1,4 @@
+vi.mock("./KioskTeamEditor", () => ({ KioskTeamEditor: () => null }));
 vi.mock("./KioskDisplayControl", () => ({ KioskDisplayControl: () => null }));
 import { renderToString } from 'react-dom/server';
 import { hydrateRoot } from 'react-dom/client';
@@ -9,7 +10,7 @@ import { CompanionSection } from './CompanionSection';
 const mocks = vi.hoisted(() => ({ list:vi.fn(), create:vi.fn(), revoke:vi.fn() }));
 vi.mock('@/lib/companion', () => ({ listCompanionTokens:mocks.list, createCompanionToken:mocks.create, revokeCompanionToken:mocks.revoke }));
 const kiosk = vi.hoisted(() => ({ teams:vi.fn(), roles:vi.fn(), week:vi.fn(), tokens:vi.fn(), blank:vi.fn() }));
-vi.mock('@/lib/kiosk-admin', () => ({ getKioskTeams:kiosk.teams, getRosterRoles:kiosk.roles, getRosterWeek:kiosk.week, createTeam:vi.fn(), updateTeam:vi.fn(), deleteTeam:vi.fn(), setTeamMember:vi.fn(), removeTeamMember:vi.fn(), seedRosterRoles:vi.fn(), createRosterRole:vi.fn(), deleteRosterRole:vi.fn(), saveRosterWeek:vi.fn() }));
+vi.mock('@/lib/kiosk-admin', () => ({ getKioskTeams:kiosk.teams, getRosterRoles:kiosk.roles, getRosterWeek:kiosk.week, seedRosterRoles:vi.fn(), createRosterRole:vi.fn(), deleteRosterRole:vi.fn(), saveRosterWeek:vi.fn() }));
 vi.mock('@/lib/kiosk', () => ({ listKioskTokens:kiosk.tokens, createKioskToken:vi.fn(), revokeKioskToken:vi.fn() }));
 vi.mock('@/lib/kiosk-display', () => ({ getKioskBlankState:kiosk.blank, setKioskBlankState:vi.fn() }));
 beforeEach(() => {
