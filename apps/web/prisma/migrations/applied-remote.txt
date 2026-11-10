@@ -61,3 +61,5 @@
 0054_chat_pass_revocations.sql
 0055_chat_pass_creation_receipts.sql
 0056_invitation_responses.sql
+0057_song_write_receipts.sql
+0058_audio_write_receipts.sql
