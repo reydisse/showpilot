@@ -115,7 +115,7 @@ function TimecodePage() {
   }
 
   return (
-    <div className="h-full overflow-auto">
+    <div data-timecode-page className="h-full overflow-auto">
       <div data-timecode-header className="sticky top-0 z-10 bg-board-bg/80 backdrop-blur-xl border-b border-board-border px-4 py-3 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

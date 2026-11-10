@@ -1,6 +1,6 @@
-import { abortAllDurableObjects, evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { abortAllDurableObjects, evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { timecodeFixture, startFixtureTimecodeFeed } from "@/test/timecode-fixtures";
 import type { TimecodeState, TimecodeWsMessage } from "@/types/timecode";
 import { TestTimecodeRelay } from "@/test/worker-entry";
@@ -127,19 +127,44 @@ it("does not label an intentional Stop as signal loss", async () => {
   test.socket.close();
 });
 
-it("freezes scheduled same-output work queued behind a slow acknowledgement when the feed stalls", async () => {
+it.each([
+  { acknowledgementAge: 800, status: "timecode-stalled" },
+  { acknowledgementAge: 2100, status: "timecode-lost" },
+])("freezes scheduled same-output work behind an acknowledgement at $status", async ({ acknowledgementAge, status }) => {
   const test = await clock();
   const graphics = env.LOWER_THIRDS_RELAY.getByName(test.orgId);
-  await (await graphics.fetch(new Request("https://test/test/delay", { method: "POST", body: "800" }))).text();
-  for (const action of ["lower-third-show", "lower-third-clear"]) {
-    await test.command("add-event", { id: action, action, label: action, triggerTimecode: feed(1).timecode, payload: { line1: "Held on loss" } });
+  const feedAt = Date.now();
+  const time = vi.spyOn(Date, "now").mockReturnValue(feedAt);
+  try {
+    await runInDurableObject(graphics, instance => {
+      const fetch = instance.fetch.bind(instance);
+      vi.spyOn(instance, "fetch").mockImplementation(request => {
+        // Advance during the first output request, before its real acknowledgement.
+        // Queue safety must not depend on how fast the runner returns from I/O.
+        if (new URL(request.url).pathname === "/internal/trigger") {
+          time.mockReturnValue(feedAt + acknowledgementAge);
+        }
+        return fetch(request);
+      });
+    });
+    for (const action of ["lower-third-show", "lower-third-clear"]) {
+      await test.command("add-event", { id: action, action, label: action, triggerTimecode: feed(1).timecode, payload: { line1: "Held on loss" } });
+    }
+    await test.command("feed-tc", feed(1));
+    expect(Date.now()).toBe(feedAt + acknowledgementAge);
+    await runDurableObjectAlarm(test.stub);
+    expect(await (await test.stub.fetch(test.url("/events"))).json()).toEqual([
+      expect.objectContaining({ id: "lower-third-show", fired: true }),
+      expect.objectContaining({ id: "lower-third-clear", fired: false, executionStatus: "scheduled" }),
+    ]);
+    expect(await (await graphics.fetch("https://test/current")).json()).toMatchObject({ current: { line1: "Held on loss" } });
+    expect(await test.state()).toMatchObject({ running: false, signal: { status } });
+  } finally {
+    try {
+      await runInDurableObject(graphics, instance => { vi.mocked(instance.fetch).mockRestore(); });
+    } finally {
+      time.mockRestore();
+      test.socket.close();
+    }
   }
-  await test.command("feed-tc", feed(1));
-  expect(await (await test.stub.fetch(test.url("/events"))).json()).toEqual([
-    expect.objectContaining({ id: "lower-third-show", fired: true }),
-    expect.objectContaining({ id: "lower-third-clear", fired: false, executionStatus: "scheduled" }),
-  ]);
-  expect(await (await graphics.fetch("https://test/current")).json()).toMatchObject({ current: { line1: "Held on loss" } });
-  expect(await test.state()).toMatchObject({ running: false, signal: { status: "timecode-stalled" } });
-  test.socket.close();
 });

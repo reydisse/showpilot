@@ -61,7 +61,7 @@ export function RundownUnlock({ orgId, pinAccess }: {
           <input id="rundown-unlock-pin" type="password" inputMode="numeric" autoFocus value={pin} onChange={(event) => setPin(event.target.value)}
             className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-3 text-board-text" />
           {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
-          <Button variant="ghost" type="submit" disabled={busy || !pin.trim()} className="w-full rounded-xl bg-fire-500 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Checking…" : "Unlock changes"}</Button>
+          <Button variant="ghost" type="submit" disabled={busy || !pin.trim()} className="w-full rounded-xl bg-fire-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-50">{busy ? "Checking…" : "Unlock changes"}</Button>
         </form>
       </DialogContent>
     </Dialog>

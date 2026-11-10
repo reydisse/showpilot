@@ -1,3 +1,4 @@
+import { assertOperatorReadability } from "./operator-readability-audit.mjs";
 // Built app -> real authenticated rundown relay. No production data.
 import assert from "node:assert/strict";
 import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
@@ -49,6 +50,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
       assert.ok(entry.fits, JSON.stringify(entry));
       for (const button of entry.buttons) assert.ok(button.width >= 44 && button.height >= 44 && button.fits && button.opacity === "1" && button.shared, JSON.stringify(button));
     }
+    await assertOperatorReadability(browser, ".rundown-page");
     await browser("screenshot", `/tmp/showpilot-rundown-layout-${width}.png`);
   }
   await browser("set", "viewport", "1440", "900");
@@ -74,6 +76,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
   await browser("wait", "text=Edit Item");
   const checkDialog = async () => {
     const bounds = await evaluate(`(() => { const dialog = document.querySelector('[role="dialog"]'); const r = dialog.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: innerWidth, height: innerHeight, fits: dialog.scrollWidth <= dialog.clientWidth + 1, focused: dialog.contains(document.activeElement) }; })()`);
+    await assertOperatorReadability(browser, '[role="dialog"]');
     assert.ok(bounds.top >= 0 && bounds.bottom <= bounds.height + 1 && bounds.left >= 0 && bounds.right <= bounds.width + 1 && bounds.fits && bounds.focused, JSON.stringify(bounds));
   };
   await checkDialog();
@@ -108,5 +111,5 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
   await browser("screenshot", "/tmp/showpilot-rundown-new-show-320.png");
   await click("Cancel");
   await browser("wait", "--fn", "document.querySelector('[role=dialog]') === null");
-  console.log(JSON.stringify({ passed: true, skipLinkCrossRouteFocus: true, fiveViewportLayouts: true, minimum44pxRows: true, rowActionsAlwaysVisible: true, keyboardReorderPersists: true, focusRingVisible: true, dragReorderPersists: true, keyboardStart: true, narrowEditAndSectionSaved: true, allSixDialogsFitAndFocus: true, plainTabButtonsKeyboard: true }));
+  console.log(JSON.stringify({ passed: true, skipLinkCrossRouteFocus: true, fiveViewportLayouts: true, minimum44pxRows: true, rowActionsAlwaysVisible: true, keyboardReorderPersists: true, focusRingVisible: true, dragReorderPersists: true, keyboardStart: true, narrowEditAndSectionSaved: true, allSixDialogsFitAndFocus: true, plainTabButtonsKeyboard: true, operationalTextFloorAndMutedContrast: true }));
 });

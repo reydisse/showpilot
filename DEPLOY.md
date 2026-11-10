@@ -621,6 +621,20 @@ stage output, narrow layout and device timing. They do not test physical device
 rendering. Unit and Worker tests cover typed parameters, stale responses,
 missing mappings, target changes, organization isolation and credential masking.
 
+### Operator text readability
+
+Dark muted text now uses `#A3A3A3`. Rundown and timecode operational labels and
+hints use at least 12px, without additional text opacity reductions. Completed
+rundown items and fired cues keep readable text; disabled controls retain their
+disabled appearance. The light-theme muted token is unchanged.
+
+The rundown-layout and timecode-timeline browser rehearsals import
+`operator-readability-audit.mjs`. It measures the built UI's text size and enabled
+muted-text contrast, including inherited opacity and translucent backgrounds.
+The contrast threshold is 4.5:1. The rehearsals also check narrow layouts, six
+rundown dialogs and stopped/failed/fired timecode states. This is an operator
+surface check, not a substitute for the remaining product-wide UX gate.
+
 ### Rundown keyboard and narrow layouts
 
 The runsheet sizes rows to its own panel instead of imposing a 760px minimum.

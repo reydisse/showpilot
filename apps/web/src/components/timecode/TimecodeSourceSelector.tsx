@@ -186,7 +186,7 @@ export function TimecodeSourceSelector({
       </div>
 
       {isMaster && running && (
-        <div className="flex items-center gap-2 text-[10px] text-green-400">
+        <div className="flex items-center gap-2 text-xs text-green-400">
           <Radio className="w-3 h-3 animate-pulse" />
           This client is the timecode master
         </div>
