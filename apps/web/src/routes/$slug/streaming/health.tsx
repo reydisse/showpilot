@@ -180,7 +180,7 @@ function StreamHealthPage() {
             {polling && (
               <RefreshCw className="w-3.5 h-3.5 text-board-muted animate-spin" />
             )}
-            {canManageStreamHealth && (
+            {canManageStreamHealth && inputs.length > 0 && (
               <button
                 onClick={() => setShowAddForm(true)}
                 className="flex min-h-[44px] items-center gap-1.5 px-3 py-1.5 rounded-lg bg-fire-500 text-white text-xs font-medium hover:bg-fire-600 transition-colors"

@@ -1776,7 +1776,8 @@
       "status": "in_progress",
       "evidence": [
         "Device detail now has a named, keyboard-focusable 44px Back link that restores the selected device; missing details offer the same library recovery. smoke-nested-navigation.mjs hit-tests it at 320/768/1440px and verifies Back and browser history without reloading. Other navigation homes, orphan routes and sidebar work remain pending.",
-        "2026-11-06 Settings no longer hides the desktop workspace sidebar. Back remembers the previous resolved in-app URL, including search/hash, without being overwritten by Settings section changes or another organization. The browser rehearsal verifies Planning Room restoration, mobile drawer navigation, direct-entry fallback, and reachable Back at 320/768/1024px. Other orphan routes, permission/module affordances and sidebar scroll cues remain open."
+        "2026-11-06 Settings no longer hides the desktop workspace sidebar. Back remembers the previous resolved in-app URL, including search/hash, without being overwritten by Settings section changes or another organization. The browser rehearsal verifies Planning Room restoration, mobile drawer navigation, direct-entry fallback, and reachable Back at 320/768/1024px. Other orphan routes, permission/module affordances and sidebar scroll cues remain open.",
+        "2026-11-07 Board empty-state Add Team Members now links directly to /$slug/team. smoke-library-empty-actions.mjs inspects the href and clicks through to the rendered Team screen, with its entry hit-tested at 320/768/1440px. Other navigation homes and sidebar affordances remain open."
       ]
     },
     {
@@ -1794,8 +1795,10 @@
       "phase": "2",
       "section": "2.11 Product-wide UX repair (code audit of all routes plus live pass in the Demo org)",
       "line": 273,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-07 smoke-library-empty-actions.mjs reproduced duplicated header/empty creation controls in Stream, Audio, Devices and Multi-Platform, then verified exactly one primary entry on all seven named empty screens in the compiled Worker with real Chrome/auth/disposable D1. Every entry is hit-tested at 320/768/1440px, is at least 44px tall and opens its actual form or Team destination. Songs and Lower Thirds already hid their populated headers; the rehearsal also opens the populated graphic editor and confirms deletion of the last fixture graphic. Board links directly to Team. Stream creation is never submitted; no paid ingest, real org data or deployment is involved."
+      ]
     },
     {
       "id": "d80964d9eac6d11f",

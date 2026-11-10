@@ -360,7 +360,7 @@ function ShowBoardPage() {
               </p>
               <div className="flex justify-center mb-12">
                 <Link
-                  to="/$slug/admin"
+                  to="/$slug/team"
                   params={{ slug }}
                   className="group flex items-center gap-2.5 px-6 py-3 rounded-xl font-[family-name:var(--font-display)] font-semibold text-black transition-all duration-200 hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
                   style={{
