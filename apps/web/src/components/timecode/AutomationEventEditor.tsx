@@ -123,7 +123,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
 
     let payload: Record<string, unknown>;
     try {
-      const parsed: unknown = mediaAction ? { output: mediaOutput.trim(), ...(action === "media-play" ? { mediaId: mediaAsset?.id, etag: mediaAsset?.etag, volume: mediaVolumeValid ? Number(mediaVolume) / 100 : null } : {}) } : namedTimer ? { name: timerName.trim(), ...(action === "timer-start" ? { durationMs: timerDurationMs } : {}) } : action === "crew-message" ? { message: crewMessage.trim() } : stepsLyrics || controlsTriggers ? {} : usesTargetPicker
+      const parsed: unknown = mediaAction ? { output: mediaOutput.trim(), ...(action === "media-play" ? { mediaId: mediaAsset?.id, etag: mediaAsset?.etag, volume: mediaVolumeValid ? Number(mediaVolume) / 100 : null } : {}) } : namedTimer ? { name: timerName.trim(), ...(action === "timer-start" ? { durationMs: timerDurationMs } : {}) } : action === "crew-message" ? { message: crewMessage.trim() } : stepsLyrics || controlsTriggers || action === "lyrics-clear" ? {} : usesTargetPicker
         ? action === "rundown-goto-item" ? { itemId: targetSelection?.id } : { deviceId: targetSelection?.id }
         : structuredProPresenter
         ? { ...(action === "pp-trigger-prop" ? { propName: propName.trim() } : {}), ...(propTarget.trim() ? { target: propTarget.trim() } : {}) }
@@ -261,7 +261,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
         <label htmlFor={crewMessageId} className="block text-xs text-board-muted">Crew message</label>
         <textarea id={crewMessageId} required maxLength={4000} rows={3} value={crewMessage} onChange={event => setCrewMessage(event.target.value)} className={INPUT_CLASS} />
         <p className="text-xs text-board-muted">Post to Production Chat as the controlling operator. Delivery to any linked chat service is shown separately in Chat.</p>
-      </div> : stepsLyrics ? <p className="text-xs text-board-muted">Move to the {action === "lyrics-next-section" ? "next" : "previous"} section of the currently displayed song, using its saved section order. Show a section first. At the song boundary, the cue reports an error and keeps the current lyrics.</p> : usesTargetPicker ? <AutomationTargetPicker key={action} kind={action} loadOptions={loadTargets} selection={targetSelection} onSelect={setTargetSelection} /> : structuredProPresenter ? <div className="space-y-3">
+      </div> : action === "lyrics-clear" ? <p className="text-sm text-board-muted">Clears the currently displayed native lyrics, including manually selected sections. Use the song loader’s “Clear after last cue” option for a clear that applies only to that song load.</p> : stepsLyrics ? <p className="text-xs text-board-muted">Move to the {action === "lyrics-next-section" ? "next" : "previous"} section of the currently displayed song, using its saved section order. Show a section first. At the song boundary, the cue reports an error and keeps the current lyrics.</p> : usesTargetPicker ? <AutomationTargetPicker key={action} kind={action} loadOptions={loadTargets} selection={targetSelection} onSelect={setTargetSelection} /> : structuredProPresenter ? <div className="space-y-3">
         {action === "pp-trigger-prop" && <div>
           <label htmlFor={propNameId} className="mb-1 block text-xs text-board-muted">Prop name</label>
           <input id={propNameId} value={propName} onChange={event => setPropName(event.target.value)} required maxLength={200} className={INPUT_CLASS} />

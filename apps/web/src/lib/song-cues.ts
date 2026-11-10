@@ -1,5 +1,5 @@
 import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES } from "@/types/timecode";
-import { framesToTimecode, timecodeToString, isValidTimecodeFormat, isValidTimecodeTolerance } from "@/lib/timecode";
+import { framesToTimecode, timecodeToString, isValidTimecode, isValidTimecodeFormat, isValidTimecodeTolerance } from "@/lib/timecode";
 import type { AutomationEvent, TimecodeFormat } from "@/types/timecode";
 
 export interface SongCueSource {
@@ -34,6 +34,9 @@ export function buildSongAutomationEvents(input: {
 }): AutomationEvent[] {
   const offset = input.offsetFrames ?? 0;
   if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Cue offset must be a whole number of frames, zero or greater.");
+  if (input.clearAfterFrames != null && (!Number.isSafeInteger(input.clearAfterFrames) || input.clearAfterFrames < 0)) {
+    throw new Error("Clear hold must be a whole number of frames, zero or greater.");
+  }
   const toleranceFrames = input.toleranceFrames ?? DEFAULT_TIMECODE_TOLERANCE_FRAMES;
   if (!isValidTimecodeTolerance(toleranceFrames)) throw new Error(`Tolerance must be a whole number from 0 to ${MAX_TIMECODE_TOLERANCE_FRAMES} frames.`);
   const sorted = [...input.cues].sort((a, b) => a.triggerFrame - b.triggerFrame);
@@ -82,9 +85,12 @@ export function buildSongAutomationEvents(input: {
     }
   });
 
-  if (sorted.length > 0 && input.clearAfterFrames != null && input.clearAfterFrames >= 0) {
-    const clearFrame = Math.max(0, sorted[sorted.length - 1].triggerFrame + offset + Math.trunc(input.clearAfterFrames));
+  if (events.length > 0 && input.clearAfterFrames != null) {
+    const hasNativeCues = events.some(event => event.action === "lyrics-goto");
+    const hasProPresenterCues = events.some(event => event.action === "pp-trigger-slide");
+    const clearFrame = events[events.length - 1].triggerFrame + input.clearAfterFrames;
     const triggerTimecode = framesToTimecode(clearFrame, input.format);
+    if (!isValidTimecode(triggerTimecode, input.format)) throw new Error("The clear cue falls after the end of the timecode day. Reduce the hold or song offset.");
     const commonClear = {
       triggerTimecode,
       triggerFrame: clearFrame,
@@ -94,7 +100,7 @@ export function buildSongAutomationEvents(input: {
       category: "lyrics",
       sourceKey,
     };
-    if (input.target === "native" || input.target === "both") {
+    if (hasNativeCues) {
       events.push({
         ...commonClear,
         id: crypto.randomUUID(),
@@ -103,7 +109,7 @@ export function buildSongAutomationEvents(input: {
         label: `${input.song.title} · Clear lyrics`,
       });
     }
-    if (input.target === "propresenter" || input.target === "both") {
+    if (hasProPresenterCues) {
       events.push({
         ...commonClear,
         id: crypto.randomUUID(),

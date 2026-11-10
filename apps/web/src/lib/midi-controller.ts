@@ -12,6 +12,8 @@ export const midiActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("reset") }).strict(),
   z.object({ kind: z.literal("seek"), frame: z.number().int().min(0).max(2_591_999) }).strict(),
   z.object({ kind: z.literal("fire-next") }).strict(),
+  z.object({ kind: z.literal("lyrics-next") }).strict(),
+  z.object({ kind: z.literal("lyrics-previous") }).strict(),
   z.object({ kind: z.literal("fire"), cueId: z.string().min(1).max(200) }).strict(),
   z.object({ kind: z.literal("skip"), cueId: z.string().min(1).max(200) }).strict(),
   z.object({ kind: z.literal("rearm"), cueId: z.string().min(1).max(200) }).strict(),

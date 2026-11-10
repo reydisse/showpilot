@@ -1385,32 +1385,42 @@
       "phase": "2",
       "section": "2.6 Lyrics path 2 completion (audit section e; TC/L1)",
       "line": 223,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06: LyricsControls, useLyricsCommands and ConfidenceLyricsControls provide reviewed Next/Previous/Clear on the operator preview and authenticated confidence display. The control-lyrics command checks current org membership, socket ownership and the displayed revision before and after the saved-song lookup. Concurrent clicks and stale requests cannot skip a section. The confidence client retains its read-only display socket and never requests the timeline.",
+        "Left/Right Arrow supports keyboard footswitches while excluding editing, interactive controls, menus, dialogs, modifiers and held repeats. MIDI note mappings offer lyrics-next/lyrics-previous behind the existing arm and edge guards. Worker tests cover ownership, stale revisions and duplicate clicks; browser smoke verifies both views advance without removing the lyric node. MIDI mapping is tested with simulated ports; physical footswitch hardware remains untested."
+      ]
     },
     {
       "id": "47a6929ff245073b",
       "phase": "2",
       "section": "2.6 Lyrics path 2 completion (audit section e; TC/L1)",
       "line": 224,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06: SongCueLoader exposes Clear after last cue with an integer frame hold and passes clearAfterFrames to buildSongAutomationEvents. The helper rejects invalid/out-of-day holds and emits clears only for outputs with mapped cues, after the last actual cue. AutomationEventEditor offers Clear Lyrics without raw JSON, explicitly including manual lyrics.",
+        "SongCueLoader tests check the generated scoped clear and invalid input. Real Worker tests load the generated event group and execute its timed clear, preserve a later manual override, then clear that override with an explicit timeline action. Builder regressions reject unmapped ProPresenter clear-only loads."
+      ]
     },
     {
       "id": "8b03200cdb8161cd",
       "phase": "2",
       "section": "2.6 Lyrics path 2 completion (audit section e; TC/L1)",
       "line": 225,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06: Timecode preview uses ConfidenceSlide auto-fit with preserved pre-wrap line breaks. The confidence lyric node keeps its existing measured fit and remains mounted while changing sections. smoke-lyrics-steps.mjs checks real multiline text, computed preview whitespace, 320px fit and seven successive lyric states without an intermediate blank."
+      ]
     },
     {
       "id": "4b10ddc0c5cd39ba",
       "phase": "2",
       "section": "2.6 Lyrics path 2 completion (audit section e; TC/L1)",
       "line": 226,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06: SongCueLoader explains songs with no cue map and maps with no timings, including where to configure them. Unloadable maps cannot be submitted. Unit tests and the built-app smoke script select a song without maps and verify the explanation."
+      ]
     },
     {
       "id": "72abbfcca8a1ce0f",
@@ -1465,8 +1475,10 @@
       "phase": "2",
       "section": "2.7 Operator UI hardening (audit H2, H4, H5, UI/M1, UI/M2, UI/M3, UI/M4, UI/M5, UI/L3; UI review 4, 5, 6, 7, 8; live findings)",
       "line": 236,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06: The Timecode lyrics preview includes 44px Previous/Next/Clear buttons, visible pending/errors and control ownership guidance, and reuses ConfidenceSlide auto-fit. The browser rehearsal exercises operator buttons, keyboard focus exclusion, confidence buttons and explicit clear, with narrow-screen captures."
+      ]
     },
     {
       "id": "f766b74e7422ded3",
@@ -1801,8 +1813,10 @@
       "phase": "2",
       "section": "Phase 2 gate (all must pass before Phase 3)",
       "line": 295,
-      "status": "pending",
-      "evidence": []
+      "status": "verified",
+      "evidence": [
+        "2026-11-06 local lyrics acceptance: full web suite passed with 1612 unit and 592 Worker tests; web typecheck and production build passed. smoke-lyrics-steps.mjs passed against the final built Worker with real login, saved D1 song, operator controls and a separate confidence display. Both views advanced without a lyric unmount or blank; line breaks and 320px fit passed. Worker and loader tests verify timed scoped clears, manual overrides and explicit timeline clears. This verifies the lyrics gate only; the remaining Phase 2 gates and production rollout remain pending."
+      ]
     },
     {
       "id": "4e122bfdc6ce7f18",

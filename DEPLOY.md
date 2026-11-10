@@ -536,10 +536,35 @@ creates a song through the built UI, shows its first section, saves and fires
 both cues, and observes a separate confidence-display tab. It checks the same
 lyric element remains mounted through Verse -> Chorus -> Verse, with no blank
 state and preserved line breaks. It also captures the editor at 320px.
-Worker tests cover real D1 section ordering/reordering, consecutive timed steps,
-organization isolation, deleted sections, boundaries, disabling, the kill switch,
-retry, reviewed re-fire and scoped clearing. Direct preview controls, keyboard
-and MIDI shortcuts, and the remaining Phase 2.6 work are still pending.
+The Timecode preview and signed-in confidence display also provide Previous,
+Next and Clear. Take control of the selected show in Timecode first. Each change
+includes the displayed section's revision; a stale request or duplicate click
+cannot skip another section. The relay rechecks membership and control after
+reading the song. Display-pass visitors receive no write controls, and clean
+hardware output omits the controls entirely. Confidence clients retain their
+read-only display socket and never request the automation timeline.
+
+Left/Right Arrow on the Timecode page steps lyrics, including keyboard-emulating
+footswitches. Input fields, focused controls, dialogs, modifiers and held-key
+repeats are excluded. The MIDI mapper offers Next lyrics section and Previous
+lyrics section, using the existing arm and held-note protections. The operator
+preview uses ConfidenceSlide auto-fit and preserves the saved line breaks.
+
+The song loader's optional Clear after last cue adds a hold in whole frames,
+then clears only that load's native lyrics. A later manual selection retains
+its output. To clear manual lyrics from the timeline, add Clear Lyrics, which
+explicitly clears the current native output. ProPresenter output also receives
+a clear when that output has mapped cues; its clear applies to its current slide.
+The loader explains songs without cue maps and empty maps before loading.
+
+The browser script additionally exercises operator buttons, guarded keyboard
+input, confidence buttons and Clear, and captures both views at 320px. Worker
+tests cover D1 ordering/reordering, timed steps and clears, organization and
+session isolation, stale revisions, duplicate clicks, deleted sections,
+boundaries, disabling, the kill switch, retry and scoped clearing. Unit tests
+cover request cancellation, controller note mapping, display-only visitors,
+keyboard focus guards and song-loader validation. Physical footswitch hardware
+has not been exercised in this check.
 
 ### Named countdown timers
 
