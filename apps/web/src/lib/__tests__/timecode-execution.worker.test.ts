@@ -95,9 +95,20 @@ describe("automation acknowledgement", () => {
     for (const action of ["lower-third-show", "lower-third-clear"]) {
       await test.command("add-event", { action, label: action, triggerTimecode: atZero, payload: { line1: "Temporary graphic" } });
     }
-    await test.command("feed-tc", tick);
-    expect((await test.events()).every((event) => event.fired)).toBe(true);
-    expect(await (await graphics.fetch("https://test/current")).json()).toMatchObject({ current: null });
+    await test.command("start");
+    const source = test.controlSocket;
+    if (!source) throw new Error("Missing timecode source");
+    // Same-output ordering runs under a live source. One frame followed by a
+    // delayed graphics response legitimately lets the watchdog cancel Clear.
+    const feed = setInterval(() => source.send(JSON.stringify({ type: "command", action: "feed-tc", payload: tick })), 33);
+    try {
+      await test.command("feed-tc", tick);
+      await expect.poll(() => test.events(), { timeout: 3000 }).toEqual([
+        expect.objectContaining({ action: "lower-third-show", fired: true }),
+        expect.objectContaining({ action: "lower-third-clear", fired: true }),
+      ]);
+      expect(await (await graphics.fetch("https://test/current")).json()).toMatchObject({ current: null });
+    } finally { clearInterval(feed); }
   });
 
   it("times out a hung webhook and ignores its late acknowledgement", async () => {
@@ -143,6 +154,16 @@ describe("automation acknowledgement", () => {
 
   it.each(["lower-third-show", "lower-third-clear"] as const)("does not acknowledge a rejected %s", async (action) => {
     const test = await timeline();
+    const displayUrl = test.url("/ws", "read");
+    displayUrl.searchParams.delete("authSessionId");
+    displayUrl.searchParams.delete("authUserId");
+    displayUrl.searchParams.set("authDisplayExpiresAt", String(Date.now() + 60_000));
+    const displayUpgrade = await test.stub.fetch(displayUrl, { headers: { Upgrade: "websocket" } });
+    const displaySocket = displayUpgrade.webSocket;
+    if (!displaySocket) throw new Error("Missing display socket");
+    const frames: Array<{ type: string; state?: { automation?: { status: string; failedCueCount: number } } }> = [];
+    displaySocket.addEventListener("message", message => { frames.push(JSON.parse(String(message.data))); });
+    displaySocket.accept();
     const graphics = env.LOWER_THIRDS_RELAY.getByName(test.orgId);
     await graphics.fetch(new Request("https://test/test/status", { method: "POST", body: "503" }));
     await test.command("add-event", {
@@ -157,6 +178,10 @@ describe("automation acknowledgement", () => {
     expect(display).toMatchObject({ automation: { status: "failed", failedCueCount: 1 } });
     expect(JSON.stringify(display)).not.toContain("never-on-display");
     expect(display).not.toHaveProperty("events");
+    await expect.poll(() => frames.some(frame => frame.type === "tc-update" && frame.state?.automation?.status === "failed" && frame.state.automation.failedCueCount === 1)).toBe(true);
+    expect(frames.some(frame => frame.type === "event-fired" || frame.type === "events-update")).toBe(false);
+    expect(JSON.stringify(frames)).not.toMatch(/never-on-display|Private graphic|executionError|payload/);
+    displaySocket.close();
   });
 
   it("reports the real rundown relay's rejected start instead of a success", async () => {

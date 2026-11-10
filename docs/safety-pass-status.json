@@ -1570,8 +1570,13 @@
       "phase": "2",
       "section": "2.8 Error visibility and render cost (audit H25, H26, H27, H28)",
       "line": 246,
-      "status": "pending",
-      "evidence": []
+      "status": "in_progress",
+      "evidence": [
+        "D1 operational_error sink in migration 0052 records bounded, organization-scoped reports from the eight former Durable Object console.error sites and authenticated browser error/unhandledrejection handlers. Payloads omit raw exception messages, stacks, query strings and private show/device data; writes run in waitUntil with handled failures.",
+        "Full web suite: 1677 unit + 625 Worker tests passed, plus TypeScript and production build. Real D1 tests exercise concurrent rate limits, retention, organization isolation, administrator-only reads and persistence/activation failures without changing rollback behavior.",
+        "node apps/web/scripts/smoke-operational-errors.mjs passed against the built Worker with real login and disposable D1: two safe reports stored, duplicate suppressed, timestamped dismissible notice fits 320px/1440px, anonymous/cross-origin submissions rejected. Initial run returned an unexplained local 500 on cross-origin request; rerun passed with response-body diagnostics added.",
+        "Actual read-only display WebSocket tests receive failed cue counts after rejected graphics cues and receive no event-fired/events-update frames, payloads or execution errors. Remaining: audit caught errors on operator paths for visible last error, timestamp and reconnect state. Migration 0052 is not applied to production."
+      ]
     },
     {
       "id": "3d5c7f8decaf2534",

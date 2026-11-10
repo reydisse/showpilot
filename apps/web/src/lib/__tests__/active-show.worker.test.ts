@@ -66,6 +66,8 @@ it("rolls back both pointer fields when the second pointer write fails, then ret
   const failed = await f.b.activate();
   expect(failed.status).toBe(503);
   expect(await failed.json()).toMatchObject({ ok: false, showId: f.b.showId, serviceDate: f.b.serviceDate });
+  await expect.poll(async () => (await env.DB.prepare("SELECT source,code FROM operational_error WHERE orgId=?").bind(f.orgId).all()).results)
+    .toEqual([{ source: "RundownRelay", code: "rundown_activation" }]);
   expect(await f.pointer()).toEqual({ "active-show-id": f.a.showId, "active-service-date": f.a.serviceDate });
   await env.DB.prepare("DROP TRIGGER reject_active_date").run();
   await evictDurableObject(f.b.stub);

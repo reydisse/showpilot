@@ -1,3 +1,4 @@
+import { RuntimeErrorNotice } from "./RuntimeErrorNotice";
 import { Link } from "@tanstack/react-router";
 import { SidebarProvider } from "./SidebarContext";
 import { Sidebar } from "./Sidebar";
@@ -35,6 +36,7 @@ export function AppShell({
         <div className="flex-1 min-w-0 flex flex-col">
           <DesktopStatusBar orgId={orgId} />
           <MobileHeader />
+          {orgId && <RuntimeErrorNotice orgId={orgId} />}
           {showLiveRundown && orgId && slug ? (
             <LiveRundownBar orgId={orgId} slug={slug} canControl={canControlRundown} />
           ) : null}
