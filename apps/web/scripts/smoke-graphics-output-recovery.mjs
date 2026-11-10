@@ -25,6 +25,9 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   const pageFits = await evaluate("(() => { let el = document.querySelector('h1'); while(el && !(el.classList.contains('h-full') && el.classList.contains('overflow-auto'))) el = el.parentElement; return el && el.scrollWidth <= el.clientWidth; })()");
   await browser("screenshot", "/tmp/showpilot-graphics-output-card-320.png");
   assert.ok(pageFits, "Graphics workspace must not scroll horizontally");
+  // The card and Clear all are separate scroll targets. Center the control so
+  // the sticky page header cannot cover it after scrolling to the card.
+  await evaluate("[...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Clear all').scrollIntoView({ block: 'center' }); true");
   const stopBounds = await evaluate("(() => { const el = [...document.querySelectorAll('button')].find(el => el.textContent.trim() === 'Clear all'); const r = el.getBoundingClientRect(); return {left:r.left,right:r.right,height:r.height,reachable:document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('button')===el}; })()");
   assert.ok(stopBounds.left >= 0 && stopBounds.right <= 320 && stopBounds.height >= 44 && stopBounds.reachable, JSON.stringify(stopBounds));
   await click("Refresh graphics output");
