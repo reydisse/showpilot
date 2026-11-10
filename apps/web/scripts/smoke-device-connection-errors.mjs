@@ -71,6 +71,12 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
     await click("Retry connection"); await browser("wait", 'button:text-is("Disconnect")');
     assert.ok(attempts > before);
     assert.equal(await evaluate("[...document.querySelectorAll('[role=alert]')].some(el => el.textContent.includes('Fixture switcher refused connection'))"), false);
+    const beforeDetail = attempts;
+    await browser("click", 'a:text-is("Open device controls")');
+    await browser("wait", "--fn", "document.querySelector('h1')?.textContent.trim() === 'Connection error ATEM'");
+    await browser("wait", 'button:text-is("Disconnect")');
+    assert.equal(attempts, beforeDetail + 1, "Detail mounts one new connection, with no parent library controls");
+    assert.equal(await evaluate("document.body.textContent.includes('Configuration & device details')"), false);
     const attemptsBeforeOutage = attempts;
     await stopServer();
     await browser("wait", 'text=Reconnecting.');
