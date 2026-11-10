@@ -4059,3 +4059,89 @@ including create/update/delete schema variants and receipt validation. Local
 Doctor checks and the polling boundary check; five native Crew recovery tests
 also pass. This is JavaScript export/API/cache evidence, not native device UI
 acceptance. A new CI run is still required for the combined branch.
+
+## Access grant recovery: implementation in progress
+
+Four real-auth/D1 baseline tests fail in `access-grant-recovery.worker.test.ts`:
+exact grant retry returns a duplicate error, retry after revocation creates new
+access, revoke retry fails after commit, and a draft reviewed for an earlier week
+silently grants the current week. The first fixture attempt lacked a required
+membership timestamp; `/tmp/showpilot-access-before2.log` is the valid baseline.
+
+`access-grants.ts` owns capability validation, no-self-grant, member scoping and
+weekly limits. `effective-access.ts` derives Sunday-to-Sunday weeks in the org's
+timezone and gives current on-duty TM assignments temporary management authority.
+The mobile adapter calls the same service. Notifications follow the write and
+intentionally cannot block urgent revocation. Commit d33ac4c preserves feature
+links in those notifications; b958a96 adds the post-commit relay refresh whose
+bounded read leases remain the fallback. Neither change added request receipts
+or commit-time member/duty guards.
+
+The selected contract is `writeAccessGrant(actor, command)`: grant/revoke commands
+carry a stable request ID and weekly grants carry the displayed week. One D1 batch
+stores the grant/revocation and its receipt. Commit guards retain actor session,
+member identity/role, target membership, org timezone, reviewed weekly window and
+current TM assignment. Exact replay acknowledges the old grant identity and reads
+its current status; it cannot recreate revoked or expired rights. Web/native
+adapters share the parser and transaction implementation.
+
+Putting notifications in that transaction would make notification failure block
+revocation. A UI-only retry would still recreate a revoked grant. Instead the
+receipt stores a durable notification intent, delivered after the authoritative
+write with a deterministic notification ID. Failed delivery stays pending and is
+listed for explicit retry; superseded grant/revoke notices are not emitted late.
+Relay refresh starts after commit and stays best effort with a deadline, preserving
+lease-based revocation. Callers distinguish saved access from pending notification
+and refresh failures. Team owns pending commands/drafts across tabs; native caches
+exact failed requests by account and organization. Access authority and notification
+semantics are verified independently before adding UI recovery.
+
+### Access recovery validation
+
+Access grant/revoke receipts and pending notification intent use migration 0066.
+Web and native writes share the same server transaction, current authority checks
+and exact replay behavior. Web Team owns the pending command across tabs; the
+Access form retains its draft and reviewed week, confirms revocation/discard,
+restores focus, and offers notification-only retries. Native uses account/org
+mutation-cache keys, the same reviewed week and request ID on retry, bounded
+reads/writes, explicit retry/review controls, retained drafts while the screen
+stays mounted, navigation warning, and 44px controls. Notification failure cannot
+block a committed revocation; relay refresh remains bounded and best effort.
+
+All four original real-auth/D1 failures now pass. Thirty real-Worker Access tests
+cover receipt concurrency, rollback, current authority/session/membership/duty and
+timezone changes, no-self-grants, custom-permission scope, notification recovery
+and suppression, foreign orgs, expired/deleted grants, native API/web replay and
+a hung relay refresh. Seven web editor tests cover retained drafts and reviewed
+weeks, exact retry, refresh-only recovery, named revoke/discard confirmation,
+notification-only retry and late-response suppression. Four native mutation-cache
+tests cover exact grant/revoke/notice retry, offline attempts and account/org
+isolation. The former seven service and five mobile mocked tests were migrated
+to real Worker coverage rather than relaxing authentication or database contracts.
+
+Full coverage passes 2,232 unit and 1,018 Worker tests with all three coverage
+gates met. Web/mobile typechecks pass. The web production build passes at 525,791
+raw / 166,810 gzip main-bundle bytes. `smoke-access-recovery.mjs` passes in compiled
+Chrome with real login/D1: a lost grant reply followed by native revocation never
+restores access, a read-only retry does not repeat a grant, lost revocation replies
+recover, and drafts, focus, confirmation, navigation and 320/768/1440px controls
+work. Database audit finds four receipts, four notifications and zero active
+grants. The 320px screenshot is readable. Native verification passes iOS/Android/
+web Expo exports, 18 Expo Doctor checks and polling boundaries; native device UI
+acceptance remains open.
+
+Build verification caught and fixed the snapshot helper's missing server-only
+boundary. The initial expanded Access tests also caught two invalid fixtures:
+a custom permission outside the operational allowlist and a timezone insert
+without the required row ID. The final suite exercises valid versions of both.
+
+Apply 0066 after 0065 before deploying these callers. Legacy callers can omit the
+request/week fields; durable exact retry requires updated web/native clients.
+No migration, deployment, native release, real organization write or external
+notification provider call has occurred. Phase 2 remains 46/79 and the wider
+native/product gate remains open. Twenty necessary tracked Markdown files remain.
+
+PR #198's exact parent head fd9accbb49ef550f4adbeeba4c6b3ca6846bf31c is now
+fully green in GitHub run 42411480306, including main CI and Native Rust. The
+song setup timeout and stale native Crew verification contract are both closed
+before opening the Access draft PR.

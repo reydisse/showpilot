@@ -95,6 +95,7 @@ const initial = {
   contentReports: [report],
   crewMembers: [],
   accessManagement: {
+    notices: [],
     currentUserId: "actor",
     authority: {
       canManage: false,
