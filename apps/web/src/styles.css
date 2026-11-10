@@ -666,3 +666,41 @@ textarea {
     flex: unset;
   }
 }
+
+
+/* The runsheet responds to its own panel width, including beside the timer. */
+.rundown-panel-right {
+  container-type: inline-size;
+  container-name: rundown-sheet;
+}
+.rundown-row-actions > button,
+.rundown-drag-handle {
+  min-width: 44px;
+  min-height: 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+}
+@container rundown-sheet (max-width: 47.999rem) {
+  .rundown-row-main,
+  .rundown-section-row {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    column-gap: 8px;
+    row-gap: 4px;
+  }
+  .rundown-drag-handle { grid-column: 1; grid-row: 1 / span 3; align-self: start; }
+  .rundown-row-title { grid-column: 2; grid-row: 1; }
+  .rundown-item-title { white-space: normal; overflow-wrap: anywhere; }
+  .rundown-row-duration { grid-column: 2; grid-row: 2; }
+  .rundown-row-offset { grid-column: 2; grid-row: 3; justify-self: start; }
+  .rundown-row-divider { display: none; }
+  .rundown-row-binder { width: 24px; }
+  .rundown-row-actions { grid-column: 1 / -1; grid-row: 4; }
+  [data-editable="false"] .rundown-row-title,
+  [data-editable="false"] .rundown-row-duration,
+  [data-editable="false"] .rundown-row-offset,
+  .rundown-section-row[data-editable="false"] > .rundown-row-title { grid-column: 1 / -1; }
+}
+
+.rundown-page .sp-button, .rundown-modal .sp-button { min-width: 44px; min-height: 44px; }

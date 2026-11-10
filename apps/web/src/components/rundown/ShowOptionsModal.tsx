@@ -1,3 +1,5 @@
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { CalendarDays, ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 import { formatServicePickerLabel } from "@/lib/service-picker";
 
@@ -50,24 +52,19 @@ export function ShowOptionsModal({
   timeZone?: string;
 }) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md"
-      onMouseDown={(event) => {
-        if (!busy && event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div role="dialog" aria-modal="true" aria-labelledby="show-options-title" className="w-full max-w-md overflow-hidden rounded-2xl border border-board-border bg-board-card shadow-2xl">
+    <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
+      <DialogContent aria-describedby={undefined} showCloseButton={false} className="rundown-modal block max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-2xl border border-board-border bg-board-card p-0 shadow-2xl sm:max-w-md">
         <div className="flex items-start justify-between gap-4 border-b border-board-border px-5 py-4">
           <div>
-            <h2 id="show-options-title" className="text-base font-semibold text-board-text">Show options</h2>
+            <DialogTitle className="text-base font-semibold text-board-text">Show options</DialogTitle>
             <p className="mt-1 text-xs text-board-muted">Switch shows or change this show's details.</p>
           </div>
-          <button type="button" onClick={onClose} disabled={busy} aria-label="Close show options" className="rounded-lg p-2 text-board-muted transition-colors hover:bg-board-border/60 hover:text-board-text disabled:opacity-50">
+          <Button variant="ghost" type="button" onClick={onClose} disabled={busy} aria-label="Close show options" className="rounded-lg p-2 text-board-muted transition-colors hover:bg-board-border/60 hover:text-board-text disabled:opacity-50">
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
 
-        <div className="max-h-[min(70vh,38rem)] space-y-5 overflow-y-auto p-5">
+        <div className="space-y-5 p-5">
           <section className="space-y-2">
             <label htmlFor="rundown-show-picker" className="text-[11px] font-semibold uppercase tracking-[0.12em] text-board-muted">Show</label>
             <div className="relative">
@@ -98,10 +95,10 @@ export function ShowOptionsModal({
               disabled={busy}
               className="w-full rounded-xl border border-board-border bg-board-bg px-3 py-2.5 text-sm text-board-text outline-none transition-colors focus:border-fire-500/50"
             />
-            <div className="grid grid-cols-3 gap-2">
-              <button type="button" onClick={() => onShiftDate(-1)} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-board-border text-xs font-medium text-board-muted hover:text-board-text disabled:opacity-50"><ChevronLeft className="h-4 w-4" />Previous</button>
-              <button type="button" onClick={onToday} disabled={busy} className="min-h-10 rounded-lg border border-board-border text-xs font-medium text-board-text hover:bg-board-border/40 disabled:opacity-50">Today</button>
-              <button type="button" onClick={() => onShiftDate(1)} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-board-border text-xs font-medium text-board-muted hover:text-board-text disabled:opacity-50">Next<ChevronRight className="h-4 w-4" /></button>
+            <div className="grid grid-cols-3 gap-1 [&_.sp-button]:px-1 [&_.sp-button]:gap-1">
+              <Button variant="ghost" type="button" onClick={() => onShiftDate(-1)} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-board-border text-xs font-medium text-board-muted hover:text-board-text disabled:opacity-50"><ChevronLeft className="h-4 w-4" />Previous</Button>
+              <Button variant="ghost" type="button" onClick={onToday} disabled={busy} className="min-h-10 rounded-lg border border-board-border text-xs font-medium text-board-text hover:bg-board-border/40 disabled:opacity-50">Today</Button>
+              <Button variant="ghost" type="button" onClick={() => onShiftDate(1)} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-board-border text-xs font-medium text-board-muted hover:text-board-text disabled:opacity-50">Next<ChevronRight className="h-4 w-4" /></Button>
             </div>
           </section>
 
@@ -122,9 +119,9 @@ export function ShowOptionsModal({
           </section> : null}
 
           {busy ? <p className="text-xs text-board-muted" role="status">Saving changes…</p> : null}
-          {canCreate ? <button type="button" onClick={onCreate} disabled={busy} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-fire-500 px-4 text-sm font-semibold text-black transition-colors hover:bg-fire-400 disabled:opacity-50"><Plus className="h-4 w-4" />Create another show</button> : null}
+          {canCreate ? <Button variant="ghost" type="button" onClick={onCreate} disabled={busy} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-fire-500 px-4 text-sm font-semibold text-black transition-colors hover:bg-fire-400 disabled:opacity-50"><Plus className="h-4 w-4" />Create another show</Button> : null}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
