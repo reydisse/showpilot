@@ -1,5 +1,6 @@
 import { NamedTimers } from "@/components/timers/NamedTimers";
 import { MediaLibrary } from "@/components/timecode/MediaLibrary";
+import { MediaOutputPanel } from "@/components/timecode/MediaOutputPanel";
 import { getBlackoutTargets } from "@/lib/automation-targets";
 import { getRundownState } from "@/lib/rundown";
 import type { AutomationTargetKind } from "@/components/timecode/AutomationTargetPicker";
@@ -122,6 +123,7 @@ function TimecodePage() {
         {lastError && <p role="alert" className="rounded-xl border border-red-500/40 p-4 text-sm text-red-300">{lastError}</p>}
         <TimecodeAutomationControl state={state} connected={connected} canControl={control !== "other"} onSetEnabled={setTriggersEnabled} onResumeAutomaticCues={resumeAutomaticCues} />
         <NamedTimers sample={state?.namedTimers ?? null} connected={connected} outputTarget={timecode.showId ? { orgSlug: slug, showId: timecode.showId } : undefined} />
+        <MediaOutputPanel orgSlug={slug} showId={timecode.showId} connected={connected} outputs={state?.mediaOutputs ?? []} />
         {/* Large TC display */}
         <div className="rounded-xl border border-board-border bg-board-card p-4 sm:p-8">
           <TimecodeDisplay state={state} connected={connected} size="large" />
@@ -172,6 +174,7 @@ function TimecodePage() {
         {/* Add event */}
         <AutomationEventEditor
           key={`${orgId}:${timecode.showId}`}
+          orgId={orgId}
           loadTargets={loadTargets}
           timerNames={[...new Set([...events.filter(event => event.action === "timer-start").flatMap(event => typeof event.payload.name === "string" ? [event.payload.name] : []), ...(state?.namedTimers?.timers.map(timer => timer.name) ?? [])])]}
           onAdd={addEvent}

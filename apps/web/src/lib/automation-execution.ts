@@ -1,5 +1,6 @@
 import type { AutomationActionType, AutomationEvent } from "@/types/timecode";
 import { namedTimerKey } from "./named-timers";
+import { mediaOutputKey } from "./media-output";
 import { automationDeviceId } from "./automation-timing";
 
 export function isTriggerControlAction(action: AutomationActionType): action is "triggers-disable" | "triggers-enable" {
@@ -28,6 +29,8 @@ export function automationOutput(event: AutomationEvent): string {
     case "timer-start":
     case "timer-stop": return `named-timer:${namedTimerKey(String(event.payload.name ?? ""))}`;
     case "crew-message": return "production-chat";
+    case "media-play":
+    case "media-stop": return `media:${mediaOutputKey(String(event.payload.output ?? ""))}`;
     case "triggers-disable":
     case "triggers-enable": return "automation-control";
     case "pp-trigger-slide":

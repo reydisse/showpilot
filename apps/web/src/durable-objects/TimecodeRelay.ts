@@ -35,6 +35,9 @@ import { DEFAULT_TIMECODE_TOLERANCE_FRAMES, MAX_TIMECODE_TOLERANCE_FRAMES, TIMEC
 import { automationPayloadProblem } from "@/lib/automation-payload";
 import { resolveLyricsStep } from "@/lib/lyrics-step.server";
 import { NamedTimerStore } from "@/lib/named-timer-store.server";
+import { MediaOutputManager, isMediaOutputSocket } from "@/lib/media-output.server";
+import { mediaPlaySchema, mediaStopSchema } from "@/lib/media-output";
+import { socketAuthorityClaim } from "@/lib/socket-read-authority.server";
 import { namedTimerStartSchema, namedTimerStopSchema } from "@/lib/named-timers";
 import { crewMessagePayloadSchema } from "@/lib/crew-message";
 import { chatRelayKey } from "@/lib/chat-relay-key";
@@ -67,6 +70,8 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
   "crew-message",
   "timer-start",
   "timer-stop",
+  "media-play",
+  "media-stop",
   "triggers-disable",
   "triggers-enable",
   "stage-clear",
@@ -220,11 +225,21 @@ export class TimecodeRelay extends DurableObject {
   private readonly executor = new AutomationExecutor();
   private readonly revisions: RelaySequenceStore;
   private readonly namedTimerStore: NamedTimerStore;
+  private readonly mediaOutputs: MediaOutputManager;
 
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
     this.revisions = new RelaySequenceStore(ctx.storage.sql);
     this.namedTimerStore = new NamedTimerStore(ctx.storage);
+    this.mediaOutputs = new MediaOutputManager({ ctx, bucket: env.STORAGE,
+      authorize: async socket => {
+        const claim = socketAuthorityClaim(socket);
+        const allowed = Boolean(claim && await hasLivePermissionAuthority(env.DB, claim, "timecode:access"));
+        if (allowed) renewSocketReadLease(socket);
+        return allowed;
+      },
+      changed: () => this.broadcastState(),
+    });
     ctx.blockConcurrencyWhile(async () => {
       this.controller = await ctx.storage.get<MidiControllerSnapshot>("midi-controller") ?? emptyMidiController();
       const stored = await ctx.storage.get<TimecodeSnapshot>("timecode");
@@ -303,7 +318,8 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private scheduleAlarm(): Promise<void> {
-    return scheduleSocketReadRefresh(this.ctx, socket => this.socketNeedsReadLease(socket), this.feedDeadline());
+    const deadlines = [this.feedDeadline(), this.mediaOutputs.deadline()].filter(value => value !== null);
+    return scheduleSocketReadRefresh(this.ctx, socket => this.socketNeedsReadLease(socket), deadlines.length ? Math.min(...deadlines) : null);
   }
 
   private updateSignalHealth(): boolean {
@@ -512,6 +528,7 @@ export class TimecodeRelay extends DurableObject {
       // a late feed or a retry cannot resurrect a deleted show or its timeline.
       this.retired = true;
       this.namedTimerStore.clear();
+      this.mediaOutputs.clear();
       for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Timecode show deleted");
       await this.ctx.storage.transaction(async storage => {
         const keys = await storage.list();
@@ -593,6 +610,18 @@ export class TimecodeRelay extends DurableObject {
       && authClaim !== null
       && await hasLivePermissionAuthority(this.env.DB, authClaim, "timecode:access");
 
+    if (url.pathname === "/media-ws") {
+      if (!canWrite) return new Response("Unauthorized", { status: 401 });
+      if (request.method !== "GET" || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("WebSocket required", { status: 426 });
+      const [client, server] = Object.values(new WebSocketPair());
+      this.ctx.acceptWebSocket(server);
+      server.serializeAttachment({ canWrite: false, authClaim, orgId: this.orgId, showId: this.target.showId, sessionId: crypto.randomUUID(), media: { output: null } });
+      renewSocketReadLease(server);
+      server.send(JSON.stringify({ type: "media-hello", orgId: this.orgId, showId: this.target.showId, serverTime: Date.now() }));
+      await this.scheduleAlarm();
+      return new Response(null, { status: 101, webSocket: client });
+    }
+
     if (url.pathname === "/ws") {
       if (authClaim && !canWrite) return new Response("Unauthorized", { status: 401 });
       const pair = new WebSocketPair();
@@ -655,6 +684,18 @@ export class TimecodeRelay extends DurableObject {
 
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
     if (this.retired || !this.target || this.legacyExport) { ws.close(4409, "Timecode show unavailable. Reconnect."); return; }
+    if (isMediaOutputSocket(ws)) {
+      try {
+        if (typeof data !== "string" || data.length > 4096) throw new Error("Invalid media message");
+        await this.mediaOutputs.message(ws, JSON.parse(data));
+        this.mediaOutputs.plan(this.events);
+      } catch {
+        this.mediaOutputs.disconnected(ws);
+        ws.close(1011, "Media output unavailable. Reconnect and enable it again.");
+      }
+      await this.scheduleAlarm();
+      return;
+    }
     try {
       const msg = JSON.parse(data as string) as TimecodeWsMessage;
       if (msg.type === "sync") { this.hydrate(ws); return; }
@@ -692,6 +733,7 @@ export class TimecodeRelay extends DurableObject {
   }
 
   async webSocketClose(ws: WebSocket) {
+    if (isMediaOutputSocket(ws)) { this.mediaOutputs.disconnected(ws); await this.scheduleAlarm(); return; }
     const attachment = ws.deserializeAttachment?.() as TimecodeSocketAttachment | null;
     if (attachment?.controlsTimecode) {
       ws.serializeAttachment({ ...attachment, controlsTimecode: false });
@@ -1277,7 +1319,7 @@ export class TimecodeRelay extends DurableObject {
             throw new TimecodeCommandRejection("Review the current cue before firing it again.");
           }
         }
-        const durableReceipt = event.action === "crew-message" || event.action === "timer-start" || event.action === "timer-stop";
+        const durableReceipt = event.action === "crew-message" || event.action === "timer-start" || event.action === "timer-stop" || event.action === "media-play" || event.action === "media-stop";
         const deliveryId = durableReceipt && !refire ? event.executionId : undefined;
         resetCueExecution(event);
         // A lost acknowledgment must not duplicate a post or restart a timer.
@@ -1632,6 +1674,24 @@ export class TimecodeRelay extends DurableObject {
         break;
       }
 
+      case "media-play":
+      case "media-stop": {
+        const authority = this.controlOwner()?.attachment.authClaim;
+        if (!authority || !event.executionId || !await hasLivePermissionAuthority(this.env.DB, authority, "timecode:access")) throw new Error("Claim timecode control before firing a media cue.");
+        const cue = event.action === "media-play"
+          ? { action: event.action, payload: mediaPlaySchema.parse(event.payload) }
+          : { action: event.action, payload: mediaStopSchema.parse(event.payload) };
+        await this.mediaOutputs.execute({ orgId: this.orgId, eventId: event.id, executionId: event.executionId, cue, signal, deadline, assertCanDispatch,
+          authorizeDispatch: async () => {
+            const allowed = await hasLivePermissionAuthority(this.env.DB, authority, "timecode:access");
+            const current = this.controlOwner()?.attachment.authClaim;
+            return allowed && current?.sessionId === authority.sessionId && current.userId === authority.userId;
+          },
+        });
+        logResult(event.action, "success", `Media output ${cue.payload.output} confirmed ${event.action}.`);
+        break;
+      }
+
       case "crew-message": {
         const authority = this.controlOwner()?.attachment.authClaim;
         if (!authority || !this.target || !event.executionId) throw new Error("Claim timecode control before posting a crew message.");
@@ -1757,6 +1817,7 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private broadcastEvents(): void {
+    this.mediaOutputs.plan(this.events);
     const msg: TimecodeWsMessage = {
       type: "events-update",
       events: this.events,
@@ -1795,14 +1856,14 @@ export class TimecodeRelay extends DurableObject {
 
   private socketNeedsReadLease(socket: WebSocket): boolean {
     const attachment = socket.deserializeAttachment() as { canWrite?: boolean } | null;
-    return attachment?.canWrite === true;
+    return attachment?.canWrite === true || isMediaOutputSocket(socket);
   }
 
   /** Worker-only RPC used by permission changes; alarms handle missed pushes. */
   async refreshReadAuthority(userId?: string, onlyDue = false): Promise<void> {
     await refreshSocketReadLeases(this.ctx.getWebSockets(), async socket => {
       const attachment = socket.deserializeAttachment() as { canWrite?: boolean; authClaim?: LiveSessionAuthorityClaim | null; readAuthorizedUntil?: number } | null;
-      if (!attachment?.canWrite) return null;
+      if (!attachment || (!attachment.canWrite && !isMediaOutputSocket(socket))) return null;
       if (userId && attachment.authClaim?.userId !== userId) return null;
       if (onlyDue && (attachment.readAuthorizedUntil ?? 0) > Date.now() + 30_000) return null;
       const allowed = Boolean(attachment.authClaim && await hasLivePermissionAuthority(this.env.DB, attachment.authClaim, "timecode:access"));
@@ -1813,6 +1874,7 @@ export class TimecodeRelay extends DurableObject {
   }
 
   async alarm(): Promise<void> {
+    this.mediaOutputs.expire();
     const checkingFeed = this.feedDeadline() !== null;
     if (this.updateSignalHealth()) {
       await this.persistClock();
@@ -1823,6 +1885,7 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private send(ws: WebSocket, data: TimecodeWsMessage, sequence: number): void {
+    if (isMediaOutputSocket(ws)) return;
     if (!displaySocketMayReceive(ws) || !socketReadLeaseAllows(ws, this.socketNeedsReadLease(ws))) return;
     try {
       ws.send(JSON.stringify({ ...data, ...this.resolvedTarget(), ...this.revisions.envelope(ws, sequence) }));
@@ -1832,7 +1895,8 @@ export class TimecodeRelay extends DurableObject {
   }
 
   private getOperatorState(): TimecodeState {
-    return { ...this.state, namedTimers: this.namedTimerStore.sample() };
+    const mediaOutputs = this.mediaOutputs.snapshot();
+    return { ...this.state, namedTimers: this.namedTimerStore.sample(), mediaOutputs: mediaOutputs.length ? mediaOutputs : undefined };
   }
 
   private getDisplayState(): TimecodeDisplayState {
