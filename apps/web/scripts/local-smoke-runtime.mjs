@@ -1,7 +1,7 @@
 // Runs the compiled Worker without Wrangler's development proxy. All bindings
 // and persistence remain local, using the same installed workerd/Miniflare.
 import assert from "node:assert/strict";
-import { appendFile, readFile, readdir } from "node:fs/promises";
+import { appendFile, readFile, readdir, writeFile, rename } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 
@@ -42,20 +42,48 @@ if (streamOutputDirectory) {
   assert.equal(resolve(streamOutputDirectory), resolve(dirname(configPath)), "Stream status is confined to the disposable fixture");
   assert.equal(options.bindings?.CLOUDFLARE_STREAM_API_TOKEN, "local-stream-status-only");
   assert.equal(Boolean(emailCaptureDirectory), false);
-  // No fallthrough to the network, and no provider mutation is accepted.
+  const commands = (await readFile(join(streamOutputDirectory,"stream-output-fixture-kind"),"utf8")).trim() === "commands";
+  const outputs = new Map(); let sequence = 0; let snapshotWrite = Promise.resolve();
+  // Both fixtures block external network access. Only the explicit command
+  // fixture accepts writes, and those mutate this disposable in-memory map.
   options.outboundService = async request => {
-    assert.equal(request.url, "https://api.cloudflare.com/client/v4/accounts/fixture-account/stream/live_inputs/fixture-input/outputs", "Unexpected Stream request");
-    assert.equal(request.method, "GET", "This fixture must never create or modify provider resources");
+    const url = new URL(request.url), base = "/client/v4/accounts/fixture-account/stream/live_inputs/fixture-input/outputs";
+    assert.equal(url.origin,"https://api.cloudflare.com");
+    assert.ok(url.pathname === base || (commands && url.pathname.startsWith(`${base}/`)), "Unexpected Stream request");
+    if (!commands) assert.equal(request.method,"GET","Status rehearsal cannot mutate provider resources");
     const mode = (await readFile(join(streamOutputDirectory, "stream-output-mode"), "utf8")).trim();
-    assert.ok(["success", "error", "slow", "malformed"].includes(mode));
-    await appendFile(join(streamOutputDirectory, "stream-output-requests.jsonl"), JSON.stringify({ method: request.method, mode }) + "\n");
+    assert.ok(["success", "error", "slow", "malformed", ...(commands ? ["lose-create","slow-create","fail-delete"] : [])].includes(mode));
+    const outputId = url.pathname === base ? "" : url.pathname.slice(base.length+1);
+    await appendFile(join(streamOutputDirectory, "stream-output-requests.jsonl"), JSON.stringify({ method: request.method, mode, outputId }) + "\n");
     if (mode === "slow") await new Promise(resolve => setTimeout(resolve, 12_000));
     if (mode === "error") return Response.json({ success: false }, { status: 503 });
     if (mode === "malformed") return Response.json({ result: "unreadable" });
-    return Response.json({ success: true, result: [
+    if (!commands) return Response.json({ success: true, result: [
       { uid: "fixture-output-enabled", enabled: true, streamKey: "fixture-private-provider-key" },
       { uid: "fixture-output-disabled", enabled: false },
     ] });
+    const persist = () => snapshotWrite = snapshotWrite.then(async () => {
+      const path=join(streamOutputDirectory,"stream-output-snapshot.json");
+      await writeFile(`${path}.pending`,JSON.stringify([...outputs.values()].map(({uid,enabled})=>({uid,enabled}))));
+      await rename(`${path}.pending`,path);
+    });
+    if (request.method === "GET") return Response.json({success:true,result:[...outputs.values()]});
+    if (request.method === "POST") {
+      assert.equal(outputId,"");const body = await request.json();
+      assert.equal(body.url,"rtmp://fixture.invalid/live");assert.ok(["fixture-alpha-key","fixture-beta-key"].includes(body.streamKey));
+      assert.equal(body.enabled,false,"New outputs must start disabled");
+      const output={uid:`fixture-command-${++sequence}`,...body};outputs.set(output.uid,output);await persist();
+      if(mode === "slow-create")await new Promise(resolve=>setTimeout(resolve,12_000));
+      return mode === "lose-create" ? Response.json({success:false},{status:503}) : Response.json({success:true,result:output});
+    }
+    const output=outputs.get(outputId);
+    if (!output) return new Response(null,{status:404});
+    if(request.method === "DELETE") {
+      if(mode === "fail-delete" && output.streamKey === "fixture-beta-key")return Response.json({success:false},{status:503});
+      outputs.delete(outputId);await persist();return new Response(null,{status:204});
+    }
+    assert.equal(request.method,"PUT");const body=await request.json();assert.equal(typeof body.enabled,"boolean");
+    output.enabled=body.enabled;await persist();return Response.json({success:true,result:output});
   };
 }
 const runtime = new Miniflare(convertV4MiniflareOptions({
