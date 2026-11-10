@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects, evictDurableObject, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { seedRelayMember } from "@/test/relay-fixtures";
 import { signToken } from "../kiosk-token";
 import { chatPassDigest, recordChatPassRevocation } from "../chat-pass-revocation.server";
@@ -52,15 +52,30 @@ it("closes guests at a stale read lease even if revocation push and alarm did no
   socket.send(JSON.stringify({ type: "typing", typing: true }));
   expect(await closed).toMatchObject({ code: 4403, reason: "Read authorization expired. Reconnect." });
 });
-it("retains another guest pass when one link is disabled", async () => {
-  const f = await fixture(); const first = await f.open();
-  const otherToken = `chat_${await signToken({ orgId: f.orgId, orgSlug: f.orgId, scope: "crew-chat", exp: f.expiresAt/1000, iat: 1 }, env.KIOSK_SECRET)}`;
-  f.url.searchParams.set("guestTokenHash", await chatPassDigest(otherToken));
-  const other = await f.open();
-  const closed = new Promise(resolve => first.addEventListener("close", resolve, { once: true }));
-  await f.revoke(); await f.stub.refreshReadAuthority(); await closed;
-  const sent = new Promise<MessageEvent>(resolve => other.addEventListener("message", resolve, { once: true }));
-  other.send(JSON.stringify({ type: "message", text: "Other pass remains valid" }));
-  expect(JSON.parse((await sent).data)).toMatchObject({ type: "message", message: { text: "Other pass remains valid" } });
-  other.close();
+it.each(["push", "delayed alarm"])("retains another guest pass when one link is disabled through %s", async mode => {
+  const now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+  try {
+    const f = await fixture(); const first = await f.open();
+    const otherToken = `chat_${await signToken({ orgId: f.orgId, orgSlug: f.orgId, scope: "crew-chat", exp: f.expiresAt/1000, iat: 1 }, env.KIOSK_SECRET)}`;
+    f.url.searchParams.set("guestTokenHash", await chatPassDigest(otherToken));
+    const other = await f.open();
+    const closed = new Promise<CloseEvent>(resolve => first.addEventListener("close", resolve, { once: true }));
+    await f.revoke();
+    if (mode === "delayed alarm") {
+      await evictDurableObject(f.stub);
+      clock.mockReturnValue(now + 60_001);
+      await runDurableObjectAlarm(f.stub);
+    } else {
+      await f.stub.refreshReadAuthority();
+    }
+    expect(await closed).toMatchObject({ code: 4403, reason: "Guest pass revoked" });
+    expect(other.readyState).toBe(WebSocket.OPEN);
+    const sent = new Promise<MessageEvent>(resolve => other.addEventListener("message", resolve, { once: true }));
+    other.send(JSON.stringify({ type: "message", text: "Other pass remains valid" }));
+    expect(JSON.parse((await sent).data)).toMatchObject({ type: "message", message: { text: "Other pass remains valid" } });
+    other.close();
+  } finally {
+    clock.mockRestore();
+  }
 });

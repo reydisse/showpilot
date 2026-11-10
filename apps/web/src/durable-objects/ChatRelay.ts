@@ -1099,7 +1099,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
     };
   }
 
-  private getSession(ws: WebSocket) {
+  private readCurrentSession(ws: WebSocket) {
     const session = this.sessions.get(ws) ??
       readChatSession(ws.deserializeAttachment());
     // Older attachments have no authority kind/expiry. Reconnect through the
@@ -1110,6 +1110,12 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       return null;
     }
     this.sessions.set(ws, session);
+    return session;
+  }
+
+  private getSession(ws: WebSocket) {
+    const session = this.readCurrentSession(ws);
+    if (!session) return null;
     if (!socketReadLeaseAllows(ws, session.kind !== "viewer")) {
       this.sessions.delete(ws);
       return null;
@@ -1119,7 +1125,11 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
 
   async refreshReadAuthority(userId?: string): Promise<void> {
     await refreshSocketReadLeases(this.ctx.getWebSockets(), async socket => {
-      const session = this.getSession(socket);
+      // Refresh checks current authority. Applying the old read lease here
+      // closes valid peers before a delayed alarm can reauthorize them.
+      // Broadcasts and messages still enforce that lease through getSession.
+      const session = this.readCurrentSession(socket);
+      if (!session) return null;
       if (session?.kind === "guest") {
         if (await chatPassIsRevoked(this.env.DB, session.orgId, session.tokenHash)) {
           socket.close(4403, "Guest pass revoked");

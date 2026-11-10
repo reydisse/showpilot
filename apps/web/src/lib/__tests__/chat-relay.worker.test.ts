@@ -186,6 +186,7 @@ describe("ChatRelay threads", () => {
       clock.mockReturnValue(expiresAt + 1);
       await runDurableObjectAlarm(member.stub);
       await expect(closed).resolves.toBe(1008);
+      expect(member.socket.readyState).toBe(WebSocket.OPEN);
       const memberMessage = nextFrame(member.socket, "message");
       member.socket.send(JSON.stringify({ type: "message", text: "Member remains connected" }));
       await expect(memberMessage).resolves.toMatchObject({ message: { text: "Member remains connected" } });
