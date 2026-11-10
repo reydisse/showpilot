@@ -1,6 +1,7 @@
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ResetRundownDialog } from "@/components/rundown/ResetRundownDialog";
+import { SaveRundownModal } from "@/components/rundown/SaveRundownModal";
 import { LoadRundownModal } from "@/components/rundown/LoadRundownModal";
 import { restoreRundownItem } from "@/lib/rundown-undo";
 import { rundownShortcut } from "@/lib/rundown-shortcuts";
@@ -59,7 +60,6 @@ import {
   getRundownOpeningDate,
   setProPresenterStageDisplay,
   sendProPresenterCommand,
-  saveRundownTemplate,
 } from "@/lib/rundown";
 import type {
   PPSlidePayload,
@@ -1669,27 +1669,6 @@ function RundownPage() {
     ],
   );
 
-  const handleSaveTemplate = useCallback(
-    async (
-      name: string,
-      templateServiceName: string,
-      templateStartTime: string,
-    ) => {
-      if (!canEditRundown) return;
-      await saveRundownTemplate({
-        data: {
-          orgId,
-          name,
-          serviceName: templateServiceName,
-          scheduledStartTime: templateStartTime,
-          items,
-        },
-      });
-      setShowSaveModal(false);
-    },
-    [canEditRundown, orgId, items],
-  );
-
   const handleSendMessage = () => {
     if (!canEditRundown) return;
     if (message.trim()) {
@@ -2992,7 +2971,9 @@ function RundownPage() {
         )}
         {canEditRundown && showSaveModal && (
           <SaveRundownModal
-            onSave={handleSaveTemplate}
+            key={rundownScope}
+            orgId={orgId}
+            items={items}
             initialServiceName={serviceName}
             initialStartTime={scheduledStartTime}
             onClose={() => setShowSaveModal(false)}
@@ -3385,119 +3366,6 @@ function EditItemModal({
               className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-black font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
             >
               Save
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ─── Save Rundown Modal ─────────────────────────────────────
-
-function SaveRundownModal({
-  onSave,
-  onClose,
-  initialServiceName,
-  initialStartTime,
-}: {
-  onSave: (
-    name: string,
-    serviceName: string,
-    scheduledStartTime: string,
-  ) => Promise<void>;
-  onClose: () => void;
-  initialServiceName: string;
-  initialStartTime: string;
-}) {
-  const workspaceTerms = useWorkspaceTerms();
-  const [name, setName] = useState("");
-  const [serviceName, setServiceName] = useState(initialServiceName);
-  const [scheduledStartTime, setScheduledStartTime] =
-    useState(initialStartTime);
-  const [saving, setSaving] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-    setSaving(true);
-    await onSave(name.trim(), serviceName.trim(), scheduledStartTime);
-    setSaving(false);
-  };
-
-  return (
-    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-      <DialogContent aria-describedby={undefined} showCloseButton={false} className="rundown-modal block max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto bg-board-card border-board-border rounded-2xl p-4 sm:p-6 max-w-sm sm:max-w-sm shadow-2xl">
-        <DialogTitle className="text-lg font-semibold text-board-text mb-4">
-          Save Rundown Template
-        </DialogTitle>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm text-board-muted mb-1.5">
-              Template Name
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={workspaceCopy(
-                "e.g. Sunday Morning Service",
-                workspaceTerms,
-              )}
-              autoFocus
-              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm"
-            />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm text-board-muted">
-              {workspaceCopy(
-                "\n              Service title\n            ",
-                workspaceTerms,
-              )}
-            </label>
-            <input
-              type="text"
-              value={serviceName}
-              onChange={(e) => setServiceName(e.target.value)}
-              placeholder={workspaceCopy(
-                "Sunday Morning Service",
-                workspaceTerms,
-              )}
-              className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-2.5 text-sm text-board-text placeholder:text-board-muted focus:border-fire-500 focus:outline-none"
-            />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm text-board-muted">
-              {workspaceCopy(
-                "\n              Service start time\n            ",
-                workspaceTerms,
-              )}
-            </label>
-            <input
-              type="time"
-              value={scheduledStartTime}
-              onChange={(e) => setScheduledStartTime(e.target.value)}
-              className="w-full rounded-xl border border-board-border bg-board-bg px-4 py-2.5 text-sm text-board-text focus:border-fire-500 focus:outline-none"
-            />
-          </div>
-          <p className="text-xs text-board-muted">
-            Saves the current rundown items as a reusable template. All items
-            will be reset to "upcoming" status.
-          </p>
-          <div className="flex gap-3 pt-1">
-            <Button variant="ghost"
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
-            >
-              Cancel
-            </Button>
-            <Button variant="ghost"
-              type="submit"
-              disabled={!name.trim() || saving}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-black font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
-            >
-              {saving ? "Saving..." : "Save"}
             </Button>
           </div>
         </form>
