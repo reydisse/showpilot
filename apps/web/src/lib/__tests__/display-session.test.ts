@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { displayCookieName, issueDisplayPass, DISPLAY_PASS_LIFETIME_MS } from "../display-access.server";
+import { env } from "cloudflare:workers";
+import { authenticateDisplayRequest, displayCookieName, issueDisplayPass, DISPLAY_PASS_LIFETIME_MS } from "../display-access.server";
 const mocks = vi.hoisted(() => ({ permission: vi.fn(), cookie: vi.fn(), request: vi.fn(), secret: "display-session-fixture", org: "org-1" }));
 vi.mock("@tanstack/react-start", () => ({ createServerFn: () => {
   let validate = (data: unknown) => data;
@@ -21,6 +22,34 @@ beforeEach(() => {
   mocks.permission.mockResolvedValue({ user: { id: "owner" } });
 });
 describe("display session establishment", () => {
+  it.each(["member", "shared", "renewal"])("keeps the %s cookie through the signed deadline without extending access", async mode => {
+    const now = 1_800_000_000_250;
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      const old = await issueDisplayPass("org-1", "overlay", mocks.secret, now - DISPLAY_PASS_LIFETIME_MS + 35_000);
+      if (mode === "shared") mocks.permission.mockRejectedValue(new Error("Unauthorized"));
+      if (mode === "renewal") mocks.request.mockReturnValue(new Request("https://app.example/_serverFn/fixture", {
+        headers: { cookie: `${displayCookieName("org-1", "overlay")}=${old.token}` },
+      }));
+      const result = await ensureDisplaySession({ data: { orgSlug: "venue", surface: "overlay", ...(mode === "shared" ? { token: old.token } : {}) } });
+      if (!result.authorized) throw new Error("Valid display session was denied");
+      expect(mocks.cookie).toHaveBeenCalledOnce();
+      const token: unknown = mocks.cookie.mock.calls[0]?.[1];
+      const maxAge: unknown = mocks.cookie.mock.calls[0]?.[2]?.maxAge;
+      if (typeof token !== "string" || typeof maxAge !== "number") throw new Error("Display cookie was not set");
+      expect(now + maxAge * 1000).toBeGreaterThanOrEqual(result.expiresAt);
+      expect(now + maxAge * 1000).toBeLessThan(result.expiresAt + 1000);
+      const request = new Request("https://app.example/api/overlay/venue", {
+        headers: { cookie: `${displayCookieName("org-1", "overlay")}=${token}` },
+      });
+      expect(await authenticateDisplayRequest(env.DB, request, "org-1", "overlay", mocks.secret, result.expiresAt - 1)).toEqual({
+        orgId: "org-1", surface: "overlay", expiresAt: result.expiresAt,
+      });
+      expect(await authenticateDisplayRequest(env.DB, request, "org-1", "overlay", mocks.secret, result.expiresAt)).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
+  });
   it("creates an HttpOnly org-scoped cookie only after member authorization", async () => {
     const result = await ensureDisplaySession({ data: { orgSlug: "venue", surface: "timer" } });
     expect(result.authorized).toBe(true);
