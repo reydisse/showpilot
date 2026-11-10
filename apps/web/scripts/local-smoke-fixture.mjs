@@ -83,6 +83,9 @@ export async function withLocalSmokeFixture(check, { secondShow = false, secondO
     const origin = `http://127.0.0.1:${port}`;
     const config = Object.fromEntries(["name", "compatibility_date", "compatibility_flags", "durable_objects", "migrations", "d1_databases", "r2_buckets", "rules", "no_bundle"].map((key) => [key, built[key]]));
     Object.assign(config, {
+      // Wrangler only installs its development request-body draining middleware
+      // when bundling. Undrained rejected POSTs can break the next proxy request.
+      no_bundle: false,
       main: join(web, "dist/server/index.js"), assets: { directory: join(web, "dist/client") },
       vars: { CREDENTIAL_ENCRYPTION_KEYS: encryptionSecret, KIOSK_SECRET: secret, COMPANION_SECRET: companionSecret, BETTER_AUTH_SECRET: authSecret, BETTER_AUTH_URL: origin },
     });

@@ -8,10 +8,19 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   const evaluate = async expression => (await browser("eval", expression)).result;
   const rows = () => queryFixture(`SELECT source,code,errorName,asset,line,column FROM operational_error WHERE orgId='${orgId}' ORDER BY createdAt`);
   const report = { code: "browser_error", errorName: "TypeError" };
-  assert.equal((await fetch(endpoint, { method: "POST", headers: { Origin: origin }, body: JSON.stringify(report) })).status, 401);
-  const crossOrigin = await fetch(endpoint, { method: "POST", headers: { Cookie: operatorCookie, Origin: "https://other.test" }, body: JSON.stringify(report) });
-  assert.equal(crossOrigin.status, 403, await crossOrigin.text());
-  assert.equal((await fetch(endpoint, { method: "POST", headers: { Cookie: operatorCookie, Origin: origin }, body: JSON.stringify({ ...report, stack: "private-fixture" }) })).status, 400);
+  // Exercise rejected bodies on successive connections: no_bundle dev servers
+  // omit Wrangler's body-draining middleware and can lose a later request.
+  for (let attempt = 0; attempt < 100; attempt++) {
+    for (const [name, headers, payload, expectedStatus] of [
+      ["anonymous", { Origin: origin }, report, 401],
+      ["cross-origin", { Cookie: operatorCookie, Origin: "https://other.test" }, report, 403],
+      ["invalid-field", { Cookie: operatorCookie, Origin: origin }, { ...report, stack: "private-fixture" }, 400],
+    ]) {
+      const response = await fetch(endpoint, { method: "POST", headers, body: JSON.stringify(payload) });
+      const body = await response.text();
+      assert.equal(response.status, expectedStatus, `${name} attempt ${attempt}: ${body}`);
+    }
+  }
   await browser("open", `${origin}/login`); await browser("fill", "#email", operatorEmail); await browser("fill", "#password", operatorPassword);
   await click("Sign in"); await browser("wait", "--url", `**/${orgId}/**`);
   await browser("open", `${origin}/${orgId}/rundown`); await browser("wait", "text=Display test show");
@@ -37,5 +46,5 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   assert.equal(response.status, 200); assert.equal(response.headers.get("cache-control"), "no-store");
   const data = await response.json(); assert.equal(data.errors.length, 2); assert.ok(data.errors.every(error => error.message && error.createdAt));
   assert.equal(JSON.stringify(data).includes("private-fixture"), false);
-  console.log(JSON.stringify({ passed: true, actualD1Reports: 2, boundedSafePayloads: true, duplicateSuppression: true, timestampedNotice: true, dismissAndNarrowLayout: true, authenticatedRead: true, anonymousAndCrossOriginDenied: true }));
+  console.log(JSON.stringify({ passed: true, actualD1Reports: 2, bodyBearingRejections: 300, boundedSafePayloads: true, duplicateSuppression: true, timestampedNotice: true, dismissAndNarrowLayout: true, authenticatedRead: true, anonymousAndCrossOriginDenied: true }));
 });
