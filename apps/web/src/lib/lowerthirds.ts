@@ -1,3 +1,6 @@
+import { getRequestHeaders } from "@tanstack/react-start/server";
+import { graphicLibraryResetSchema } from "./graphic-library-reset-contract";
+import { resetSavedGraphics } from "./graphic-library-reset.server";
 import { createServerFn } from "@tanstack/react-start";
 import { getPrisma } from "@/lib/db";
 import { assertOrgPermission } from "@/lib/org-access";
@@ -88,9 +91,11 @@ export async function readLowerThirdForOrg(orgId: string): Promise<LowerThirdPay
 }
 
 export const resetLowerThirdLibrary = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
+  .inputValidator((data: unknown) => parseOrThrow(graphicLibraryResetSchema, data))
   .handler(async ({ data }) => {
-    await assertOrgPermission(data.orgId, "lowerthird:configure");
-    const prisma = getPrisma();
-    await prisma.graphicTemplate.deleteMany({ where: { orgId: data.orgId } });
+    await assertOrgPermission(data.orgId, "settings:danger_zone");
+    const { getAuth } = await import("./auth");
+    const session = await getAuth().api.getSession({ headers: getRequestHeaders(), query: { disableCookieCache: true } });
+    if (!session) throw new Error("Sign in before resetting saved graphics.");
+    return resetSavedGraphics({command:data,authority:{orgId:data.orgId,userId:session.user.id,sessionId:session.session.id}});
   });

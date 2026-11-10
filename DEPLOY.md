@@ -4358,3 +4358,54 @@ Stacked on draft #202, whose CI run 42416828926 passed both jobs before publicat
 No deployment, native release, production data mutation or provider call occurred.
 Phase 2 remains 47/79. Graphics reset, organization deletion and the broader
 product-wide gates remain open. Twenty necessary tracked Markdown files remain.
+
+## Saved graphics reset recovery (2026-11-07, not deployed)
+
+A real-auth D1 baseline reproduced two Danger Zone defects: a wrong confirmation
+name was ignored, and retrying a successful reset deleted a template created
+after the first request. The old operation also deleted templates referenced by
+Program. The Settings action now uses an exact typed organization name in the
+shared Dialog and a durable organization/account/request receipt. Migration
+0069_graphic_library_reset_receipts.sql follows 0068 before deployment.
+
+Reset now requires settings:danger_zone rather than the broader permission to
+configure lower thirds. The writer verifies a current session, snapshots current
+membership, and rechecks membership/session/name at the atomic D1 commit. The
+receipt stores the original deleted count and shares the transaction with deletion.
+Only its creating invocation can delete; retries acknowledge the original result.
+Saved scenes, uploads and other settings remain intact. A new reset is refused
+while Program references graphics or has an unreadable output pointer, with a
+visible instruction to clear Program in Graphics first. The idle check also runs
+at commit. A replay of a completed reset remains safe if new graphics are on air.
+Independent text lower-third payloads do not reference the template library and
+remain intact. Reset does not clear live output itself.
+
+The UI has a ten-second acknowledgement deadline, persistent error and timestamp,
+and exact-request Retry retained across Settings navigation with account/org
+isolation. It confirms the deleted count and keeps later graphics. A later reset
+requires a new typed confirmation. Controls have labels and at least 44px targets.
+The initial phone screenshot exposed clipping from the long destructive label;
+the final dialog uses a bounded grid column and wrapping buttons. The browser now
+checks that each control fits inside the dialog, not only document scroll width.
+
+Validation: nine Worker cases cover exact name, concurrent duplicate requests,
+changed confirmation, lost-reply replay, org isolation, preserved scenes/settings,
+active/malformed Program, commit-time Program and membership changes, rollback,
+role/session checks and organization rename. Four component cases cover cancel,
+exact retry through navigation, account isolation, timeout/late reply and renewed
+confirmation. Final full suite: 2,274 unit plus 1,050 Worker tests passed. Web
+typecheck and production build passed; main bundle 551,383 raw / 174,349 gzip bytes.
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-graphics-reset.mjs`
+passes against the compiled app with real auth and disposable D1. It verifies that
+live Program blocks deletion, explicitly clears fixture Program, withholds the
+successful reset reply, saves a new graphic, navigates away/back, and retries the
+same request without deleting that graphic. The final receipt records two deleted
+templates once; all five fixture scenes remain. Cancel sends no request. Controls
+and dialog bounds pass at 320/768/1440px; final phone screenshot inspected. No
+outgoing email, real organization mutation or external-provider call occurred.
+
+Stacked on #203. Do not open this draft PR until #203 CI run 42418701631 is green.
+No production migration, deployment or native release. Phase 2 remains 47/79;
+organization deletion and broader product-wide gates remain open. The 20 necessary
+tracked Markdown files are retained; no new Markdown file was added.
