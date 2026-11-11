@@ -6,8 +6,7 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { DesktopBridgeController } from "@/components/layout/DesktopBridgeController";
-import { DesktopNotificationController } from "@/components/layout/DesktopNotificationController";
+import { DesktopControllers } from "@/components/layout/DesktopControllers";
 import { registerNotificationWorker } from "@/lib/notifications";
 import appCss from "../styles.css?url";
 
@@ -77,8 +76,7 @@ function RootComponent() {
   useEffect(() => () => queryClient.clear(), [queryClient]);
   return (
     <QueryClientProvider client={queryClient}>
-      <DesktopBridgeController />
-      <DesktopNotificationController />
+      <DesktopControllers />
       <Outlet />
     </QueryClientProvider>
   );
