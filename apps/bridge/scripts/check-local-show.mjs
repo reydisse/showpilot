@@ -17,6 +17,7 @@ import {
   reconcileLocalRundown,
 } from "@showpilot/shared/local-rundown";
 import { deleteCredential } from "../dist/credential-store.js";
+import { LINUX_ENGINE_FILENAME } from "../../../scripts/linux-bridge-sidecar.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const triple = spawnSync("rustc", ["--print", "host-tuple"], {
@@ -26,7 +27,7 @@ const binary =
   process.argv[2] ??
   join(
     root,
-    `apps/desktop/src-tauri/binaries/showpilot-bridge-${triple}${process.platform === "win32" ? ".exe" : ""}`,
+    `apps/desktop/src-tauri/binaries/${process.platform === "linux" ? LINUX_ENGINE_FILENAME : `showpilot-bridge-${triple}${process.platform === "win32" ? ".exe" : ""}`}`,
   );
 const directory = mkdtempSync(join(tmpdir(), "showpilot-compiled-local-"));
 const token = randomBytes(32).toString("hex");

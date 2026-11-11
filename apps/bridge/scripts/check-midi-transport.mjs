@@ -5,10 +5,11 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { resolve } from "node:path";
 import { WebSocketServer } from "ws";
+import { LINUX_ENGINE_FILENAME } from "../../../scripts/linux-bridge-sidecar.mjs";
 
 const targets = { "darwin-arm64": "aarch64-apple-darwin", "darwin-x64": "x86_64-apple-darwin", "linux-x64": "x86_64-unknown-linux-gnu", "win32-x64": "x86_64-pc-windows-msvc.exe" };
 const target = targets[`${process.platform}-${process.arch}`];
-const executable = process.argv[2] ?? (target && resolve(import.meta.dirname, `../../bridge-desktop/src-tauri/binaries/showpilot-bridge-${target}`));
+const executable = process.argv[2] ?? (target && resolve(import.meta.dirname, `../../bridge-desktop/src-tauri/binaries/${process.platform === "linux" ? LINUX_ENGINE_FILENAME : `showpilot-bridge-${target}`}`));
 assert.ok(executable, "Pass the compiled sidecar path for this platform.");
 const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
 await once(server, "listening");
