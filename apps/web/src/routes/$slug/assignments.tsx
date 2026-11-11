@@ -2,25 +2,30 @@ import { getMyDutyRoster } from "@/lib/personal-duty";
 import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { CalendarDays, Check, Clock3, MapPin, X } from "lucide-react";
-import { useState } from "react";
-import {
-  getMyAssignments,
-  respondToMyAssignment,
-} from "@/lib/schedule";
+import { useEffect, useRef, useState } from "react";
+import { getMyAssignments, respondToMyAssignment } from "@/lib/schedule";
 
 export const Route = createFileRoute("/$slug/assignments")({
   validateSearch: (search: Record<string, unknown>) => ({
-    date: typeof search.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(search.date) ? search.date : undefined,
+    date:
+      typeof search.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(search.date)
+        ? search.date
+        : undefined,
     assignment:
       typeof search.assignment === "string" && search.assignment.length <= 128
         ? search.assignment
         : undefined,
   }),
-  loaderDeps: ({ search }) => ({ assignment: search.assignment, date: search.date }),
+  loaderDeps: ({ search }) => ({
+    assignment: search.assignment,
+    date: search.date,
+  }),
   loader: async ({ context, deps }) => ({
     orgId: context.orgId,
     slug: context.slug,
-    duties: await getMyDutyRoster({ data: { orgId: context.orgId, date: deps.date } }),
+    duties: await getMyDutyRoster({
+      data: { orgId: context.orgId, date: deps.date },
+    }),
     data: await getMyAssignments({
       data: {
         orgId: context.orgId,
@@ -42,6 +47,15 @@ function MyAssignmentsPage() {
   const router = useRouter();
   const [responding, setResponding] = useState<string | null>(null);
   const [declining, setDeclining] = useState<string | null>(null);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
+  const declineTrigger = useRef<string | null>(null);
+  const declineButtons = useRef(new Map<string, HTMLButtonElement>());
+  useEffect(() => {
+    if (declining) noteRef.current?.focus();
+    else if (declineTrigger.current) {
+      declineButtons.current.get(declineTrigger.current)?.focus();
+    }
+  }, [declining]);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -74,7 +88,7 @@ function MyAssignmentsPage() {
   };
 
   return (
-    <main className="min-h-full bg-board-bg px-4 py-6 sm:px-6">
+    <main className="min-h-full break-words bg-board-bg px-4 py-6 sm:px-6">
       <div className="mx-auto max-w-3xl space-y-5">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -93,7 +107,7 @@ function MyAssignmentsPage() {
               to="/$slug/assignments"
               params={{ slug }}
               search={{ assignment: undefined, date: undefined }}
-              className="rounded-xl border border-board-border px-4 py-2 text-sm font-semibold text-board-text"
+              className="inline-flex min-h-11 items-center rounded-xl border border-board-border px-4 py-2 text-sm font-semibold text-board-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
             >
               View all mine
             </Link>
@@ -101,16 +115,34 @@ function MyAssignmentsPage() {
         </header>
 
         {(duties.length > 0 || dutyDate) && (
-          <section className="rounded-2xl border border-board-border bg-board-card p-5" aria-label="On-duty roster">
+          <section
+            className="rounded-2xl border border-board-border bg-board-card p-5"
+            aria-label="On-duty roster"
+          >
             <h2 className="font-semibold text-board-text">My on-duty roster</h2>
-            <p className="mt-1 text-sm text-board-muted">Weekly duties run Sunday through Saturday.</p>
-            {duties.length === 0 ? <p className="mt-3 text-sm text-board-muted">You have no duty assignment for the week of {dutyDate}.</p> : (
-              <ul className="mt-3 space-y-3">{duties.map((duty) => (
-                <li key={duty.id} className="flex flex-wrap justify-between gap-2 text-sm">
-                  <span className="font-medium text-board-text">{duty.roleName}</span>
-                  <span className="text-board-muted">Week of {duty.weekStart}</span>
-                </li>
-              ))}</ul>
+            <p className="mt-1 text-sm text-board-muted">
+              Weekly duties run Sunday through Saturday.
+            </p>
+            {duties.length === 0 ? (
+              <p className="mt-3 text-sm text-board-muted">
+                You have no duty assignment for the week of {dutyDate}.
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-3">
+                {duties.map((duty) => (
+                  <li
+                    key={duty.id}
+                    className="flex flex-wrap justify-between gap-2 text-sm"
+                  >
+                    <span className="font-medium text-board-text">
+                      {duty.roleName}
+                    </span>
+                    <span className="text-board-muted">
+                      Week of {duty.weekStart}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             )}
           </section>
         )}
@@ -174,25 +206,27 @@ function MyAssignmentsPage() {
                     </span>
                   </div>
                   <div className="mt-4 grid gap-2 text-sm text-board-muted sm:grid-cols-3">
-                    <p className="flex items-center gap-2">
-                      <CalendarDays className="h-4 w-4" />
+                    <p className="flex min-w-0 items-center gap-2">
+                      <CalendarDays className="h-4 w-4 shrink-0" />
                       {assignment.serviceDate}
                     </p>
-                    <p className="flex items-center gap-2">
-                      <Clock3 className="h-4 w-4" />
+                    <p className="flex min-w-0 items-center gap-2">
+                      <Clock3 className="h-4 w-4 shrink-0" />
                       {assignment.effectiveCallTime
-                          ? new Date(
-                              assignment.effectiveCallTime,
-                            ).toLocaleTimeString([], {
-                              hour: "numeric",
-                              minute: "2-digit",
-                              timeZone: deviceTimeZone,
-                            })
-                          : "Time to be confirmed"}
+                        ? new Date(
+                            assignment.effectiveCallTime,
+                          ).toLocaleTimeString([], {
+                            hour: "numeric",
+                            minute: "2-digit",
+                            timeZone: deviceTimeZone,
+                          })
+                        : "Time to be confirmed"}
                     </p>
-                    <p className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4" />
-                      {assignment.location || "Location to be confirmed"}
+                    <p className="flex min-w-0 items-center gap-2">
+                      <MapPin className="h-4 w-4 shrink-0" />
+                      <span className="min-w-0 break-words">
+                        {assignment.location || "Location to be confirmed"}
+                      </span>
                     </p>
                   </div>
                   {assignment.notes ? (
@@ -211,21 +245,27 @@ function MyAssignmentsPage() {
                         type="button"
                         disabled={responding === assignment.id}
                         onClick={() => void respond(assignment, "confirmed")}
-                        className="inline-flex items-center gap-2 rounded-xl bg-green-500 px-4 py-2.5 text-sm font-bold text-black disabled:opacity-40"
+                        className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-green-500 px-4 py-2.5 text-sm font-bold text-black disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
                       >
-                        <Check className="h-4 w-4" />
+                        <Check className="h-4 w-4 shrink-0" />
                         Accept
                       </button>
                       <button
                         type="button"
                         disabled={responding === assignment.id}
+                        ref={(button) => {
+                          if (button)
+                            declineButtons.current.set(assignment.id, button);
+                          else declineButtons.current.delete(assignment.id);
+                        }}
                         onClick={() => {
+                          declineTrigger.current = assignment.id;
                           setDeclining(assignment.id);
                           setReason("");
                         }}
-                        className="inline-flex items-center gap-2 rounded-xl border border-red-500/30 px-4 py-2.5 text-sm font-semibold text-red-300 disabled:opacity-40"
+                        className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-red-500/30 px-4 py-2.5 text-sm font-semibold text-red-300 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
                       >
-                        <X className="h-4 w-4" />
+                        <X className="h-4 w-4 shrink-0" />
                         Decline
                       </button>
                     </div>
@@ -235,18 +275,19 @@ function MyAssignmentsPage() {
                       <label className="block text-xs font-medium text-board-muted">
                         Optional note
                         <textarea
+                          ref={noteRef}
                           maxLength={500}
                           value={reason}
                           onChange={(event) => setReason(event.target.value)}
-                          className="mt-2 min-h-24 w-full resize-y rounded-xl border border-board-border bg-board-card p-3 text-sm text-board-text outline-none"
+                          className="mt-2 min-h-24 w-full resize-y rounded-xl border border-board-border bg-board-card p-3 text-sm text-board-text outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
                         />
                       </label>
-                      <div className="flex justify-end gap-2">
+                      <div className="flex flex-wrap justify-end gap-2">
                         <button
                           type="button"
                           disabled={responding === assignment.id}
                           onClick={() => setDeclining(null)}
-                          className="rounded-xl border border-board-border px-4 py-2 text-sm text-board-text"
+                          className="min-h-11 rounded-xl border border-board-border px-4 py-2 text-sm text-board-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
                         >
                           Cancel
                         </button>
@@ -254,7 +295,7 @@ function MyAssignmentsPage() {
                           type="button"
                           disabled={responding === assignment.id}
                           onClick={() => void respond(assignment, "declined")}
-                          className="rounded-xl bg-red-500 px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
+                          className="min-h-11 rounded-xl bg-red-500 px-4 py-2 text-sm font-bold text-white disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
                         >
                           {responding === assignment.id
                             ? "Saving…"
