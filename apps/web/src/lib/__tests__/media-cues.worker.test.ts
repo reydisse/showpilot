@@ -419,31 +419,39 @@ it("reports a missing enabled output or missing/changed asset as failure without
   expect(player.commands()).toHaveLength(0);
 });
 
-it("retries a confirmed playback failure with a new request, preserving its execution identity", async () => {
+it.each(["play", "stop"] as const)("keeps disabled media %s silent and retries a confirmed failure with the original execution identity", async kind => {
   const test = await fixture();
   const player = await output(test);
-  await test.command("add-event", test.play);
-  const fire = test.command("fire-event", { id: "play" });
+  const cue = test[kind];
+  await test.command("add-event", { ...cue, enabled: false });
+  await test.command("fire-event", { id: cue.id }, 400);
+  await test.command("start");
+  await test.command("feed-tc", { timecode: cue.triggerTimecode, format: { frameRate: 30, dropFrame: "ndf" } });
+  expect(player.commands()).toEqual([]);
+  expect((await test.events())[0]).toMatchObject({ fired: false, executionAttempts: 0 });
+  await test.command("stop");
+  await test.command("set-event-enabled", { id: cue.id, enabled: true });
+  const fire = test.command("fire-event", { id: cue.id });
   const failed = await player.next();
   player.send({
     type: "media-result",
     executionId: failed.executionId,
     requestId: failed.requestId,
-    result: { ok: false, error: "Codec unsupported on this computer" },
+    result: { ok: false, error: "Fixture output rejected the command" },
   });
   await fire;
   expect((await test.events())[0]).toMatchObject({
     fired: false,
     executionStatus: "failed",
-    executionError: "Codec unsupported on this computer",
+    executionError: "Fixture output rejected the command",
   });
-  const retry = test.command("retry-event", { id: "play" });
+  const retry = test.command("retry-event", { id: cue.id });
   const retried = await player.next(1);
   expect(retried.executionId).toBe(failed.executionId);
   expect(retried.requestId).not.toBe(failed.requestId);
   player.acknowledge(failed);
   expect((await test.events())[0].fired).toBe(false);
-  player.acknowledge(retried);
+  player.acknowledge(retried, { ok: true, state: kind === "play" ? "playing" : "stopped" });
   await retry;
   expect((await test.events())[0].fired).toBe(true);
 });
