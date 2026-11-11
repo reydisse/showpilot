@@ -1,9 +1,12 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
+import { hydrateRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopStatusBar } from "../DesktopStatusBar";
 import type { DesktopBridgeStatus } from "@/lib/desktop-runtime";
 
 const mocks = vi.hoisted(() => ({
+  native: true,
   configure: vi.fn(),
   getBridgeStatus: vi.fn(),
   checkUpdate: vi.fn(),
@@ -33,7 +36,7 @@ vi.mock("@/lib/desktop-runtime", async (importOriginal) => {
       cachePath: null,
     }),
     installDesktopUpdate: mocks.installUpdate,
-    isDesktopRuntime: () => true,
+    isDesktopRuntime: () => mocks.native,
     openDesktopWindow: mocks.openWindow,
     openDesktopLocalShow: mocks.openLocalShow,
     stopDesktopBridge: vi.fn().mockResolvedValue(undefined),
@@ -42,12 +45,37 @@ vi.mock("@/lib/desktop-runtime", async (importOriginal) => {
 
 describe("DesktopStatusBar", () => {
   beforeEach(() => {
+    mocks.native = true;
     mocks.configure.mockReset();
     mocks.openLocalShow.mockReset().mockResolvedValue(undefined);
     mocks.getBridgeStatus.mockReset().mockResolvedValue({ configured: false, running: false, connection: "offline", pid: null, logs: [], lastError: null });
     mocks.checkUpdate.mockReset().mockResolvedValue(null);
     mocks.installUpdate.mockReset().mockResolvedValue({ version: "0.1.4", notes: null, date: null });
     mocks.openWindow.mockReset().mockResolvedValue(undefined);
+  });
+
+  it("hydrates the server page before adding native controls without replacing the operator tree", async () => {
+    const element = <div><button>Keep operator state</button><DesktopStatusBar /></div>;
+    mocks.native = false;
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(element);
+    document.body.appendChild(container);
+    const existing = container.querySelector("button");
+    expect(container.textContent).not.toContain("Check update");
+    mocks.native = true;
+    const onRecoverableError = vi.fn();
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    try {
+      await act(async () => { root = hydrateRoot(container, element, { onRecoverableError }); });
+      expect(onRecoverableError).not.toHaveBeenCalled();
+      expect(container.querySelector("button")).toBe(existing);
+      expect(within(container).getByRole("button", { name: "Check update" })).toBeTruthy();
+      fireEvent.click(within(container).getByRole("button", { name: "Check-in" }));
+      await waitFor(() => expect(mocks.openWindow).toHaveBeenCalledWith("check-in", "faithfire-production"));
+    } finally {
+      await act(async () => root?.unmount());
+      container.remove();
+    }
   });
 
   it("confirms the switch and recognizes a legacy engine after it starts", async () => {

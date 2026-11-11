@@ -103,6 +103,7 @@ import { createBrowserId } from "@/lib/browser-id";
 import { useRundownDragReorder } from "@/hooks/useRundownDragReorder";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { cacheDesktopService, isDesktopRuntime } from "@/lib/desktop-runtime";
+import { useDesktopRuntime } from "@/hooks/useDesktopRuntime";
 import {
   NewShowModal,
   type NewShowInput,
@@ -302,6 +303,7 @@ export const Route = createFileRoute("/$slug/rundown")({
 const DesktopLocalShowPanel = lazy(() => import("@/components/rundown/DesktopLocalShowPanel").then((module) => ({ default: module.DesktopLocalShowPanel })));
 
 function RundownPage() {
+  const desktop = useDesktopRuntime();
   const workspaceTerms = useWorkspaceTerms();
   const {
     orgId,
@@ -1803,7 +1805,7 @@ function RundownPage() {
         </div>
       </div>
 
-      {isDesktopRuntime() && showId && <Suspense fallback={null}>
+      {desktop && showId && <Suspense fallback={null}>
         <DesktopLocalShowPanel key={`${orgId}:${showId}:${serviceDate}`} orgId={orgId} slug={slug} showId={showId} serviceDate={serviceDate}
           cloudRevision={cloudRevision} canControl={canControlRundown}
           canPrepare={canControlRundown && hasEffectivePermission(role, grantedPermissions, "devices:access") && hasEffectivePermission(role, grantedPermissions, "timecode:access")}

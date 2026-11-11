@@ -115,10 +115,16 @@ await withLocalSmokeFixture(async ({origin, orgId, date, browser, operatorEmail,
     await browser("close");
     await withRealBrowser({origin,cookie:operatorCookie},async({page,evaluate,onPageEvent})=>{
       const ipcFailures=[];
+      const runtimeErrors=[];
+      const liveContexts=new Set();
       onPageEvent(message=>{
-        if(message.method==="Runtime.exceptionThrown")console.error("Browser exception",message.params.exceptionDetails.exception?.description);
-        if(message.method==="Runtime.consoleAPICalled"&&message.params.type==="error")console.error("Browser error",message.params.args.map(arg=>arg.description??arg.value));
+        if(message.method==="Runtime.executionContextCreated")liveContexts.add(message.params.context.id);
+        if(message.method==="Runtime.executionContextDestroyed")liveContexts.delete(message.params.executionContextId);
+        if(message.method==="Runtime.executionContextsCleared")liveContexts.clear();
+        if(message.method==="Runtime.exceptionThrown")runtimeErrors.push(message.params.exceptionDetails.exception?.description??message.params.exceptionDetails.text);
+        if(message.method==="Runtime.consoleAPICalled"&&message.params.type==="error")runtimeErrors.push(message.params.args.map(arg=>arg.description??arg.value).join(" "));
         if(message.method!=="Runtime.bindingCalled" || message.params.name!=="fixtureNative")return;
+        const contextId=message.params.executionContextId;
         const {id,command,args}=JSON.parse(message.params.payload);
         const execute=async()=>{
           if(command==="local_show_command")return native(args.request);
@@ -133,9 +139,14 @@ await withLocalSmokeFixture(async ({origin, orgId, date, browser, operatorEmail,
           if(command.startsWith("plugin:")||command==="cache_service")return null;
           throw new Error(`Unsupported fixture IPC: ${command}`);
         };
-        void execute().then(result=>({result}),error=>({error:error.message})).then(reply=>page("Runtime.evaluate",{
-          expression:`window.fixtureResolve(${JSON.stringify(id)},${JSON.stringify(reply)})`,contextId:message.params.executionContextId,
-        })).catch(error=>ipcFailures.push(error.message));
+        void execute().then(result=>({result}),error=>({error:error.message})).then(reply=>{
+          // Native work can finish after navigation destroys its requesting
+          // document. Never deliver that reply into the replacement page.
+          if(!liveContexts.has(contextId))return;
+          return page("Runtime.evaluate",{
+            expression:`window.fixtureResolve(${JSON.stringify(id)},${JSON.stringify(reply)})`,contextId,
+          });
+        }).catch(error=>{if(liveContexts.has(contextId))ipcFailures.push(error.message);});
       });
       await page("Page.enable"); await page("Runtime.enable"); await page("Runtime.addBinding",{name:"fixtureNative"});
       await page("Emulation.setFocusEmulationEnabled",{enabled:true});
@@ -219,8 +230,9 @@ await withLocalSmokeFixture(async ({origin, orgId, date, browser, operatorEmail,
       const finalCloud=await readCloud(); assert.equal(finalCloud.revision,conflictCloud.revision); assert.equal(finalCloud.stageMessage,"NEWER_CLOUD_DECISION");
       assert.equal(finalCloud.timer.currentItemId,"local-second"); assert.equal(commands.length,1);
       assert.deepEqual(ipcFailures,[]);
+      assert.deepEqual(runtimeErrors,[],"Desktop must hydrate and operate without runtime errors");
       assert.equal((await capturedEmails()).length,0);
-      console.log(JSON.stringify({passed:true,actualPreparation:true,nativeEngine:true,osVault:true,shippedOfflinePage:true,cloudStopped:true,localRundownAdvance:true,authenticatedDeviceCommand:true,lostSyncReplyRetry:true,revisionConflictPreservesBoth:true,deviceCommands:commands.length,externalEmail:0}));
+      console.log(JSON.stringify({passed:true,actualPreparation:true,nativeEngine:true,osVault:true,shippedOfflinePage:true,cloudStopped:true,localRundownAdvance:true,authenticatedDeviceCommand:true,lostSyncReplyRetry:true,revisionConflictPreservesBoth:true,deviceCommands:commands.length,runtimeErrors:0,externalEmail:0}));
     });
   } catch(error) {
     console.error(diagnostics.replaceAll(key||"unused-key","[fixture key]").replaceAll(secret,"[fixture secret]").replaceAll(token,"[local token]").slice(-5000));
