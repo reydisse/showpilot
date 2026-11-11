@@ -84,3 +84,4 @@
 0077_account_profile_recovery.sql
 0078_schedule_provider_recovery.sql
 0079_schedule_invitation_delivery.sql
+0080_schedule_assignment_recovery.sql
