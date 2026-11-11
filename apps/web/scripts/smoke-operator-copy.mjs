@@ -86,6 +86,8 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, operatorCookie }) => {
     assert.equal(await evaluate(`document.querySelector('tbody td')?.textContent.trim()`), expectedDate);
     await click(`document.querySelector('tbody button[aria-label^="Open report:"]')`);
     await check(`!!(${button('Production Manager note')})&&!!(${button('Technical Manager note')})`, 'manager names spelled out');
+    // The shared dialog scales in; measure final hit targets after it settles.
+    await check(`(()=>{const dialog=document.querySelector('[role=dialog]');return dialog&&dialog.getAnimations().every(animation=>animation.playState==='finished');})()`, 'report dialog opening animation completed');
     for (const viewport of [1440,768,320]) {
       await width(viewport);
       for (const name of ['Technical Manager note','Production Manager note']) {
