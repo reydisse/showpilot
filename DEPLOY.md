@@ -5797,3 +5797,62 @@ requests/silent catch also remain in the wider audit. This change covers count
 honesty and recovery, not all notification delivery. No deployment, release,
 remote migration or real organization writes. Still 20 necessary tracked
 Markdown files, with none added.
+
+
+## Phase 2 notification timezone recovery — 2026-11-08
+
+On `fix/notification-timezone-recovery`, replaced the silent background timezone
+write with bounded reads and saves shared by the background indicator and account
+menu. A failed save remains uncertain and keeps the exact request across panel
+closure and account/workspace navigation. Retry confirms that request; it cannot
+replace a newer device's saved timezone. A separate explicit device-timezone
+choice uses the freshly confirmed revision. Failed refresh after acknowledgement
+retries only the read. Initial loading never claims the workspace default.
+
+Migration 0076 keeps the existing `app_setting` value and assignment-email reader
+in place, backfills revision counters, and tracks older writers with triggers.
+A D1 transaction binds each receipt to its account, workspace, request, zone and
+expected revision. It checks live session/membership authority, commits the
+receipt and setting together, and distinguishes applied, conflicting and
+superseded requests. Revision history survives preference deletion/recreation.
+Apply this migration before deploying the new server functions. No remote
+migration was run.
+
+Validation:
+- Three baseline real-auth/D1 failures reproduced replay overwrite, stale revision
+  and changed request reuse in `/tmp/showpilot-timezone-before.log`.
+- Nine Worker regressions cover concurrent identical and different commands,
+  stale revision/ABA, legacy writes, transaction rollback and revoked/cross-account
+  authority. Five rendered tests cover read/write deadlines, late replies, shared
+  background/menu writes, retained exact commands across scope changes, newer
+  device protection, explicit revision-based replacement, failed refresh and
+  mismatched acknowledgements.
+- Full suite: 2,412 unit / 1,204 Worker tests pass. Typecheck and production build
+  pass. Main entry 552,027 raw / 174,887 gzip bytes under unchanged limits.
+- Compiled Chrome/auth/D1 rehearsal seeds a preference before migration 0076,
+  confirms its preserved value/revision, sets an actual Toronto browser timezone,
+  stalls real reads and committed writes, writes London from another authenticated
+  client, retries the original command, and confirms London was preserved. An
+  explicit fresh choice saves Toronto; its failed refresh recovers without another
+  write. Recovery controls pass 44px/reachability at 320x480/768/1440. Phone failure
+  screenshot inspected; no runtime errors or captured email.
+- Account module regression passes held Profile, Notifications and AccountPanels
+  downloads plus actual Profile network failure, explicit Retry without reload,
+  and the same unsaved profile input across resizing. The first run exposed a
+  test-interception edit error; correcting the conditional made the intended
+  AccountPanels fault run. No app change was needed for that failure.
+- Count recovery/retention/inbox repair and broad navigation across 21 routes,
+  13 Settings sections and four widths still pass.
+
+Evidence: `/tmp/showpilot-timezone-{ui1,full1,tsc2,build1,browser1,
+account-regression2,count-regression,navigation}.log`; scripts
+`smoke-notification-timezone.mjs`, `smoke-account-panel-loading.mjs`,
+`smoke-account-notification-status.mjs`, and `smoke-navigation-audit.mjs`.
+PR #232 CI passed (run 42464323074). Opened queued count change as draft #233;
+its CI run 42465690902 is still pending as this entry is recorded.
+
+Phase 2 remains 67/79. Profile edits, avatar upload, password-reset requests,
+sign-out and native notification delivery still have unbounded operator paths;
+these and the remaining broad audit prevent closing the gate. No deployment,
+release, real-org writes or new Markdown files. Twenty necessary tracked Markdown
+files remain.

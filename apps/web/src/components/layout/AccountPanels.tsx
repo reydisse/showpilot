@@ -2,8 +2,18 @@ import { lazy, type ComponentProps } from "react";
 import { runRouteLoad } from "@/lib/route-load-deadlines";
 import type { ProfilePanel } from "./ProfileModal";
 import type { NotificationInbox } from "./NotificationCenter";
+import type { NotificationTimeZone } from "./NotificationTimeZone";
+import type { NotificationCountSummary } from "./NotificationCountSummary";
 
 type AccountPanelProps =
+  | {
+      view: "timezone";
+      panelProps: ComponentProps<typeof NotificationTimeZone>;
+    }
+  | {
+      view: "count";
+      panelProps: ComponentProps<typeof NotificationCountSummary>;
+    }
   | { view: "profile"; panelProps: ComponentProps<typeof ProfilePanel> }
   | {
       view: "notifications";
@@ -26,8 +36,24 @@ export function createAccountPanels() {
       })),
     ),
   );
+  const TimeZone = lazy(() =>
+    runRouteLoad(() =>
+      import("./NotificationTimeZone").then((module) => ({
+        default: module.NotificationTimeZone,
+      })),
+    ),
+  );
+  const Count = lazy(() =>
+    runRouteLoad(() =>
+      import("./NotificationCountSummary").then((module) => ({
+        default: module.NotificationCountSummary,
+      })),
+    ),
+  );
   return function AccountPanels(props: AccountPanelProps) {
     if (props.view === "profile") return <Profile {...props.panelProps} />;
+    if (props.view === "timezone") return <TimeZone {...props.panelProps} />;
+    if (props.view === "count") return <Count {...props.panelProps} />;
     return <Notifications {...props.panelProps} />;
   };
 }
