@@ -86,3 +86,4 @@
 0079_schedule_invitation_delivery.sql
 0080_schedule_assignment_recovery.sql
 0081_schedule_copy_recovery.sql
+0082_show_creation_recovery.sql
