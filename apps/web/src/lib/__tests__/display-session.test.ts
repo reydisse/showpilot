@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { env } from "cloudflare:workers";
 import { authenticateDisplayRequest, displayCookieName, issueDisplayPass, DISPLAY_PASS_LIFETIME_MS } from "../display-access.server";
-const mocks = vi.hoisted(() => ({ permission: vi.fn(), cookie: vi.fn(), request: vi.fn(), secret: "display-session-fixture", org: "org-1" }));
+const mocks = vi.hoisted(() => ({ permission: vi.fn(), cookie: vi.fn(), request: vi.fn(), secret: "display-session-fixture", lookup: vi.fn() }));
 vi.mock("@tanstack/react-start", () => ({ createServerFn: () => {
   let validate = (data: unknown) => data;
   const builder = {
@@ -12,12 +12,12 @@ vi.mock("@tanstack/react-start", () => ({ createServerFn: () => {
 vi.mock("@tanstack/react-start/server", () => ({ getRequest: mocks.request, setCookie: mocks.cookie }));
 vi.mock("cloudflare:workers", () => ({ env: {
   get KIOSK_SECRET() { return mocks.secret; },
-  DB: { prepare: () => ({ bind: () => ({ first: async () => ({ id: mocks.org }) }) }) },
+  DB: { prepare: () => ({ bind: () => ({ first: mocks.lookup }) }) },
 } }));
 vi.mock("../org-access", () => ({ assertOrgPermission: mocks.permission }));
 import { createDisplayLink, ensureDisplaySession } from "../display-access";
 beforeEach(() => {
-  vi.resetAllMocks(); mocks.secret = "display-session-fixture"; mocks.org = "org-1";
+  vi.resetAllMocks(); mocks.secret = "display-session-fixture"; mocks.lookup.mockResolvedValue({ id: "org-1" });
   mocks.request.mockReturnValue(new Request("https://app.example/_serverFn/fixture"));
   mocks.permission.mockResolvedValue({ user: { id: "owner" } });
 });
@@ -62,12 +62,12 @@ describe("display session establishment", () => {
     expect(await ensureDisplaySession({ data: { orgSlug: "venue", surface: "timer", token: issued.token } })).toEqual({ authorized: true, expiresAt: issued.authority.expiresAt });
     expect(mocks.permission).not.toHaveBeenCalled();
     mocks.cookie.mockClear();
-    expect(await ensureDisplaySession({ data: { orgSlug: "venue", surface: "overlay", token: issued.token } })).toEqual({ authorized: false });
+    expect(await ensureDisplaySession({ data: { orgSlug: "venue", surface: "overlay", token: issued.token } })).toEqual({ authorized: false, reason: "access-denied" });
     expect(mocks.cookie).not.toHaveBeenCalled();
   });
   it("does not create or share access without permission or a signing secret", async () => {
     mocks.permission.mockRejectedValue(new Error("Forbidden"));
-    expect(await ensureDisplaySession({ data: { orgSlug: "venue", surface: "timer" } })).toEqual({ authorized: false });
+    expect(await ensureDisplaySession({ data: { orgSlug: "venue", surface: "timer" } })).toEqual({ authorized: false, reason: "access-denied" });
     await expect(createDisplayLink({ data: { orgSlug: "venue", surface: "timer" } })).rejects.toThrow("Forbidden");
     expect(mocks.cookie).not.toHaveBeenCalled();
     mocks.permission.mockResolvedValue({ user: { id: "owner" } }); mocks.secret = "";
@@ -85,4 +85,19 @@ describe("display session establishment", () => {
     expect(renewed.expiresAt).toBeGreaterThan(old.authority.expiresAt);
     expect(mocks.cookie).toHaveBeenCalledOnce();
   });
+});
+
+
+it("reports a missing organization without authenticating or creating a display pass", async () => {
+  mocks.lookup.mockResolvedValue(null);
+  const issued = await issueDisplayPass("org-1", "timer", mocks.secret);
+  expect(await ensureDisplaySession({ data: { orgSlug: "missing", surface: "timer", token: issued.token } })).toEqual({ authorized: false, reason: "not-found" });
+  expect(mocks.permission).not.toHaveBeenCalled();
+  expect(mocks.cookie).not.toHaveBeenCalled();
+  await expect(createDisplayLink({ data: { orgSlug: "missing", surface: "timer" } })).rejects.toThrow("Organization not found");
+});
+it("keeps lookup outages distinct from missing organizations", async () => {
+  mocks.lookup.mockRejectedValue(new Error("Fixture database unavailable"));
+  await expect(ensureDisplaySession({ data: { orgSlug: "venue", surface: "timer" } })).rejects.toThrow("Fixture database unavailable");
+  expect(mocks.cookie).not.toHaveBeenCalled();
 });
