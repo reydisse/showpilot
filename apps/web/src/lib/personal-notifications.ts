@@ -98,7 +98,7 @@ export const getPersonalNotificationCount = createServerFn({ method: "GET" })
 
 export const getPersonalDeviceNotifications = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
-  .handler(async ({ data }): Promise<{ notifications: PersonalNotification[]; unread: number }> => {
+  .handler(async ({ data }): Promise<{ userId: string; orgId: string; notifications: PersonalNotification[]; unread: number }> => {
     const userId = await assertInboxAccess(data.orgId);
     const [rows, unreadRow] = await Promise.all([
       getD1().prepare(
@@ -113,7 +113,7 @@ export const getPersonalDeviceNotifications = createServerFn({ method: "GET" })
          WHERE orgId = ? AND userId = ? AND dismissed = 0 AND readAt IS NULL`,
       ).bind(data.orgId, userId).first<{ count: number }>(),
     ]);
-    return { notifications: rows.results ?? [], unread: unreadRow?.count ?? 0 };
+    return { userId, orgId: data.orgId, notifications: rows.results ?? [], unread: unreadRow?.count ?? 0 };
   });
 
 export const getPersonalNotificationPreferences = createServerFn({ method: "GET" })

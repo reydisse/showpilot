@@ -76,8 +76,7 @@ function RootComponent() {
   useEffect(() => () => queryClient.clear(), [queryClient]);
   return (
     <QueryClientProvider client={queryClient}>
-      <DesktopControllers />
-      <Outlet />
+      <DesktopControllers><Outlet /></DesktopControllers>
     </QueryClientProvider>
   );
 }
