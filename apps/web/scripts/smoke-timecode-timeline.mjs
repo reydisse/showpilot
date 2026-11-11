@@ -69,12 +69,22 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await click("Start Internal Generator");
   await browser("wait", "text=Pause clock");
   await browser("wait", "--fn", "document.querySelector('[data-timecode-header] [role=status]').textContent.includes('Running')");
+  await poll(async () => {
+    const response = await fetch(`${origin}/api/timecode/${orgId}/state?showId=smoke-show`, { headers: { Cookie: operatorCookie } });
+    assert.equal(response.status, 200);
+    return (await response.json()).totalFrames >= 30;
+  }, "generator advances before the missed-cue check");
+  assert.match(await evaluate("document.querySelector('[data-next-cue]').textContent"), /Next: Device cue.*in [0-9]/);
   await click("Pause clock");
   await browser("wait", "--fn", "document.querySelector('[data-timecode-header] [role=status]').textContent.includes('Paused')");
   await click("Resume clock");
   await browser("wait", "text=Pause clock");
   await click("Stop Generator");
   await browser("wait", "text=Resume Internal Generator");
+  await command("add-event", cue("Past cue", 0, { toleranceFrames: 0 }));
+  await browser("wait", "--fn", "document.querySelector('[data-automation-event=\"Past cue\"]')?.textContent.includes('Missed')");
+  assert.match(await evaluate("document.querySelector('[aria-label=\"Missed or failed cues\"]').textContent"), /Past cue · Missed/);
+  assert.equal((await events()).find(event => event.id === "Past cue").fired, false, "A missed cue is not reported as fired");
   await assertOperatorReadability(browser, "[data-timecode-page]");
   await browser("set", "viewport", "1440", "900");
   await click("Fire Device cue");
@@ -102,5 +112,5 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await browser("wait", "--fn", "[...document.querySelectorAll('[data-timecode-header] button')].some(button => !button.disabled)");
   assert.deepEqual(await evaluate("[...document.querySelectorAll('[data-automation-event]')].map(row => row.dataset.automationEvent)"), rememberedRows);
   assert.deepEqual((await events()).map(event => ({ id: event.id, executionId: event.executionId })), rememberedAttempts, "Reconnection must not replay any cues");
-  console.log(JSON.stringify({ passed: true, nominalOrder: true, compensatedNextWhileStopped: true, deviceNamesAndSummaries: true, webhookOriginOnly: true, stickyTransport1440And320: true, minimum44pxActions: true, startPauseResumeStop: true, failedRowRetry: true, disconnectHonesty: true, retainedTimeline: true, timestampedError: true, noReplayAfterReconnect: true, physicalEquipmentConnected: false, operationalTextFloorAndMutedContrast: true }));
+  console.log(JSON.stringify({ passed: true, nominalOrder: true, compensatedNextWhileStopped: true, runningCountdown: true, missedCueAndAttentionList: true, deviceNamesAndSummaries: true, webhookOriginOnly: true, stickyTransport1440And320: true, minimum44pxActions: true, startPauseResumeStop: true, failedRowRetry: true, disconnectHonesty: true, retainedTimeline: true, timestampedError: true, noReplayAfterReconnect: true, physicalEquipmentConnected: false, operationalTextFloorAndMutedContrast: true }));
 }, { paidPlan: true });

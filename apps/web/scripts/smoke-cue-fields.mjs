@@ -18,7 +18,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
   await browser("fill", "#email", operatorEmail); await browser("fill", "#password", operatorPassword); await click("Sign in");
   await browser("wait", "--url", `**/${orgId}/**`);
   await browser("open", `${origin}/${orgId}/songs`);
-  await click("New song");
+  await click("Create manually");
   await browser("find", "label", "Title", "fill", "Cue fields rehearsal");
   await browser("find", "label", "Section 1 lyrics", "fill", "First verse line\nSecond verse line");
   await click("Add section");
