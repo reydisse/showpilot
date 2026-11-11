@@ -29,7 +29,7 @@ const WINDOW_ACTIONS: Array<{
   icon: typeof Timer;
 }> = [
   { kind: "timer", label: "Timer window", icon: Timer },
-  { kind: "show-board", label: "Show Board", icon: MonitorPlay },
+  { kind: "show-board", label: "Crew status", icon: MonitorPlay },
   { kind: "check-in", label: "Check-in", icon: UserCheck },
 ];
 

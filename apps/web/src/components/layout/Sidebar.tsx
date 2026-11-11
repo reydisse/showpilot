@@ -76,7 +76,7 @@ const mainNav: NavItem[] = [
   },
   {
     icon: MonitorPlay,
-    label: "Show Board",
+    label: "Crew status",
     path: "board",
     module: "board",
     permission: "showboard:view",

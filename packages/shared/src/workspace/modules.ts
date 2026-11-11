@@ -5,7 +5,7 @@ export const WORKSPACE_MODULES = {
   rundown: "Rundown",
   team: "Team",
   schedule: "Schedule",
-  board: "Show Board & Check-in",
+  board: "Crew status & check-in",
   chat: "Chat",
   production: "Production",
   timecode: "Timecode",

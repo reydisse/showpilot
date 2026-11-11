@@ -103,7 +103,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, capturedEmai
     await route("show");
     await check(`${panel}?.innerText.includes('Connected')&&${panel}?.innerText.includes('QUEUED_CONNECTION_REHEARSAL')`, "Show Team Chat connects and retains room history");
     await route("board");
-    await check("document.body.innerText.includes('Your show board is ready')", "board renders");
+    await check("document.body.innerText.includes('Crew status is ready')", "board renders");
     assert.equal(await evaluate("/connected,? Live|Disconnected|Timecode offline/.test(document.body.innerText)"), false);
     await route("show");
     await route("chat");

@@ -43,14 +43,16 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
       { path: "dashboard/audio", empty: "No channels assigned", actions: ["Add Channel", "Add First Channel"], primary: "Add First Channel", form: 'form', close: "Cancel" },
       { path: "dashboard/devices", empty: "No devices registered", actions: ["Add Device", "Add First Device"], primary: "Add Device", form: '#device-name', close: "Cancel" },
       { path: "streaming/platforms", empty: "No streaming destinations", actions: ["Add Destination", "Go Live"], primary: "Add Destination", form: 'form', close: "Cancel" },
-      { path: "board", empty: "Your show board is ready", actions: ["Add Team Members"], primary: "Add Team Members" },
+      { path: "board", empty: "Crew status is ready", actions: ["Add Team Members"], primary: "Add Team Members" },
     ];
     for (const route of routes) {
       await navigate(route.path);
       await check(`document.body?.innerText.includes(${JSON.stringify(route.empty)})`, route.empty);
-      const count = await evaluate(`${buttons(route.actions)}.length`);
+      // The server's empty state can be replaced by the first client refresh.
+      // Count actions once that refresh has completed and the action is usable.
+      const { count } = await check(`(() => {const primary=${buttons([route.primary])}.at(-1);return primary&&!primary.disabled&&Object.keys(primary).some(k=>k.startsWith('__reactProps'))?{count:${buttons(route.actions)}.length}:null;})()`, `${route.path} hydrated empty actions`);
       const sizes = [];
-      for (const [width, height] of [[320, 780], [768, 1024], [1440, 1000]]) {
+      for (const [width, height] of [[320, route.path === "board" ? 480 : 780], [768, 1024], [1440, 1000]]) {
         await page("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
         const bounds = await check(`(async()=>{const n=${buttons([route.primary])}.at(-1);if(!n)return null;n.scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect();if(!n.contains(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2)))return null;return {height:b.height,left:b.left,right:b.right,viewport:innerWidth,hit:n.contains(document.elementFromPoint(b.x+b.width/2,b.y+b.height/2)),overflow:document.documentElement.scrollWidth>innerWidth+1};})()`, `${route.path} ${width}`);
         sizes.push({ width, ...bounds });

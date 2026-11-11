@@ -29,7 +29,7 @@ test("screen-bound web polling pauses while hidden and cannot overlap", () => {
     ["apps/web/src/routes/$slug/streaming/platforms.tsx", ["useOperatorRead", "signal", "key: outputKey"]],
     ["apps/web/src/routes/$slug/show.tsx", ["useOperatorRead", "signal", "key: `${orgId}:${today}`"]],
     ["apps/web/src/hooks/useOperatorRead.ts", ["document.visibilityState", "request !== current", "controller.abort()"]],
-    ["apps/web/src/routes/$slug/board.tsx", ["document.visibilityState", "refreshing"]],
+    ["apps/web/src/routes/$slug/board.tsx", ["useOperatorRead", "signal", "key: orgId", "intervalMs: 3_000"]],
     ["apps/web/src/routes/timer/$orgSlug.tsx", ["document.visibilityState", "wsConnectedRef.current"]],
   ];
   for (const [path, fragments] of contracts) requiresFragments(path, fragments);

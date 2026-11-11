@@ -2,7 +2,7 @@ import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { BoardSkeleton } from "@/components/ui/Skeleton";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -18,10 +18,12 @@ import {
 import { getCrewMembers } from "@/lib/data";
 import { getClockFormat, getOrgSettings } from "@/lib/settings";
 import { formatTime, type ClockFormat } from "@/lib/utils";
-import type { Member } from "@/types";
 import { useDisplayFullscreen } from "@/hooks/useDisplayFullscreen";
+import { useOperatorRead } from "@/hooks/useOperatorRead";
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 
 const MEMBERS_PER_PAGE = 8;
+type Member = Awaited<ReturnType<typeof getCrewMembers>>[number];
 
 export const Route = createFileRoute("/$slug/board")({
   pendingComponent: () => <BoardSkeleton />,
@@ -41,7 +43,7 @@ export const Route = createFileRoute("/$slug/board")({
       getOrgSettings({ data: { orgId: context.orgId }, signal }),
     ]);
     return {
-      members: members as Member[],
+      members,
       slug: context.slug,
       orgId: context.orgId,
       clockFormat,
@@ -87,26 +89,25 @@ function BoardHeader({
   });
 
   return (
-    <header className="flex items-center justify-between px-4 sm:px-5 xl:px-6 py-4 xl:py-5 shrink-0">
-      <div className="flex items-center gap-4">
-        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-fire-500/20 to-fire-800/10 border border-fire-500/20 flex items-center justify-center">
+    <header className="flex items-center justify-between gap-3 px-4 sm:px-5 xl:px-6 py-4 xl:py-5 shrink-0">
+      <div className="flex shrink-0 items-center gap-4">
+        <div className="hidden sm:flex w-11 h-11 rounded-xl bg-gradient-to-br from-fire-500/20 to-fire-800/10 border border-fire-500/20 items-center justify-center">
           <Flame className="w-6 h-6 text-fire-500" />
         </div>
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold font-[family-name:var(--font-display)] tracking-tight whitespace-nowrap">
-            <span className="text-fire-500">ShowPilot</span>{" "}
-            {/* <span className="text-board-text">Production</span> */}
+          <h1 className="text-xl sm:text-3xl font-bold font-[family-name:var(--font-display)] tracking-tight whitespace-nowrap">
+            <span className="text-fire-500">ShowPilot</span>
           </h1>
           <p className="text-board-muted text-xs sm:text-sm tracking-widest uppercase">
-            Production Board
+            Crew status
           </p>
         </div>
       </div>
-      <div className="text-right">
+      <div className="min-w-0 text-right">
         <p className="text-2xl sm:text-3xl font-bold font-[family-name:var(--font-display)] text-board-text tabular-nums whitespace-nowrap">
           {formattedTime}
         </p>
-        <p className="text-xs sm:text-sm text-board-muted whitespace-nowrap">
+        <p className="text-xs sm:text-sm text-board-muted">
           {formattedDate}
         </p>
       </div>
@@ -150,11 +151,14 @@ function MemberCard({ member }: { member: Member }) {
         />
       </div>
 
-      <h3 className="mt-1.5 sm:mt-2 xl:mt-2.5 text-sm sm:text-base xl:text-lg font-semibold font-[family-name:var(--font-display)] text-board-text text-center leading-tight">
+      <h3 className="mt-1.5 sm:mt-2 xl:mt-2.5 w-full break-words text-sm sm:text-base xl:text-lg font-semibold font-[family-name:var(--font-display)] text-board-text text-center leading-tight">
         {member.name}
       </h3>
-      <p className="mt-0.5 text-[11px] sm:text-xs text-board-muted text-center">
+      <p className="mt-0.5 text-[11px] sm:text-xs text-board-muted text-center break-words">
         {member.role}
+      </p>
+      <p className="mt-2 text-xs text-board-text text-center">
+        {member.isOnline ? "Checked in" : "Not checked in"}
       </p>
     </div>
   );
@@ -164,7 +168,7 @@ function MemberCard({ member }: { member: Member }) {
 
 function MemberGrid({ members }: { members: Member[] }) {
   return (
-    <div className="w-full h-full flex items-center justify-center px-4 sm:px-6">
+    <div className="w-full my-auto shrink-0 flex justify-center px-4 sm:px-6 py-2">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5 w-full max-w-[1600px]">
         {members.map((member) => (
           <MemberCard key={member.id} member={member} />
@@ -190,16 +194,19 @@ function Carousel({
   currentPage: number;
 }) {
   return (
-    <div className="relative w-full flex-1 overflow-hidden">
+    <div className="relative w-full min-h-60 md:min-h-80 flex-1 overflow-hidden">
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={currentPage}
+          role="region"
+          aria-label="Crew members"
+          tabIndex={0}
           variants={carouselVariants}
           initial="enter"
           animate="center"
           exit="exit"
           transition={{ duration: 0.6, ease: "easeInOut" }}
-          className="absolute inset-0 flex items-center justify-center"
+          className="absolute inset-0 flex flex-col overflow-y-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fire-500"
         >
           <MemberGrid members={pages[currentPage] || []} />
         </motion.div>
@@ -260,40 +267,17 @@ function ShowBoardPage() {
     initialNow,
     timeZone,
   } = Route.useLoaderData();
-  const [members, setMembers] = useState(initialMembers);
+  const readMembers = useCallback((signal: AbortSignal) => getCrewMembers({ data: { orgId }, signal }), [orgId]);
+  const attendance = useOperatorRead({
+    key: orgId,
+    initialValue: initialMembers,
+    read: readMembers,
+    errorMessage: "Crew status could not refresh. Showing last confirmed attendance.",
+    intervalMs: 3_000,
+  });
+  const members = attendance.value;
   const { isFullscreen, toggleFullscreen } = useDisplayFullscreen();
   const [currentPage, setCurrentPage] = useState(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    let refreshing = false;
-
-    const refreshMembers = async () => {
-      if (document.visibilityState !== "visible" || refreshing) return;
-      refreshing = true;
-      try {
-        const latest = await getCrewMembers({ data: { orgId } });
-        if (!cancelled) {
-          setMembers(latest as Member[]);
-        }
-      } catch {
-        // Keep showing the last known board state.
-      } finally {
-        refreshing = false;
-      }
-    };
-
-    const interval = setInterval(refreshMembers, 3000);
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === "visible") void refreshMembers();
-    };
-    document.addEventListener("visibilitychange", refreshWhenVisible);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", refreshWhenVisible);
-    };
-  }, [orgId]);
 
   const sortedMembers = useMemo(() => {
     return [...members].sort((a, b) => {
@@ -330,15 +314,16 @@ function ShowBoardPage() {
 
   if (members.length === 0) {
     return (
-      <div className="fixed inset-0 h-screen w-full overflow-hidden overscroll-none">
-        <div className="h-full min-h-0 flex flex-col">
+      <div className="fixed inset-0 h-dvh w-full overflow-y-auto overscroll-none">
+        <div className="min-h-full flex flex-col">
           <BoardHeader
             clockFormat={clockFormat}
             initialNow={initialNow}
             timeZone={timeZone}
           />
-          <div className="flex-1 min-h-0 overflow-y-auto flex items-center justify-center px-4">
-            <div className="w-full max-w-lg animate-float-in">
+          <ReadFailureNotice error={attendance.error} refreshing={attendance.refreshing} retry={attendance.retry} label="Retry crew status" />
+          <div className="flex-1 flex justify-center px-4 py-4">
+            <div className="w-full max-w-lg my-auto animate-float-in">
               <div className="flex justify-center mb-8">
                 <div className="relative">
                   <div className="absolute inset-0 rounded-3xl bg-fire-500/10 blur-2xl scale-150" />
@@ -350,7 +335,7 @@ function ShowBoardPage() {
                 </div>
               </div>
               <h2 className="text-center font-[family-name:var(--font-display)] text-2xl font-bold text-board-text mb-2">
-                Your show board is ready
+                Crew status is ready
               </h2>
               <p className="text-center text-board-muted text-sm leading-relaxed max-w-sm mx-auto mb-10">
                 {workspaceCopy(
@@ -388,7 +373,7 @@ function ShowBoardPage() {
                   {
                     icon: LayoutDashboard,
                     title: "See it all",
-                    desc: "Full-screen board shows who's on crew right now",
+                    desc: "Full-screen display shows who is checked in right now",
                   },
                 ].map((card) => (
                   <div
@@ -415,7 +400,7 @@ function ShowBoardPage() {
               <Link
                 to="/$slug/show"
                 params={{ slug }}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-h-[40px] whitespace-nowrap"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-h-11 whitespace-nowrap"
               >
                 <ListMusic className="w-4 h-4 text-fire-500" />
                 <span className="text-xs sm:text-sm font-semibold text-board-text">
@@ -428,7 +413,7 @@ function ShowBoardPage() {
                 aria-label={
                   isFullscreen ? "Exit fullscreen" : "Enter fullscreen"
                 }
-                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors cursor-pointer min-h-[40px] whitespace-nowrap"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors cursor-pointer min-h-11 whitespace-nowrap"
               >
                 {isFullscreen ? (
                   <Minimize className="w-4 h-4 text-fire-500" />
@@ -447,23 +432,24 @@ function ShowBoardPage() {
   }
 
   return (
-    <div className="fixed inset-0 h-screen w-full overflow-hidden overscroll-none">
-      <div className="h-full min-h-0 flex flex-col overflow-hidden">
+    <div className="fixed inset-0 h-dvh w-full overflow-y-auto overscroll-none">
+      <div className="min-h-full flex flex-col">
         {/* Board header with logo + clock */}
         <BoardHeader
           clockFormat={clockFormat}
           initialNow={initialNow}
           timeZone={timeZone}
         />
+        <ReadFailureNotice error={attendance.error} refreshing={attendance.refreshing} retry={attendance.retry} label="Retry crew status" />
         {/* Status bar */}
-        <div className="px-4 sm:px-5 xl:px-6 pb-3 flex items-center gap-4 xl:gap-6 shrink-0">
+        <div className="px-4 sm:px-5 xl:px-6 pb-3 flex flex-wrap items-center gap-4 xl:gap-6 shrink-0">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
             <span className="text-xs sm:text-sm text-board-muted whitespace-nowrap">
               <span className="text-board-text font-semibold">
                 {onlineCount}
               </span>{" "}
-              on crew
+              checked in
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -472,7 +458,7 @@ function ShowBoardPage() {
               <span className="text-board-text font-semibold">
                 {members.length - onlineCount}
               </span>{" "}
-              offline
+              not checked in
             </span>
           </div>
           <div className="h-px flex-1 bg-board-border" />
@@ -490,7 +476,7 @@ function ShowBoardPage() {
               <Link
                 to="/$slug/show"
                 params={{ slug }}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-h-[40px] whitespace-nowrap"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors min-h-11 whitespace-nowrap"
               >
                 <ListMusic className="w-4 h-4 text-fire-500" />
                 <span className="text-xs sm:text-sm font-semibold text-board-text">
@@ -503,7 +489,7 @@ function ShowBoardPage() {
                 aria-label={
                   isFullscreen ? "Exit fullscreen" : "Enter fullscreen"
                 }
-                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors cursor-pointer min-h-[40px] whitespace-nowrap"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-board-card border border-board-border hover:border-fire-500/50 transition-colors cursor-pointer min-h-11 whitespace-nowrap"
               >
                 {isFullscreen ? (
                   <Minimize className="w-4 h-4 text-fire-500" />

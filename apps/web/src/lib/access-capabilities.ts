@@ -18,8 +18,8 @@ export const ACCESS_CAPABILITIES = [
   },
   {
     id: "show-board-operator",
-    label: "Show Board operator",
-    description: "View and operate the Show Board output.",
+    label: "Crew status operator",
+    description: "View crew attendance and operate the crew status display.",
     permissions: ["showboard:view", "showboard:edit"],
     notificationPath: "board",
   },
