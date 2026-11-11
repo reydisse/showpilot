@@ -13,6 +13,7 @@ import { getPmDashboard } from "@/lib/pm-dashboard";
 import { formatCountdown } from "@/lib/pm-dashboard-derive";
 import { phaseLabel, type ServicePhase } from "@/lib/service-phase";
 import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
+import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import {
   PM_WIDGETS,
   type PmWidgetModel,
@@ -74,6 +75,8 @@ export const Route = createFileRoute("/$slug/dashboard/prod-manager")({
 
 function ProdManagerPage() {
   const { model, rundownState, shows, showId, orgId, orgTimezone } = Route.useLoaderData();
+  const deviceTimeZone = useDeviceTimeZone();
+  const timeZone = orgTimezone || deviceTimeZone;
   const { slug } = Route.useParams();
   const router = useRouter();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -140,14 +143,14 @@ function ProdManagerPage() {
               <ShowSwitcherMenu
                 selectedId={showId}
                 shows={shows}
-                timeZone={orgTimezone}
+                timeZone={timeZone}
                 onSelect={(selected) => void navigate({ search: { date: selected.serviceDate, show: selected.id } })}
               />
 
               {model.timing.scheduledStartMs !== null && (
                 <span className="text-[11px] text-board-muted tabular-nums shrink-0 whitespace-nowrap">
-                  call {formatClock(model.timing.callTimeMs)} · start{" "}
-                  {formatClock(model.timing.scheduledStartMs)}
+                  call {formatClock(model.timing.callTimeMs, timeZone)} · start{" "}
+                  {formatClock(model.timing.scheduledStartMs, timeZone)}
                 </span>
               )}
 
@@ -236,7 +239,7 @@ function LiveCountdown({
   countdown: PmWidgetModel["model"]["countdown"];
 }) {
   const now = useNow(1000);
-  const displayMs = countdown.targetMs === null
+  const displayMs = now === null || countdown.targetMs === null
     ? countdown.remainingMs
     : countdown.direction === "up"
       ? now - countdown.targetMs
@@ -307,10 +310,11 @@ function ShowReportButton({
   );
 }
 
-function formatClock(ms: number | null): string {
+function formatClock(ms: number | null, timeZone: string): string {
   if (ms === null) return "--:--";
   return new Date(ms).toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
+    timeZone,
   });
 }

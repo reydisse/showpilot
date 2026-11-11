@@ -56,13 +56,13 @@ export function widgetsInRegion<TModel>(
 // ─── Ticking clock ───────────────────────────────────────────
 
 /**
- * A shared clock so countdowns tick without every widget owning a
- * timer. Defaults to one second; planning views can pass something
- * lazier.
+ * Tick after hydration. Until then, callers render their server snapshot so
+ * clock drift between the server and browser cannot replace the operator UI.
  */
-export function useNow(intervalMs = 1000): number {
-  const [now, setNow] = useState(() => Date.now());
+export function useNow(intervalMs = 1000): number | null {
+  const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
+    setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), intervalMs);
     return () => clearInterval(id);
   }, [intervalMs]);

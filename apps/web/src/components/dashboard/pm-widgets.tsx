@@ -128,7 +128,7 @@ function PmControlPad({ orgId, serviceDate, showId, initialState }: {
   const stop = () => command("timer-stop");
   const adjust = (deltaMs: number) => command("timer-adjust", { deltaMs });
   const now = useNow(1_000);
-  const elapsedMs = activeTimer.elapsed + (activeTimer.playback === "play" && activeTimer.startedAt ? now - activeTimer.startedAt : 0);
+  const elapsedMs = activeTimer.elapsed + (now !== null && activeTimer.playback === "play" && activeTimer.startedAt ? now - activeTimer.startedAt : 0);
   const remainingMs = current && activeTimer.mode === "count-down" ? current.duration - elapsedMs : null;
   const displayedTime = formatDuration(remainingMs ?? elapsedMs);
   const displayedTimeLabel = remainingMs === null ? "Elapsed" : "Remaining";
@@ -603,11 +603,11 @@ const debriefWidget: PmWidget = {
       >
         <div className="flex flex-wrap gap-x-10 gap-y-3">
           <DebriefStat
-            label="Planned"
+            label="Planned duration"
             value={formatDuration(debrief.plannedMs, true)}
           />
           <DebriefStat
-            label="Actual"
+            label="Elapsed time"
             value={
               debrief.actualMs === null
                 ? "--:--"
@@ -615,7 +615,7 @@ const debriefWidget: PmWidget = {
             }
           />
           <DebriefStat
-            label="Delta"
+            label="Over / under"
             value={
               debrief.deltaMs === null
                 ? "--:--"
