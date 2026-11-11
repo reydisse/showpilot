@@ -81,3 +81,4 @@
 0074_report_note_recovery.sql
 0075_notification_read_receipts.sql
 0076_notification_timezone_recovery.sql
+0077_account_profile_recovery.sql
