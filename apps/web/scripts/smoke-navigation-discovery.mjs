@@ -539,7 +539,7 @@ await withLocalSmokeFixture(
     console.log(
       JSON.stringify({
         passed: true,
-        hiddenPageBreadcrumbs: 6,
+        hiddenPageBreadcrumbs: process.argv.includes("--hidden-only") ? 5 : 6,
         cloudDisabledGuard: true,
         backNavigationWithoutReload: true,
         widths: [320, 768, 1440],

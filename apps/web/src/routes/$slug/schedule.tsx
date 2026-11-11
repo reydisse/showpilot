@@ -1,6 +1,7 @@
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { useTerms } from "@/components/workspace/WorkspaceProvider";
+import { useDeviceLocale } from "@/hooks/useDeviceLocale";
 import { getDeviceTimeZone, useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { useRundownSync } from "@/hooks/useRundownSync";
 import {
@@ -28,6 +29,7 @@ import {
 } from "lucide-react";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createNextService, copyCrewFromService } from "@/lib/pm-actions";
 import {
   deleteServiceAssignment,
@@ -73,24 +75,24 @@ function nextAvailableServiceDate(today: string, serviceDates: string[]) {
   }
   return candidate;
 }
-function dayLabel(date: string) {
-  return new Date(`${date}T12:00:00`).toLocaleDateString([], {
+function dayLabel(date: string, locale: string) {
+  return new Date(`${date}T12:00:00`).toLocaleDateString(locale, {
     weekday: "short",
     month: "short",
     day: "numeric",
   });
 }
-function longDate(date: string) {
-  return new Date(`${date}T12:00:00`).toLocaleDateString([], {
+function longDate(date: string, locale: string) {
+  return new Date(`${date}T12:00:00`).toLocaleDateString(locale, {
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
   });
 }
-function timeLabel(value: string | null, timeZone?: string) {
+function timeLabel(value: string | null, timeZone: string | undefined, locale: string) {
   return value
-    ? new Date(value).toLocaleTimeString([], {
+    ? new Date(value).toLocaleTimeString(locale, {
         hour: "numeric",
         minute: "2-digit",
         timeZone: timeZone || "UTC",
@@ -112,7 +114,7 @@ function providerName(provider: ScheduleProvider, label = "") {
   );
 }
 const FORM_CONTROL =
-  "w-full rounded-xl border border-board-border bg-board-bg px-3 py-2.5 text-sm text-board-text outline-none focus:border-fire-500/50";
+  "min-h-11 min-w-0 w-full rounded-xl border border-board-border bg-board-bg px-3 py-2.5 text-sm text-board-text outline-none focus:border-fire-500/50";
 
 export const Route = createFileRoute("/$slug/schedule")({
   validateSearch: (search: Record<string, unknown>): ScheduleSearch =>
@@ -183,6 +185,7 @@ type ResponseFilter =
   | "open";
 
 function SchedulePage() {
+  const locale = useDeviceLocale();
   const workspaceTerms = useWorkspaceTerms();
   const data = Route.useLoaderData();
   const deviceTimeZone = useDeviceTimeZone();
@@ -391,13 +394,13 @@ function SchedulePage() {
                 >
                   {service.serviceDate === data.today
                     ? "Today"
-                    : dayLabel(service.serviceDate)}
+                    : dayLabel(service.serviceDate, locale)}
                 </p>
                 <p className="mt-2 truncate text-sm font-medium text-board-text">
                   {service.name}
                 </p>
                 <p className="mt-1 text-[11px] text-board-muted">
-                  {timeLabel(service.scheduledStartTime, deviceTimeZone)} ·{" "}
+                  {timeLabel(service.scheduledStartTime, deviceTimeZone, locale)} ·{" "}
                   {service.id === selected?.id
                     ? selectedAssignments.filter(
                         (assignment) => assignment.status === "confirmed",
@@ -435,11 +438,11 @@ function SchedulePage() {
                     <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-board-muted">
                       <span className="flex items-center gap-1.5">
                         <CalendarDays className="h-3.5 w-3.5" />
-                        {longDate(selected.serviceDate)}
+                        {longDate(selected.serviceDate, locale)}
                       </span>
                       <span className="flex items-center gap-1.5">
                         <Clock3 className="h-3.5 w-3.5" />
-                        {timeLabel(selected.scheduledStartTime, deviceTimeZone)}
+                        {timeLabel(selected.scheduledStartTime, deviceTimeZone, locale)}
                       </span>
                       {selected.location ? (
                         <span className="flex items-center gap-1.5">
@@ -540,11 +543,12 @@ function SchedulePage() {
                 <StatusMetric label="Declined" value={stats.declined} tone="danger" compact />
                 <div className="ml-auto flex items-center gap-2">
                   <select
+                    aria-label="Filter crew responses"
                     value={filter}
                     onChange={(event) =>
                       setFilter(event.target.value as ResponseFilter)
                     }
-                    className="rounded-lg border border-board-border bg-board-bg px-3 py-2 text-[11px] text-board-text outline-none"
+                    className="min-h-11 rounded-lg border border-board-border bg-board-bg px-3 py-2 text-[11px] text-board-text outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
                   >
                     <option value="all">All responses</option>
                     <option value="confirmed">Confirmed</option>
@@ -741,6 +745,7 @@ function MonthCalendar({
   serviceDates: string[];
   onSelect: (date: string) => void;
 }) {
+  const locale = useDeviceLocale();
   const workspaceTerms = useWorkspaceTerms();
   const initial = new Date(`${selectedDate}T12:00:00`);
   const [month, setMonth] = useState(
@@ -777,7 +782,7 @@ function MonthCalendar({
           <ChevronLeft className="h-3.5 w-3.5" />
         </button>
         <p className="text-xs font-semibold text-board-text">
-          {month.toLocaleDateString([], { month: "long", year: "numeric" })}
+          {month.toLocaleDateString(locale, { month: "long", year: "numeric" })}
         </p>
         <button
           onClick={() =>
@@ -961,6 +966,7 @@ function RosterMobileCard({
   onChanged: () => Promise<void>;
   confirm: ReturnType<typeof useConfirmDialog>["confirm"];
 }) {
+  const locale = useDeviceLocale();
   const deviceTimeZone = useDeviceTimeZone();
   const [busy, setBusy] = useState(false);
   const responseOpen = assignment.responseWindow.status === "open";
@@ -1007,7 +1013,7 @@ function RosterMobileCard({
       <div className="flex min-w-0 items-start gap-3">
         <div className="min-w-0 flex-1">
           <p className="break-words text-sm font-medium text-board-text">{assignment.role}</p>
-          <p className="mt-1 text-[10px] text-board-muted">Call {timeLabel(assignment.effectiveCallTime, deviceTimeZone)} · {assignment.department}</p>
+          <p className="mt-1 text-[10px] text-board-muted">Call {timeLabel(assignment.effectiveCallTime, deviceTimeZone, locale)} · {assignment.department}</p>
         </div>
         <span className={`shrink-0 text-[10px] font-medium capitalize ${statusClass}`}>{responseLabel}</span>
       </div>
@@ -1024,7 +1030,7 @@ function RosterMobileCard({
       ) : null}
       {canManage ? (
         <div className="flex flex-wrap gap-2">
-          <button onClick={onEdit} className="rounded-lg border border-board-border px-3 py-2 text-[11px] text-board-text">Edit</button>
+          <button onClick={onEdit} aria-label={`Edit ${assignment.role}`} className="rounded-lg border border-board-border px-3 py-2 text-[11px] text-board-text">Edit</button>
           {pending ? (
             <button disabled={busy} onClick={async () => { setBusy(true); try { await remindServiceAssignment({ data: { orgId, id: assignment.id } }); } finally { setBusy(false); } }} className="rounded-lg border border-fire-500/25 px-3 py-2 text-[11px] text-fire-400 disabled:opacity-50">Resend invite</button>
           ) : null}
@@ -1050,6 +1056,7 @@ function RosterRow({
   onChanged: () => Promise<void>;
   confirm: ReturnType<typeof useConfirmDialog>["confirm"];
 }) {
+  const locale = useDeviceLocale();
   const deviceTimeZone = useDeviceTimeZone();
   const [busy, setBusy] = useState(false);
   const responseOpen = assignment.responseWindow.status === "open";
@@ -1077,7 +1084,7 @@ function RosterRow({
         className="text-left font-medium text-board-text disabled:cursor-default"
       >
         {assignment.role}
-        <span className="mt-0.5 block text-[9px] font-normal text-board-muted">Call {timeLabel(assignment.effectiveCallTime, deviceTimeZone)}</span>
+        <span className="mt-0.5 block text-[9px] font-normal text-board-muted">Call {timeLabel(assignment.effectiveCallTime, deviceTimeZone, locale)}</span>
       </button>
       <button
         disabled={!canManage}
@@ -1197,6 +1204,7 @@ function CreateServiceModal({
   onClose: () => void;
   onCreated: (showId: string, date: string) => void | Promise<void>;
 }) {
+  const locale = useDeviceLocale();
   const workspaceTerms = useWorkspaceTerms();
   const [date, setDate] = useState(() =>
     nextAvailableServiceDate(today, serviceDates),
@@ -1226,7 +1234,7 @@ function CreateServiceModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialInventoryId]);
   return (
-    <Modal title={`New ${terms.event}`} onClose={onClose}>
+    <Modal title={`New ${terms.event}`} description="Choose the date, location and rundown for this show." onClose={onClose}>
       <form
         onSubmit={async (event) => {
           event.preventDefault();
@@ -1340,7 +1348,7 @@ function CreateServiceModal({
               disabled={Boolean(inventoryId)}
               className="accent-fire-500"
             />
-            Copy rundown from {dayLabel(previousDate)}
+            Copy rundown from {dayLabel(previousDate, locale)}
           </label>
         ) : null}
         {error ? (
@@ -1387,7 +1395,7 @@ function ShowInventoryModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <Modal title="Show inventory" onClose={onClose}>
+    <Modal title="Show inventory" description="Save reusable show details or use a saved show to create a new date." onClose={onClose}>
       <div className="space-y-5">
         <div>
           <p className="text-xs text-board-muted">
@@ -1582,6 +1590,7 @@ function ServiceDetailsModal({
   onSaved: () => void;
   onDeleted: () => void | Promise<void>;
 }) {
+  const locale = useDeviceLocale();
   const workspaceTerms = useWorkspaceTerms();
   // Background live updates must not let an older open form overwrite newer edits.
   const [expectedUpdatedAt] = useState(() => new Date(service.updatedAt).toISOString());
@@ -1592,7 +1601,7 @@ function ServiceDetailsModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
-    <Modal title="Show details" onClose={onClose}>
+    <Modal title="Show details" description="Edit this show’s date, time and location." onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={async (event) => {
@@ -1648,7 +1657,7 @@ function ServiceDetailsModal({
             {callTime
               ? "This show overrides the organization default. Clear it to use the default."
               : service.effectiveCallTime
-                ? `Using organization default: ${timeLabel(service.effectiveCallTime, orgTimezone)}.`
+                ? `Using organization default: ${timeLabel(service.effectiveCallTime, orgTimezone, locale)}.`
                 : "No call time until this show has a start time."}
           </p>
         </Field>
@@ -1732,7 +1741,7 @@ function TeamBuilderModal({
   const selectedIds = new Set(rows.map((row) => row.crewId).filter(Boolean));
 
   return (
-    <Modal title="Build a team" onClose={onClose}>
+    <Modal title="Build a team" description="Choose crew members and the roles to invite them to." onClose={onClose}>
       <form
         className="space-y-5"
         onSubmit={async (event) => {
@@ -1779,7 +1788,7 @@ function TeamBuilderModal({
         </div>
 
         <div className="space-y-2">
-          <div className="grid grid-cols-[1fr_1fr_36px] gap-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-board-muted">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] gap-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-board-muted">
             <span>Person</span>
             <span>Role</span>
             <span />
@@ -1787,8 +1796,9 @@ function TeamBuilderModal({
           {rows.map((row, index) => {
             const person = crew.find((item) => item.id === row.crewId);
             return (
-              <div key={index} className="grid grid-cols-[1fr_1fr_36px] gap-2">
+              <div key={index} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] gap-2">
                 <select
+                  aria-label={`Person ${index + 1}`}
                   value={row.crewId}
                   onChange={(event) => {
                     const crewId = event.target.value;
@@ -1826,6 +1836,7 @@ function TeamBuilderModal({
                   ))}
                 </select>
                 <input
+                  aria-label={`Role for person ${index + 1}`}
                   value={row.role}
                   onChange={(event) =>
                     setRows((current) =>
@@ -1921,7 +1932,7 @@ function AssignmentModal({
   const [saveError, setSaveError] = useState<string | null>(null);
   const selectedCrew = crew.find((person) => person.id === crewId);
   return (
-    <Modal title="Add position" onClose={onClose}>
+    <Modal title="Add position" description="Add a crew role and optionally assign a person." onClose={onClose}>
       <form
         onSubmit={async (event) => {
           event.preventDefault();
@@ -2102,7 +2113,7 @@ function EditAssignmentModal({
     }
   };
   return (
-    <Modal title="Edit assignment" onClose={onClose}>
+    <Modal title="Edit assignment" description="Update the crew member, role and response for this position." onClose={onClose}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -2245,7 +2256,7 @@ function ProviderModal({
   const [busy, setBusy] = useState(false);
   const external = provider !== "native";
   return (
-    <Modal title="Scheduling source" onClose={onClose}>
+    <Modal title="Scheduling source" description="Choose where this workspace manages its crew schedule." onClose={onClose}>
       <form
         onSubmit={async (event) => {
           event.preventDefault();
@@ -2325,38 +2336,43 @@ function ProviderModal({
 }
 function Modal({
   title,
+  description,
   onClose,
   children,
 }: {
   title: string;
+  description: string;
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const [opener] = useState(() =>
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null,
+  );
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md"
-      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className="w-full max-w-md rounded-2xl border border-board-border bg-board-card p-5 shadow-2xl"
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent
+        showCloseButton={false}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          // Inventory can open a new-show dialog directly. Let that dialog keep focus.
+          if (!document.querySelector('[role="dialog"][data-state="open"]')) opener?.focus();
+        }}
+        className="flex max-h-[calc(100dvh-2rem)] min-w-0 flex-col gap-0 overflow-hidden border-board-border bg-board-card p-0 text-board-text sm:max-w-md [&_button]:min-h-11 [&_button]:min-w-11 [&_button]:outline-none [&_button]:focus-visible:ring-2 [&_button]:focus-visible:ring-fire-500"
       >
-        <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-board-text">{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-2 text-board-muted hover:bg-board-border"
-            aria-label={`Close ${title}`}
-          >
-            <X className="h-4 w-4" />
+        <header className="flex shrink-0 items-start gap-3 border-b border-board-border p-4">
+          <div className="min-w-0 flex-1">
+            <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
+            <DialogDescription className="mt-1 text-xs text-board-muted">{description}</DialogDescription>
+          </div>
+          <button type="button" onClick={onClose} className="shrink-0 rounded-lg p-2 text-board-muted hover:bg-board-border" aria-label={`Close ${title}`}>
+            <X className="mx-auto h-4 w-4" />
           </button>
-        </div>
-        {children}
-      </div>
-    </div>
+        </header>
+        <div className="min-h-0 overflow-y-auto p-4">{children}</div>
+      </DialogContent>
+    </Dialog>
   );
 }
 function Field({
