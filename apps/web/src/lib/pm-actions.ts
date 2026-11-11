@@ -7,12 +7,14 @@
  * before asserting, per the multi-tenancy rules in CLAUDE.md.
  */
 
+import { getRequestHeaders } from "@tanstack/react-start/server";
+import { createShowInputSchema } from "./show-creation-contract";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import type { Permission } from "@/lib/app-permissions";
 import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
-import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
+import { idSchema, parseOrThrow } from "@/lib/validation";
 
 async function assertOrgPermission(orgId: string, permission: Permission) {
   const { user, access } = await assertEffectiveOrgPermission(orgId, permission);
@@ -21,28 +23,6 @@ async function assertOrgPermission(orgId: string, permission: Permission) {
 
 // ─── Create the next service ─────────────────────────────────
 
-const createServiceInputSchema = z.object({
-  timeZone: z.string().min(1).max(100).optional(),
-  orgId: idSchema,
-  serviceDate: serviceDateSchema,
-  /** Service to clone the rundown from. Omit for an empty one. */
-  copyFrom: serviceDateSchema.optional(),
-  copyFromShowId: idSchema.optional(),
-  /** Optional label, e.g. "Christmas Eve 7pm". */
-  name: z.string().max(120).optional(),
-  /** Local wall-clock start, "HH:MM". */
-  startTime: z
-    .string()
-    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Start time must be HH:MM")
-    .optional(),
-  /** Optional show-specific venue call, "HH:MM". */
-  callTime: z
-    .string()
-    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Call time must be HH:MM")
-    .optional(),
-  location: z.string().trim().max(240).optional(),
-  inventoryId: idSchema.optional(),
-});
 
 /**
  * The actual planning-day job: make Sunday exist. Clones the previous
@@ -52,12 +32,12 @@ const createServiceInputSchema = z.object({
  */
 export const createNextService = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
-    parseOrThrow(createServiceInputSchema, data),
+    parseOrThrow(createShowInputSchema, data),
   )
   .handler(async ({ data }) => {
     await assertOrgPermission(data.orgId, "schedule:manage");
     const { createServiceForOrg } = await import("@/lib/service-creation.server");
-    return createServiceForOrg(data);
+    return createServiceForOrg(data, getRequestHeaders());
   });
 
 // ─── Resolve an incident ─────────────────────────────────────

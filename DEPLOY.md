@@ -6349,3 +6349,60 @@ assignment1,reminder1,copy1}.log`. Rerun the four
 Phase 2 remains 67/79. Show creation/detail/removal, mobile recovery and broad
 product gates remain open. No production deployment, release, remote migration
 or real-organization writes. Twenty necessary tracked Markdown files remain.
+
+### Atomic show creation receipts, Phase 2 partial evidence (2026-11-08)
+
+Branch: `fix/show-creation-recovery`, based on the green refresh change.
+Three real-auth/D1 baselines reproduced duplicate web creation on exact retry,
+retry rejection after a later title edit, and recreation of a deleted show.
+The web validator dropped request IDs; the shared helper compared retries with
+mutable show fields and wrote the show and its items in separate transactions.
+
+Migration `0082_show_creation_recovery.sql` must follow 0081 before deployment.
+A show creation now commits its actor/org/request receipt, stopped show, clean
+rundown items and storage marker in one D1 batch. The receipt records the original
+selection and survives show deletion. Exact retries preserve later target edits
+and need not reread a changed or deleted source. Reusing the ID with different
+input or an account is rejected. A request without an ID still creates a new show;
+the four web forms still need retained request IDs and bounded recovery controls.
+This change completes the shared server prerequisite, not those form flows.
+
+The transaction checks fresh session/membership authority, the source and venue
+timezone, and the current plan's remaining show slots. Parallel creators cannot
+both take the last slot. Failed batches leave neither a partial show nor a
+receipt. Malformed inventory content reports an error instead of silently seeding
+an empty rundown. Native HTTP and web RPC now use one input contract, including
+explicit timezones; native had previously dropped that field. Existing prices
+and plan limits are unchanged.
+
+Verification:
+- Eighteen real-auth/Worker cases cover original-request recovery, changed payloads,
+  account/org boundaries, identical concurrent requests, concurrent capacity,
+  inventory defaults and timezone conversion, clean cloned execution state,
+  changed/deleted sources, later target edits, deletion, batch rollback, permission
+  revocation during preparation, malformed inventory, full-plan replay, and paid
+  or active/expired trial capacity. These replace four mocked helper tests.
+- Seven native adapter cases pass, including explicit timezone forwarding and
+  rejection of invalid date/time/timezone/request IDs before writing.
+- Final full suite: 2,478 unit and 1,288 Worker tests pass. Web typecheck and
+  production build pass. Main entry is 548,443 raw / 173,274 gzip bytes, within
+  unchanged limits. Migration manifest audit passes with 0082 pending.
+- `smoke-show-creation-recovery.mjs` passes against the actual compiled app,
+  authenticated web/native endpoints, D1 and RundownRelay. It discards the first
+  create result, recovers one original show, preserves later title/item edits,
+  shares the receipt through the native adapter, and refuses recreation after
+  real show deletion. Its first run omitted the operator load/seed handshake
+  before editing a newly created relay room; the final script includes that
+  handshake. This is an endpoint rehearsal, not a rendered form test.
+- The existing compiled team-copy browser rehearsal also passes, including the
+  newly created target, navigation recovery, later edits, no duplicate accepted
+  invitations and 320/768/1440 controls. No external email or runtime errors.
+
+Evidence: `/tmp/showpilot-creation-{before,worker2,mobile1,full2,tsc3,build1,
+smoke1,smoke2,copy-regression1,migrations}.log`. Rerun the new creation script and
+`smoke-schedule-copy-recovery.mjs` with `SHOWPILOT_SMOKE_RUNTIME=miniflare` after
+building. #242 is green in run 42479836231, CI 10m33s and native Rust 4m39s.
+Phase 2 remains 67/79. Creation-form recovery, show edit/removal recovery, mobile
+UI recovery and the broad product gates remain open. No production deployment,
+release, remote migration or real-organization write. Twenty necessary tracked
+Markdown files remain; none were added.
