@@ -185,14 +185,22 @@ export const getOutputStatuses = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }): Promise<Record<string, StreamOutputStatus>> => {
     await assertOrgPermission(data.orgId, "stream_health:view");
+    return getOutputStatusesForOrg(data.orgId);
+  });
+
+/** Caller checks current authority; an explicit snapshot keeps labels and outputs together. */
+export const getOutputStatusesForOrg = createServerOnlyFn(async (
+  orgId: string,
+  snapshot?: { id: string; cfOutputId: string; liveInputId: string }[],
+): Promise<Record<string, StreamOutputStatus>> => {
     const prisma = getPrisma();
-    const destinations = await prisma.streamDestination.findMany({
-      where: { orgId: data.orgId, cfOutputId: { not: "" } },
+    const destinations = snapshot ?? await prisma.streamDestination.findMany({
+      where: { orgId, cfOutputId: { not: "" } },
       select: { id: true, cfOutputId: true, liveInputId: true },
     });
     if (!destinations.length) return {};
     const inputs = await prisma.liveInput.findMany({
-      where: { orgId: data.orgId, id: { in: [...new Set(destinations.map(destination => destination.liveInputId))] } },
+      where: { orgId, id: { in: [...new Set(destinations.map(destination => destination.liveInputId))] } },
       select: { id: true, cfInputId: true },
     });
     const states: Record<string, StreamOutputStatus> = {};

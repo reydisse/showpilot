@@ -1,10 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Clock3, ExternalLink, MonitorUp, Play, RadioTower, Wifi, WifiOff } from "lucide-react";
+import { Activity, Clock3, ExternalLink, MonitorUp, Play, RadioTower } from "lucide-react";
 import { useLiveInputHealth } from "@/hooks/useLiveInputHealth";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { getTmControlState, runTmControl, type TmControlAction, type TmControlState } from "@/lib/tm-operations";
 import { KioskDisplayControl } from "@/components/settings/KioskDisplayControl";
+import { TmStreamControls } from "./TmStreamControls";
 import { TmRundownControls } from "./TmRundownControls";
 
 type Input = { id: string; name: string; status: string };
@@ -23,7 +24,7 @@ export function TmOperations(props: { orgId: string; userId: string; slug: strin
       }
     >
       <StreamHealthPanel {...props} compact={compactSignalPath} />
-      <div className="min-w-0 space-y-4"><TmRundownControls key={`${props.orgId}:${props.userId}`} orgId={props.orgId} userId={props.userId} slug={props.slug} /><KioskDisplayControl orgId={props.orgId} userId={props.userId} surface="technical" /><ControlPad orgId={props.orgId} wide={compactSignalPath} /></div>
+      <div className="min-w-0 space-y-4"><TmRundownControls key={`${props.orgId}:${props.userId}`} orgId={props.orgId} userId={props.userId} slug={props.slug} /><KioskDisplayControl orgId={props.orgId} userId={props.userId} surface="technical" /><TmStreamControls orgId={props.orgId} userId={props.userId} slug={props.slug} /><ControlPad orgId={props.orgId} wide={compactSignalPath} /></div>
     </div>
   );
 }
@@ -58,8 +59,6 @@ function HealthRow({ name, detail, status }: { name: string; detail: string; sta
 
 const CONTROLS: Array<{ action: TmControlAction; label: string; detail: string; icon: typeof Play; dangerous?: boolean; active?: (state: ControlState) => boolean }> = [
   { action: "lower-third-clear", label: "Clear lower third", detail: "Clear active graphic", icon: MonitorUp },
-  { action: "stream-live", label: "Go live", detail: "Connect destinations", icon: Wifi, dangerous: true, active: (s) => (s.stream?.connected ?? 0) > 0 },
-  { action: "stream-stop", label: "Stop stream", detail: "Confirmation required", icon: WifiOff, dangerous: true },
 ];
 
 function ControlPad({ orgId, wide }: { orgId: string; wide: boolean }) {
@@ -92,7 +91,7 @@ function ControlPad({ orgId, wide }: { orgId: string; wide: boolean }) {
     finally { setBusy(null); }
   };
   return <section className="rounded-xl border border-board-border bg-board-card overflow-hidden">
-    <header className="flex items-center gap-3 px-4 py-3 border-b border-board-border"><span className="w-9 h-9 rounded-lg bg-fire-500/10 text-fire-400 flex items-center justify-center"><RadioTower className="w-4 h-4" /></span><div className="min-w-0"><h2 className="text-xs font-semibold text-board-text">Display and stream controls</h2><p className="text-[11px] text-board-muted truncate">Display and streaming outputs</p></div></header>
+    <header className="flex items-center gap-3 px-4 py-3 border-b border-board-border"><span className="w-9 h-9 rounded-lg bg-fire-500/10 text-fire-400 flex items-center justify-center"><RadioTower className="w-4 h-4" /></span><div className="min-w-0"><h2 className="text-xs font-semibold text-board-text">Graphics control</h2><p className="text-[11px] text-board-muted truncate">Lower-third output</p></div></header>
     <div className={`grid grid-cols-2 gap-2 p-3 sm:grid-cols-3 ${wide ? "lg:grid-cols-5 xl:grid-cols-7" : "2xl:grid-cols-4"}`}>{CONTROLS.map((control) => { const Icon = control.icon; const isActive = control.active?.(state); const isArmed = armed === control.action; return <button key={control.action} type="button" disabled={busy !== null} onClick={() => void run(control)} className={`min-h-[72px] text-left rounded-lg border p-3 transition-colors disabled:opacity-50 ${isArmed ? "border-red-500 bg-red-500/15 text-red-300" : isActive ? "border-green-500/40 bg-green-500/10 text-green-300" : "border-board-border bg-board-bg/40 text-board-text hover:border-fire-500/35 hover:bg-board-bg"}`}><span className="flex items-center justify-between"><Icon className="w-4 h-4" />{isActive ? <span className="w-1.5 h-1.5 rounded-full bg-green-400" /> : null}</span><span className="block text-[11px] font-medium mt-2">{isArmed ? `Confirm ${control.label}` : control.label}</span><span className="block text-[9px] text-board-muted mt-0.5">{control.detail}</span></button>; })}</div>
     <div aria-live="polite" className="min-h-8 flex items-center gap-2 px-4 py-2 border-t border-board-border text-[10px] text-board-muted"><Clock3 className="w-3 h-3" />{busy ? "Sending command…" : message ?? "Choose an output control"}</div>
   </section>;
