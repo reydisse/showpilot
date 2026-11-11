@@ -305,7 +305,7 @@ export async function withLocalSmokeFixture(check, { secondShow = false, reportR
         "--command", "INSERT INTO notification(id,orgId,userId,type,severity,title,message,target,source,actionUrl,category,deviceAlertEnabled,dismissed,createdAt) VALUES('inbox-later','display-smoke','smoke-operator','fixture','info','Arrived after mark-all','Keep this alert unread.','','fixture','schedule','system',0,0,'2026-11-08T00:00:00.000Z')");
     };
     const configureEmail = async mode => {
-      assert.ok(captureEmail && ["success", "fail", "lose-reply"].includes(mode));
+      assert.ok(captureEmail && ["success", "fail", "lose-reply", "partial-schedule"].includes(mode));
       await writeFile(join(directory, "email-mode"), mode);
     };
     const configureStreamOutputs = async mode => {

@@ -205,12 +205,6 @@ export const copyCrewFromService = createServerFn({ method: "POST" })
         assignment.role,
         assignment.crewMemberId,
       );
-      if (delivery.delivered) {
-        await prisma.serviceAssignment.update({
-          where: { id: assignment.id },
-          data: { invitedAt: new Date() },
-        });
-      }
       return delivery.delivered;
     }));
 

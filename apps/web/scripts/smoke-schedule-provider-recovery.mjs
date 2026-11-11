@@ -249,7 +249,7 @@ await withLocalSmokeFixture(
         );
         assert.equal(await evaluate("providerDocument"), "same");
         assert.deepEqual(await evaluate("providerErrors"), []);
-        assert.equal(capturedEmails.length, 0);
+        assert.equal((await capturedEmails()).length, 0);
         console.log(
           JSON.stringify({
             readDeadline: true,
@@ -265,4 +265,5 @@ await withLocalSmokeFixture(
       },
     );
   },
+  { captureEmail: true },
 );

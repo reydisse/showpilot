@@ -37,12 +37,12 @@ export async function sendEmail({ to, subject, html, signal, idempotencyKey }: S
       status: res.status,
       requestId: res.headers.get("x-request-id") ?? undefined,
     });
-    if (idempotencyKey && (res.status >= 500 || res.status === 409 || res.status === 408)) throw new Error("Email acceptance could not be confirmed. Retry the same email attempt.");
+    if (res.status >= 500 || res.status === 409 || res.status === 408) throw new Error("Email acceptance could not be confirmed.");
     throw new EmailDeliveryRejected(`Email send failed with status ${res.status}.`);
   }
   if (idempotencyKey) {
     const result: unknown = await res.json();
-    if (!result || typeof result !== "object" || !("id" in result) || typeof result.id !== "string" || !result.id.trim()) throw new Error("Email acceptance could not be confirmed. Retry the same email attempt.");
+    if (!result || typeof result !== "object" || !("id" in result) || typeof result.id !== "string" || !result.id.trim()) throw new Error("Email acceptance could not be confirmed.");
   }
 }
 

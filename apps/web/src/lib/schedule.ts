@@ -716,9 +716,8 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
             data.crewMemberId,
           );
           if (delivered.delivered) {
-            return getPrisma().serviceAssignment.update({
-              where: { id: replacement.id },
-              data: { invitedAt: new Date() },
+            return getPrisma().serviceAssignment.findFirstOrThrow({
+              where: { id: replacement.id, orgId: data.orgId },
             });
           }
         }
@@ -758,10 +757,9 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
           data.crewMemberId,
         );
         if (delivered.delivered)
-          return getPrisma().serviceAssignment.update({
-            where: { id: updated.id },
-            data: { invitedAt: new Date() },
-          });
+          return getPrisma().serviceAssignment.findFirstOrThrow({
+              where: { id: updated.id, orgId: data.orgId },
+            });
       }
       return updated;
     }
@@ -789,95 +787,11 @@ export const saveServiceAssignment = createServerFn({ method: "POST" })
         data.crewMemberId,
       );
       if (delivered.delivered)
-        return getPrisma().serviceAssignment.update({
-          where: { id: assignment.id },
-          data: { invitedAt: new Date() },
-        });
+        return getPrisma().serviceAssignment.findFirstOrThrow({
+              where: { id: assignment.id, orgId: data.orgId },
+            });
     }
     return assignment;
-  });
-
-export const remindServiceAssignment = createServerFn({ method: "POST" })
-  .inputValidator((value: unknown) =>
-    parseOrThrow(z.object({ orgId: idSchema, id: idSchema }), value),
-  )
-  .handler(async ({ data }) => {
-    await assertAccess(data.orgId, true);
-    const assignment = await getPrisma().serviceAssignment.findFirst({
-      where: {
-        id: data.id,
-        orgId: data.orgId,
-        status: "assigned",
-        crewMemberId: { not: null },
-      },
-    });
-    if (!assignment?.crewMemberId)
-      throw new Error("Only pending assignments can be reminded");
-    const delivered = await deliverScheduleAssignmentInvitation(
-      data.orgId,
-      assignment.id,
-      assignment.serviceDate,
-      assignment.role,
-      assignment.crewMemberId,
-      true,
-    );
-    if (!delivered.delivered && delivered.reason === "assignment-expired") {
-      throw new Error(
-        "This assignment is closed because its scheduled event has ended",
-      );
-    }
-    if (delivered.delivered)
-      await getPrisma().serviceAssignment.update({
-        where: { id: assignment.id },
-        data: { invitedAt: new Date() },
-      });
-    return { ok: true as const, delivered: delivered.delivered };
-  });
-
-export const remindAllServiceAssignments = createServerFn({ method: "POST" })
-  .inputValidator((value: unknown) =>
-    parseOrThrow(
-      z.object({ orgId: idSchema, showId: idSchema }),
-      value,
-    ),
-  )
-  .handler(async ({ data }) => {
-    await assertAccess(data.orgId, true);
-    const assignments = await getPrisma().serviceAssignment.findMany({
-      where: {
-        orgId: data.orgId,
-        showId: data.showId,
-        status: "assigned",
-        crewMemberId: { not: null },
-      },
-      select: { id: true, serviceDate: true, role: true, crewMemberId: true },
-    });
-    const results = await Promise.all(
-      assignments.map(async (assignment) => {
-        const delivered = await deliverScheduleAssignmentInvitation(
-          data.orgId,
-          assignment.id,
-          assignment.serviceDate,
-          assignment.role,
-          assignment.crewMemberId!,
-          true,
-        );
-        if (delivered.delivered)
-          await getPrisma().serviceAssignment.update({
-            where: { id: assignment.id },
-            data: { invitedAt: new Date() },
-          });
-        return delivered;
-      }),
-    );
-    const availableResults = results.filter(
-      (result) => result.reason !== "assignment-expired",
-    );
-    return {
-      ok: true as const,
-      delivered: availableResults.filter((result) => result.delivered).length,
-      total: availableResults.length,
-    };
   });
 
 export const deleteServiceAssignment = createServerFn({ method: "POST" })
