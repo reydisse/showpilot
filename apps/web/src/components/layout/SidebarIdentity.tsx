@@ -2,21 +2,15 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react
 import { Bell, CalendarDays, ChevronLeft, ChevronRight, LogOut, Settings, UserRound } from "lucide-react";
 import { CatchBoundary, Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { ROLE_COLOURS, getAccountInitials } from "./account-role";
-import { getPersonalNotifications, savePersonalNotificationTimeZone } from "@/lib/personal-notifications";
+import { savePersonalNotificationTimeZone } from "@/lib/personal-notifications";
+import { useAccountNotificationCount } from "@/hooks/useAccountNotificationCount";
 import { getDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { authClient } from "@/lib/auth-client";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { getPortableAvatarUrl } from "@/lib/avatar-image";
-import {
-  PERSONAL_NOTIFICATION_COUNT_EVENT,
-  readPersonalNotificationCount,
-} from "@/lib/notification-events";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { runRouteLoad } from "@/lib/route-load-deadlines";
-import {
-  isDesktopRuntime,
-} from "@/lib/desktop-runtime";
 
 function AccountPanelFailure({ retry }: { retry: () => void }) {
   const [failedAt] = useState(Date.now);
@@ -26,8 +20,6 @@ function AccountPanelFailure({ retry }: { retry: () => void }) {
     <Button type="button" variant="outline" onClick={retry} className="mt-4 min-h-11">Retry account view</Button>
   </div>;
 }
-
-
 
 
 const ROLE_LABELS: Record<string, string> = {
@@ -63,7 +55,10 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
 
   const [localUser, setLocalUser] = useState(user);
   const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
-  const [unread, setUnread] = useState(0);
+  const notificationCount = useAccountNotificationCount(orgId, user.id);
+  const countState = notificationCount.state;
+  const unread = countState.snapshot?.unread ?? null;
+  const unreadBadge = countState.kind === "failed" ? "!" : unread === null ? "…" : unread > 99 ? "99+" : unread || null;
   const [confirmSignOut, setConfirmSignOut] = useState(false);
 
   useEffect(() => {
@@ -79,38 +74,6 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   const avatarUrl = portableAvatarUrl && portableAvatarUrl !== failedAvatarUrl
     ? portableAvatarUrl
     : null;
-
-  const refreshUnread = useCallback(async () => {
-    try {
-      const result = await getPersonalNotifications({ data: { orgId } });
-      setUnread(result.unread);
-    } catch {
-      // Account access must remain available if notification retrieval fails.
-    }
-  }, [orgId]);
-
-  useEffect(() => {
-    const onNotificationCount = (event: Event) => {
-      const detail = readPersonalNotificationCount(event);
-      if (detail?.orgId === orgId) setUnread(detail.unread);
-    };
-    window.addEventListener(PERSONAL_NOTIFICATION_COUNT_EVENT, onNotificationCount);
-    return () => window.removeEventListener(PERSONAL_NOTIFICATION_COUNT_EVENT, onNotificationCount);
-  }, [orgId]);
-
-  useEffect(() => {
-    if ((accountOpen && accountView === "notifications") || isDesktopRuntime()) return;
-    void refreshUnread();
-    const refreshWhileVisible = () => {
-      if (document.visibilityState === "visible") void refreshUnread();
-    };
-    const timer = window.setInterval(refreshWhileVisible, 20_000);
-    document.addEventListener("visibilitychange", refreshWhileVisible);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", refreshWhileVisible);
-    };
-  }, [accountOpen, accountView, refreshUnread]);
 
   const handleUserUpdated = (updates: { name?: string; image?: string }) => {
     if (updates.image !== undefined) setFailedAvatarUrl(null);
@@ -199,12 +162,12 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
       <button
         type="button"
         onClick={() => { setAccountView("notifications"); setAccountOpen(true); }}
-        aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}
+        aria-label={countState.kind === "failed" ? "Notifications, unread count unavailable" : unread === null ? "Notifications, checking unread count" : unread === 0 ? "Notifications" : `Notifications, ${unread} unread`}
         title="Notifications"
         className="relative flex size-11 shrink-0 items-center justify-center rounded-lg text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text"
       >
         <Bell className="size-4" />
-        {unread > 0 ? <span className="absolute right-0 top-0 flex min-w-4 items-center justify-center rounded-full bg-fire-500 px-1 text-[9px] font-semibold leading-4 text-black">{unread > 99 ? "99+" : unread}</span> : null}
+        {unreadBadge !== null ? <span className="absolute right-0 top-0 flex min-w-4 items-center justify-center rounded-full bg-fire-500 px-1 text-[9px] font-semibold leading-4 text-black">{unreadBadge}</span> : null}
       </button>
       </div>
 
@@ -254,7 +217,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
               <button type="button" onClick={() => setAccountView("notifications")} className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-3 text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text">
                 <Bell className="size-[18px]" />
                 <span className="text-sm font-medium">Notifications</span>
-                {unread > 0 ? <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-fire-500 px-1 text-[10px] font-semibold text-black">{unread > 99 ? "99+" : unread}</span> : <ChevronRight className="ml-auto size-3.5 opacity-40" />}
+                {unreadBadge !== null ? <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-fire-500 px-1 text-[10px] font-semibold text-black">{unreadBadge}</span> : <ChevronRight className="ml-auto size-3.5 opacity-40" />}
               </button>
 
               <Link to="/$slug/assignments" params={{ slug }} search={{ date: undefined, assignment: undefined }} onClick={() => setAccountOpen(false)} className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-3 text-board-muted outline-none transition-colors hover:bg-board-border/50 hover:text-board-text focus-visible:ring-2 focus-visible:ring-fire-500">
@@ -289,6 +252,13 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
                 <LogOut className="size-[18px]" />
                 <span className="text-sm font-medium">{confirmSignOut ? "Tap again to sign out" : "Sign Out"}</span>
               </button>
+              <div className="mt-2 border-t border-board-border px-3 py-3 text-xs text-board-muted">
+                {countState.kind === "failed" ? <div role="alert" aria-label="Notification count recovery" className="space-y-2 text-amber-700 dark:text-amber-300">
+                  <p>Unread count unavailable.{unread !== null ? ` Last confirmed: ${unread} unread.` : ""}</p>
+                  <p>Last failed read <time dateTime={new Date(countState.occurredAt).toISOString()}>{new Date(countState.occurredAt).toLocaleTimeString()}</time></p>
+                  <Button type="button" variant="outline" className="min-h-11" disabled={countState.retrying} onClick={notificationCount.retry}>{countState.retrying ? "Retrying…" : "Retry notification count"}</Button>
+                </div> : countState.kind === "loading" ? <p role="status">Checking notifications…</p> : <p>{unread} unread notification{unread === 1 ? "" : "s"}<span className="mt-1 block">Checked <time dateTime={new Date(countState.snapshot.confirmedAt).toISOString()}>{new Date(countState.snapshot.confirmedAt).toLocaleTimeString()}</time></span></p>}
+              </div>
             </div>
           ) : null}
 
@@ -298,18 +268,13 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
                 {accountView === "profile" ? (
                   <AccountPanels view="profile" panelProps={{ user: localUser, role, orgName, onUserUpdated: handleUserUpdated, onSignOut: signOut }} />
                 ) : (
-                  <AccountPanels view="notifications" panelProps={{ orgId, userId: localUser.id, slug, onUnreadChange: setUnread, onNavigate: () => setAccountOpen(false) }} />
+                  <AccountPanels view="notifications" panelProps={{ orgId, userId: localUser.id, slug, onUnreadChange: notificationCount.accept, onNavigate: () => setAccountOpen(false) }} />
                 )}
               </Suspense>
             </CatchBoundary>
           ) : null}
 
-          {accountView === "menu" ? (
-            <div className="flex shrink-0 items-center gap-2 border-t border-board-border px-5 py-3 text-[11px] text-board-muted">
-              <Bell className="size-3" />
-              {unread > 0 ? `${unread} unread notification${unread === 1 ? "" : "s"}` : "You’re all caught up"}
-            </div>
-          ) : null}
+
         </DialogContent>
       </Dialog>
     </>

@@ -138,7 +138,8 @@ export function useNotificationInbox(
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
   });
-  const unread = inbox.data?.pages[0]?.unread;
+  // Pages load in sequence; the last completed page has the newest count.
+  const unread = inbox.data?.pages.at(-1)?.unread;
   const { refetch } = inbox;
   const refresh = useCallback(() => {
     if (!pending && document.visibilityState !== "hidden")
@@ -146,7 +147,7 @@ export function useNotificationInbox(
   }, [refetch, pending]);
   useEffect(() => {
     if (unread !== undefined) onUnreadChange?.(unread);
-  }, [unread, onUnreadChange]);
+  }, [unread, inbox.dataUpdatedAt, onUnreadChange]);
   useEffect(() => {
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);

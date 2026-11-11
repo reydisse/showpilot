@@ -5741,3 +5741,59 @@ animation download; neither is recorded as a pass.
 Phase 2 remains 67/79. Sidebar unread/timezone requests, account mutations and
 other product-wide recovery/UX gates still need work. Nothing deployed or
 released. There are still 20 necessary tracked Markdown files; none was added.
+
+
+## Phase 2 account notification status — 2026-11-08
+
+The account menu could say "You’re all caught up" while its unread-count read
+was still stalled. The compiled browser baseline reproduces this false zero.
+The sidebar now distinguishes unknown, checking, confirmed and failed counts.
+A count-only server function checks the signed-in member's workspace membership
+and counts only their unread, undismissed alerts, without fetching message bodies.
+
+The count controller loads after mount and bounds both download and requests to
+eight seconds. It coalesces refreshes, pauses/cancels while hidden, ignores late
+responses after cancellation and retains confirmed data on failure. A failed
+count shows an explicit badge, failed-at time and Retry; the menu recovery scrolls
+with its other controls on short phones. A confirmed count includes its check
+time. Native events are refresh signals, not trusted count values, and a quiet
+native controller falls back after one minute. Opening the actual inbox can
+repair the sidebar count and cancels an older count read.
+
+A rendered regression also exposed a pagination bug: loading an older page still
+published the first page's older unread count. The inbox now publishes the latest
+completed page's count and re-publishes a confirmed count on successful refresh,
+even when its numeric value is unchanged.
+
+Validation:
+- Final full suite: 2,407 unit / 1,195 Worker tests; typecheck and build pass.
+  Main entry is 552,476 raw / 174,991 gzip bytes under unchanged limits.
+- Six count-controller tests verify timeout/abort, late completion, retained data,
+  coalescing, hidden-tab cancellation/resume, native scope/fallback, inbox update
+  precedence and disposal. Real auth/D1 checks count isolation, dismissed/read
+  filtering, foreign workspaces and revoked membership.
+- Compiled Chrome/auth/D1 rehearsals independently hold the actual count response
+  and the controller module. Both reach timestamped failure and recover on Retry
+  without reloading; late completion cannot dismiss the failure. A fresh inbox
+  repairs the count. 44px recovery targets pass at 320x480/768/1440. Phone error
+  screenshot inspected. No runtime errors or captured emails.
+- The full inbox rehearsal still passes lost committed response plus a newer
+  unread alert, exact retries across closing/navigation, pagination failures,
+  late responses, module download recovery and permission failure.
+- Broad navigation still passes 21 routes and 13 Settings sections at
+  320/768/1024/1440 without a reload.
+
+Evidence: `/tmp/showpilot-count-before.log` and `-pagination-before.log` reproduce
+the two failures. Final checks are `-full2.log`, `-tsc3.log`, `-build2.log`,
+`-browser2.log`, `-module.log`, `-inbox-regression2.log`, and `-navigation.log`.
+The module/navigation runs exercised their unchanged code before the final
+inbox count-publication adjustment; the count and full inbox browser runs were
+repeated after that adjustment.
+
+Phase 2 remains 67/79. The background notification timezone save still needs
+bounded recovery and protection against an old retry replacing a newer device's
+zone. Profile/sign-out mutations and native notification delivery's unbounded
+requests/silent catch also remain in the wider audit. This change covers count
+honesty and recovery, not all notification delivery. No deployment, release,
+remote migration or real organization writes. Still 20 necessary tracked
+Markdown files, with none added.
