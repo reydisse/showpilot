@@ -34,8 +34,13 @@ async function connect(url) {
   });
   let id = 0;
   const pending = new Map();
+  const listeners = new Set();
   socket.onmessage = (event) => {
     const message = JSON.parse(event.data);
+    if (message.method) {
+      for (const listener of listeners) listener(message);
+      return;
+    }
     const request = pending.get(message.id);
     if (!request) return;
     pending.delete(message.id);
@@ -52,6 +57,10 @@ async function connect(url) {
   };
   return {
     close: () => socket.close(),
+    onEvent: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     send: (method, params = {}) =>
       new Promise((resolve, reject) => {
         const requestId = ++id;
@@ -146,6 +155,7 @@ export async function withRealBrowser({ origin, cookie }, check) {
     await check({
       evaluate,
       page: page.send,
+      onPageEvent: page.onEvent,
       browser: browser.send,
       targetId: target.id,
     });

@@ -13,6 +13,7 @@ import { rundownInternalRequest } from "./rundown-internal-request.server";
 import { rundownRelayKey } from "./rundown-relay-key";
 import { resolveTimecodeDeviceAction } from "./timecode-device-actions";
 import { authorizeBridgeTarget } from "./bridge-targets.server";
+import { discoverHomeAssistantActions } from "./homeassistant-automation.server";
 import type { BridgeEndpoint } from "@showpilot/shared/bridge-target";
 import type { LocalShowPreparationInput } from "./local-show-protocol";
 export {
@@ -23,7 +24,7 @@ export {
 const localId = z.string().regex(/^[A-Za-z0-9:_-]{1,100}$/);
 type Bindings = Pick<
   Cloudflare.Env,
-  "DB" | "RUNDOWN_RELAY" | "TIMECODE_RELAY"
+  "DB" | "RUNDOWN_RELAY" | "TIMECODE_RELAY" | "BRIDGE_RELAY"
 > & { BETTER_AUTH_SECRET?: string; CREDENTIAL_ENCRYPTION_KEYS?: string };
 const timestamp = z.number().int().nonnegative();
 const snapshotSchema = z.object({
@@ -129,19 +130,44 @@ export async function buildLocalShowPreparation(
         "This show has more than 500 local device cues. Split it into smaller shows before preparing local control.",
       );
     let action;
+    const actor = { source: "operator" as const, actorUserId: claim.userId };
     try {
       action = await resolveTimecodeDeviceAction(
         bindings.DB,
         input.orgId,
         { ...event, action: event.action },
         bindings.CREDENTIAL_ENCRYPTION_KEYS,
+        async (device) => {
+          // Discovery reads only the reviewed installation. No service runs
+          // during preparation, and a handoff invalidates the returned catalog.
+          await assertLocalShowAuthority(bindings.DB, claim, input.orgId);
+          const relay = bindings.BRIDGE_RELAY.getByName(input.orgId);
+          const status = await relay.getBridgeStatus();
+          if (!status.bridgeOnline || status.activeInstallation?.installationId !== input.installationId)
+            throw new Error("The reviewed venue computer is no longer connected.");
+          if (!status.connectedTargets.includes(device.target)) {
+            const connected = await relay.dispatchBridgeMessage({ type: "connect-device",
+              protocol: device.protocol, target: device.target, settings: device.connectionSettings,
+            }, actor, input.installationId);
+            if (!connected.success) throw new Error("The device could not connect for local preparation.");
+          }
+          const deadline = AbortSignal.timeout(8000);
+          const actions = await discoverHomeAssistantActions({
+            relay,
+            target: device.target,
+            actor,
+            installationId: input.installationId,
+            assertCanDispatch: () => deadline.throwIfAborted(),
+          });
+          await assertLocalShowAuthority(bindings.DB, claim, input.orgId);
+          return actions;
+        },
       );
     } catch {
       throw new Error(
         `Device cue “${event.label}” cannot be prepared. Check its device and saved action settings.`,
       );
     }
-    const actor = { source: "operator" as const, actorUserId: claim.userId };
     const endpoints = await authorizeBridgeTarget(
       bindings.DB,
       input.orgId,

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects, runInDurableObject } from "cloudflare:test";
 import { afterEach, expect, it } from "vitest";
+import { z } from "zod";
 import {
   openTestBridge,
   approveTestBridgeTarget,
@@ -131,6 +132,100 @@ async function fixture(itemCount = 2) {
     add,
   };
 }
+
+async function homeAssistantFixture() {
+  const test = await fixture();
+  const target = "http://192.0.2.81:8123";
+  const device = { id: crypto.randomUUID(), orgId: test.orgId, adapterType: "homeassistant" };
+  const settings = await writeDeviceSettings(env.CREDENTIAL_ENCRYPTION_KEYS, device,
+    JSON.stringify({ baseUrl: target, accessToken: "local-ha-private" }));
+  await env.DB.prepare("INSERT INTO device(id,orgId,name,category,adapterType,settings,enabled,createdAt,updatedAt) VALUES (?,?,'Local HA','automation','homeassistant',?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)")
+    .bind(device.id, test.orgId, settings).run();
+  await approveTestBridgeTarget(test.orgId, "http-command", target);
+  await test.add({ ...test.cue, id: "ha-local", targetDeviceId: device.id,
+    targetActionId: "ha:light:turn_on:light.room", label: "Local room light" });
+  const wire = {
+    commands: [] as string[],
+    connections: [] as unknown[],
+    response: JSON.stringify([{ entity_id: "light.room", state: "off", attributes: { friendly_name: "Room" } }]),
+    success: true,
+    hold: false,
+    replies: [] as (() => void)[],
+    preparations: [] as unknown[],
+  };
+  test.socket.addEventListener("message", event => {
+    const message = JSON.parse(String(event.data));
+    if (message.type === "connect-device") {
+      wire.connections.push(message);
+      test.socket.send(JSON.stringify({ type: "device-status", target, connected: true }));
+    }
+    if (message.type === "prepare-local-show") {
+      wire.preparations.push(message);
+      test.socket.send(JSON.stringify({ type: "local-show-prepared", id: message.id,
+        sessionId: test.input.sessionId, success: true }));
+    }
+    if (message.type !== "command") return;
+    wire.commands.push(message.command);
+    const reply = () => test.socket.send(JSON.stringify({ type: "command-response", id: message.id,
+      success: wire.success, response: wire.response, ...(!wire.success ? { error: "Fixture discovery failed" } : {}) }));
+    if (wire.hold) wire.replies.push(reply); else reply();
+  });
+  test.socket.send(JSON.stringify({ type: "device-status", target, connected: true }));
+  await expect.poll(async () => (await test.stub.getBridgeStatus()).connectedTargets).toContain(target);
+  return { ...test, wire, target };
+}
+
+it("discovers Home Assistant before sending its encrypted local preparation without firing a service", async () => {
+  const test = await homeAssistantFixture();
+  const receipt = await prepare(test.stub, test.input, test.claim);
+  expect(receipt.actionCount).toBe(2);
+  expect(test.wire.commands).toEqual(["GET /api/states"]);
+  const message = z.object({ protectedSettings: z.unknown() }).parse(test.wire.preparations[0]);
+  const pack = parsePreparedLocalShow(await test.recipient.open(message.protectedSettings, {
+    orgId: test.orgId, installationId: test.credential.installationId, protocol: "local-show", target: test.showId,
+  }));
+  expect(pack.actions.find(action => action.id === "ha-local")).toMatchObject({
+    command: 'POST /api/services/light/turn_on {"entity_id":"light.room"}', settings: { authToken: "local-ha-private" },
+  });
+  expect(JSON.stringify(message)).not.toContain("local-ha-private");
+});
+
+it.each([
+  { reason: "removed entity", response: "[]", success: true },
+  { reason: "malformed discovery", response: "{broken", success: true },
+  { reason: "failed discovery", response: "[]", success: false },
+])("does not prepare Home Assistant after $reason", async failure => {
+  const test = await homeAssistantFixture();
+  Object.assign(test.wire, { response: failure.response, success: failure.success });
+  await expect(prepare(test.stub, test.input, test.claim)).rejects.toThrow(/Local room light.*cannot be prepared/);
+  expect(test.wire.commands).toEqual(["GET /api/states"]);
+  expect(test.wire.preparations).toEqual([]);
+});
+
+it("reconnects the approved Home Assistant target before preparing the next local session", async () => {
+  const test = await homeAssistantFixture();
+  test.socket.send(JSON.stringify({ type: "device-status", target: test.target, connected: false }));
+  await expect.poll(async () => (await test.stub.getBridgeStatus()).connectedTargets).not.toContain(test.target);
+  const receipt = await prepare(test.stub, test.input, test.claim);
+  expect(receipt.actionCount).toBe(2);
+  expect(test.wire.connections).toHaveLength(1);
+  expect(JSON.stringify(test.wire.connections)).not.toContain("local-ha-private");
+  expect(test.wire.commands).toEqual(["GET /api/states"]);
+});
+
+it("rejects a venue handoff during local Home Assistant discovery", async () => {
+  const test = await homeAssistantFixture();
+  const standby = await openTestBridge(test.orgId);
+  test.wire.hold = true;
+  const preparing = prepare(test.stub, test.input, test.claim).then(() => "unexpected success", error => String(error));
+  await expect.poll(() => test.wire.replies.length).toBe(1);
+  await test.stub.selectInstallation({ orgId: test.orgId, installationId: standby.credential.installationId,
+    expectedActiveInstallationId: test.credential.installationId, actorUserId: test.claim.userId });
+  test.wire.replies[0]();
+  expect(await preparing).toMatch(/cannot be prepared/);
+  expect(test.wire.commands).toEqual(["GET /api/states"]);
+  expect(test.wire.preparations).toEqual([]);
+});
 
 it("prepares a 100-item live show with encrypted device settings and returns only a confirmed receipt", async () => {
   const test = await fixture(100);

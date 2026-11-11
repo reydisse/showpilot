@@ -63,7 +63,7 @@ type NativeDispatchMessage = Exclude<BridgeDispatchMessage, { type: "connect-dev
   protectedSettings: ProtectedBridgeSettings;
 };
 
-type BridgeRelayEnv = Pick<Env, "RUNDOWN_RELAY" | "TIMECODE_RELAY" | "DB">;
+type BridgeRelayEnv = Pick<Env, "BRIDGE_RELAY" | "RUNDOWN_RELAY" | "TIMECODE_RELAY" | "DB">;
 type BridgeRelayRuntimeEnv = BridgeRelayEnv & { BETTER_AUTH_SECRET?: string; CREDENTIAL_ENCRYPTION_KEYS?: string };
 
 interface SocketAttachment {
