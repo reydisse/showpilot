@@ -1,7 +1,9 @@
 import type { SettingWrite, SettingWriteResult } from "./setting-writes";
 
-/** Receipt and conditional setting write share one D1 transaction. */
-export async function applySettingWrite(db: Pick<D1Database, "prepare" | "batch">, input: SettingWrite, userId: string): Promise<SettingWriteResult> {
+/** Internal storage command. Each RPC validates its keys and permissions before
+ * calling this helper, including server-derived personal preference keys.
+ * Receipt and conditional setting write share one D1 transaction. */
+export async function applySettingWrite(db: Pick<D1Database, "prepare" | "batch">, input: Omit<SettingWrite, "key"> & { key: string }, userId: string): Promise<SettingWriteResult> {
   const { orgId, key, value, expectedValue, requestId } = input;
   const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify({ userId, key, value, expectedValue }))))]
     .map(byte => byte.toString(16).padStart(2, "0")).join("");

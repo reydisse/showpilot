@@ -13,6 +13,7 @@ import {
   parseOrThrow,
 } from "@/lib/validation";
 import { getD1 } from "@/lib/d1";
+import { firstSessionState, firstSessionWriteSchema, parseFirstSessionSnapshot, type FirstSessionState } from "./first-session-checklist";
 
 // ─────────────────────────────────────────────────────────────
 // Onboarding wizard server functions. Wizard progress lives in
@@ -175,15 +176,6 @@ export const getOnboardingProgress = createServerFn({ method: "GET" })
   },
 );
 
-async function upsertOrgSetting(orgId: string, key: string, value: string) {
-  const prisma = getPrisma();
-  await prisma.appSetting.upsert({
-    where: { orgId_key: { orgId, key } },
-    update: { value },
-    create: { orgId, key, value },
-  });
-}
-
 // ─── First Session Checklist (post-GO LIVE, show page) ───────
 // Stored per user in org appSettings — the same storage UI prefs use.
 
@@ -191,40 +183,13 @@ function firstSessionKey(userId: string) {
   return `onboarding-first-session:${userId}`;
 }
 
-interface FirstSessionState {
-  dismissed: boolean;
-  completed: string[];
-}
-
-function parseFirstSessionState(
-  value: string | null | undefined,
-): FirstSessionState {
-  if (value) {
-    try {
-      const parsed = JSON.parse(value) as Partial<FirstSessionState>;
-      return {
-        dismissed: parsed.dismissed === true,
-        completed: Array.isArray(parsed.completed)
-          ? parsed.completed.filter(
-              (item): item is string => typeof item === "string",
-            )
-          : [],
-      };
-    } catch {
-      // Unreadable state — start fresh rather than erroring.
-    }
-  }
-  return { dismissed: false, completed: [] };
-}
-
 export const getFirstSessionChecklist = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) =>
     parseOrThrow(z.object({ orgId: idSchema }), data),
   )
   .handler(
-    async ({ data }): Promise<{ show: boolean; completed: string[] }> => {
-      const user = await getSessionUser().catch(() => null);
-      if (!user) return { show: false, completed: [] };
+    async ({ data }): Promise<FirstSessionState> => {
+      const user = await getSessionUser();
 
       const prisma = getPrisma();
       const member = await prisma.member.findFirst({
@@ -232,7 +197,7 @@ export const getFirstSessionChecklist = createServerFn({ method: "GET" })
         select: { role: true },
       });
       // The checklist belongs to the wizard runner — the org owner.
-      if (member?.role !== "owner") return { show: false, completed: [] };
+      if (member?.role !== "owner") return { show: false, completed: [], snapshot: null };
 
       const settings = await prisma.appSetting.findMany({
         where: {
@@ -244,40 +209,41 @@ export const getFirstSessionChecklist = createServerFn({ method: "GET" })
         settings.map((setting) => [setting.key, setting.value]),
       );
       if (!byKey.get(ONBOARDING_STARTED_KEY))
-        return { show: false, completed: [] };
+        return { show: false, completed: [], snapshot: null };
 
-      const state = parseFirstSessionState(byKey.get(firstSessionKey(user.id)));
-      if (state.dismissed) return { show: false, completed: state.completed };
-      return { show: true, completed: state.completed };
+      return firstSessionState(byKey.get(firstSessionKey(user.id)) ?? null);
     },
   );
 
 export const updateFirstSessionChecklist = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) =>
-    parseOrThrow(
-      z.object({
-        orgId: idSchema,
-        dismissed: z.boolean().optional(),
-        completed: z.array(z.string().max(50)).max(10).optional(),
-      }),
-      data,
-    ),
-  )
+  .inputValidator((data: unknown) => parseOrThrow(firstSessionWriteSchema, data))
   .handler(async ({ data }) => {
     const user = await getSessionUser();
-    await getOrgMemberRole(data.orgId); // membership check
-    const prisma = getPrisma();
-    const key = firstSessionKey(user.id);
-    const existing = await prisma.appSetting.findUnique({
-      where: { orgId_key: { orgId: data.orgId, key } },
+    if (await getOrgMemberRole(data.orgId) !== "owner") throw new Error("Only the workspace owner can change their first-session checklist.");
+    const started = await getPrisma().appSetting.findUnique({
+      where: { orgId_key: { orgId: data.orgId, key: ONBOARDING_STARTED_KEY } },
     });
-    const state = parseFirstSessionState(existing?.value);
-    const next: FirstSessionState = {
-      dismissed: data.dismissed ?? state.dismissed,
-      completed: data.completed ?? state.completed,
-    };
-    await upsertOrgSetting(data.orgId, key, JSON.stringify(next));
-    return { ok: true };
+    if (!started?.value) throw new Error("This workspace does not have a first-session checklist.");
+    const state = parseFirstSessionSnapshot(data.expectedSnapshot);
+    const action = data.action;
+    const completed = action.kind === "item"
+      ? action.completed
+        ? [...new Set([...state.completed, action.item])]
+        : state.completed.filter(item => item !== action.item)
+      : state.completed;
+    const value = JSON.stringify({
+      dismissed: data.action.kind === "dismiss" || state.dismissed,
+      completed,
+      // Even a changed-then-restored list has a different reviewed snapshot.
+      revision: data.requestId,
+    });
+    parseFirstSessionSnapshot(value);
+    const { applySettingWrite } = await import("./setting-writes.server");
+    const result = await applySettingWrite(getD1(), {
+      orgId: data.orgId, key: firstSessionKey(user.id), requestId: data.requestId,
+      value, expectedValue: data.expectedSnapshot,
+    }, user.id);
+    return { requestId: result.requestId, outcome: result.outcome, state: firstSessionState(result.currentValue) };
   });
 
 // ─── Slug availability (Scene 1 live check) ──────────────────

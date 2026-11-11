@@ -386,7 +386,7 @@ function ShowPage() {
           userRole={userRole}
           chatMembers={chatMembers}
         />
-        <FirstSessionChecklist orgId={orgId} slug={slug} />
+        <FirstSessionChecklist orgId={orgId} slug={slug} userId={userId} />
       </>
     );
   }
@@ -412,7 +412,7 @@ function ShowPage() {
         userRole={userRole}
         chatMembers={chatMembers}
       />
-      <FirstSessionChecklist orgId={orgId} slug={slug} />
+      <FirstSessionChecklist orgId={orgId} slug={slug} userId={userId} />
     </>
   );
 }
