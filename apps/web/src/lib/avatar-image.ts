@@ -5,7 +5,7 @@ export interface SquareAvatarGeometry {
   outputSize: number;
 }
 
-const MANAGED_AVATAR_PATH = /^\/api\/user\/avatar\/[^/?#]+\.jpg$/;
+const MANAGED_AVATAR_PATH = /^\/api\/user\/avatar\/(?:[^/?#]+\.jpg|[^/?#]+\/[a-f0-9]{64}\.jpg)$/;
 
 /**
  * Keep ShowPilot-owned avatars portable across web, Desktop, LAN, and native

@@ -26,6 +26,12 @@ describe("avatar image geometry", () => {
 });
 
 describe("portable avatar URLs", () => {
+  it("keeps versioned photos portable and rejects non-hash version paths", () => {
+    const path = `/api/user/avatar/user-1/${"a".repeat(64)}.jpg`;
+    expect(getPortableAvatarUrl(`http://127.0.0.1:3010${path}`)).toBe(path);
+    expect(getPortableAvatarUrl(path)).toBe(path);
+    expect(getPortableAvatarUrl("/api/user/avatar/user-1/not-a-hash.jpg")).toBeNull();
+  });
   it("removes stale local origins from ShowPilot-managed avatars", () => {
     expect(
       getPortableAvatarUrl("http://127.0.0.1:3010/api/user/avatar/user-1.jpg?v=123"),
