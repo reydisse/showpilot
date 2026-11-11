@@ -9,13 +9,19 @@ import { readShowInventoryItem } from "./show-inventory";
 import { serviceTimeToIso } from "./utils";
 import {
   createShowInputSchema,
+  showCreationFingerprint,
   type CreateServiceForOrgInput,
 } from "./show-creation-contract";
 import type { RundownItem } from "@/types/rundown";
 export type { CreateServiceForOrgInput } from "./show-creation-contract";
 
 type Database = Pick<D1Database, "prepare" | "batch">;
-type Receipt = { actorId: string; fingerprint: string; serviceDate: string };
+type Receipt = {
+  actorId: string;
+  fingerprint: string;
+  serviceDate: string;
+  cancelledAt: number | null;
+};
 
 /** Both web and native creation commit the show, seed and receipt together.
  * Retry reads the receipt before mutable source material or current show details. */
@@ -42,18 +48,8 @@ export async function createServiceForOrg(
     ["schedule:manage"],
   );
   const requestId = data.requestId ?? crypto.randomUUID();
-  const fingerprint = JSON.stringify([
-    data.serviceDate,
-    data.name ?? "",
-    data.startTime ?? "",
-    data.callTime ?? "",
-    data.location ?? "",
-    data.timeZone ?? "",
-    data.inventoryId ?? "",
-    data.copyFrom ?? "",
-    data.copyFromShowId ?? "",
-  ]);
-  const read = `SELECT actorId,fingerprint,serviceDate FROM show_creation_request
+  const fingerprint = showCreationFingerprint(data);
+  const read = `SELECT actorId,fingerprint,serviceDate,cancelledAt FROM show_creation_request
     WHERE orgId=? AND requestId=? AND ${access.guard}`;
   const readArgs = [orgId, requestId, ...access.guardArgs];
   let receipt = await db
@@ -217,6 +213,10 @@ export async function createServiceForOrg(
   if (receipt.actorId !== actorId || receipt.fingerprint !== fingerprint)
     throw new Error(
       "This creation request was already used with a different account or details.",
+    );
+  if (receipt.cancelledAt !== null)
+    throw new Error(
+      "This creation request was cancelled during review. Submit the reviewed form as a new request.",
     );
   const existing = await db
     .prepare(

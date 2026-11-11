@@ -1,3 +1,4 @@
+import { runRouteLoad } from "@/lib/route-load-deadlines";
 import { VirtualRows } from "@/components/ui/virtual-rows";
 import { RundownClockCard, RundownOffset, RundownProgress, formatOperatorDuration as formatDuration } from "@/components/rundown/RundownClock";
 import { useProPresenterCommands } from "@/hooks/useProPresenterCommands";
@@ -106,7 +107,6 @@ import { cacheDesktopService, isDesktopRuntime } from "@/lib/desktop-runtime";
 import { useDesktopRuntime } from "@/hooks/useDesktopRuntime";
 import {
   NewShowModal,
-  type NewShowInput,
 } from "@/components/rundown/NewShowModal";
 import { ShowOptionsModal } from "@/components/rundown/ShowOptionsModal";
 import { getServiceTiming, readPhaseSettings } from "@/lib/service-phase";
@@ -303,6 +303,7 @@ export const Route = createFileRoute("/$slug/rundown")({
 const DesktopLocalShowPanel = lazy(() => import("@/components/rundown/DesktopLocalShowPanel").then((module) => ({ default: module.DesktopLocalShowPanel })));
 
 function RundownPage() {
+  const { user } = Route.useRouteContext();
   const desktop = useDesktopRuntime();
   const workspaceTerms = useWorkspaceTerms();
   const {
@@ -909,18 +910,20 @@ function RundownPage() {
   const togglePPOnKiosk = () => ppCommands.run({ kind: "output", enabled: !ppOnKiosk });
 
   // Load rundown for new date
-  const loadDate = async (date: string, targetShowId?: string) => {
-    if (selectionInFlightRef.current) return;
-    if (date === serviceDate && targetShowId === showId) return;
+  const loadDate = async (date: string, targetShowId?: string, signal?: AbortSignal) => {
+    if (selectionInFlightRef.current) return false;
+    if (date === serviceDate && targetShowId === showId) return true;
 
     selectionInFlightRef.current = true;
     setLoading(true);
     setSelectionError(null);
     try {
-      await waitForCurrentRundownWrites();
-      const state = await getRundownState({
-        data: { orgId, serviceDate: date, showId: targetShowId },
-      });
+      const state = await runRouteLoad(async controller => {
+        await waitForCurrentRundownWrites();
+        controller.signal.throwIfAborted();
+        return getRundownState({data:{orgId,serviceDate:date,showId:targetShowId},signal:controller.signal});
+      }, signal, 12000);
+      signal?.throwIfAborted();
       const nextShowId = state.meta?.showId;
       databaseItemsRef.current = state.items as RundownItem[];
       setItems(state.items as RundownItem[]);
@@ -942,36 +945,17 @@ function RundownPage() {
         replace: true,
       });
 
-      // The date-aware sync effect seeds the relay after the new socket has
-      // hydrated. Sending here would target the previous date's socket.
+      // The date-aware sync effect seeds only the newly selected relay.
+      return true;
     } catch (error) {
       setSelectionError(
         error instanceof Error ? error.message : "Could not open that rundown",
       );
+      return false;
     } finally {
       selectionInFlightRef.current = false;
       setLoading(false);
     }
-  };
-
-  const handleCreateShow = async (input: NewShowInput) => {
-    await waitForCurrentRundownWrites();
-    const { createNextService } = await import("@/lib/pm-actions");
-    const created = await createNextService({
-      data: {
-        orgId,
-        serviceDate: input.serviceDate,
-        name: input.name,
-        startTime: input.startTime,
-        timeZone: deviceTimeZone,
-        callTime: input.callTime,
-        location: input.location,
-        copyFrom: input.copyCurrent ? serviceDate : undefined,
-        copyFromShowId: input.copyCurrent ? showId : undefined,
-      },
-    });
-    setShowCreateModal(false);
-    await loadDate(created.serviceDate, created.showId);
   };
 
   const handleDateChange = (days: number) => {
@@ -2769,8 +2753,17 @@ function RundownPage() {
           <NewShowModal
             currentDate={serviceDate}
             currentStartTime={scheduledStartTime}
-            canCopyCurrent={Boolean(showId)}
-            onCreate={handleCreateShow}
+            orgId={orgId}
+            userId={user.id}
+            currentShowId={showId}
+            timeZone={deviceTimeZone}
+            beforeCreate={async signal => {await waitForCurrentRundownWrites();signal.throwIfAborted();}}
+            onCreated={async(result,signal)=>{
+              const opened=await loadDate(result.serviceDate,result.showId,signal);
+              signal.throwIfAborted();
+              if(!opened)throw new Error("The show was created, but the rundown could not open. Retry opening it.");
+              setShowCreateModal(false);
+            }}
             onClose={() => setShowCreateModal(false)}
           />
         ) : null}

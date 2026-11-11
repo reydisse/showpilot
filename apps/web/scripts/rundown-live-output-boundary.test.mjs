@@ -6,7 +6,7 @@ const source = readFileSync(new URL("../src/routes/$slug/rundown.tsx", import.me
 
 test("browsing a rundown does not publish the venue output target", () => {
   const loadStart = source.indexOf("const loadDate = async");
-  const loadEnd = source.indexOf("const handleCreateShow", loadStart);
+  const loadEnd = source.indexOf("const handleDateChange", loadStart);
   assert.ok(loadStart >= 0 && loadEnd > loadStart, "loadDate boundary not found");
   assert.doesNotMatch(source.slice(loadStart, loadEnd), /publishTarget\s*\(/);
 });
