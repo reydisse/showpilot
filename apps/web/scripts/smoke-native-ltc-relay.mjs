@@ -5,10 +5,11 @@ import { spawn, execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
 import { poll } from "./real-browser-fixture.mjs";
+import { LINUX_ENGINE_FILENAME } from "../../../scripts/linux-bridge-sidecar.mjs";
 
 const root = resolve(import.meta.dirname, "../../..");
 const host = execFileSync("rustc", ["--print", "host-tuple"], { encoding:"utf8" }).trim();
-const binary = resolve(root, `apps/bridge-desktop/src-tauri/binaries/showpilot-bridge-${host}${process.platform==="win32"?".exe":""}`);
+const binary = resolve(root, `apps/bridge-desktop/src-tauri/binaries/${process.platform === "linux" ? LINUX_ENGINE_FILENAME : `showpilot-bridge-${host}${process.platform==="win32"?".exe":""}`}`);
 await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorEmail, operatorPassword, operatorCookie, capturedEmails }) => {
   const click = name => browser("find", "role", "button", "click", "--name", name, "--exact");
   const headers = { Cookie:operatorCookie, Origin:origin, "Content-Type":"application/json" };
