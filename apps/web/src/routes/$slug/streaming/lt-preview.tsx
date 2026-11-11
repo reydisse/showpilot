@@ -1,3 +1,4 @@
+import { PageBreadcrumb } from "@/components/ui/PageBreadcrumb";
 import { useGraphicsOutput } from "@/hooks/useGraphicsOutput";
 import { restoreGraphicScene, type PreviewSceneLayer } from "@/lib/graphic-scenes";
 import { useOperatorRead, type OperatorReadFailure } from "@/hooks/useOperatorRead";
@@ -511,14 +512,16 @@ function TemplatePreviewPage() {
       <div className="relative lg:sticky top-0 z-20 border-b border-board-border bg-[#090c12]/95 px-4 py-3 backdrop-blur-xl lg:px-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            <Link
-              to="/$slug/streaming/graphics"
-              params={{ slug }}
-              className="min-h-11 inline-flex items-center gap-1 text-xs text-board-muted hover:text-board-text transition-colors mb-1"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-              Back to Lower Thirds
-            </Link>
+            <PageBreadcrumb current="Template Studio">
+              <Link activeOptions={{ exact: true }}
+                to="/$slug/streaming/graphics"
+                params={{ slug }}
+                className="min-h-11 inline-flex items-center gap-1 text-xs text-board-muted hover:text-board-text transition-colors mb-1 rounded outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                Back to Lower Thirds
+              </Link>
+            </PageBreadcrumb>
             <div className="flex items-center gap-2">
               <h1 className="font-display text-lg font-semibold text-board-text">Template Studio</h1>
               <ContextHelp title="Template Studio" description="Build the next composition in Preview. Save graphic stores only the selected lower third, Save scene stores every preview layer, Take Live atomically replaces Program, and Clear removes Program from connected outputs." className="size-11" />

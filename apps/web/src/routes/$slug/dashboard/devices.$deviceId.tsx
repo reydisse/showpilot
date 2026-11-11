@@ -1,3 +1,4 @@
+import { PageBreadcrumb } from "@/components/ui/PageBreadcrumb";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { ArrowLeft, Wifi, WifiOff, AlertTriangle, Loader2 } from "lucide-react";
 import { getDevice } from "@/lib/data";
@@ -29,16 +30,19 @@ function DeviceDetailPage({ device }: { device: NonNullable<Awaited<ReturnType<t
     <div className="h-full min-h-0 overflow-auto bg-board-bg p-4 md:p-6">
       {/* Header */}
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <Link
-            to="/$slug/dashboard/devices"
-            params={{ slug }}
-            search={{ device: device.id }}
-            aria-label="Back to devices"
-            className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg border border-board-border bg-board-card p-2 text-board-muted outline-none hover:text-board-text focus-visible:ring-2 focus-visible:ring-fire-500 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <PageBreadcrumb current="Device details">
+            <Link activeOptions={{ exact: true }}
+              to="/$slug/dashboard/devices"
+              params={{ slug }}
+              search={{ device: device.id }}
+              aria-label="Back to devices"
+              className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-board-border bg-board-card px-3 py-2 text-board-muted outline-none transition-colors hover:text-board-text focus-visible:ring-2 focus-visible:ring-fire-500"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Devices
+            </Link>
+          </PageBreadcrumb>
           <div className="min-w-0">
             <h1 className="text-lg font-semibold text-board-text truncate">
               {device.name}

@@ -92,10 +92,9 @@ function OrgContent() {
   const context = Route.useRouteContext();
   const matchRoute = useMatchRoute();
   const isBoard = matchRoute({ to: "/$slug/board" });
-  const isCrewChat = matchRoute({ to: "/$slug/crew-chat" });
   const isCheckin = matchRoute({ to: "/$slug/checkin" });
   const isRundown = matchRoute({ to: "/$slug/rundown" });
-  const standaloneRoute = isBoard || isCrewChat || isCheckin;
+  const standaloneRoute = isBoard || isCheckin;
   const canUseTimecode = hasEffectivePermission(
     context.role,
     context.grantedPermissions,

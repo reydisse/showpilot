@@ -1,3 +1,4 @@
+import { PageBreadcrumb } from "@/components/ui/PageBreadcrumb";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
@@ -97,15 +98,18 @@ function IncidentHistoryPage() {
     <div className="h-full overflow-auto">
       <header className="sticky top-0 z-10 border-b border-board-border bg-board-bg/90 px-4 py-3 backdrop-blur-xl md:px-6">
         <div className="flex flex-wrap items-center gap-3">
-          <Link
-            to="/$slug/production/incidents"
-            params={{ slug }}
-            search={{ incident: undefined, date: undefined, show: undefined }}
-            className="rounded-lg border border-board-border p-2 text-board-muted hover:text-board-text"
-            aria-label="Back to current incidents"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
+          <PageBreadcrumb current="History">
+            <Link activeOptions={{ exact: true }}
+              to="/$slug/production/incidents"
+              params={{ slug }}
+              search={{ incident: undefined, date: undefined, show: undefined }}
+              className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 px-3 outline-none focus-visible:ring-2 focus-visible:ring-fire-500 rounded-lg border border-board-border p-2 text-board-muted hover:text-board-text"
+              aria-label="Back to current incidents"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Incidents
+            </Link>
+          </PageBreadcrumb>
           <div>
             <h1 className="text-base font-semibold text-board-text">
               Incident history
