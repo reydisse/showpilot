@@ -1,3 +1,4 @@
+import { refreshRetainedResult } from "@/lib/retained-refresh";
 import {
   useQuery,
   useQueryClient,
@@ -47,34 +48,53 @@ async function refreshResult(
   command: ScheduleReminderCommand,
   result: ScheduleReminderResult,
   refresh: () => Promise<void>,
+  retry = false,
 ) {
-  const key = keyFor(command);
-  client.setQueryData<Attempt>(key, () => ({
-    kind: "confirmed",
-    command,
-    result,
-    refresh: "pending",
-    at: Date.now(),
-  }));
-  try {
-    await runRouteLoad(() => refresh(), undefined, 12_000);
-    client.setQueryData<Attempt>(key, () => ({
-      kind: "confirmed",
-      command,
-      result,
-      refresh: "done",
-      at: Date.now(),
-    }));
-  } catch {
-    client.setQueryData<Attempt>(key, () => ({
-      kind: "confirmed",
-      command,
-      result,
-      refresh: "failed",
-      at: Date.now(),
-    }));
-  }
+  return refreshRetainedResult<Attempt>({
+    client,
+    key: keyFor(command),
+    refresh,
+    begin: (current) => {
+      if (
+        !current ||
+        current.command.requestId !== command.requestId ||
+        (current.kind === "confirmed" && current.refresh === "pending")
+      )
+        return null;
+      if (
+        retry &&
+        (current.kind !== "confirmed" || current.refresh !== "failed")
+      )
+        return null;
+      const confirmed =
+        retry && current.kind === "confirmed" ? current.result : result;
+      return {
+        pending: {
+          kind: "confirmed",
+          command,
+          result: confirmed,
+          refresh: "pending",
+          at: Date.now(),
+        },
+        done: {
+          kind: "confirmed",
+          command,
+          result: confirmed,
+          refresh: "done",
+          at: Date.now(),
+        },
+        failed: () => ({
+          kind: "confirmed",
+          command,
+          result: confirmed,
+          refresh: "failed",
+          at: Date.now(),
+        }),
+      };
+    },
+  });
 }
+
 async function execute(
   client: QueryClient,
   command: ScheduleReminderCommand,
@@ -241,6 +261,7 @@ export function ReminderControl({
                 attempt.command,
                 attempt.result,
                 onChanged,
+                true,
               )
             }
           >

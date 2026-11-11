@@ -1,3 +1,4 @@
+import { refreshRetainedResult } from "@/lib/retained-refresh";
 import {
   useQuery,
   useQueryClient,
@@ -33,28 +34,28 @@ async function refreshResult(
   refresh: () => Promise<void>,
   requireIdle = false,
 ) {
-  const key = keyFor(attempt.command);
-  if (requireIdle) {
-    const live = client.getQueryData<Attempt | null>(key);
-    if (
-      !live ||
-      live.command.requestId !== attempt.command.requestId ||
-      live.phase === "pending" ||
-      live.refresh === "pending"
-    )
-      return false;
-    attempt = live;
-  }
-  client.setQueryData(key, { ...attempt, refresh: "pending" });
-  try {
-    await runRouteLoad(() => refresh(), undefined, 12_000);
-    client.setQueryData(key, { ...attempt, refresh: "done" });
-    return true;
-  } catch {
-    client.setQueryData(key, { ...attempt, refresh: "failed" });
-    return false;
-  }
+  return refreshRetainedResult<Attempt>({
+    client,
+    key: keyFor(attempt.command),
+    refresh,
+    begin: (current) => {
+      if (
+        !current ||
+        current.command.requestId !== attempt.command.requestId ||
+        current.refresh === "pending" ||
+        (requireIdle && current.phase === "pending")
+      )
+        return null;
+      const confirmed = requireIdle ? current : attempt;
+      return {
+        pending: { ...confirmed, refresh: "pending" },
+        done: { ...confirmed, refresh: "done" },
+        failed: () => ({ ...confirmed, refresh: "failed" }),
+      };
+    },
+  });
 }
+
 async function execute(
   client: QueryClient,
   command: CopyTeamCommand,

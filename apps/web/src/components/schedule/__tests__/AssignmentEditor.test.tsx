@@ -324,3 +324,21 @@ it("retries an invitation against the original saved command", async () => {
   await tick();
   expect(sent(1)).toEqual(sent());
 });
+
+it("coalesces repeated refresh retries after an acknowledged assignment", async () => {
+  api.refresh.mockRejectedValueOnce(new Error("Refresh offline"));
+  mount();
+  change("Position", "Camera");
+  click("Add position");
+  await tick();
+  const held = deferred<void>();
+  api.refresh.mockReturnValueOnce(held.promise);
+  const retry = screen.getByRole("button", { name: "Retry refresh" });
+  fireEvent.click(retry);
+  fireEvent.click(retry);
+  await tick();
+  expect(api.refresh).toHaveBeenCalledTimes(2);
+  held.resolve();
+  await tick();
+  expect(api.save).toHaveBeenCalledTimes(1);
+});
