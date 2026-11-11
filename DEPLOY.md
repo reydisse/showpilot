@@ -5371,3 +5371,38 @@ Logs: `/tmp/showpilot-display-validation-full2.log`, `-tsc2.log`, `-build.log`,
 old exact-object denial expectations; they now assert the new reason as well.
 Phase 2 is 63/79 verified. The separate published Settings kiosk-link item is
 still open. No deployment, migration, native release or new Markdown files.
+
+
+## Phase 2 Settings kiosk display links, 2026-11-08
+
+Access Tokens previously issued only lobby data tokens and offered no browser
+display link. Operators can now choose Lobby app/data API, Stage/confidence or
+Overlay. The latter two produce the matching protected display URL, a copy
+control and “Open display to check”. The default lobby API behavior is retained.
+Saved rows identify the purpose. Plaintext tokens and links stay in the creation
+notice only and disappear on dismissal, navigation or reload.
+
+Two baseline UI failures now pass; the token component suite has seven passing
+cases, including scoped URLs, dismissal and the separate lobby API behavior.
+Full suite: 2,369 unit / 1,186 Worker tests pass. Typecheck and production build
+pass; main bundle 551,911 raw / 174,544 gzip bytes.
+
+`smoke-kiosk-display-links.mjs` generates both links in the compiled Settings UI
+and opens them in separate anonymous Chrome profiles. Actual stage text and
+overlay graphics appear at their display routes. Credentials disappear from the
+address bar and stay in HttpOnly cookies. Dismissal/reload removes secret fields;
+revocation rejects the old link. D1 contains two hashed tokens. Controls fit at
+320x480/768/1440px; inspected the narrow screenshot.
+
+Logs: `/tmp/showpilot-kiosk-links-full2.log`, `-tsc.log`, `-build.log`, and
+`-browser3.log`. The first suite/fixture attempts overlapped lid-triggered sleep
+and timed out; the clean rerun passed. A script-only nested-quote error in the
+second browser attempt was corrected before the final run. No timeouts were
+increased. Phase 2 is 64/79 verified. No production deployment, migration,
+native release or new Markdown files.
+
+The separate 45-minute clock run stopped at minute 19 when macOS entered
+Clamshell Sleep at 2026-11-07 22:52:19 America/Toronto. The last relay feed was
+22:52:14; the relay correctly reported timecode lost. The run is not acceptance
+proof. A new isolated run started at 2026-11-08 05:07:13 UTC with browser feed
+and host-load diagnostics; its result remains pending.
