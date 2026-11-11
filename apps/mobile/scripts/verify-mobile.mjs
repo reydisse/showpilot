@@ -600,7 +600,7 @@ const commands = [
   ["exec", "expo", "export", "--platform", "ios", "--output-dir", "dist/ios", "--clear"],
   ["exec", "expo", "export", "--platform", "android", "--output-dir", "dist/android", "--clear"],
   ["exec", "expo", "export", "--platform", "web", "--output-dir", "dist/web", "--clear"],
-  ["dlx", "expo-doctor", "."],
+  ["dlx", "expo-doctor@1.21.6", "."],
 ];
 
 for (const args of commands) {
