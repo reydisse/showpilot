@@ -576,7 +576,7 @@ function SidebarContent({
               {!collapsed && "Unavailable pages"}
             </summary>
             <div className="space-y-3 px-2 pb-3 text-xs text-board-muted">
-              <p>Ask an owner or admin if you need a page listed here.</p>
+              <p>Ask an owner or admin for access.</p>
               <ul className="space-y-3">
                 {unavailable.map((item) => (
                   <li key={item.path}>
