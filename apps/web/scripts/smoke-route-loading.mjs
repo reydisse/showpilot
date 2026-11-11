@@ -75,6 +75,9 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
         await page('Input.dispatchMouseEvent', { type: 'mouseReleased', x: bounds.x, y: bounds.y, button: 'left', clickCount: 1 });
         await poll(() => evaluate('window.heldReads.length >= 2'), 'second attempt held');
         await errorReady();
+        // The phone Retry coordinates land on Crew status after widening. Park
+        // the pointer first so intent preloading cannot bypass the next fault.
+        await page('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 });
         await page('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
         await poll(() => evaluate(`!document.querySelector('button[aria-label="Open menu"]')`), 'desktop layout committed');
       }
