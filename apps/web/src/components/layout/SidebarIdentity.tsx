@@ -1,6 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { Bell, BellRing, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, LogOut, Settings, UserRound } from "lucide-react";
-import { Link, useNavigate, useRouter } from "@tanstack/react-router";
+import { CatchBoundary, Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { ROLE_COLOURS } from "./account-role";
 import { getPersonalNotifications, savePersonalNotificationTimeZone } from "@/lib/personal-notifications";
 import { getDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
@@ -13,6 +13,8 @@ import {
   readPersonalNotificationCount,
 } from "@/lib/notification-events";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { runRouteLoad } from "@/lib/route-load-deadlines";
 import {
   DESKTOP_NOTIFICATION_POLL_EVENT,
   getDesktopNotificationPermission,
@@ -20,14 +22,14 @@ import {
   isDesktopRuntime,
 } from "@/lib/desktop-runtime";
 
-const ProfilePanel = lazy(() =>
-  import("./ProfileModal").then((module) => ({ default: module.ProfilePanel })),
-);
-const NotificationInbox = lazy(() =>
-  import("./NotificationCenter").then((module) => ({
-    default: module.NotificationInbox,
-  })),
-);
+function AccountPanelFailure({ retry }: { retry: () => void }) {
+  const [failedAt] = useState(Date.now);
+  return <div role="alert" aria-label="Account view unavailable" className="min-h-0 overflow-y-auto p-5 text-sm text-board-text">
+    <p>Could not load this account view.</p>
+    <time className="mt-2 block text-xs text-board-muted" dateTime={new Date(failedAt).toISOString()}>Last attempt: {new Date(failedAt).toLocaleTimeString()}</time>
+    <Button type="button" variant="outline" onClick={retry} className="mt-4 min-h-11">Retry account view</Button>
+  </div>;
+}
 
 function AccountPanelFallback() {
   return (
@@ -72,6 +74,10 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
   const router = useRouter();
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountView, setAccountView] = useState<AccountView>("menu");
+  const [panelAttempt, setPanelAttempt] = useState(0);
+  const AccountPanels = useMemo(() => lazy(() => runRouteLoad(() => import("./AccountPanels").then(module => ({ default: module.createAccountPanels() })))), [panelAttempt]);
+  const PanelError = useCallback(() => <AccountPanelFailure retry={() => setPanelAttempt(attempt => attempt + 1)} />, []);
+
   const [localUser, setLocalUser] = useState(user);
   const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
   const [unread, setUnread] = useState(0);
@@ -138,31 +144,20 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
     setPushStatusReady(!supported);
     if (!supported) return () => { active = false; };
 
-    const resolveStatus = async () => {
-      if (isDesktopNotificationSupported()) {
-        const permission = await getDesktopNotificationPermission();
+    setPushPermission("default");
+    void runRouteLoad(() => import("@/lib/device-notification-status").then(module => module.readDeviceNotificationStatus(orgId))).then(
+      ({ permission, enabled }) => {
         if (!active) return;
         setPushPermission(permission);
-        setPushEnabled(permission === "granted");
+        setPushEnabled(enabled);
         setPushStatusReady(true);
-        return;
-      }
-
-      const permission = Notification.permission;
-      if (!active) return;
-      setPushPermission(permission);
-      if (permission === "granted") {
-        try {
-          await enablePushForOrg(orgId, false);
-          if (active) setPushEnabled(true);
-        } catch {
-          if (active) setPushEnabled(false);
-        }
-      }
-      if (active) setPushStatusReady(true);
-    };
-
-    void resolveStatus();
+      },
+      () => {
+        if (!active) return;
+        setPushStatusReady(true);
+        setPushError("Could not check device notifications. Try enabling alerts again.");
+      },
+    );
     return () => { active = false; };
   }, [orgId]);
 
@@ -286,7 +281,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
       <Dialog open={accountOpen} onOpenChange={closeAccount}>
         <DialogContent
           className={cn(
-            "flex max-h-[min(760px,calc(100dvh-2rem))] min-h-0 flex-col gap-0 overflow-hidden border-board-border bg-board-card p-0 text-board-text shadow-[0_24px_80px_rgba(0,0,0,0.5)]",
+            "[&>[data-slot=dialog-close]]:size-11 [&>[data-slot=dialog-close]]:top-1 [&>[data-slot=dialog-close]]:right-1 [&>[data-slot=dialog-close]]:flex [&>[data-slot=dialog-close]]:items-center [&>[data-slot=dialog-close]]:justify-center flex max-h-[min(760px,calc(100dvh-2rem))] min-h-0 flex-col gap-0 overflow-hidden border-board-border bg-board-card p-0 text-board-text shadow-[0_24px_80px_rgba(0,0,0,0.5)]",
             "max-sm:inset-0 max-sm:h-[100dvh] max-sm:max-h-none max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none max-sm:border-0",
             accountView === "menu" ? "sm:max-w-[430px]" : "sm:max-w-[680px]",
           )}
@@ -308,7 +303,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
                   ) : initials}
                 </div>
               ) : (
-                <button type="button" onClick={() => setAccountView("menu")} className="flex size-10 shrink-0 items-center justify-center rounded-lg text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text" aria-label="Back to account">
+                <button type="button" onClick={() => setAccountView("menu")} className="flex size-11 shrink-0 items-center justify-center rounded-lg text-board-muted transition-colors hover:bg-board-border/50 hover:text-board-text" aria-label="Back to account">
                   <ChevronLeft className="size-5" />
                 </button>
               )}
@@ -383,16 +378,16 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
             </div>
           ) : null}
 
-          {accountView === "profile" ? (
-            <Suspense fallback={<AccountPanelFallback />}>
-              <ProfilePanel user={localUser} role={role} orgName={orgName} onUserUpdated={handleUserUpdated} onSignOut={signOut} />
-            </Suspense>
-          ) : null}
-
-          {accountView === "notifications" ? (
-            <Suspense fallback={<AccountPanelFallback />}>
-              <NotificationInbox key={`${orgId}:${localUser.id}`} orgId={orgId} userId={localUser.id} slug={slug} onUnreadChange={setUnread} onNavigate={() => setAccountOpen(false)} />
-            </Suspense>
+          {accountView !== "menu" ? (
+            <CatchBoundary key={`${orgId}:${localUser.id}`} getResetKey={() => panelAttempt} errorComponent={PanelError}>
+              <Suspense fallback={<AccountPanelFallback />}>
+                {accountView === "profile" ? (
+                  <AccountPanels view="profile" panelProps={{ user: localUser, role, orgName, onUserUpdated: handleUserUpdated, onSignOut: signOut }} />
+                ) : (
+                  <AccountPanels view="notifications" panelProps={{ orgId, userId: localUser.id, slug, onUnreadChange: setUnread, onNavigate: () => setAccountOpen(false) }} />
+                )}
+              </Suspense>
+            </CatchBoundary>
           ) : null}
 
           {accountView === "menu" ? (
