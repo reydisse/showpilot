@@ -5,7 +5,7 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { TimecodeText } from "@/components/timecode/TimecodeDisplay";
+import { TimecodeDisplay, TimecodeText } from "@/components/timecode/TimecodeDisplay";
 import {
   ArrowLeft,
   ChevronDown,
@@ -609,10 +609,7 @@ function SongStudioPage() {
             ) : null}
             {canManage ? (
               <div className="flex items-center gap-2 text-xs text-board-muted">
-                <span
-                  className={`h-2 w-2 rounded-full ${timecode.connected ? "bg-green-400" : "bg-red-400"}`}
-                />
-                {timecode.connected ? <TimecodeText state={timecode.state} connected={timecode.connected} /> : "Timecode offline"}
+                <TimecodeDisplay state={timecode.state} connectionStatus={timecode.connectionStatus} showState />
               </div>
             ) : (
               <span className="rounded-full border border-board-border px-3 py-1.5 text-xs text-board-muted">

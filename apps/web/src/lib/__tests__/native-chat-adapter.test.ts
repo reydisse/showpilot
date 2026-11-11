@@ -28,6 +28,88 @@ describe("NativeChatAdapter recovery and history", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
+  it("reports Connected only after the room confirms its state", async () => {
+    const adapter = new NativeChatAdapter("org-1");
+    try {
+      const opening = adapter.connect();
+      const socket = FakeWebSocket.instances.at(-1)!;
+      socket.open(); await opening;
+      expect(adapter.connectionStatus()).toBe("connecting");
+      socket.receive({ type: "hydrate", messages: [], readReceipts: {} });
+      expect(adapter.connectionStatus()).toBe("connected");
+    } finally { adapter.disconnect(); }
+  });
+
+  it("retires an unconfirmed room at the deadline even when the socket close handshake stalls", async () => {
+    vi.useFakeTimers();
+    const adapter = new NativeChatAdapter("org-1");
+    try {
+      const opening = adapter.connect();
+      const old = FakeWebSocket.instances.at(-1)!;
+      old.open(); await opening;
+      vi.spyOn(old, "close").mockImplementation(() => { old.readyState = 2; });
+      await vi.advanceTimersByTimeAsync(8_000);
+      expect(adapter.connectionStatus()).toBe("reconnecting");
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      old.receive({ type: "hydrate", messages: [], readReceipts: {} });
+      old.onclose?.({ code: 1006, reason: "Late close" });
+      expect(adapter.connectionStatus()).toBe("reconnecting");
+      const replacement = FakeWebSocket.instances.at(-1)!;
+      replacement.open(); replacement.receive({ type: "hydrate", messages: [], readReceipts: {} });
+      expect(adapter.connectionStatus()).toBe("connected");
+    } finally { adapter.disconnect(); vi.useRealTimers(); }
+  });
+
+  it("bounds a missing room confirmation, preserves queued messages, and ignores a superseded socket", async () => {
+    vi.useFakeTimers();
+    const adapter = new NativeChatAdapter("org-1", undefined, "production", "retry-user", "user-1");
+    try {
+      const opening = adapter.connect();
+      const old = FakeWebSocket.instances.at(-1)!;
+      old.open(); await opening;
+      await adapter.sendMessage("Queued before room confirmation", "text", "Ada");
+      expect(old.sent).toEqual([]);
+      await vi.advanceTimersByTimeAsync(8_000);
+      expect(old.readyState).toBe(3);
+      expect(adapter.connectionStatus()).toBe("reconnecting");
+      await vi.advanceTimersByTimeAsync(1_000);
+      const current = FakeWebSocket.instances.at(-1)!;
+      current.open();
+      expect(adapter.connectionStatus()).toBe("reconnecting");
+      old.receive({ type: "hydrate", messages: [], readReceipts: {} });
+      old.close();
+      expect(adapter.connectionStatus()).toBe("reconnecting");
+      expect(current.sent).toEqual([]);
+      current.receive({ type: "hydrate", messages: [], readReceipts: {} });
+      expect(adapter.connectionStatus()).toBe("connected");
+      expect(current.sent.map(frame => JSON.parse(frame)).filter(frame => frame.type === "message")).toHaveLength(1);
+      current.receive({ type: "history", messages: [], readReceipts: {} });
+      expect(current.sent.map(frame => JSON.parse(frame)).filter(frame => frame.type === "message")).toHaveLength(1);
+    } finally { adapter.disconnect(); vi.useRealTimers(); }
+  });
+
+  it("retries constructor failures and bounds sockets that never open", async () => {
+    vi.useFakeTimers();
+    const adapter = new NativeChatAdapter("org-1");
+    try {
+      vi.stubGlobal("WebSocket", class { constructor() { throw new Error("Unavailable"); } });
+      await expect(adapter.connect()).rejects.toThrow("Unavailable");
+      expect(adapter.connectionStatus()).toBe("reconnecting");
+      vi.stubGlobal("WebSocket", FakeWebSocket);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(FakeWebSocket.instances).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(8_000);
+      expect(FakeWebSocket.instances[0].readyState).toBe(3);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      adapter.disconnect();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(FakeWebSocket.instances).toHaveLength(2);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { adapter.disconnect(); vi.useRealTimers(); }
+  });
+
   it("bounds stalled history, aborts it, and retries without advancing the cursor", async () => {
     vi.useFakeTimers();
     const adapter = new NativeChatAdapter("org-1", undefined, "planning");
@@ -88,6 +170,7 @@ describe("NativeChatAdapter recovery and history", () => {
     const socket = FakeWebSocket.instances.at(-1)!;
     socket.open();
     await connected;
+    socket.receive({ type: "hydrate", messages: [], readReceipts: {} });
     expect(socket.sent.some((frame) => JSON.parse(frame).clientMessageId === messageId)).toBe(true);
     expect(outboxSnapshots.at(-1)).toMatchObject([{ id: messageId, delivery: "sending" }]);
 

@@ -1,3 +1,4 @@
+import type { ConnectionStatus } from "@/lib/connection-state";
 import { useState } from "react";
 import { Pause, Play, Square, TimerReset } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,9 +8,9 @@ import { TimecodeDisplay } from "./TimecodeDisplay";
 import type { TimecodeState } from "@/types/timecode";
 import type { TimecodeStartPosition } from "@/lib/timecode-start";
 
-export function TimecodeTransport({ state, connected, canControl, isMaster, pending, onStart, onStop, onPause }: {
+export function TimecodeTransport({ state, connectionStatus, canControl, isMaster, pending, onStart, onStop, onPause }: {
   state: TimecodeState | null;
-  connected: boolean;
+  connectionStatus: ConnectionStatus;
   canControl: boolean;
   isMaster: boolean;
   pending: "starting" | "stopping" | null;
@@ -17,13 +18,14 @@ export function TimecodeTransport({ state, connected, canControl, isMaster, pend
   onStop: () => void;
   onPause: () => void;
 }) {
+  const connected = connectionStatus === "connected";
   const [positionOpen, setPositionOpen] = useState(false);
   const enabled = connected && canControl && state !== null && pending === null;
   const paused = state?.signal?.status === "paused";
   const canChoosePosition = enabled && !state?.running && !paused && !state?.incomingFormat && Boolean(state?.showId);
   const buttonClass = "min-h-11 min-w-11 px-3 text-xs";
   return <div aria-label="Timecode transport" className="flex min-w-0 flex-wrap items-center gap-2">
-    <TimecodeDisplay state={state} connected={connected} showState />
+    <TimecodeDisplay state={state} connectionStatus={connectionStatus} showState />
     {isMaster ? <>
       <Button type="button" variant="outline" className={`${buttonClass} text-red-300`} disabled={!enabled} onClick={onStop}>
         <Square />{pending === "stopping" ? "Stopping…" : "Stop Generator"}

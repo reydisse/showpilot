@@ -51,6 +51,7 @@ function TimecodeSession({ children, enabled, orgId }: ProviderProps) {
     setShowId(id);
   };
   return <TimecodeContext.Provider value={{ ...timecode, showId, shows, selectShow,
+    connectionStatus: !enabled ? "disabled" : showId ? timecode.connectionStatus : showList.status === "loading" ? "connecting" : showList.status === "error" ? "error" : "disabled",
     showLoading: enabled && showList.status === "loading",
     showError: showList.status === "error" ? "Could not load shows. Retry to select a timecode show." : null,
     refreshShows: () => setRefresh(value => value + 1),

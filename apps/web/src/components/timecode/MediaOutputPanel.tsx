@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { connectionLabel, type ConnectionStatus } from "@/lib/connection-state";
 import {
   mediaOutputNameSchema,
   mediaOutputUrl,
@@ -9,14 +10,15 @@ import {
 export function MediaOutputPanel({
   orgSlug,
   showId,
-  connected,
+  connectionStatus,
   outputs,
 }: {
   orgSlug: string;
   showId: string | null;
-  connected: boolean;
+  connectionStatus: ConnectionStatus;
   outputs: MediaOutputSnapshot[];
 }) {
+  const connected = connectionStatus === "connected";
   const [name, setName] = useState("Program");
   const id = useId();
   const parsed = mediaOutputNameSchema.safeParse(name);
@@ -61,10 +63,10 @@ export function MediaOutputPanel({
       </div>
       {!connected && (
         <p role="status" className="text-amber-300">
-          Disconnected. Media output status is unconfirmed.
+          {connectionLabel[connectionStatus]}. Media output status is unconfirmed.
         </p>
       )}
-      {outputs.length === 0 ? (
+      {outputs.length === 0 ? connected && (
         <p className="text-board-muted">
           No media output enabled for this show.
         </p>

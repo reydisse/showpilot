@@ -126,7 +126,7 @@ function TimecodePage() {
               Show automation sequencer
             </p>
           </div>
-          <TimecodeTransport key={timecode.showId} state={state} connected={connected} canControl={control !== "other"} isMaster={isMaster} pending={generatorPending}
+          <TimecodeTransport key={timecode.showId} state={state} connectionStatus={timecode.connectionStatus} canControl={control !== "other"} isMaster={isMaster} pending={generatorPending}
             onStart={startFreerun} onStop={stopGenerator} onPause={pauseGenerator} />
         </div>
       </div>
@@ -136,7 +136,7 @@ function TimecodePage() {
         <TimecodeShowPicker />
         <TimecodeControlNotice />
         {!connected && <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">
-          <p>{state ? "Reconnecting, showing last known timecode state." : lastError ? "Reconnecting to timecode." : "Connecting to timecode…"} Controls will be available after the show state is confirmed.</p>
+          <p>{timecode.connectionStatus === "disabled" ? "Select a show to connect timecode." : timecode.connectionStatus === "error" ? "Timecode connection is unavailable." : state ? "Reconnecting, showing last known timecode state." : timecode.connectionStatus === "reconnecting" ? "Reconnecting to timecode." : "Connecting to timecode…"} Controls will be available after the show state is confirmed.</p>
           {lastError && <Button type="button" variant="outline" className="min-h-11" onClick={retryConnection}>Reconnect timecode</Button>}
         </div>}
         {lastError && <p role="alert" data-timecode-error className="rounded-xl border border-red-500/40 p-4 text-sm text-red-300">
@@ -144,10 +144,10 @@ function TimecodePage() {
         </p>}
         <TimecodeAutomationControl state={state} connected={connected} canControl={control !== "other"} onSetEnabled={setTriggersEnabled} onResumeAutomaticCues={resumeAutomaticCues} />
         <NamedTimers sample={state?.namedTimers ?? null} connected={connected} outputTarget={timecode.showId ? { orgSlug: slug, showId: timecode.showId } : undefined} />
-        <MediaOutputPanel orgSlug={slug} showId={timecode.showId} connected={connected} outputs={state?.mediaOutputs ?? []} />
+        <MediaOutputPanel orgSlug={slug} showId={timecode.showId} connectionStatus={timecode.connectionStatus} outputs={state?.mediaOutputs ?? []} />
         {/* Large TC display */}
         <div className="rounded-xl border border-board-border bg-board-card p-4 sm:p-8">
-          <TimecodeDisplay state={state} connected={connected} size="large" />
+          <TimecodeDisplay state={state} connectionStatus={timecode.connectionStatus} size="large" />
         </div>
 
         {/* Large TC display */}
@@ -168,7 +168,7 @@ function TimecodePage() {
 
         {/* Large TC display */}
         <MidiControllerPanel key={timecode.showId} timecode={timecode} />
-        <AutomationTimelinePanel key={`timeline:${orgId}`} orgId={orgId}
+        {state ? <AutomationTimelinePanel key={`timeline:${orgId}`} orgId={orgId}
           events={events}
           state={state}
           onRemoveEvent={removeEvent}
@@ -181,7 +181,7 @@ function TimecodePage() {
           onSetEventEnabled={setEventEnabled}
           onEditEvent={event => { if (state && timecode.showId) setEditing({ event: structuredClone(event), format: { ...state.format }, showId: timecode.showId, generation: 0 }); }}
           connected={connected && control !== "other"}
-        />
+        /> : <p role="status" className="text-sm text-board-muted">The timeline will appear after the show state is confirmed.</p>}
 
         {events.length === 0 && !demoLoaded && !state?.running && connected && (
           <section className="rounded-xl border border-board-border p-4 text-sm text-board-muted">

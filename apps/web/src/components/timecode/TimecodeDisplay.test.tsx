@@ -32,11 +32,17 @@ function sample(frame: number, at: number): TimecodeState {
 }
 const tree = (state: TimecodeState, connected = true) => (
   <>
-    <TimecodeDisplay state={state} connected={connected} size="large" />
-    <TimecodeDisplay state={state} connected={connected} size="compact" />
+    <TimecodeDisplay state={state} connectionStatus={connected ? "connected" : "disconnected"} size="large" />
+    <TimecodeDisplay state={state} connectionStatus={connected ? "connected" : "disconnected"} size="compact" />
     <TimecodeText state={state} connected={connected} />
   </>
 );
+
+it("does not report a disconnected clock before its first confirmed state", () => {
+  render(<TimecodeDisplay state={null} connectionStatus="connecting" size="large" />);
+  expect(screen.getByRole("status", { name: "Timecode connecting" })).toBeTruthy();
+  expect(screen.queryByText("Disconnected")).toBeNull();
+});
 
 it("smooths all clock sizes while leaving the relay state untouched, then holds when updates stop", () => {
   const view = render(tree(sample(300, 10_000)));
