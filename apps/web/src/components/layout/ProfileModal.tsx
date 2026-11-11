@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { ROLE_COLOURS } from "./account-role";
+import { ROLE_COLOURS, getAccountInitials } from "./account-role";
 
 const ROLE_LABELS: Record<string, string> = {
   owner: "Owner",
@@ -17,11 +17,7 @@ const ROLE_LABELS: Record<string, string> = {
   member: "Member",
 };
 
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
-}
+
 
 async function resizeImageToBlob(file: File, maxPx = 256): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -89,7 +85,7 @@ export function ProfilePanel({ user, role, orgName, onUserUpdated, onSignOut }: 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const roleColour = ROLE_COLOURS[role] ?? ROLE_COLOURS.member;
-  const initials = getInitials(displayName || user.name);
+  const initials = getAccountInitials(displayName || user.name);
   const roleLabel = ROLE_LABELS[role] ?? role;
   const nameUnchanged = displayName.trim() === user.name || !displayName.trim();
 

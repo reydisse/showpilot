@@ -37,6 +37,19 @@ jobs:
         run: pnpm --filter @showpilot/web db:generate
       - name: Build the actual application
         run: pnpm --filter @showpilot/web build
+      - name: Select a reachable Ubuntu archive mirror
+        run: |
+          test -f /etc/apt/apt-mirrors.txt
+          for mirror in https://archive.ubuntu.com/ubuntu/ https://mirrors.edge.kernel.org/ubuntu/; do
+            if curl --fail --silent --show-error --location --connect-timeout 5 --max-time 15 \
+              "${mirror}dists/jammy/InRelease" --output /dev/null; then
+              printf '%s\n' "$mirror" | sudo tee /etc/apt/apt-mirrors.txt
+              exit 0
+            fi
+          done
+          printf '%s\n' 'No Ubuntu archive mirror is reachable.' >&2
+          exit 1
+
       - uses: browser-actions/setup-chrome@v2
         id: chrome
         with:
