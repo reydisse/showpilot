@@ -4,6 +4,7 @@ import { getD1 } from "@/lib/d1";
 import { getRequestOrgAccess } from "@/lib/org-access";
 import { hasEffectivePermission } from "@/lib/permissions";
 import { idSchema, parseOrThrow } from "@/lib/validation";
+import { reportNoteWriteSchema, type ReportNoteWriteResult } from "./report-note-write";
 
 export type ShowReportLane = "pm" | "tm";
 
@@ -17,21 +18,10 @@ export interface ShowReportNote {
   wins: string;
   issues: string;
   followUps: string;
+  revision: number;
   createdAt: string;
   updatedAt: string;
 }
-
-const laneSchema = z.enum(["pm", "tm"]);
-const noteField = z.string().trim().max(4_000).default("");
-const noteWriteSchema = z.object({
-  orgId: idSchema,
-  showId: idSchema,
-  role: laneSchema,
-  summary: noteField,
-  wins: noteField,
-  issues: noteField,
-  followUps: noteField,
-});
 
 function mayWriteLane(
   role: string,
@@ -67,7 +57,7 @@ export const getShowReportNotes = createServerFn({ method: "GET" })
     if (!show) throw new Error("Show not found");
     const rows = await getD1().prepare(
       `SELECT id, showId, userId, authorName, role, summary, wins, issues,
-              followUps, createdAt, updatedAt
+              followUps, revision, createdAt, updatedAt
          FROM show_report_note
         WHERE orgId = ? AND showId = ?
         ORDER BY CASE role WHEN 'pm' THEN 0 ELSE 1 END, updatedAt ASC`,
@@ -83,8 +73,8 @@ export const getShowReportNotes = createServerFn({ method: "GET" })
   });
 
 export const saveShowReportNote = createServerFn({ method: "POST" })
-  .inputValidator((value: unknown) => parseOrThrow(noteWriteSchema, value))
-  .handler(async ({ data }): Promise<ShowReportNote> => {
+  .inputValidator((value: unknown) => parseOrThrow(reportNoteWriteSchema, value))
+  .handler(async ({ data }): Promise<ReportNoteWriteResult> => {
     const request = await getRequestOrgAccess(data.orgId);
     if (!mayWriteLane(request.access.role, request.access.grantedPermissions, data.role)) {
       throw new Error(`You do not have ${data.role === "pm" ? "Production" : "Technical"} Manager report access.`);
@@ -94,40 +84,8 @@ export const saveShowReportNote = createServerFn({ method: "POST" })
     ).bind(data.showId, data.orgId).first<{ id: string }>();
     if (!show) throw new Error("Show not found");
 
-    const id = crypto.randomUUID();
-    await getD1().prepare(
-      `INSERT INTO show_report_note
-         (id, orgId, showId, userId, authorName, role, summary, wins, issues,
-          followUps, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-       ON CONFLICT(orgId, showId, userId, role) DO UPDATE SET
-         authorName = excluded.authorName,
-         role = excluded.role,
-         summary = excluded.summary,
-         wins = excluded.wins,
-         issues = excluded.issues,
-         followUps = excluded.followUps,
-         updatedAt = CURRENT_TIMESTAMP`,
-    ).bind(
-      id,
-      data.orgId,
-      data.showId,
-      request.user.id,
-      request.user.name,
-      data.role,
-      data.summary,
-      data.wins,
-      data.issues,
-      data.followUps,
-    ).run();
-    const note = await getD1().prepare(
-      `SELECT id, showId, userId, authorName, role, summary, wins, issues,
-              followUps, createdAt, updatedAt
-         FROM show_report_note
-        WHERE orgId = ? AND showId = ? AND userId = ? AND role = ? LIMIT 1`,
-    ).bind(data.orgId, data.showId, request.user.id, data.role).first<ShowReportNote>();
-    if (!note) throw new Error("The report note did not save.");
-    return note;
+    const { applyReportNoteWrite } = await import("./report-note-write.server");
+    return applyReportNoteWrite(getD1(), data, request.user);
   });
 
 interface ReminderDatabase {
