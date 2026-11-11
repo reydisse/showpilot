@@ -79,3 +79,4 @@
 0072_tm_rundown_receipts.sql
 0073_graphics_clear_receipts.sql
 0074_report_note_recovery.sql
+0075_notification_read_receipts.sql
