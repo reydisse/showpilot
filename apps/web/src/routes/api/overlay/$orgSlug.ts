@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { getPrisma } from "@/lib/db";
 import { env } from "cloudflare:workers";
 import { authenticateDisplayRequest } from "@/lib/display-access.server";
+import { withPrimaryDatabase } from "@/lib/request-database.server";
 
 export const handleOverlayGet = async ({
   params,
@@ -9,7 +10,9 @@ export const handleOverlayGet = async ({
 }: {
   params: { orgSlug: string };
   request: Request;
-}) => {
+}) => withPrimaryDatabase(async () => {
+  // Display clients do not share the publishing operator's write cookie.
+  // Live output must not reappear from a lagging read replica after Clear.
   const prisma = getPrisma();
   const headers = {
     "Content-Type": "application/json",
@@ -60,7 +63,7 @@ export const handleOverlayGet = async ({
   const ordered = ids.map((id) => byId.get(id)).filter(Boolean);
 
   return new Response(JSON.stringify(ordered), { headers });
-};
+});
 
 export const Route = createFileRoute("/api/overlay/$orgSlug")({
   server: { handlers: { GET: handleOverlayGet } },

@@ -5,6 +5,9 @@ import { findAnonymousJsxControls } from "../../../scripts/jsx-control-names.mjs
 
 const webRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const sourceRoot = resolve(webRoot, "src");
+if (existsSync(resolve(sourceRoot, "lib/tm-operations.ts"))) {
+  throw new Error("The retired technical-control RPC bypassed reviewed commands. Use the dedicated transport, kiosk, stream and graphics handlers.");
+}
 
 function walk(directory) {
   if (!existsSync(directory)) return [];

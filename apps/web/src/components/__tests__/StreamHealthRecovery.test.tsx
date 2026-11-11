@@ -6,7 +6,6 @@ import { StreamHealthPanel } from "@/components/dashboard/tm-operations";
 const api = vi.hoisted(() => ({ list:vi.fn(),create:vi.fn(),remove:vi.fn(),resume:vi.fn(),health:vi.fn() }));
 vi.mock("@/lib/stream",()=>({getLiveInputs:api.list,createLiveInput:api.create,deleteLiveInput:api.remove,resumeLiveInput:api.resume,getLiveInputStatus:api.health}));
 vi.mock("@tanstack/react-router",()=>({createFileRoute:()=>()=>({}),useBlocker:()=>({status:"idle"}),Link:({children}:{children:React.ReactNode})=><span>{children}</span>}));
-vi.mock("@/lib/tm-operations",()=>({getTmControlState:vi.fn(),runTmControl:vi.fn()}));
 const row={id:"input",orgId:"fixture",name:"Fixture input",cfInputId:"provider",cfInputUid:"provider",rtmpUrl:"rtmps://fixture.invalid/live",rtmpKey:"fixture-key",srtUrl:"",status:"streaming",hasRtmpKey:true,setupState:"ready" as const,createdAt:new Date()};
 const settle=()=>act(async()=>{});
 beforeEach(()=>{api.list.mockResolvedValue([row]);api.health.mockResolvedValue({inputId:row.id,status:"streaming",providerStatus:"connected",checkedAt:new Date().toISOString()});});

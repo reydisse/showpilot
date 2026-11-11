@@ -48,7 +48,6 @@ import {
   getRundownPinCookieName,
   RUNDOWN_PIN_SETTING_KEY,
 } from "../rundown-pin";
-import { runTmControl as legacyControl } from "../tm-operations";
 import type { TmRundownAction } from "../tm-rundown-contract";
 import { buildCompanionDeps } from "../companion-api";
 import { getActiveRundownRelayTarget } from "../active-rundown-relay";
@@ -220,14 +219,6 @@ async function command(action: TmRundownAction = "rundown-next") {
     expiresAt: Date.now() + 5000,
   };
 }
-it("rejects old transport requests through the output-only RPC", async () => {
-  await show();
-  await expect(
-    legacyControl({
-      data: { orgId: authenticated.orgId, action: "rundown-next" },
-    }),
-  ).rejects.toThrow();
-});
 it("returns a conflict instead of advancing a newer rundown revision", async () => {
   const { deps } = await show(),
     data = await command();
