@@ -23,6 +23,11 @@ await withLocalSmokeFixture(
       ],
       [
         "Profile and account",
+        "SignOutControl",
+        `!!document.querySelector('#profile-account-heading')`,
+      ],
+      [
+        "Profile and account",
         "ProfileModal",
         `!!document.querySelector('#profile-account-heading')`,
         "network",
@@ -55,7 +60,7 @@ await withLocalSmokeFixture(
             deviceScaleFactor: 1,
             mobile: false,
           });
-          if (chunk === "AccountPanels") await page("Fetch.enable", {
+          if (chunk === "AccountPanels" || chunk === "SignOutControl") await page("Fetch.enable", {
             patterns: [{ urlPattern: `*/assets/${chunk}-*.js`, requestStage: "Request" }],
           });
           await page("Page.navigate", { url: `${origin}/${orgId}/show` });
@@ -84,7 +89,7 @@ await withLocalSmokeFixture(
           };
           await click(`document.querySelector('button[title="Account menu"]')`);
           await evaluate("window.accountDocument='same';true");
-          if (chunk !== "AccountPanels") await page("Fetch.enable", {
+          if (chunk !== "AccountPanels" && chunk !== "SignOutControl") await page("Fetch.enable", {
             patterns: [
               { urlPattern: `*/assets/${chunk}-*.js`, requestStage: "Request" },
             ],

@@ -1,11 +1,12 @@
 import { useCallback, useRef, useState } from "react";
-import { BadgeCheck, Camera, Check, CircleCheck, KeyRound, LoaderCircle, LogOut } from "lucide-react";
+import { BadgeCheck, Camera, Check, CircleCheck, KeyRound, LoaderCircle } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { getPortableAvatarUrl, getSquareAvatarGeometry } from "@/lib/avatar-image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { SignOutControl } from "./SignOutControl";
 import { ROLE_COLOURS, getAccountInitials } from "./account-role";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -69,17 +70,15 @@ interface ProfilePanelProps {
   role: string;
   orgName: string;
   onUserUpdated: (updates: { name?: string; image?: string }) => void;
-  onSignOut: () => Promise<void>;
 }
 
-export function ProfilePanel({ user, role, orgName, onUserUpdated, onSignOut }: ProfilePanelProps) {
+export function ProfilePanel({ user, role, orgName, onUserUpdated }: ProfilePanelProps) {
   const [displayName, setDisplayName] = useState(user.name);
   const [avatarUrl, setAvatarUrl] = useState(getPortableAvatarUrl(user.image) ?? "");
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [profileError, setProfileError] = useState("");
   const [saved, setSaved] = useState(true);
-  const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [sendingPasswordReset, setSendingPasswordReset] = useState(false);
   const [passwordResetSent, setPasswordResetSent] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -135,15 +134,6 @@ export function ProfilePanel({ user, role, orgName, onUserUpdated, onSignOut }: 
       setUploadingPhoto(false);
     }
   }, [onUserUpdated]);
-
-  const requestSignOut = async () => {
-    if (!confirmSignOut) {
-      setConfirmSignOut(true);
-      window.setTimeout(() => setConfirmSignOut(false), 4_000);
-      return;
-    }
-    await onSignOut();
-  };
 
   const sendPasswordReset = async () => {
     if (sendingPasswordReset || passwordResetSent) return;
@@ -280,11 +270,8 @@ export function ProfilePanel({ user, role, orgName, onUserUpdated, onSignOut }: 
         {profileError ? <p role="alert" className="mt-5 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-400">{profileError}</p> : null}
       </div>
 
-      <footer className="flex shrink-0 items-center justify-between gap-2 border-t border-board-border bg-board-card px-4 py-3 sm:px-7 sm:py-4">
-        <Button type="button" variant="ghost" size="sm" className="shrink-0 justify-start px-2 text-red-400 hover:bg-red-500/10 hover:text-red-300 sm:px-3" onClick={() => void requestSignOut()}>
-          <LogOut data-icon="inline-start" />
-          {confirmSignOut ? "Tap again to sign out" : "Sign Out"}
-        </Button>
+      <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-board-border bg-board-card px-4 py-3 sm:px-7 sm:py-4">
+        <SignOutControl userId={user.id} />
         <div className="flex min-w-0 items-center justify-end gap-2 sm:gap-3">
           {saved && nameUnchanged ? <span className="hidden items-center gap-1.5 text-xs text-green-400 min-[360px]:inline-flex"><CircleCheck className="size-4" />Saved</span> : null}
           <Button type="button" size="sm" className="shrink-0" disabled={nameUnchanged || saving} onClick={() => void handleSaveName()}>
