@@ -5538,3 +5538,38 @@ Logs: `/tmp/showpilot-schedule-dialogs-before.log`, `-after3.log`, `-full3.log`,
 the named shared-dialog/route-error requirement; Schedule's remaining reads,
 writes and full-page mobile work belong to the still-open broader requirements.
 The long rehearsal is still running in PR #225. Nothing deployed or released.
+
+
+### 2026-11-08: Schedule calendar navigation on phones and future months
+
+The original calendar was hidden below lg. Its arrows changed local month state
+without fetching shows, so dates beyond the initial window remained unavailable.
+The validated viewed month now lives in the URL and loader dependencies. Queries
+fetch the actual month plus any explicitly selected show/date, preserving org
+scoping. Next/Previous, the direct month input and browser Back stay consistent.
+Selecting a show also selects its month.
+
+Phones have a calendar toggle. Date and navigation controls meet 44px and dates
+have full spoken labels. A real screenshot exposed the Schedule title overlapping
+header actions; the title now gets its own phone row, actions wrap at 44px, and the
+phone header scrolls away instead of covering the calendar.
+
+Validation:
+- Full web suite: 2,385 unit and 1,186 Worker tests pass, including eleven new
+  calendar selection, invalid-month and leap-year/window cases.
+- Typecheck and production build pass. Main entry is 551,930 raw / 174,737 gzip
+  bytes under the unchanged budget.
+- `smoke-schedule-calendar.mjs` passes against real compiled Chrome/auth/D1 at
+  320x480, 768x900 and 1440x900. January and February 2099 fixtures prove future
+  reads, newly fetched dates, selected-show retention, direct month jumps,
+  same-document Back and physical day selection. Controls do not overlap and
+  the page does not overflow. Inspected the 320px calendar screenshot.
+- All seven Schedule dialogs still pass at three widths and locales. The broad
+  navigation audit passes all 21 routes and 13 Settings sections, now explicitly
+  opening and measuring the phone calendar controls.
+- No runtime errors or external emails in the browser rehearsals.
+
+Logs: `/tmp/showpilot-schedule-calendar-before.log`, `-unit-before.log`,
+`-full2.log`, `-tsc2.log`, `-build2.log`, `-after3.log`, `-dialogs.log`, and
+`-navigation.log`. This is scoped calendar evidence. The broad responsive and
+product-wide gates remain open; Phase 2 stays 66/79. Nothing deployed or released.

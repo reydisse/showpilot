@@ -58,6 +58,7 @@ import { hasEffectivePermission } from "@/lib/app-permissions";
 import { StatusMetric } from "@/components/ui/status-metric";
 import {
   getScheduleSelectionDeps,
+  getScheduleMonthWindow,
   normalizeScheduleSearch,
   type ScheduleSearch,
 } from "@/lib/schedule-selection";
@@ -132,11 +133,11 @@ export const Route = createFileRoute("/$slug/schedule")({
     const settings = await getOrgSettings({ data: { orgId: context.orgId } });
     const orgTimezone = settings["org-timezone"] || "UTC";
     const today = getTodayDateString(orgTimezone);
+    const calendarMonth = deps.calendarMonth ?? deps.selectedDate?.slice(0, 7) ?? today.slice(0, 7);
     const schedule = await getSchedule({
       data: {
         orgId: context.orgId,
-        from: shiftDate(today, -30),
-        to: shiftDate(today, 31),
+        ...getScheduleMonthWindow(calendarMonth),
         selectedDate: deps.selectedDate,
         selectedShowId: deps.selectedShowId,
       },
@@ -155,6 +156,7 @@ export const Route = createFileRoute("/$slug/schedule")({
       null;
     return {
       ...schedule,
+      calendarMonth,
       defaultSelectedDate,
       defaultSelectedShowId,
       today,
@@ -309,11 +311,11 @@ function SchedulePage() {
       .length,
   };
   const chooseShow = (showId: string, date: string) =>
-    void navigate({ search: { show: showId, date, assignment: undefined } });
+    void navigate({ search: { show: showId, date, month: date.slice(0, 7), assignment: undefined } });
   const chooseDate = (date: string) => {
     const show = data.services.find((service) => service.serviceDate === date);
     void navigate({
-      search: { show: show?.id, date, assignment: undefined },
+      search: { show: show?.id, date, month: date.slice(0, 7), assignment: undefined },
     });
   };
 
@@ -322,15 +324,15 @@ function SchedulePage() {
       {selected ? (
         <ScheduleLiveDetails key={selected.id} orgId={data.orgId} service={selected} />
       ) : null}
-      <header className="sticky top-0 z-20 border-b border-board-border bg-board-bg/95 px-4 py-3 backdrop-blur-xl md:px-6">
+      <header className="z-20 border-b border-board-border bg-board-bg/95 px-4 py-3 backdrop-blur-xl sm:sticky sm:top-0 md:px-6">
         <div className="mx-auto flex max-w-[1700px] flex-wrap items-center gap-3">
-          <h1 className="min-w-0 flex-1 text-xl font-semibold tracking-tight text-board-text">
+          <h1 className="min-w-0 basis-full text-xl font-semibold tracking-tight text-board-text sm:basis-auto sm:flex-1">
             Schedule
           </h1>
           {data.canManage ? (
             <button
               onClick={() => setProviderOpen(true)}
-              className="flex items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-muted hover:text-board-text"
+              className="flex min-h-11 items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-muted hover:text-board-text"
             >
               <Settings2 className="h-3.5 w-3.5" />
               Manage source
@@ -339,7 +341,7 @@ function SchedulePage() {
           {data.canManage && data.provider.type === "native" ? (
             <button
               onClick={() => setInventoryOpen(true)}
-              className="flex items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-muted hover:text-board-text"
+              className="flex min-h-11 items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-muted hover:text-board-text"
             >
               Inventory
             </button>
@@ -350,7 +352,7 @@ function SchedulePage() {
                 setInventorySeedId(undefined);
                 setCreateOpen(true);
               }}
-              className="flex items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-text"
+              className="flex min-h-11 items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-text"
             >
               <Plus className="h-3.5 w-3.5" />
               New {terms.event}
@@ -358,9 +360,14 @@ function SchedulePage() {
           ) : null}
         </div>
       </header>
-      <div className="mx-auto grid min-h-[calc(100vh-58px)] max-w-[1700px] grid-cols-[minmax(0,1fr)] border-x border-board-border lg:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="mx-auto grid min-h-[calc(100vh-58px)] max-w-[1700px] grid-cols-[minmax(0,1fr)] border-x border-board-border lg:grid-cols-[344px_minmax(0,1fr)]">
         <aside className="border-b border-board-border bg-board-card lg:border-b-0 lg:border-r">
           <MonthCalendar
+            calendarMonth={data.calendarMonth}
+            onMonthChange={(month) => {
+              const validMonth = normalizeScheduleSearch({ month }).month;
+              if (validMonth) void navigate({ search: { month: validMonth, show: selected?.id, date: selected?.serviceDate } });
+            }}
             selectedDate={selected?.serviceDate ?? data.today}
             today={data.today}
             serviceDates={data.services.map((service) => service.serviceDate)}
@@ -376,7 +383,7 @@ function SchedulePage() {
               </p>
               <button
                 onClick={() => chooseDate(data.today)}
-                className="text-[10px] text-fire-400"
+                className="min-h-11 min-w-11 text-[10px] text-fire-400 focus-visible:outline focus-visible:outline-fire-400"
               >
                 Today
               </button>
@@ -735,11 +742,15 @@ function SchedulePage() {
 }
 
 function MonthCalendar({
+  calendarMonth,
+  onMonthChange,
   selectedDate,
   today,
   serviceDates,
   onSelect,
 }: {
+  calendarMonth: string;
+  onMonthChange: (month: string) => void;
   selectedDate: string;
   today: string;
   serviceDates: string[];
@@ -747,13 +758,13 @@ function MonthCalendar({
 }) {
   const locale = useDeviceLocale();
   const workspaceTerms = useWorkspaceTerms();
-  const initial = new Date(`${selectedDate}T12:00:00`);
-  const [month, setMonth] = useState(
-    () => new Date(initial.getFullYear(), initial.getMonth(), 1),
-  );
-  useEffect(() => {
-    setMonth(new Date(initial.getFullYear(), initial.getMonth(), 1));
-  }, [selectedDate]);
+  const month = new Date(`${calendarMonth}-01T12:00:00`);
+  const [expanded, setExpanded] = useState(false);
+  const shiftMonth = (offset: number) => {
+    const value = new Date(`${calendarMonth}-01T12:00:00Z`);
+    value.setUTCMonth(value.getUTCMonth() + offset);
+    onMonthChange(value.toISOString().slice(0, 7));
+  };
   const serviceSet = useMemo(() => new Set(serviceDates), [serviceDates]);
   const startDay = month.getDay();
   const daysInMonth = new Date(
@@ -768,79 +779,88 @@ function MonthCalendar({
   const dateFor = (day: number) =>
     `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   return (
-    <div className="hidden p-4 lg:block">
-      <div className="flex items-center justify-between">
-        <button
-          onClick={() =>
-            setMonth(
-              (value) => new Date(value.getFullYear(), value.getMonth() - 1, 1),
-            )
-          }
-          aria-label="Previous month"
-          className="rounded p-1.5 text-board-muted hover:bg-board-bg hover:text-board-text"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-        </button>
-        <p className="text-xs font-semibold text-board-text">
-          {month.toLocaleDateString(locale, { month: "long", year: "numeric" })}
-        </p>
-        <button
-          onClick={() =>
-            setMonth(
-              (value) => new Date(value.getFullYear(), value.getMonth() + 1, 1),
-            )
-          }
-          aria-label="Next month"
-          className="rounded p-1.5 text-board-muted hover:bg-board-bg hover:text-board-text"
-        >
-          <ChevronRight className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      <div className="mt-4 grid grid-cols-7 text-center text-[9px] font-medium uppercase text-board-muted">
-        {["S", "M", "T", "W", "T", "F", "S"].map((label, index) => (
-          <span key={`${label}-${index}`}>{label}</span>
-        ))}
-      </div>
-      <div className="mt-2 grid grid-cols-7 gap-y-1">
-        {cells.map((day, index) => {
-          if (!day) return <span key={`empty-${index}`} className="h-7" />;
-          const date = dateFor(day);
-          const hasService = serviceSet.has(date);
-          const selected = date === selectedDate;
-          const isToday = date === today;
-          return (
-            <button
-              key={date}
-              disabled={!hasService}
-              onClick={() => onSelect(date)}
-              className={`relative mx-auto flex h-7 w-7 items-center justify-center rounded-full text-[10px] transition-colors ${selected ? "bg-fire-500 font-semibold text-black" : hasService ? "text-board-text hover:bg-board-bg" : "text-board-muted/40"} ${isToday && !selected ? "ring-1 ring-fire-500/50" : ""}`}
-            >
-              {day}
-              {hasService && !selected ? (
-                <span className="absolute bottom-0.5 h-0.5 w-0.5 rounded-full bg-fire-400" />
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
-      <div className="mt-4 flex items-center justify-between border-t border-board-border pt-3 text-[9px] text-board-muted">
-        <span>
-          <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-fire-400" />
-          {workspaceCopy(
-            "\n          Service scheduled\n        ",
-            workspaceTerms,
-          )}
-        </span>
-        <button
-          onClick={() => {
-            const value = new Date(`${today}T12:00:00`);
-            setMonth(new Date(value.getFullYear(), value.getMonth(), 1));
-            if (serviceSet.has(today)) onSelect(today);
-          }}
-          className="text-fire-400"
-        >
-          This month
-        </button>
+    <div className="p-1 sm:p-4">
+      <button
+        type="button"
+        aria-controls="schedule-calendar"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+        className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg text-sm text-board-text focus-visible:outline focus-visible:outline-fire-400 lg:hidden"
+      >
+        <CalendarDays className="h-4 w-4" />
+        {expanded ? "Hide calendar" : "Show calendar"}
+      </button>
+      <div id="schedule-calendar" className={expanded ? "" : "hidden lg:block"}>
+        <div className="flex items-center justify-between gap-1">
+          <button
+            onClick={() => shiftMonth(-1)}
+            aria-label="Previous month"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-board-muted hover:bg-board-bg hover:text-board-text focus-visible:outline focus-visible:outline-fire-400"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <input
+            type="month"
+            aria-label="Calendar month"
+            value={calendarMonth}
+            onChange={(event) => onMonthChange(event.target.value)}
+            className="h-11 min-w-0 w-full rounded-lg border border-board-border bg-board-bg px-2 text-sm text-board-text focus-visible:outline focus-visible:outline-fire-400"
+          />
+          <button
+            onClick={() => shiftMonth(1)}
+            aria-label="Next month"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-board-muted hover:bg-board-bg hover:text-board-text focus-visible:outline focus-visible:outline-fire-400"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mt-4 grid grid-cols-7 text-center text-[9px] font-medium uppercase text-board-muted">
+          {["S", "M", "T", "W", "T", "F", "S"].map((label, index) => (
+            <span key={`${label}-${index}`}>{label}</span>
+          ))}
+        </div>
+        <div className="mt-2 grid grid-cols-7 gap-y-1">
+          {cells.map((day, index) => {
+            if (!day) return <span key={`empty-${index}`} className="h-11" />;
+            const date = dateFor(day);
+            const hasService = serviceSet.has(date);
+            const selected = date === selectedDate;
+            const isToday = date === today;
+            return (
+              <button
+                key={date}
+                disabled={!hasService}
+                data-date={date}
+                aria-label={longDate(date, locale)}
+                aria-pressed={selected}
+                onClick={() => onSelect(date)}
+                className={`relative mx-auto flex h-11 w-11 items-center justify-center rounded-full text-xs transition-colors focus-visible:outline focus-visible:outline-fire-400 ${selected ? "bg-fire-500 font-semibold text-black" : hasService ? "text-board-text hover:bg-board-bg" : "text-board-muted/40"} ${isToday && !selected ? "ring-1 ring-fire-500/50" : ""}`}
+              >
+                {day}
+                {hasService && !selected ? (
+                  <span className="absolute bottom-0.5 h-0.5 w-0.5 rounded-full bg-fire-400" />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-4 flex items-center justify-between border-t border-board-border pt-3 text-[9px] text-board-muted">
+          <span>
+            <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-fire-400" />
+            {workspaceCopy(
+              "\n          Service scheduled\n        ",
+              workspaceTerms,
+            )}
+          </span>
+          <button
+            onClick={() => {
+              onMonthChange(today.slice(0, 7));
+            }}
+            className="min-h-11 min-w-11 text-fire-400 focus-visible:outline focus-visible:outline-fire-400"
+          >
+            This month
+          </button>
+        </div>
       </div>
     </div>
   );
