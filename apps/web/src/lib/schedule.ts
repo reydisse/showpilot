@@ -2,17 +2,12 @@ import {
   resolveWorkspaceProfile,
   legacyTerminologyProfile,
 } from "@showpilot/shared";
-import {
-  workspacePrismaStore,
-  writeWorkspaceProfile,
-} from "./workspace/profile.server";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getPrisma } from "@/lib/db";
 import { getD1 } from "@/lib/d1";
 import { assertOrgPermission, getRequestOrgAccess } from "@/lib/org-access";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
-import { orgTerminologyProfileSchema } from "@/lib/org-terminology";
 import { editServiceTimeToIso } from "@/lib/utils";
 import { getCrewScheduleResponseWindow } from "@/lib/crew-schedule-response";
 import { getServiceTiming, readPhaseSettings } from "@/lib/service-phase";
@@ -24,6 +19,8 @@ import { updateRundownMetadataThroughRelay } from "@/lib/rundown-meta-update.ser
 import { assignmentCallTimeForStorage, getAssignmentCallTime } from "@/lib/assignment-call-time";
 import { assignmentResponseVersion } from "@/lib/assignment-response-version";
 
+import { scheduleProviderSchema } from "./schedule-provider-contract";
+
 const rangeInput = z.object({
   orgId: idSchema,
   from: serviceDateSchema,
@@ -32,74 +29,7 @@ const rangeInput = z.object({
   selectedShowId: idSchema.optional(),
 });
 
-export const scheduleProviderSchema = z.enum([
-  "native",
-  "planning-center",
-  "faithteams",
-  "other",
-]);
-export type ScheduleProvider = z.infer<typeof scheduleProviderSchema>;
-
-const providerConfigInput = z.object({
-  orgId: idSchema,
-  provider: scheduleProviderSchema,
-  url: z.union([z.literal(""), z.string().url().max(500)]),
-  label: z.string().trim().max(80).default(""),
-  terminologyProfile: orgTerminologyProfileSchema.optional(),
-});
-
-export const saveScheduleProvider = createServerFn({ method: "POST" })
-  .inputValidator((value: unknown) => parseOrThrow(providerConfigInput, value))
-  .handler(async ({ data }) => {
-    await assertAccess(data.orgId, true);
-    if (data.provider !== "native" && !data.url)
-      throw new Error("A scheduling workspace URL is required");
-    if (data.url) {
-      const url = new URL(data.url);
-      if (url.protocol !== "https:")
-        throw new Error("Scheduling links must use HTTPS");
-    }
-    const prisma = getPrisma();
-    await prisma.$transaction([
-      prisma.appSetting.upsert({
-        where: { orgId_key: { orgId: data.orgId, key: "schedule-provider" } },
-        update: { value: data.provider },
-        create: {
-          orgId: data.orgId,
-          key: "schedule-provider",
-          value: data.provider,
-        },
-      }),
-      prisma.appSetting.upsert({
-        where: {
-          orgId_key: { orgId: data.orgId, key: "schedule-provider-url" },
-        },
-        update: { value: data.url },
-        create: {
-          orgId: data.orgId,
-          key: "schedule-provider-url",
-          value: data.url,
-        },
-      }),
-      prisma.appSetting.upsert({
-        where: {
-          orgId_key: { orgId: data.orgId, key: "schedule-provider-label" },
-        },
-        update: { value: data.label },
-        create: {
-          orgId: data.orgId,
-          key: "schedule-provider-label",
-          value: data.label,
-        },
-      }),
-    ]);
-    if (data.terminologyProfile)
-      await writeWorkspaceProfile(await workspacePrismaStore(data.orgId), {
-        kind: "legacy",
-        terminologyProfile: data.terminologyProfile,
-      });
-    return { ok: true };
-  });
+export type { ScheduleProvider } from "./schedule-provider-contract";
 
 export const saveServiceDetails = createServerFn({ method: "POST" })
   .inputValidator((value: unknown) =>

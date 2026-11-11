@@ -6041,3 +6041,67 @@ Phase 2 remains 67/79. Schedule-provider saves still have an unhandled rejection
 and no request deadline; schedule/assignment recovery and the broader gate remain
 open. No deployment, release, remote migration, real-organization write, or new
 Markdown file. Twenty necessary tracked Markdown files remain.
+
+### Scheduling source recovery — Phase 2 partial evidence (2026-11-08)
+
+Branch: `fix/schedule-provider-recovery`, based on the green desktop notification
+recovery change. The old source form threw an unhandled rejection, offered no
+Retry, and discarded its platform/URL draft on close. Real D1 regressions also
+showed that an old retry replaced a newer administrator's source, and Prisma's
+ignored transaction left the platform changed after the URL update failed.
+
+The dedicated source command now commits its receipt, three settings, and
+revision in one native D1 batch. Fresh session and scheduling permission checks
+are repeated at the database boundary. Request IDs bind the reviewed revision,
+account, organization and normalized configuration; an exact retry reports the
+current source without replaying an older write. A changed source requires an
+explicit reviewed save with a new request. The obsolete optional workspace
+terminology mutation is removed from this endpoint; Workspace Settings remains
+its separate permission boundary and is linked from the form.
+
+Migration `0078_schedule_provider_recovery.sql` backfills revision metadata and
+tracks inserts, updates and deletes of the existing source settings. Apply it
+before deploying this code. Old writers still advance the revision. A code-only
+rollback can leave these triggers and receipt records in place. This migration
+has only run in disposable local/test databases; the remote manifest is unchanged.
+
+The shared Dialog editor keeps drafts and unresolved attempts per account and
+organization across close and SPA navigation. Reads and writes have 8-second
+deadlines, timestamped errors and Retry; a late reply cannot settle an expired
+attempt. A confirmed write has a separate 12-second Schedule refresh deadline,
+and refresh retry never sends the write again. Closed panels retain an attention
+message. The saved source and retained draft are visible after a conflict.
+Controls are labeled and at least 44px; the short-window body scrolls while the
+close button stays accessible.
+
+Validation:
+- The original compiled browser baseline and two real-auth/D1 regressions failed
+  for the reported behaviors before the fix.
+- Fifteen Worker cases cover replay, concurrent commands, conflict review,
+  payload reuse, partial-write rollback, legacy edit/delete ABA changes,
+  session/member/deletion authority changes at commit, account/org boundaries,
+  invalid URLs, obsolete terminology input, and organization cascade deletion.
+- Ten rendered UI cases cover read/write/refresh deadlines, late replies,
+  exact retry after navigation, refresh-only retry, local validation, the latest
+  typed character, pristine refresh versus retained drafts, and account isolation.
+- Final full suite: 2,450 unit / 1,231 Worker tests pass. Web typecheck passes.
+  Production build passes: 548,865 raw / 173,474 gzip main-entry bytes, under the
+  unchanged limits. The test-helper-only unsupported `exact` option was removed
+  before the final full suite/typecheck; route JSX formatting changed no behavior.
+- Compiled Chrome/auth/D1 rehearsal passes a held initial read, HTTPS validation,
+  a committed source write with a lost response, a newer source saved through the
+  real RPC, Workspace Settings navigation with the draft retained, exact retry
+  preserving that newer source, and explicit reviewed replacement. Focus returns
+  to Manage source on close. No runtime errors or emails.
+- Dialog checks pass at 320x480, 768x1024 and 1440x1000. Phone/tablet screenshots
+  were inspected. The first script sampled immediately after viewport resize;
+  waiting for the actual layout to settle resolved that observation failure.
+
+Evidence: `/tmp/showpilot-provider-{worker-before2,worker1,ui1,full2,tsc6,
+build2,browser3}.log`. Rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-schedule-provider-recovery.mjs`.
+PR #237 is fully green in run 42471324112 (CI 13m0s, native Rust 4m7s).
+Phase 2 remains 67/79. Reminder delivery results are still ignored by the
+Schedule callers, and assignment/read recovery plus the broader UX gate remain
+open. No production deployment, release, remote migration, real-organization
+write or new Markdown file. Twenty necessary tracked Markdown files remain.
