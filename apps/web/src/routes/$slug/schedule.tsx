@@ -1,3 +1,4 @@
+import { ShowInventoryEditor } from "@/components/shows/ShowInventoryEditor";
 import { useShowDeletions } from "@/hooks/useShowDeletions";
 import { ShowDeletionProgress } from "@/components/shows/ShowDeletionProgress";
 import { ShowDetailsEditor } from "@/components/shows/ShowDetailsEditor";
@@ -43,10 +44,7 @@ import {
   type ScheduleProvider,
 } from "@/lib/schedule";
 import {
-  archiveShowInventoryItem,
-  createShowInventoryItem,
   getShowInventoryData,
-  restoreShowInventoryItem,
   type ShowInventorySummary,
   type SavedRundownSource,
 } from "@/lib/show-inventory";
@@ -113,9 +111,6 @@ function providerName(provider: ScheduleProvider, label = "") {
     }[provider]
   );
 }
-const FORM_CONTROL =
-  "min-h-11 min-w-0 w-full rounded-xl border border-board-border bg-board-bg px-3 py-2.5 text-sm text-board-text outline-none focus:border-fire-500/50";
-
 export const Route = createFileRoute("/$slug/schedule")({
   validateSearch: (search: Record<string, unknown>): ScheduleSearch =>
     normalizeScheduleSearch(search),
@@ -585,6 +580,8 @@ function SchedulePage() {
       ) : null}
       {inventoryOpen ? (
         <ShowInventoryModal
+          key={`${user.id}:${data.orgId}`}
+          userId={user.id}
           orgId={data.orgId}
           inventory={data.inventory}
           archivedInventory={data.archivedInventory}
@@ -596,9 +593,11 @@ function SchedulePage() {
             setInventorySeedId(item.id);
             setCreateOpen(true);
           }}
-          onChanged={async () => {
-            setInventoryOpen(false);
+          onChanged={async (signal) => {
             await router.invalidate();
+            signal.throwIfAborted();
+            const failed = router.state.matches.find(match => match.status === "error");
+            if (failed) throw failed.error;
           }}
         />
       ) : null}
@@ -1169,182 +1168,20 @@ function CreateServiceModal({
   );
 }
 
-function ShowInventoryModal({
-  orgId,
-  inventory,
-  archivedInventory,
-  savedTemplates,
-  canManage,
-  onClose,
-  onUse,
-  onChanged,
-}: {
+function ShowInventoryModal({ onClose, ...props }: {
   orgId: string;
+  userId: string;
   inventory: ShowInventorySummary[];
   archivedInventory: ShowInventorySummary[];
   savedTemplates: SavedRundownSource[];
   canManage: boolean;
   onClose: () => void;
   onUse: (item: ShowInventorySummary) => void;
-  onChanged: () => void | Promise<void>;
+  onChanged: (signal: AbortSignal) => Promise<void>;
 }) {
-  const workspaceTerms = useWorkspaceTerms();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [location, setLocation] = useState("");
-  const [defaultStartTime, setDefaultStartTime] = useState("");
-  const [sourceTemplateId, setSourceTemplateId] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   return (
     <Modal title="Show inventory" description="Save reusable show details or use a saved show to create a new date." onClose={onClose}>
-      <div className="space-y-5">
-        <div>
-          <p className="text-xs text-board-muted">
-            {workspaceCopy(
-              "\n            Reusable show definitions you can load into a future scheduled service. Each item is a snapshot, so changing a schedule never changes the inventory.\n          ",
-              workspaceTerms,
-            )}
-          </p>
-          <div className="mt-3 max-h-44 space-y-2 overflow-auto">
-            {inventory.length ? (
-              inventory.map((item) => (
-              <div key={item.id} className="flex items-center gap-3 rounded-xl border border-board-border bg-board-bg px-3 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-board-text">{item.name}</p>
-                  <p className="text-[10px] text-board-muted">{item.itemCount} rundown items{item.defaultStartTime ? ` · ${item.defaultStartTime}` : ""}{item.location ? ` · ${item.location}` : ""}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onUse(item)}
-                  className="shrink-0 rounded-lg bg-fire-500/15 px-2.5 py-1.5 text-[10px] font-semibold text-fire-300 hover:bg-fire-500/25"
-                >
-                  Use
-                </button>
-                {canManage ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={async () => {
-                      setBusy(true);
-                      try {
-                        await archiveShowInventoryItem({ data: { orgId, id: item.id } });
-                        await onChanged();
-                      } catch (cause) {
-                        setError(cause instanceof Error ? cause.message : "Could not archive this show.");
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                    className="text-[10px] text-board-muted hover:text-red-300"
-                  >
-                    Archive
-                  </button>
-                ) : null}
-              </div>
-            ))
-            ) : (
-              <p className="rounded-xl border border-dashed border-board-border px-3 py-4 text-center text-xs text-board-muted">No reusable shows yet.</p>
-            )}
-          </div>
-          {archivedInventory.length ? (
-            <details className="mt-3 rounded-xl border border-board-border bg-board-bg px-3 py-2.5">
-              <summary className="cursor-pointer text-xs font-medium text-board-muted">
-                Archived ({archivedInventory.length})
-              </summary>
-              <div className="mt-2 space-y-2">
-                {archivedInventory.map((item) => (
-                  <div key={item.id} className="flex items-center gap-3 rounded-lg border border-board-border px-3 py-2">
-                    <p className="min-w-0 flex-1 truncate text-xs text-board-muted">{item.name}</p>
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={async () => {
-                        setBusy(true);
-                        setError(null);
-                        try {
-                          await restoreShowInventoryItem({ data: { orgId, id: item.id } });
-                          await onChanged();
-                        } catch (cause) {
-                          setError(cause instanceof Error ? cause.message : "Could not restore this show.");
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
-                      className="text-[10px] font-semibold text-fire-300 hover:text-fire-200 disabled:opacity-50"
-                    >
-                      Restore
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </details>
-          ) : null}
-        </div>
-        {canManage ? (
-          <form
-            onSubmit={async (event) => {
-              event.preventDefault();
-              if (!name.trim()) return;
-              setBusy(true);
-              setError(null);
-              try {
-                await createShowInventoryItem({
-                  data: {
-                    orgId,
-                    name,
-                    description,
-                    location,
-                    defaultStartTime,
-                    sourceTemplateId,
-                  },
-                });
-                await onChanged();
-              } catch (cause) {
-                setError(cause instanceof Error ? cause.message : "Could not save this show.");
-              } finally {
-                setBusy(false);
-              }
-            }}
-            className="space-y-3 border-t border-board-border pt-4"
-          >
-            <p className="text-xs font-semibold text-board-text">Add reusable show</p>
-            <Field label="Show name">
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                className={FORM_CONTROL}
-                placeholder={workspaceCopy("Sunday Morning", workspaceTerms)}
-                maxLength={120}
-                required
-              />
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Default start">
-                <input type="time" value={defaultStartTime} onChange={(event) => setDefaultStartTime(event.target.value)} className={FORM_CONTROL} />
-              </Field>
-              <Field label="Location">
-                <input value={location} onChange={(event) => setLocation(event.target.value)} className={FORM_CONTROL} placeholder="Main room" maxLength={240} />
-              </Field>
-            </div>
-            <Field label="Rundown source (optional)">
-              <select value={sourceTemplateId} onChange={(event) => setSourceTemplateId(event.target.value)} className={FORM_CONTROL}>
-                <option value="">Start with an empty rundown</option>
-                {savedTemplates.map((template) => (
-                  <option key={template.id} value={template.id}>{template.name} · {template.itemCount} items</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Description">
-              <textarea value={description} onChange={(event) => setDescription(event.target.value)} className={`${FORM_CONTROL} min-h-16 resize-y`} placeholder="What this show is used for" maxLength={500} />
-            </Field>
-            {error ? (
-              <p role="alert" className="text-xs text-red-300">{error}</p>
-            ) : null}
-            <button disabled={busy || !name.trim()} className="w-full rounded-xl bg-fire-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-50">{busy ? "Saving…" : "Add to inventory"}</button>
-          </form>
-        ) : null}
-      </div>
+      <ShowInventoryEditor {...props} />
     </Modal>
   );
 }
@@ -1459,26 +1296,12 @@ function Modal({
             <DialogTitle className="text-base font-semibold">{title}</DialogTitle>
             <DialogDescription className="mt-1 text-xs text-board-muted">{description}</DialogDescription>
           </div>
-          <button type="button" onClick={onClose} className="shrink-0 rounded-lg p-2 text-board-muted hover:bg-board-border" aria-label={`Close ${title}`}>
+          <button type="button" onClick={onClose} className="min-h-11 min-w-11 shrink-0 rounded-lg p-2 text-board-muted hover:bg-board-border" aria-label={`Close ${title}`}>
             <X className="mx-auto h-4 w-4" />
           </button>
         </header>
         <div className="min-h-0 overflow-y-auto p-4">{children}</div>
       </DialogContent>
     </Dialog>
-  );
-}
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="block text-xs text-board-muted">
-      <span className="mb-1.5 block">{label}</span>
-      {children}
-    </label>
   );
 }

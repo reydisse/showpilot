@@ -6694,3 +6694,71 @@ Phase 2 remains 67/79. Inventory/mobile recovery, product-wide label/viewport an
 terminology sweeps, the owner-provided Founding Member deadline and broad gates
 remain open. No production deployment, release, remote migration or real-org
 writes. Twenty necessary tracked Markdown files remain; none were added.
+
+
+### Inventory request and form recovery, Phase 2 partial evidence (2026-11-08)
+
+Four real-auth/D1 baseline failures reproduced duplicate creation on exact retry,
+failed acknowledgement of a completed archive, late archive retries undoing a
+restore, and stale archive requests changing a newer row. Compiled Chrome also
+reproduced loss of an inventory draft when closing and reopening the dialog.
+
+Migration 0086 adds org/request receipts that commit atomically with inventory
+changes and survive item removal. Every attempt verifies the current session,
+actor and schedule permission; the transaction rechecks membership and the exact
+source or inventory version. Replays read the receipt before mutable sources.
+They preserve later restores and edits, reject changed request payloads, and
+cannot recreate a removed item. A review records cancellation when the original
+request has not arrived, fencing later delivery. Invalid source snapshots produce
+visible errors instead of silently creating an empty rundown. New snapshots reset
+runtime fields and receive new item identities. Existing native create and
+archive/restore endpoints use the same writer; older native state-change requests
+receive a stable request ID derived from their actor, item, desired state and
+reviewed version. Native request bodies and success responses stay compatible.
+
+The web form retains drafts and exact requests per account and organization
+through dialog closure and SPA navigation. Saves/reviews have 15-second deadlines;
+refresh has a separate 12-second deadline and never repeats a confirmed mutation.
+Late results cannot restore cleared account work or refresh another screen.
+Archive requires confirmation with a scope note; restoration remains direct.
+Unavailable selected sources remain visible and require an explicit replacement.
+Fields have labels, controls have 44-pixel targets, long names wrap and narrow
+forms use one column. Confirmed writes keep Inventory open and refresh its list.
+Retention covers SPA navigation, not a hard reload.
+
+Validation:
+- Full web suite: 2,530 unit / 1,373 Worker tests passed, including 19 real-auth/D1
+  inventory cases. Cases cover transaction rollback, commit-time source/row and
+  membership races, concurrent apply/review, numeric legacy timestamps, template
+  removal, item removal, cross-account/org attempts and actual native endpoints.
+- Twelve hook cases and three rendered editor cases cover exact retries,
+  retained drafts, bounded write/refresh, cache/account isolation, cancellation,
+  conflicts, explicit archive confirmation, missing sources and view-only access.
+  Four native adapter unit cases also pass. Final focused rerun: 19 tests green.
+- Web typecheck and production build pass. Main entry: 549,525 raw / 173,749 gzip
+  bytes, within unchanged limits. Migration 0086 is local-only and must be applied
+  before deploying this branch. No production migration manifest was changed.
+- Compiled Chrome with real auth and disposable D1 passes draft retention across
+  navigation, lost-success create retry with one item/receipt, cancellation before
+  delivery, a fresh reviewed submission, archive cancellation sending nothing,
+  lost archive reply retry and restore. Retry/add controls pass actual hit tests,
+  text containment and 44-pixel checks at 320x480, 768x1024 and 1440x1000. All form
+  inputs have labels. Phone screenshots were inspected; no runtime errors or
+  document reload occurred. Inspection also caught generic timeout wording,
+  now replaced with an inventory-specific unconfirmed-result message.
+
+Evidence: `/tmp/showpilot-inventory-{before,worker1,worker2,browser-before,ui1,
+ui2,ui3,full1,tsc2,tsc3,tsc4,tsc5,build1,build2,browser1,browser2}.log`.
+The first UI run exposed an overly strict assertion that a cleared query cache
+must stay absent, although the mounted blank form correctly reseeds it. Typecheck
+also found unused route helpers and a test DOM cast; all were corrected.
+Rerun after building:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-show-inventory-form.mjs`.
+Screenshots: `/tmp/showpilot-inventory-{retry,form}-{320,768,1440}.png`.
+
+The preceding PR #248 is green: CI 42494452050, web 10m6s / native Rust 4m30s.
+Phase 2 remains 67/79. Native form recovery, remaining product-wide controls,
+loading, terminology and viewport audits, the owner-provided Founding Member
+closing date and broad gates remain open. No deployment, release, remote
+migration or real-org writes. Twenty necessary tracked Markdown files remain;
+none were added.
