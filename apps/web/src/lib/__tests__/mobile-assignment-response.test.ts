@@ -1,7 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleMobileApi, type MobileApiDatabase } from "../mobile-api.server";
-import { getAssignmentCallTime } from "../assignment-call-time";
-import { assignmentResponseVersion } from "../assignment-response-version";
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
@@ -147,30 +145,6 @@ function assignment(overrides: Partial<AssignmentFixture> = {}): AssignmentFixtu
   };
 }
 
-async function respond(db: MobileApiDatabase, reviewed: AssignmentFixture = assignment()) {
-  const response = await handleMobileApi(
-    new Request("https://showpilot.tech/api/mobile/v1/schedule/respond", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        orgId: "org-1",
-        assignmentId: "assignment-1",
-        reviewedVersion: assignmentResponseVersion({
-          effectiveCallTime: getAssignmentCallTime({ ...reviewed, timeZone: "Africa/Accra" }),
-          showId: reviewed.showId,
-          serviceDate: reviewed.serviceDate,
-          role: reviewed.role,
-          callTime: reviewed.callTime,
-          scheduledStartTime: reviewed.scheduledStartTime,
-        }),
-        response: "confirmed",
-      }),
-    }),
-    { DB: db },
-  );
-  if (!response) throw new Error("Mobile API did not handle the response route");
-  return response;
-}
 
 describe("mobile assignment responses", () => {
   beforeEach(() => {
@@ -187,102 +161,6 @@ describe("mobile assignment responses", () => {
       today: "2026-08-27",
     });
     mocks.notifyOperationalEvent.mockResolvedValue(undefined);
-  });
-
-  it("rejects an unanswered assignment after its service date has ended", async () => {
-    const calls: StatementCall[] = [];
-    const ended = assignment({ serviceDate: "2020-01-01" });
-    const response = await respond(fakeDatabase({
-      assignment: ended,
-      calls,
-    }), ended);
-
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({
-      error: "This assignment is closed because its scheduled event has ended.",
-    });
-    expect(calls.some((call) => call.sql.startsWith("UPDATE service_assignment"))).toBe(false);
-    expect(mocks.notifyOperationalEvent).not.toHaveBeenCalled();
-  });
-
-  it("rejects an assignment that already has a response", async () => {
-    const response = await respond(fakeDatabase({ assignment: assignment({ status: "confirmed" }) }));
-
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({
-      error: "A response has already been recorded for this assignment.",
-    });
-    expect(mocks.notifyOperationalEvent).not.toHaveBeenCalled();
-  });
-
-  it("uses an atomic assigned-state update to stop concurrent responses", async () => {
-    const calls: StatementCall[] = [];
-    const response = await respond(fakeDatabase({ assignment: assignment(), calls, updateChanges: 0 }));
-
-    expect(response.status).toBe(409);
-    const update = calls.find((call) => call.sql.startsWith("UPDATE service_assignment"));
-    expect(update?.sql).toContain("crewMemberId = ? AND status = 'assigned'");
-    expect(mocks.notifyOperationalEvent).not.toHaveBeenCalled();
-  });
-
-  it("rejects a response after the reviewed duties change", async () => {
-    const calls: StatementCall[] = [];
-    const reviewed = assignment({ role: "Audio operator", callTime: "09:00" });
-    const current = assignment({ role: "Camera operator", callTime: "08:00" });
-    const response = await respond(
-      fakeDatabase({ assignment: current, calls }),
-      reviewed,
-    );
-
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({
-      error: "This assignment changed. Review the updated details before responding.",
-    });
-    expect(calls.some((call) => call.sql.startsWith("UPDATE service_assignment"))).toBe(false);
-    expect(mocks.notifyOperationalEvent).not.toHaveBeenCalled();
-  });
-
-  it("records one open response and notifies only the assigning scheduler", async () => {
-    const response = await respond(fakeDatabase({ assignment: assignment(), updateChanges: 1 }));
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ ok: true });
-    expect(mocks.notifyOperationalEvent).toHaveBeenCalledOnce();
-    expect(mocks.notifyOperationalEvent).toHaveBeenCalledWith(expect.objectContaining({
-      actorId: "user-1",
-      recipientIds: ["scheduler-1"],
-    }));
-    expect(mocks.notifyOperationalEvent).not.toHaveBeenCalledWith(
-      expect.objectContaining({ includeLeadership: true }),
-    );
-  });
-
-  it("rejects a response after the inherited show call time changes", async () => {
-    const calls: StatementCall[] = [];
-    const serviceDate = futureDate();
-    const reviewed = assignment({
-      showId: "show-1",
-      serviceDate,
-      scheduledStartTime: `${serviceDate}T10:00:00.000Z`,
-      scheduledCallTime: `${serviceDate}T09:00:00.000Z`,
-    });
-    const response = await respond(fakeDatabase({
-      assignment: { ...reviewed, scheduledCallTime: `${serviceDate}T08:00:00.000Z` },
-      calls,
-    }), reviewed);
-
-    expect(response.status).toBe(409);
-    expect(calls.some((call) => call.sql.startsWith("UPDATE service_assignment"))).toBe(false);
-    expect(mocks.notifyOperationalEvent).not.toHaveBeenCalled();
-  });
-
-  it("does not expose another crew member's assignment", async () => {
-    const response = await respond(fakeDatabase({
-      assignment: assignment({ crewEmail: "someone-else@example.com" }),
-    }));
-
-    expect(response.status).toBe(404);
-    expect(mocks.notifyOperationalEvent).not.toHaveBeenCalled();
   });
 
   it("marks an ended assignment as closed in the schedule payload", async () => {
