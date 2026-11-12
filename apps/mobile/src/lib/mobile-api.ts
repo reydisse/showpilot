@@ -285,15 +285,6 @@ const scheduleSchema = z.object({
   savedTemplates: z.array(savedRundownSourceSchema).default([]),
 });
 
-const scheduleWriteResultSchema = z.object({
-  ok: z.literal(true),
-  id: z.string(),
-  created: z.boolean(),
-  delivered: z.boolean(),
-});
-
-
-
 const incidentSchema = z.object({
   id: z.string(),
   showId: z.string().nullable(),
@@ -1529,26 +1520,6 @@ export async function readMobileAssignment(
     { signal },
   );
   return assignmentReadSchema.parse(await response.json());
-}
-
-export async function createMobileScheduleAssignment(input: {
-  orgId: string;
-  requestId: string;
-  showId: string;
-  role: string;
-  department: string;
-  crewMemberId: string | null;
-  callTime: string;
-  notes: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/schedule/assignments?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify({ ...input, expectedUpdatedAt: null }),
-    },
-  );
-  return scheduleWriteResultSchema.parse(await response.json());
 }
 
 export async function sendMobileScheduleReminders(input: ScheduleReminderCommand, signal: AbortSignal) {
