@@ -1,3 +1,5 @@
+import { removeSavedRundown } from "./saved-rundown-delete.server";
+import { createSavedRundown } from "./saved-rundown-create.server";
 import { markDatabaseWrite } from "./request-database.server";
 import { notificationPreferenceCommandSchema } from "./notification-preference-contract";
 import { readNotificationPreferences, readPreferenceActor, writeNotificationPreference, NotificationPreferenceError } from "./notification-preferences.server";
@@ -1043,7 +1045,6 @@ async function saveMobileRundownTemplate(
     )
     .bind(access.orgId, `rundown-saved:${requestId}`)
     .first<{ value: string }>();
-  if (existing) return json({ ok: true, id: requestId, created: false });
 
   const [itemsResult, timezone] = await Promise.all([
     db
@@ -1088,33 +1089,20 @@ async function saveMobileRundownTemplate(
       400,
     );
 
-  const now = new Date().toISOString();
-  const template: MobileRundownTemplate = {
+  // Use the same immutable receipt as web saves. An ID alone is not proof that
+  // the current contents were accepted, and deletion must survive a late retry.
+  const result = await createSavedRundown(db, access.orgId, {
     id: requestId,
     name,
     serviceName: show.name,
-    scheduledStartTime: formatTimeInput(
-      show.scheduledStartTime,
-      timezone?.value || "Africa/Accra",
-    ),
+    scheduledStartTime: formatTimeInput(show.scheduledStartTime, timezone?.value || "Africa/Accra"),
     items,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await db
-    .prepare(
-      `INSERT INTO app_setting (id, orgId, key, value)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
-    )
-    .bind(
-      crypto.randomUUID(),
-      access.orgId,
-      `rundown-saved:${requestId}`,
-      JSON.stringify(template),
-    )
-    .run();
-  return json({ ok: true, id: requestId, created: true }, 201);
+  });
+  markDatabaseWrite();
+  if (!result.ok) return json({ error: result.reason === "removed"
+    ? "This template was saved and then removed. Review saved templates before starting another save."
+    : "This request already belongs to different template contents. Review saved templates before starting another save." }, 409);
+  return json({ ok: true, id: result.id, created: !existing }, existing ? 200 : 201);
 }
 
 async function postMobileRundownRelayCommand(input: {
@@ -1557,10 +1545,8 @@ async function deleteMobileRundownTemplate(
     .bind(showId, access.orgId)
     .first<{ id: string }>();
   if (!show) return json({ error: "Show not found." }, 404);
-  await db
-    .prepare("DELETE FROM app_setting WHERE orgId = ? AND key = ?")
-    .bind(access.orgId, `rundown-saved:${templateId}`)
-    .run();
+  await removeSavedRundown(db, access.orgId, templateId);
+  markDatabaseWrite();
   return json({ ok: true });
 }
 

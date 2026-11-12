@@ -7613,3 +7613,56 @@ Phase 2 remains 67/79. Broader UX and physical-device gates remain open, and the
 Founding Member closing date/timezone still awaits the owner's answer. No
 production deployment, release, remote migration, real-org write or external
 mail. Twenty necessary tracked Markdown files remain.
+
+### Phase 2 follow-up: shared template save and deletion receipts
+
+The installed native template-save endpoint bypassed the web writer. It returned
+success for any existing template ID without checking contents, and its upsert
+could recreate a deleted template or overwrite a concurrent save. Three real
+mobile API/D1 regressions reproduced changed-content acknowledgement, deleted
+copy resurrection, and missing shared receipts. The first deletion fixture used
+the wrong HTTP route; after correcting it to POST /remove, the actual late-save
+regression failed with 201 instead of 409.
+
+Native saves now call the same immutable create writer as web saves. Exact
+replay preserves timestamps and content. A changed name or changed source
+snapshot under the same request ID receives an explicit conflict. Successful
+installed-client response fields remain available. Existing legacy IDs are not
+silently adopted as proof of a matching request.
+
+Two additional real API regressions showed that legacy templates without receipts
+could still be recreated after either web or native deletion. Both deletion
+entry points now use one transaction to record removal when no receipt exists
+and delete the template. Existing save receipts are retained. A delete arriving
+before its save also fences that ID; other organizations remain independent.
+The same app_setting storage is used, so no migration is needed. Existing
+rundown-edit/PIN authorization remains at each entry point; this change does not
+claim new commit-time authority checks.
+
+Twenty focused real auth/D1 tests pass: eleven native endpoint cases and nine
+shared create/delete cases, including exact retry, changed source, concurrent
+writers, native/web interoperability, legacy deletion through both clients,
+receipt/delete rollback, deletion before delivery, org isolation, and unknown-role
+rejection. The role-change fixture initially expected 403, but its unsupported
+viewer role fails identity normalization and returns 401. This case does not
+establish session revocation.
+
+The compiled Worker rehearsal passes against disposable local auth and D1:
+immutable replay, changed contents rejected, deletion retained after late retry,
+delete before delivery, and exactly one winner from twelve competing names.
+Run `SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-template-save.mjs`
+after the web build. This is API/storage evidence, not a native UI rehearsal.
+Web typecheck and build pass; main remains 549,593 raw / 173,783 gzip bytes under
+the unchanged 175,000-byte gzip limit.
+
+Evidence: `/tmp/showpilot-native-template-save-{before,before2,worker1,worker2,
+worker3,unit1,tsc1,tsc2,tsc3,full1,full2,build1,build2,smoke1}.log` and
+`/tmp/showpilot-native-template-legacy-before.log`. Final full suite passes 2,753 unit and 1,495 Worker tests, 4,248 total.
+The preceding draft #261 has a green Rust job; its main CI job is still running
+in CI 42524889710. No new PR is opened until that gate is green.
+
+The template form's retained draft, frozen source snapshot, authoritative review,
+and load/delete recovery UI remain unfinished. This shared storage fix is a
+prerequisite, not completion of the template workflow or product-wide UX gate.
+Phase 2 remains 67/79. No deployment, release, remote migration, real-org write
+or external mail. Twenty necessary Markdown files remain.

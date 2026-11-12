@@ -9,7 +9,10 @@ import {
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   resolveAccess: vi.fn(),
+  createSavedRundown: vi.fn(),
 }));
+
+vi.mock("../saved-rundown-create.server", () => ({ createSavedRundown: mocks.createSavedRundown }));
 
 vi.mock("../auth", () => ({
   getAuth: () => ({ api: { getSession: mocks.getSession } }),
@@ -166,6 +169,7 @@ async function post(
 describe("mobile rundown templates", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.createSavedRundown.mockImplementation(async (_db, _orgId, content) => ({ ok: true, id: content.id }));
     mocks.getSession.mockResolvedValue({
       user: { id: "editor-1", name: "Editor", email: "editor@example.com" },
     });
@@ -185,13 +189,9 @@ describe("mobile rundown templates", () => {
     );
 
     expect(response.status).toBe(201);
-    const templateWrite = calls.find(
-      (call) =>
-        call.operation === "run" &&
-        call.params[2] === "rundown-saved:template-save-1",
-    );
-    expect(templateWrite).toBeDefined();
-    const saved = JSON.parse(String(templateWrite?.params[3]));
+    expect(mocks.createSavedRundown).toHaveBeenCalledOnce();
+    expect(mocks.createSavedRundown.mock.calls[0][1]).toBe("org-1");
+    const saved = mocks.createSavedRundown.mock.calls[0][2];
     expect(saved).toMatchObject({
       id: "template-save-1",
       name: "Opening standard",
