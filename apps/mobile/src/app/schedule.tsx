@@ -1,6 +1,9 @@
+import { useMobileReminders, reminderSlot } from "@/hooks/use-mobile-reminders";
+import { ScheduleReminderProgress } from "@/components/schedule-reminder-progress";
+import type { ReminderTarget } from "@/lib/reminder-recovery";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Bell from "lucide-react-native/icons/bell";
 import Boxes from "lucide-react-native/icons/boxes";
@@ -19,7 +22,7 @@ import UserPlus from "lucide-react-native/icons/user-plus";
 import Users from "lucide-react-native/icons/users";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import * as Haptics from "@/lib/haptics";
-import { ActivityIndicator, Alert, FlatList, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, useWindowDimensions, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import {
   ScheduleAssignmentSheet,
   ScheduleInventorySheet,
@@ -40,8 +43,7 @@ import {
   commandMobileInventory,
   copyMobileScheduleTeam,
   getMobileSchedule,
-  remindAllMobileScheduleAssignments,
-  remindMobileScheduleAssignment,
+  sendMobileScheduleReminders,
   removeMobileScheduleAssignment,
   removeMobileScheduleService,
   respondToMobileAssignment,
@@ -70,11 +72,19 @@ function shiftServiceDate(date: string, days: number) {
 }
 
 export default function ScheduleScreen() {
+  const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
+  const { data: session, isPending: sessionPending } = authClient.useSession();
+  if (organizationPending || sessionPending) return <LoadingView label="Opening schedule…" />;
+  if (!organization || !session) return <Redirect href="/organizations" />;
+  return <ScheduleWorkspace key={`${session.user.id}:${organization.id}`} orgId={organization.id} userId={session.user.id} />;
+}
+function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string }) {
   const { colors } = useAppTheme();
   const styles = useStyles();
   const params = useLocalSearchParams<{ date?: string; assignment?: string }>();
-  const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
-  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const list = useRef<FlatList<Service>>(null);
+  const { width, fontScale } = useWindowDimensions();
+  const narrowHeader = width / fontScale < 400;
   const queryClient = useQueryClient();
   const [editor, setEditor] = useState<EditorState>(null);
   const [decliningId, setDecliningId] = useState<string | null>(null);
@@ -90,9 +100,9 @@ export default function ScheduleScreen() {
     setDateInput(requestedDate ?? "");
   }, [requestedDate]);
   const query = useQuery({
-    queryKey: ["mobile-schedule", organization?.id, selectedDate, requestedAssignmentId],
-    queryFn: () => getMobileSchedule(organization!.id, { serviceDate: selectedDate, assignmentId: requestedAssignmentId }),
-    enabled: Boolean(organization?.id),
+    queryKey: ["mobile-schedule", orgId, selectedDate, requestedAssignmentId],
+    queryFn: () => getMobileSchedule(orgId, { serviceDate: selectedDate, assignmentId: requestedAssignmentId }),
+    enabled: Boolean(orgId),
     refetchInterval: pollingInterval,
   });
   const schedule = query.data;
@@ -103,9 +113,23 @@ export default function ScheduleScreen() {
     return [...rows].sort((left, right) => Number(right.id === focusedShowId) - Number(left.id === focusedShowId));
   }, [focusedShowId, schedule?.services]);
 
-  if (organizationPending || sessionPending) return <LoadingView label="Opening schedule…" />;
-  if (!organization || !session) return <Redirect href="/organizations" />;
-  const orgId = organization.id;
+  const reminders = useMobileReminders({ orgId, userId }, {
+    enabled: pollingInterval !== false,
+    send: sendMobileScheduleReminders,
+    refresh: async (signal) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["mobile-schedule", orgId] }, { throwOnError: true }),
+        queryClient.invalidateQueries({ queryKey: ["mobile-bootstrap"] }, { throwOnError: true }),
+      ]);
+      if (signal.aborted) throw new Error("Reminder view closed.");
+    },
+  });
+  function startReminder(target: ReminderTarget, label: string) {
+    reminders.start(target, label);
+    list.current?.scrollToOffset({ offset: 0, animated: false });
+  }
+  const canSendReminder = (target: ReminderTarget) => Boolean(schedule?.canManage && schedule.provider.type === "native" && schedule.assignments.some(assignment =>
+    (target.kind === "show" ? assignment.showId === target.id : assignment.id === target.id) && assignment.status === "assigned" && assignment.crewMemberId && assignment.responseWindow.status === "open"));
 
   async function refreshSchedule() {
     await Promise.all([
@@ -227,26 +251,6 @@ export default function ScheduleScreen() {
     ]);
   }
 
-  async function remindOne(assignment: Assignment) {
-    try {
-      const result = await remindMobileScheduleAssignment({ orgId, assignmentId: assignment.id });
-      await saved();
-      Alert.alert(result.delivered ? "Invitation sent" : "Invitation not delivered", result.delivered ? `${assignment.crewName ?? "The crew member"} received a fresh schedule invitation.` : "Check the roster email and make sure the response window is still open.");
-    } catch (error) {
-      Alert.alert("Reminder not sent", error instanceof Error ? error.message : "Try again.");
-    }
-  }
-
-  async function remindAll(service: Service) {
-    try {
-      const result = await remindAllMobileScheduleAssignments({ orgId, showId: service.id });
-      await saved();
-      Alert.alert("Invitations processed", `${result.delivered} of ${result.total} pending invitation${result.total === 1 ? "" : "s"} delivered.`);
-    } catch (error) {
-      Alert.alert("Reminders not sent", error instanceof Error ? error.message : "Try again.");
-    }
-  }
-
   const canManage = Boolean(schedule?.canManage);
   const canManageAssignments = canManage && schedule?.provider.type === "native";
   function browse(date: string | undefined) {
@@ -260,17 +264,18 @@ export default function ScheduleScreen() {
         <Pressable accessibilityRole="button" accessibilityLabel="Show inventory" onPress={() => setEditor({ kind: "inventory" })} style={styles.secondaryAction}><Boxes color={colors.textMuted} size={18} /></Pressable>
       ) : null}
       {canManage ? (
-        <Pressable accessibilityLabel="Schedule settings" onPress={() => setEditor({ kind: "provider" })} style={styles.secondaryAction}><Settings2 color={colors.textMuted} size={18} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Schedule settings" onPress={() => setEditor({ kind: "provider" })} style={styles.secondaryAction}><Settings2 color={colors.textMuted} size={18} /></Pressable>
       ) : null}
       {canManage ? (
-        <Pressable accessibilityLabel="Create show" onPress={() => setEditor({ kind: "service", service: null })} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Create show" onPress={() => setEditor({ kind: "service", service: null })} style={styles.addButton}><Plus color={colors.black} size={20} /></Pressable>
       ) : null}
     </View>
   );
 
   return (
-    <Page backTo="/(app)/operations" backLabel="Back to operations" action={pageAction} eyebrow="CREW PLAN" title="Schedule" scroll={false}>
-      <FlatList
+    <Page backTo="/(app)/operations" backLabel="Back to operations" action={narrowHeader ? undefined : pageAction} eyebrow="CREW PLAN" title="Schedule" scroll={false}>
+      {narrowHeader ? pageAction : null}
+      <FlatList ref={list}
         contentContainerStyle={styles.list}
         data={services}
         initialNumToRender={6}
@@ -285,6 +290,7 @@ export default function ScheduleScreen() {
             {schedule && schedule.provider.type !== "native" ? (
               <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(schedule.provider.url).catch(() => Alert.alert("Could not open scheduling platform"))} style={styles.provider}><ExternalLink color={colors.amberText} size={17} /><View style={styles.providerCopy}><Text style={styles.providerTitle}>{schedule.provider.label || schedule.provider.type}</Text><Text numberOfLines={1} style={styles.providerUrl}>{schedule.provider.url}</Text></View><ChevronRight color={colors.textFaint} size={17} /></Pressable>
             ) : null}
+            <ScheduleReminderProgress reminders={reminders} canSendNew={canSendReminder} />
             {schedule ? (
               <View style={styles.stats}><Stat label="SHOWS" value={schedule.services.length} /><Stat label="POSITIONS" value={schedule.assignments.length} /><Stat label="CONFIRMED" value={schedule.assignments.filter((assignment) => assignment.status === "confirmed").length} /></View>
             ) : null}
@@ -351,7 +357,7 @@ export default function ScheduleScreen() {
                         <SmallAction icon={<Copy color={colors.textMuted} size={14} />} label="Copy team" onPress={() => copyTeam(service, previousWithTeam)} />
                       ) : null}
                       {assignments.some((assignment) => assignment.status === "assigned" && assignment.crewMemberId && assignment.responseWindow.status === "open") ? (
-                        <SmallAction icon={<Bell color={colors.textMuted} size={14} />} label="Remind" onPress={() => void remindAll(service)} />
+                        <SmallAction disabled={!!reminders.work[reminderSlot({ kind: "show", id: service.id })]} icon={<Bell color={colors.textMuted} size={14} />} label={reminders.work[reminderSlot({ kind: "show", id: service.id })] ? "Reminder status above" : "Remind"} onPress={() => startReminder({ kind: "show", id: service.id }, `Reminders for ${service.name || "this show"}`)} />
                       ) : null}
                     </>
                   ) : null}
@@ -361,7 +367,7 @@ export default function ScheduleScreen() {
               {assignments.length ? (
                 <View style={styles.assignments}>
                   {assignments.map((assignment) => (
-                    <AssignmentRow assignment={assignment} canManage={canManageAssignments} declining={decliningId === assignment.id} focused={assignment.id === requestedAssignmentId} key={assignment.id} onCancel={() => { setDecliningId(null); setReason(""); }} onDecline={() => { setDecliningId(assignment.id); setReason(""); }} onEdit={() => setEditor({ kind: "assignment", service, assignment })} onReason={setReason} onRemind={() => void remindOne(assignment)} onRemove={() => removeAssignment(assignment)} onRespond={(response) => void respond(assignment, response)} pending={respondingId === assignment.id} reason={reason} />
+                    <AssignmentRow assignment={assignment} canManage={canManageAssignments} declining={decliningId === assignment.id} focused={assignment.id === requestedAssignmentId} key={assignment.id} onCancel={() => { setDecliningId(null); setReason(""); }} onDecline={() => { setDecliningId(assignment.id); setReason(""); }} onEdit={() => setEditor({ kind: "assignment", service, assignment })} onReason={setReason} reminderStarted={!!reminders.work[reminderSlot({ kind: "assignment", id: assignment.id })]} onRemind={() => startReminder({ kind: "assignment", id: assignment.id }, `${assignment.role} · ${assignment.crewName ?? "Crew"}`)} onRemove={() => removeAssignment(assignment)} onRespond={(response) => void respond(assignment, response)} pending={respondingId === assignment.id} reason={reason} />
                   ))}
                 </View>
               ) : (
@@ -396,8 +402,8 @@ export default function ScheduleScreen() {
           }}
         />
       ) : null}
-      {editor?.kind === "inventory" && schedule && session?.user.id ? (
-        <ScheduleInventorySheet key={`${session.user.id}:${orgId}`} orgId={orgId} userId={session.user.id} active={pollingInterval !== false} onCommand={commandMobileInventory} onRefresh={async (signal) => {
+      {editor?.kind === "inventory" && schedule ? (
+        <ScheduleInventorySheet key={`${userId}:${orgId}`} orgId={orgId} userId={userId} active={pollingInterval !== false} onCommand={commandMobileInventory} onRefresh={async (signal) => {
           await queryClient.invalidateQueries({ queryKey: ["mobile-schedule", orgId] }, { throwOnError: true });
           if (signal.aborted) throw new Error("Inventory refresh cancelled.");
         }} archivedInventory={schedule.archivedInventory} canManage={schedule.canManage} inventory={schedule.inventory} onClose={() => setEditor(null)} onUse={(inventoryId) => setEditor({ kind: "service", service: null, initialInventoryId: inventoryId })} savedTemplates={schedule.savedTemplates} />
@@ -413,19 +419,20 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function SmallAction({ danger = false, icon, label, onPress }: {
+function SmallAction({ danger = false, disabled = false, icon, label, onPress }: {
   danger?: boolean;
+  disabled?: boolean;
   icon: ReactNode;
   label: string;
   onPress: () => void;
 }) {
   const styles = useStyles();
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={styles.smallAction}>{icon}<Text style={[styles.smallActionText, danger && styles.smallActionDanger]}>{label}</Text></Pressable>
+    <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={[styles.smallAction, disabled && styles.disabledAction]}>{icon}<Text style={[styles.smallActionText, danger && styles.smallActionDanger]}>{label}</Text></Pressable>
   );
 }
 
-function AssignmentRow({ assignment, canManage, focused, declining, reason, pending, onReason, onDecline, onCancel, onRespond, onEdit, onRemove, onRemind }: {
+function AssignmentRow({ assignment, canManage, focused, declining, reason, pending, onReason, onDecline, onCancel, onRespond, onEdit, onRemove, onRemind, reminderStarted }: {
   assignment: Assignment;
   canManage: boolean;
   focused: boolean;
@@ -439,6 +446,7 @@ function AssignmentRow({ assignment, canManage, focused, declining, reason, pend
   onEdit: () => void;
   onRemove: () => void;
   onRemind: () => void;
+  reminderStarted: boolean;
 }) {
   const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
@@ -489,7 +497,7 @@ function AssignmentRow({ assignment, canManage, focused, declining, reason, pend
         <View style={styles.assignmentActions}>
           <SmallAction icon={<Pencil color={colors.textMuted} size={13} />} label="Edit" onPress={onEdit} />
           {remindable ? (
-            <SmallAction icon={<Bell color={colors.textMuted} size={13} />} label="Resend" onPress={onRemind} />
+            <SmallAction disabled={reminderStarted} icon={<Bell color={colors.textMuted} size={13} />} label={reminderStarted ? "Reminder status above" : "Resend"} onPress={onRemind} />
           ) : null}
           <SmallAction danger icon={<Trash2 color={colors.red} size={13} />} label="Remove" onPress={onRemove} />
         </View>
@@ -511,8 +519,8 @@ function ActionText({ disabled, label, onPress, tone }: {
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
-  pageActions: { flexDirection: "row", gap: 8 },
-  addButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.amber },
+  pageActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
+  addButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.amber },
   secondaryAction: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
   list: { gap: 13, paddingBottom: spacing.large },
   listHeader: { gap: spacing.medium },
@@ -547,7 +555,8 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   warning: { overflow: "hidden", borderRadius: radii.pill, backgroundColor: colors.amberSoft, color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", paddingHorizontal: 7, paddingVertical: 4 },
   danger: { overflow: "hidden", borderRadius: radii.pill, backgroundColor: colors.redSoft, color: colors.red, fontFamily, fontSize: 11, fontWeight: "900", paddingHorizontal: 7, paddingVertical: 4 },
   manageActions: { flexDirection: "row", flexWrap: "wrap", gap: 5, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSoft, padding: 8 },
-  smallAction: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 9 },
+  disabledAction: { opacity: 0.45 },
+  smallAction: { minHeight: 44, minWidth: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 9 },
   smallActionText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "800" },
   smallActionDanger: { color: colors.red },
   assignments: { gap: 7, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSoft, padding: 9 },

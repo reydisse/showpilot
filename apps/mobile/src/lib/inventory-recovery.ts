@@ -63,39 +63,3 @@ export const inventoryResultSchema = z.object({
   item: inventoryItemSchema.nullable(),
 });
 export type InventoryResult = z.infer<typeof inventoryResultSchema>;
-
-/** Bound native requests and refresh callbacks, including transports that ignore
- * cancellation. Mutation results can remain uncertain after this deadline. */
-export function runInventoryWork<T>(
-  work: (controller: AbortController) => Promise<T>,
-  parent: AbortSignal | undefined,
-  timeoutMs: number,
-): Promise<T> {
-  const controller = new AbortController();
-  let cancel = () => {};
-  let timer: ReturnType<typeof setTimeout>;
-  const interrupted = new Promise<never>((_, reject) => {
-    const stop = (reason: unknown) => {
-      reject(reason);
-      controller.abort();
-    };
-    cancel = () => stop(new Error("Inventory view closed."));
-    timer = setTimeout(
-      () => stop(new Error("Inventory operation timed out.")),
-      timeoutMs,
-    );
-    if (parent?.aborted) cancel();
-    else parent?.addEventListener("abort", cancel, { once: true });
-  });
-  return Promise.race([
-    Promise.resolve().then(() => {
-      if (controller.signal.aborted)
-        throw new Error("Inventory operation cancelled.");
-      return work(controller);
-    }),
-    interrupted,
-  ]).finally(() => {
-    clearTimeout(timer);
-    parent?.removeEventListener("abort", cancel);
-  });
-}

@@ -2904,6 +2904,19 @@ async function deleteMobileScheduleAssignment(
     : json({ error: "Assignment not found." }, 404);
 }
 
+async function commandMobileScheduleReminder(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  const { scheduleReminderCommandSchema } = await import("./schedule-reminder-contract");
+  const parsed = scheduleReminderCommandSchema.safeParse(await readJson(request));
+  if (!parsed.success || parsed.data.orgId !== access.orgId)
+    return json({ error: "Check the reminder request and selected workspace." }, 400);
+  if (parsed.data.userId !== access.identity.userId)
+    return json({ error: "Your account changed. Reopen Schedule before sending reminders." }, 403);
+  const { runScheduleReminders } = await import("./schedule-reminder.server");
+  return json(await runScheduleReminders(request.headers, parsed.data));
+}
+
 async function remindMobileScheduleAssignments(
   request: Request,
   url: URL,
@@ -2912,59 +2925,19 @@ async function remindMobileScheduleAssignments(
 ): Promise<Response> {
   const access = await authorize(request, url, db, ["schedule:manage"]);
   if (access instanceof Response) return access;
-  const rows = input.assignmentId
-    ? await db
-        .prepare(
-          `SELECT id, showId, serviceDate, crewMemberId, role FROM service_assignment
-       WHERE id = ? AND orgId = ? AND status = 'assigned' AND crewMemberId IS NOT NULL`,
-        )
-        .bind(input.assignmentId, access.orgId)
-        .all<{
-          id: string;
-          showId: string;
-          serviceDate: string;
-          crewMemberId: string;
-          role: string;
-        }>()
-    : await db
-        .prepare(
-          `SELECT id, showId, serviceDate, crewMemberId, role FROM service_assignment
-       WHERE showId = ? AND orgId = ? AND status = 'assigned' AND crewMemberId IS NOT NULL`,
-        )
-        .bind(input.showId, access.orgId)
-        .all<{
-          id: string;
-          showId: string;
-          serviceDate: string;
-          crewMemberId: string;
-          role: string;
-        }>();
-  const assignments = rows.results ?? [];
-  if (input.assignmentId && assignments.length === 0)
-    return json({ error: "Only pending assignments can be reminded." }, 404);
-  const deliveries = await Promise.all(
-    assignments.map((assignment) =>
-      deliverMobileAssignmentInvitation({
-        request,
-        db,
-        orgId: access.orgId,
-        assignmentId: assignment.id,
-        showId: assignment.showId,
-        serviceDate: assignment.serviceDate,
-        role: assignment.role,
-        crewMemberId: assignment.crewMemberId,
-        reminder: true,
-      }),
-    ),
-  );
-  const available = deliveries.filter(
-    (delivery) => delivery.reason !== "assignment-expired",
-  );
-  return json({
-    ok: true,
-    delivered: available.filter((delivery) => delivery.delivered).length,
-    total: available.length,
+  const body = await readJson(request);
+  const { scheduleReminderCommandSchema } = await import("./schedule-reminder-contract");
+  // Installed builds without a request identity still start a fresh reminder.
+  // Explicit identities retain the recipients and delivery record on retry.
+  const parsed = scheduleReminderCommandSchema.safeParse({
+    orgId: access.orgId, userId: access.identity.userId,
+    requestId: body?.requestId ?? crypto.randomUUID(),
+    target: input.assignmentId ? { kind: "assignment", id: input.assignmentId } : { kind: "show", id: input.showId },
   });
+  if (!parsed.success) return json({ error: "Check the reminder request." }, 400);
+  const { runScheduleReminders } = await import("./schedule-reminder.server");
+  const result = await runScheduleReminders(request.headers, parsed.data);
+  return json({ ok: true, delivered: result.items.filter(item => item.email === "accepted").length, total: result.items.filter(item => item.email !== "changed").length });
 }
 
 async function updateMobileScheduleService(
@@ -7174,6 +7147,8 @@ export async function handleMobileApi(
     return createRundown(request, env.DB);
   if (url.pathname === "/api/mobile/v1/schedule" && request.method === "GET")
     return schedule(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/schedule/reminders" && request.method === "POST")
+    return commandMobileScheduleReminder(request, url, env.DB);
   if (
     url.pathname === "/api/mobile/v1/schedule/respond" &&
     request.method === "POST"

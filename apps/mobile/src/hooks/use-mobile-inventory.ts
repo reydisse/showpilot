@@ -13,7 +13,7 @@ import {
   type InventoryDraft,
   type InventoryResult,
 } from "../lib/inventory-recovery";
-import { runInventoryWork } from "../lib/inventory-recovery";
+import { runMobileOperation, MobileOperationTimeoutError } from "../lib/request-deadline";
 import { createLocalRequestUuid } from "../lib/request-id";
 
 const emptyDraft: InventoryDraft = {
@@ -111,7 +111,7 @@ export function useMobileInventory(
       attempt: { ...attempt, refresh: "pending", message: undefined },
     });
     try {
-      await runInventoryWork(
+      await runMobileOperation(
         async (child) => {
           await onChanged(child.signal);
           if (child.signal.aborted)
@@ -163,7 +163,7 @@ export function useMobileInventory(
       attempt: { kind: review ? "reviewing" : "saving", command, label },
     });
     try {
-      const result = await runInventoryWork(
+      const result = await runMobileOperation(
         async (controller) => {
           if (controller.signal.aborted)
             throw new Error("Inventory request cancelled.");
@@ -280,7 +280,7 @@ export function useMobileInventory(
 }
 function message(error: unknown, fallback: string) {
   return error instanceof Error &&
-    error.message !== "Inventory operation timed out."
+    !(error instanceof MobileOperationTimeoutError)
     ? error.message
     : fallback;
 }
