@@ -16,15 +16,9 @@ import { AppButton } from "@/components/app-button";
 import { AppField } from "@/components/app-field";
 import { Page } from "@/components/page";
 import type { MobileSchedule } from "@/lib/mobile-api";
-import { serviceWallTimeInput } from "@/lib/service-time";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
-type Service = MobileSchedule["services"][number];
 type Crew = MobileSchedule["crew"][number];
-
-export interface ScheduleServiceDraft {
-  name: string; startTime: string; callTime: string; location: string; expectedUpdatedAt: string;
-}
 
 function ScheduleSheet({ children, onClose, title, eyebrow }: {
   children: ReactNode;
@@ -54,29 +48,6 @@ function runSave(save: () => Promise<void>, setBusy: (value: boolean) => void) {
   void save().catch((error: unknown) => {
     Alert.alert("Schedule not saved", error instanceof Error ? error.message : "Try again.");
   }).finally(() => setBusy(false));
-}
-
-export function ScheduleServiceSheet({ onClose, onSave, service, timeZone }: {
-  onClose: () => void; onSave: (draft: ScheduleServiceDraft) => Promise<void>; service: Service; timeZone: string;
-}) {
-  const workspaceTerms = useWorkspaceTerms();
-  const styles = useStyles();
-  const [name, setName] = useState(service.name);
-  const [startTime, setStartTime] = useState(serviceWallTimeInput(service.scheduledStartTime, timeZone));
-  const [callTime, setCallTime] = useState(serviceWallTimeInput(service.scheduledCallTime, timeZone));
-  const [location, setLocation] = useState(service.location);
-  const [busy, setBusy] = useState(false);
-  const valid = name.trim().length > 0 && (!startTime || /^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) && (!callTime || /^([01]\d|2[0-3]):[0-5]\d$/.test(callTime));
-  return <ScheduleSheet eyebrow="EDIT SHOW" title="Edit show" onClose={onClose}>
-    <Text style={styles.intro}>Changes synchronize to every operator. A newer edit on another device will be protected.</Text>
-    <AppField autoCapitalize="sentences" label={workspaceCopy("Show or service name", workspaceTerms)} placeholder={workspaceCopy("Sunday Morning", workspaceTerms)} maxLength={120} value={name} onChangeText={setName} />
-    <AppField autoCapitalize="none" keyboardType="numbers-and-punctuation" placeholder="09:30" error={startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime) ? "Use 24-hour HH:mm." : undefined} label="Start time (optional)" maxLength={5} value={startTime} onChangeText={setStartTime} />
-    <AppField autoCapitalize="none" keyboardType="numbers-and-punctuation" placeholder="08:00 · blank uses workspace default" error={callTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(callTime) ? "Use 24-hour HH:mm." : undefined} label="Crew call (optional)" maxLength={5} value={callTime} onChangeText={setCallTime} />
-    <AppField autoCapitalize="words" placeholder="Main auditorium" label="Venue or location" maxLength={240} value={location} onChangeText={setLocation} />
-    <AppButton disabled={!valid || busy} label="Save show" loading={busy} onPress={() => runSave(async () => {
-      await onSave({ name: name.trim(), startTime, callTime, location: location.trim(), expectedUpdatedAt: service.updatedAt }); onClose();
-    }, setBusy)} />
-  </ScheduleSheet>;
 }
 
 function CrewPicker({ crew, selectedId, onSelect, disabled = false }: {

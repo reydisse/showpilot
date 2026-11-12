@@ -1,3 +1,6 @@
+import { ShowManagementSheet } from "@/components/show-management-sheet";
+import { useShowManagementDrafts } from "@/hooks/use-show-management";
+import { showDraftFromSnapshot, type ShowManagementDraft } from "@/lib/show-management-recovery";
 import { ShowCreationSheet } from "@/components/show-creation-sheet";
 import { useShowCreationDrafts } from "@/hooks/use-show-creation";
 import type { ShowCreationDraft } from "@/lib/show-creation-recovery";
@@ -38,9 +41,7 @@ import {
   ScheduleAssignmentSheet,
   ScheduleInventorySheet,
   ScheduleProviderSheet,
-  ScheduleServiceSheet,
   ScheduleTeamSheet,
-  type ScheduleServiceDraft,
 } from "@/components/schedule-sheets";
 import { Page } from "@/components/page";
 import { LoadingView } from "@/components/loading-view";
@@ -53,10 +54,8 @@ import {
   copyMobileScheduleTeam,
   getMobileSchedule,
   sendMobileScheduleReminders,
-  removeMobileScheduleService,
   respondToMobileAssignment,
   saveMobileScheduleProvider,
-  updateMobileScheduleService,
   type MobileSchedule,
 } from "@/lib/mobile-api";
 import { formatServiceTime, getServiceDateForTimeZone, isServiceDate, serviceWallTimeInput } from "@/lib/service-time";
@@ -65,7 +64,7 @@ import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/t
 type Service = MobileSchedule["services"][number];
 type Assignment = MobileSchedule["assignments"][number];
 type EditorState =
-  | { kind: "service"; service: Service }
+  | { kind: "showManagement"; initial: ShowManagementDraft }
   | { kind: "createShow"; initial: ShowCreationDraft }
   | { kind: "assignment"; initial: AssignmentDraft }
   | { kind: "team"; initial: TeamDraft }
@@ -95,6 +94,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
   const narrowHeader = width / fontScale < 400;
   const queryClient = useQueryClient();
   const assignmentDrafts = useAssignmentDrafts({ orgId, userId });
+  const showManagementDrafts = useShowManagementDrafts({ orgId, userId });
   const showDrafts = useShowCreationDrafts({ orgId, userId });
   const teamDrafts = useTeamDrafts({ orgId, userId });
   const [editor, setEditor] = useState<EditorState>(null);
@@ -156,19 +156,8 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
     await refreshSchedule();
   }
 
-  async function saveService(draft: ScheduleServiceDraft) {
-    if (draft.expectedUpdatedAt && editor?.kind === "service" && editor.service) {
-      await updateMobileScheduleService({
-        orgId,
-        showId: editor.service.id,
-        name: draft.name,
-        startTime: draft.startTime,
-        callTime: draft.callTime,
-        location: draft.location,
-        expectedUpdatedAt: draft.expectedUpdatedAt,
-      });
-    }
-    await saved();
+  function openShowManagement(service: Service, mode: "edit" | "delete") {
+    setEditor({ kind: "showManagement", initial: showDraftFromSnapshot(mode, service, schedule?.timeZone ?? "UTC") });
   }
 
   function openShowCreation(inventoryId?: string) {
@@ -250,13 +239,6 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
     }
   }
 
-  function removeService(service: Service) {
-    Alert.alert("Delete show?", `${service.name || "This show"} and all of its rundown, assignments, checklist, cues, and incidents will be removed permanently.`, [
-      { text: "Keep show", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: () => void removeMobileScheduleService({ orgId, showId: service.id }).then(saved).catch((error: Error) => Alert.alert("Show not deleted", error.message)) },
-    ]);
-  }
-
   const canManage = Boolean(schedule?.canManage);
   const canManageAssignments = canManage && schedule?.provider.type === "native";
   function browse(date: string | undefined) {
@@ -311,6 +293,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
             </View> : null}
             <ScheduleCopyProgress copies={copies} canCopyAgain={canCopyAgain} onCopyAgain={copyAgain} />
             <ScheduleReminderProgress reminders={reminders} canSendNew={canSendReminder} />
+            {showManagementDrafts.map(draft => <AppButton key={draft.showId} variant="secondary" label={`Resume ${draft.mode === "delete" ? "show deletion" : "show edit"}: ${draft.base.name || "Untitled show"} (${draft.base.serviceDate})`} onPress={() => setEditor({ kind: "showManagement", initial: draft })} />)}
             {showDrafts[0] ? <AppButton variant="secondary" label={`Resume show: ${showDrafts[0].name || "Untitled show"} (${showDrafts[0].serviceDate})`} onPress={() => openShowCreation()} /> : null}
             {teamDrafts.map(draft => <AppButton key={draft.showId} variant="secondary" label={`Resume team: ${draft.department || "New team"} · ${draft.showName} (${draft.serviceDate})`} onPress={() => setEditor({ kind: "team", initial: draft })} />)}
             {assignmentDrafts.map(draft => <AppButton key={draft.editorId} variant="secondary" label={`Resume ${draft.mode === "delete" ? "removal" : "assignment"}: ${draft.fields.role || "New position"} · ${draft.showName} (${draft.fields.serviceDate})`} onPress={() => setEditor({ kind: "assignment", initial: draft })} />) }
@@ -371,7 +354,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
               </View>
               {canManage ? (
                 <View style={styles.manageActions}>
-                  <SmallAction icon={<Pencil color={colors.textMuted} size={14} />} label="Edit" onPress={() => setEditor({ kind: "service", service })} />
+                  <SmallAction icon={<Pencil color={colors.textMuted} size={14} />} label="Edit" onPress={() => openShowManagement(service, "edit")} />
                   {canManageAssignments ? (
                     <>
                       <SmallAction icon={<UserPlus color={colors.amberText} size={14} />} label="Position" onPress={() => openAssignment(service, null)} />
@@ -384,7 +367,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
                       ) : null}
                     </>
                   ) : null}
-                  <SmallAction danger icon={<Trash2 color={colors.red} size={14} />} label="Delete" onPress={() => removeService(service)} />
+                  <SmallAction danger icon={<Trash2 color={colors.red} size={14} />} label="Delete" onPress={() => openShowManagement(service, "delete")} />
                 </View>
               ) : null}
               {assignments.length ? (
@@ -401,9 +384,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
         }}
         windowSize={7}
       />
-      {editor?.kind === "service" && schedule ? (
-        <ScheduleServiceSheet onClose={() => setEditor(null)} onSave={saveService} service={editor.service} timeZone={schedule.timeZone} />
-      ) : null}
+      {editor?.kind === "showManagement" ? <ShowManagementSheet key={`${userId}:${orgId}:${editor.initial.showId}`} orgId={orgId} userId={userId} initial={editor.initial} onClose={() => setEditor(null)} /> : null}
       {editor?.kind === "createShow" ? <ShowCreationSheet key={`${userId}:${orgId}`} orgId={orgId} userId={userId} initial={editor.initial} inventory={schedule?.inventory} shows={schedule?.services} onClose={() => setEditor(null)} /> : null}
       {editor?.kind === "assignment" ? (
         <ScheduleAssignmentSheet key={`${userId}:${orgId}:${editor.initial.editorId}`} orgId={orgId} userId={userId} active={pollingInterval !== false} initial={editor.initial} crew={schedule?.crew ?? []} onClose={() => setEditor(null)} onCommand={commandMobileAssignment} onRead={readMobileAssignment} onRefresh={async signal => {

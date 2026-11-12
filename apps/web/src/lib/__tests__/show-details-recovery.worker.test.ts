@@ -444,3 +444,142 @@ it.each(["delete", "reschedule", "retire"] as const)(
     );
   },
 );
+
+it("native show editing retains its original identity and returns the durable outcome", async () => {
+  const f = await fixture();
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const request = () =>
+    new Request(
+      `https://app.showpilot.tech/api/mobile/v1/schedule/shows/command?orgId=${f.orgId}`,
+      {
+        method: "POST",
+        headers: {
+          Cookie: f.headers.get("Cookie") ?? "",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ...f.command, kind: "edit" }),
+      },
+    );
+  const response = await handleMobileApi(request(), env);
+  expect(response?.status).toBe(200);
+  expect(await response?.json()).toMatchObject({
+    orgId: f.orgId,
+    userId: f.userId,
+    requestId: f.command.requestId,
+    kind: "edit",
+    result: { outcome: "applied", showId: f.showId },
+  });
+});
+
+async function nativeEdit(
+  f: Awaited<ReturnType<typeof fixture>>,
+  command = f.command,
+  review = false,
+) {
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const response = await handleMobileApi(
+    new Request(
+      `https://app.showpilot.tech/api/mobile/v1/schedule/shows/${review ? "review" : "command"}?orgId=${f.orgId}`,
+      {
+        method: "POST",
+        headers: {
+          Cookie: f.headers.get("Cookie") ?? "",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ ...command, kind: "edit" }),
+      },
+    ),
+    env,
+  );
+  if (!response) throw new Error("Missing native show route");
+  return response;
+}
+it("native exact retry recovers one metadata receipt and preserves a newer operator edit", async () => {
+  const f = await fixture();
+  const { showManagementReplySchema } =
+    await import("../../../../mobile/src/lib/show-management-recovery");
+  const first = showManagementReplySchema.parse(
+    await (await nativeEdit(f)).json(),
+  );
+  expect(first).toMatchObject({ kind: "edit", result: { outcome: "applied" } });
+  const snapshot = await (
+    await import("../show-details-write.server")
+  ).readShowDetailsSnapshot(env.DB, f.orgId, f.showId);
+  const newer = {
+    ...f.command,
+    name: "Later title",
+    requestId: crypto.randomUUID(),
+    expectedUpdatedAt: snapshot!.snapshot.updatedAt,
+  };
+  expect(await (await nativeEdit(f, newer)).json()).toMatchObject({
+    result: { outcome: "applied" },
+  });
+  expect(await (await nativeEdit(f)).json()).toMatchObject({
+    requestId: f.command.requestId,
+    result: { outcome: "superseded", snapshot: { name: "Later title" } },
+  });
+  expect(await f.receiptCount()).toBe(2);
+  expect(await f.row()).toMatchObject({ name: "Later title" });
+});
+it("native review fences an unapplied edit and a late save cannot overwrite the show", async () => {
+  const f = await fixture();
+  expect(await (await nativeEdit(f, f.command, true)).json()).toMatchObject({
+    result: { outcome: "cancelled" },
+  });
+  expect(await (await nativeEdit(f)).json()).toMatchObject({
+    result: { outcome: "cancelled" },
+  });
+  expect(await f.row()).toMatchObject({ name: "Original" });
+});
+it("native stale saves return conflict and a fresh authenticated read returns the current version", async () => {
+  const f = await fixture();
+  await f.save();
+  const stale = { ...f.command, name: "Stale", requestId: crypto.randomUUID() };
+  expect(await (await nativeEdit(f, stale)).json()).toMatchObject({
+    result: { outcome: "conflict", snapshot: { name: f.command.name } },
+  });
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const { showManagementReadSchema } =
+    await import("../../../../mobile/src/lib/show-management-recovery");
+  const path = `https://app.showpilot.tech/api/mobile/v1/schedule/shows/${f.showId}?orgId=${f.orgId}&userId=${f.userId}`;
+  const response = await handleMobileApi(
+    new Request(path, { headers: f.headers }),
+    env,
+  );
+  expect(response?.status).toBe(200);
+  const read = showManagementReadSchema.parse(await response?.json());
+  expect(read.snapshot).toMatchObject({
+    id: f.showId,
+    name: f.command.name,
+    scheduledStartTime: "2026-11-08T10:00:00.000Z",
+  });
+  expect(read.snapshot?.updatedAt).not.toBe(f.command.expectedUpdatedAt);
+  expect(
+    (
+      await handleMobileApi(
+        new Request(
+          path.replace(`userId=${f.userId}`, "userId=wrong-account"),
+          { headers: f.headers },
+        ),
+        env,
+      )
+    )?.status,
+  ).toBe(403);
+});
+it("native show read and edit reject revoked membership without returning a snapshot", async () => {
+  const f = await fixture();
+  await env.DB.prepare("DELETE FROM member WHERE organizationId=? AND userId=?")
+    .bind(f.orgId, f.userId)
+    .run();
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const response = await handleMobileApi(
+    new Request(
+      `https://app.showpilot.tech/api/mobile/v1/schedule/shows/${f.showId}?orgId=${f.orgId}&userId=${f.userId}`,
+      { headers: f.headers },
+    ),
+    env,
+  );
+  expect([401, 403]).toContain(response?.status);
+  expect([401, 403]).toContain((await nativeEdit(f)).status);
+  expect(await f.receiptCount()).toBe(0);
+});

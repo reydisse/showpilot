@@ -76,8 +76,10 @@ export async function deleteServiceForOrg(
     query: { disableCookieCache: true },
   });
   if (!session || (data.userId && data.userId !== session.user.id))
-    throw new ShowDeletionRejectedError(
-      "Your account changed. Reopen this show before deleting it.",
+    // This can be a retry of an already accepted purge. Without current
+    // authority, its outcome is unknown, not a definitive rejection.
+    throw new Error(
+      "Your account changed. Sign in to the original account and retry this deletion.",
     );
   const access = await memberPermissionGuard(
     db,
