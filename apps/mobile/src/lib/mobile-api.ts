@@ -1,3 +1,4 @@
+import { copyTeamResultSchema, type CopyTeamCommand } from "./copy-recovery";
 import { scheduleReminderResultSchema, type ScheduleReminderCommand } from "./reminder-recovery";
 import { inventoryResultSchema, type InventoryCommand } from "./inventory-recovery";
 import { preferenceReceiptSchema, type PreferenceCommand } from "./notification-preference-recovery";
@@ -289,13 +290,7 @@ const scheduleWriteResultSchema = z.object({
   delivered: z.boolean(),
 });
 
-const scheduleTeamCopyResultSchema = z.object({
-  ok: z.literal(true),
-  copied: z.number().int().positive(),
-  created: z.boolean(),
-  delivered: z.number().int().nonnegative(),
-  total: z.number().int().nonnegative(),
-});
+
 
 const incidentSchema = z.object({
   id: z.string(),
@@ -1566,17 +1561,9 @@ export async function sendMobileScheduleReminders(input: ScheduleReminderCommand
   return scheduleReminderResultSchema.parse(await response.json());
 }
 
-export async function copyMobileScheduleTeam(input: {
-  orgId: string;
-  showId: string;
-  sourceShowId: string;
-  requestId: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/schedule/services/${encodeURIComponent(input.showId)}/copy-team?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify(input) },
-  );
-  return scheduleTeamCopyResultSchema.parse(await response.json());
+export async function copyMobileScheduleTeam(input: CopyTeamCommand, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/schedule/copy-team?orgId=${encodeURIComponent(input.orgId)}`, { method: "POST", signal, body: JSON.stringify(input) });
+  return copyTeamResultSchema.parse(await response.json());
 }
 
 export async function updateMobileScheduleService(input: {

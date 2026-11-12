@@ -6,6 +6,7 @@ import { getAuth } from "../auth";
 import { copyScheduleTeam } from "../schedule-copy";
 import { runCopyScheduleTeam } from "../schedule-copy.server";
 import { env } from "cloudflare:workers";
+import { handleMobileApi } from "../mobile-api.server";
 
 const mail = vi.hoisted(() => ({ send: vi.fn() }));
 vi.mock("../email", async (original) => ({
@@ -157,6 +158,63 @@ async function copyFixture() {
     },
   };
 }
+it("native copy retries recover the original roster after the source changes", async () => {
+  const f = await copyFixture();
+  const post = async () => {
+    const response = await handleMobileApi(
+      new Request(
+        `https://app.showpilot.tech/api/mobile/v1/schedule/services/${f.command.showId}/copy-team?orgId=${f.orgId}`,
+        {
+          method: "POST",
+          headers: {
+            Cookie: f.headers.get("cookie")!,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            requestId: f.command.requestId,
+            sourceShowId: f.command.copyFromShowId,
+          }),
+        },
+      ),
+      { DB: env.DB },
+    );
+    if (!response) throw new Error("Native copy route was not handled");
+    return { status: response.status, body: await response.json() };
+  };
+  expect((await post()).status).toBe(201);
+  await getPrisma().serviceAssignment.create({
+    data: {
+      orgId: f.orgId,
+      showId: f.input.showId,
+      serviceDate: f.input.serviceDate,
+      role: "Added later",
+    },
+  });
+  const retried = await post();
+  expect(retried.status).toBe(200);
+  expect(retried.body).toMatchObject({ copied: 1, delivered: 1, total: 1 });
+  expect(
+    await getPrisma().serviceAssignment.count({
+      where: { orgId: f.orgId, showId: f.command.showId },
+    }),
+  ).toBe(1);
+  expect(mail.send).toHaveBeenCalledTimes(1);
+  await getPrisma().serviceAssignment.deleteMany({
+    where: { orgId: f.orgId, showId: f.command.showId },
+  });
+  const afterRemoval = await post();
+  expect(afterRemoval.status).toBe(409);
+  expect(afterRemoval.body).toMatchObject({
+    error: expect.stringContaining("since changed or been removed"),
+  });
+  expect(
+    await getPrisma().serviceAssignment.count({
+      where: { orgId: f.orgId, showId: f.command.showId },
+    }),
+  ).toBe(0);
+  expect(mail.send).toHaveBeenCalledTimes(1);
+});
+
 it("recovers the original copied roster even if the source roster gains another position", async () => {
   const f = await copyFixture();
   await copyScheduleTeam({ data: f.command });
@@ -176,6 +234,91 @@ it("recovers the original copied roster even if the source roster gains another 
       where: { orgId: f.orgId, showId: f.command.showId },
     }),
   ).toBe(1);
+});
+
+async function nativeCopy(
+  f: Awaited<ReturnType<typeof copyFixture>>,
+  command = f.command,
+  cookie = f.headers.get("cookie")!,
+) {
+  const response = await handleMobileApi(
+    new Request(
+      `https://app.showpilot.tech/api/mobile/v1/schedule/copy-team?orgId=${f.orgId}`,
+      {
+        method: "POST",
+        headers: { Cookie: cookie, "Content-Type": "application/json" },
+        body: JSON.stringify(command),
+      },
+    ),
+    { DB: env.DB },
+  );
+  if (!response) throw new Error("Missing native copy response");
+  return {
+    status: response.status,
+    body: (await response.json()) as Awaited<
+      ReturnType<typeof runCopyScheduleTeam>
+    >,
+  };
+}
+it("native copy returns uncertain invitations and recovers their exact delivery", async () => {
+  const f = await copyFixture();
+  mail.send.mockRejectedValueOnce(new TypeError("Accepted but reply lost"));
+  const first = await nativeCopy(f);
+  expect(first.status).toBe(200);
+  expect(first.body).toMatchObject({
+    requestId: f.command.requestId,
+    copied: 1,
+    reason: null,
+    items: [
+      expect.objectContaining({
+        invitation: expect.objectContaining({ email: "uncertain" }),
+      }),
+    ],
+  });
+  const second = await nativeCopy(f);
+  expect(second.body.items[0].invitation?.email).toBe("accepted");
+  expect(second.body.items[0].id).toBe(first.body.items[0].id);
+  expect(mail.send.mock.calls[1]).toEqual(mail.send.mock.calls[0]);
+  await nativeCopy(f);
+  expect(mail.send).toHaveBeenCalledTimes(2);
+});
+it("native copy never revives a deleted target row", async () => {
+  const f = await copyFixture(),
+    first = await nativeCopy(f);
+  await getPrisma().serviceAssignment.delete({
+    where: { id: first.body.items[0].id },
+  });
+  const second = await nativeCopy(f);
+  expect(second.body.items[0]).toMatchObject({
+    changed: true,
+    invitation: null,
+  });
+  expect(
+    await getPrisma().serviceAssignment.count({
+      where: { orgId: f.orgId, showId: f.command.showId },
+    }),
+  ).toBe(0);
+  expect(mail.send).toHaveBeenCalledTimes(1);
+});
+it("native copy denies anonymous, mismatched scope, future sources and revoked permission", async () => {
+  const f = await copyFixture();
+  expect((await nativeCopy(f, f.command, "")).status).toBe(401);
+  expect((await nativeCopy(f, { ...f.command, userId: "other" })).status).toBe(
+    403,
+  );
+  expect((await nativeCopy(f, { ...f.command, orgId: "other" })).status).toBe(
+    400,
+  );
+  expect(
+    (await nativeCopy(f, { ...f.command, copyFrom: "2199-01-01" })).status,
+  ).toBe(400);
+  await env.DB.prepare(
+    "UPDATE member SET role='member' WHERE organizationId=? AND userId=?",
+  )
+    .bind(f.orgId, f.userId)
+    .run();
+  expect((await nativeCopy(f)).status).toBe(403);
+  expect(mail.send).not.toHaveBeenCalled();
 });
 it("retries an uncertain copied invitation with the original delivery key and body", async () => {
   const f = await copyFixture();

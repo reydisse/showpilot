@@ -1,3 +1,4 @@
+import * as retained from "./native-retained-requests.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import ts from "typescript";
@@ -22,6 +23,7 @@ const code = ts.transpileModule(
   },
 ).outputText;
 const modules = {
+  "./use-retained-requests": retained,
   react: React,
   "@tanstack/react-query": queries,
   "../lib/reminder-recovery": contract,

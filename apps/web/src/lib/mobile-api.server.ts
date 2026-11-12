@@ -2628,6 +2628,30 @@ async function createMobileScheduleAssignment(
   );
 }
 
+async function commandMobileScheduleCopy(
+  request: Request,
+  url: URL,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  const { copyTeamCommandSchema } = await import("./schedule-copy-contract");
+  const parsed = copyTeamCommandSchema.safeParse(await readJson(request));
+  if (
+    !parsed.success ||
+    parsed.data.orgId !== access.orgId ||
+    parsed.data.copyFrom > parsed.data.serviceDate
+  )
+    return json({ error: "Check the source and destination shows." }, 400);
+  if (parsed.data.userId !== access.identity.userId)
+    return json(
+      { error: "Your account changed. Reopen Schedule before copying a team." },
+      403,
+    );
+  const { runCopyScheduleTeam } = await import("./schedule-copy.server");
+  return json(await runCopyScheduleTeam(request.headers, parsed.data));
+}
+
 async function copyMobileScheduleTeam(
   request: Request,
   url: URL,
@@ -2637,137 +2661,98 @@ async function copyMobileScheduleTeam(
   const access = await authorize(request, url, db, ["schedule:manage"]);
   if (access instanceof Response) return access;
   const body = await readJson(request);
-  const requestId =
+  const legacyRequest =
     typeof body?.requestId === "string" ? body.requestId.trim() : "";
   const sourceShowId =
     typeof body?.sourceShowId === "string" ? body.sourceShowId.trim() : "";
   if (
-    !validId(requestId) ||
-    requestId.length > 96 ||
+    !validId(legacyRequest) ||
+    legacyRequest.length > 96 ||
     !validId(sourceShowId) ||
     sourceShowId === showId
-  ) {
+  )
     return json({ error: "Choose a valid previous show to copy." }, 400);
-  }
-  const [target, source, sourceResult, targetResult] = await Promise.all([
-    getMobileScheduleShow(db, access.orgId, showId),
-    getMobileScheduleShow(db, access.orgId, sourceShowId),
-    db
-      .prepare(
-        `SELECT id, crewMemberId, role, department, callTime
-       FROM service_assignment WHERE orgId = ? AND showId = ?
-       ORDER BY department ASC, role ASC, createdAt ASC, id ASC`,
-      )
-      .bind(access.orgId, sourceShowId)
-      .all<
-        Pick<
-          MobileScheduleAssignmentWriteRow,
-          "id" | "crewMemberId" | "role" | "department" | "callTime"
-        >
-      >(),
-    db
-      .prepare(
-        `SELECT id, crewMemberId, role, department, callTime, invitedAt
-       FROM service_assignment WHERE orgId = ? AND showId = ?
-       ORDER BY id ASC`,
-      )
-      .bind(access.orgId, showId)
-      .all<
-        Pick<
-          MobileScheduleAssignmentWriteRow,
-          | "id"
-          | "crewMemberId"
-          | "role"
-          | "department"
-          | "callTime"
-          | "invitedAt"
-        >
-      >(),
-  ]);
-  if (!target || !source) return json({ error: "Show not found." }, 404);
-  if (target.status === "running" || target.status === "paused") {
-    return json({ error: "A live show team cannot be replaced." }, 409);
-  }
-  if (source.serviceDate > target.serviceDate) {
-    return json({ error: "Choose a show that occurs before this one." }, 400);
-  }
-  const sourceRows = sourceResult.results ?? [];
-  if (sourceRows.length === 0)
-    return json({ error: "That show has no team to copy." }, 409);
-  const expectedIds = sourceRows.map((_, index) => `${requestId}-${index}`);
-  const targetRows = targetResult.results ?? [];
-  const targetById = new Map(targetRows.map((row) => [row.id, row]));
-  const isRetry =
-    targetRows.length === expectedIds.length &&
-    expectedIds.every((id) => targetById.has(id));
-  if (targetRows.length > 0 && !isRetry) {
-    return json(
-      {
-        error:
-          "This show already has positions. Remove them before copying another team.",
-      },
-      409,
-    );
-  }
-  if (!isRetry) {
-    await db.batch(
-      sourceRows.map((row, index) =>
-        db
-          .prepare(
-            `INSERT INTO service_assignment
-        (id, orgId, showId, serviceDate, crewMemberId, assignedByUserId, role, department, status,
-         callTime, notes, responseNote, invitedAt, respondedAt, createdAt, updatedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'assigned', ?, '', '', NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-          )
-          .bind(
-            expectedIds[index],
-            access.orgId,
-            target.id,
-            target.serviceDate,
-            row.crewMemberId,
-            access.identity.userId,
-            row.role,
-            row.department,
-            row.callTime,
-          ),
+  // Installed native builds use non-UUID identities. Give that identity a stable
+  // namespace; retries must not rebuild the roster from the current source.
+  const digest = new Uint8Array(
+    await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(
+        JSON.stringify([
+          "native-copy",
+          access.orgId,
+          access.identity.userId,
+          legacyRequest,
+        ]),
       ),
-    );
-  }
-  const assignedRows = sourceRows.filter((row) => Boolean(row.crewMemberId));
-  const alreadyDelivered = isRetry
-    ? expectedIds.filter((id) => Boolean(targetById.get(id)?.invitedAt)).length
-    : 0;
-  const deliverable = sourceRows.flatMap((row, index) => {
-    const id = expectedIds[index];
-    if (!row.crewMemberId || (isRetry && targetById.get(id)?.invitedAt))
-      return [];
-    return [{ ...row, id, crewMemberId: row.crewMemberId }];
-  });
-  const deliveries = await Promise.all(
-    deliverable.map((assignment) =>
-      deliverMobileAssignmentInvitation({
-        request,
-        db,
-        orgId: access.orgId,
-        assignmentId: assignment.id,
-        showId: target.id,
-        serviceDate: target.serviceDate,
-        role: assignment.role,
-        crewMemberId: assignment.crewMemberId,
-      }),
     ),
   );
+  digest[6] = (digest[6] & 15) | 80;
+  digest[8] = (digest[8] & 63) | 128;
+  const hex = Array.from(digest.slice(0, 16), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  const requestId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  const stored = await db
+    .prepare(
+      "SELECT fingerprint FROM schedule_copy_request WHERE orgId=? AND actorId=? AND requestId=?",
+    )
+    .bind(access.orgId, access.identity.userId, requestId)
+    .first<{ fingerprint: string }>();
+  let serviceDate: string, copyFrom: string;
+  if (stored) {
+    const selection = z
+      .tuple([z.string(), z.string(), z.string(), z.string()])
+      .parse(JSON.parse(stored.fingerprint));
+    if (selection[0] !== showId || selection[2] !== sourceShowId)
+      return json(
+        {
+          error:
+            "This copy request belongs to different shows. Refresh before copying again.",
+        },
+        409,
+      );
+    serviceDate = selection[1];
+    copyFrom = selection[3];
+  } else {
+    const [target, source] = await Promise.all([
+      getMobileScheduleShow(db, access.orgId, showId),
+      getMobileScheduleShow(db, access.orgId, sourceShowId),
+    ]);
+    if (!target || !source) return json({ error: "Show not found." }, 404);
+    if (source.serviceDate > target.serviceDate)
+      return json({ error: "Choose a show that occurs before this one." }, 400);
+    serviceDate = target.serviceDate;
+    copyFrom = source.serviceDate;
+  }
+  const { copyTeamCommandSchema, copyTeamBlockedMessage } =
+    await import("./schedule-copy-contract");
+  const command = copyTeamCommandSchema.parse({
+    orgId: access.orgId,
+    userId: access.identity.userId,
+    requestId,
+    showId,
+    serviceDate,
+    copyFromShowId: sourceShowId,
+    copyFrom,
+  });
+  const { runCopyScheduleTeam } = await import("./schedule-copy.server");
+  const result = await runCopyScheduleTeam(request.headers, command);
+  if (result.reason)
+    return json({ error: copyTeamBlockedMessage(result.reason) }, 409);
+  if (result.items.some((item) => item.changed))
+    return json({ error: "The original team was copied, but its positions have since changed or been removed. Refresh to review them." }, 409);
   return json(
     {
       ok: true,
-      copied: sourceRows.length,
-      created: !isRetry,
-      delivered:
-        alreadyDelivered +
-        deliveries.filter((delivery) => delivery.delivered).length,
-      total: assignedRows.length,
+      copied: result.copied,
+      created: !stored,
+      delivered: result.items.filter(
+        (item) => item.invitation?.email === "accepted",
+      ).length,
+      total: result.items.filter((item) => item.invitation !== null).length,
     },
-    isRetry ? 200 : 201,
+    stored ? 200 : 201,
   );
 }
 
@@ -7147,6 +7132,8 @@ export async function handleMobileApi(
     return createRundown(request, env.DB);
   if (url.pathname === "/api/mobile/v1/schedule" && request.method === "GET")
     return schedule(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/schedule/copy-team" && request.method === "POST")
+    return commandMobileScheduleCopy(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/schedule/reminders" && request.method === "POST")
     return commandMobileScheduleReminder(request, url, env.DB);
   if (
