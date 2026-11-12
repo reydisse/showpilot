@@ -127,6 +127,8 @@ export class RundownRelay extends DurableObject {
     recentCommandIds: [],
     removedItems: [],
   };
+  private retired = false;
+  private deletionFence: { orgId: string; showId: string; nonce: string } | null = null;
   private hydrated = false;
   private hydrationPromise: Promise<void> | null = null;
   private orgId = "";
@@ -142,7 +144,13 @@ export class RundownRelay extends DurableObject {
     }
     if (!this.hydrationPromise) {
       this.hydrationPromise = (async () => {
-        const stored = await this.ctx.storage.get<StoredRundownState>("state");
+        const [stored, retired, fence] = await Promise.all([
+          this.ctx.storage.get<StoredRundownState>("state"),
+          this.ctx.storage.get<boolean>("retired"),
+          this.ctx.storage.get<{ orgId: string; showId: string; nonce: string }>("show-deletion-fence"),
+        ]);
+        this.retired = retired ?? false;
+        this.deletionFence = fence ?? null;
         const ppOutputEnabled = typeof stored?.ppOutputEnabled === "boolean"
           ? stored.ppOutputEnabled
           : await this.readProPresenterStageDisplaySetting();
@@ -196,6 +204,7 @@ export class RundownRelay extends DurableObject {
   }
 
   private async recoverPendingShowDetails(): Promise<void> {
+    if (this.retired) return;
     const pending = await this.ctx.storage.get<PendingShowDetails>("pending-show-details");
     if (!pending) return;
     if (pending.orgId !== this.orgId || (this.state.showId && this.state.showId !== pending.showId))
@@ -213,6 +222,20 @@ export class RundownRelay extends DurableObject {
     }
     await this.ctx.storage.delete("pending-show-details");
     if (snapshot) this.broadcastState();
+  }
+
+  private async showDeletionBlocksWrites(): Promise<boolean> {
+    if (this.retired) return true;
+    if (!this.deletionFence) return false;
+    const fence = this.deletionFence;
+    const operation = await this.env.DB.prepare("SELECT stage FROM show_deletion WHERE orgId=? AND showId=? AND nonce=?")
+      .bind(fence.orgId, fence.showId, fence.nonce).first<{ stage: string }>();
+    if (operation) return true;
+    // A rejected preparation is reversible. Recover locally even if the
+    // coordinator lost its reply before it could notify this room.
+    await this.ctx.storage.delete("show-deletion-fence");
+    this.deletionFence = null;
+    return false;
   }
 
   /** Persist the authoritative state before any client sees the revision. */
@@ -454,6 +477,8 @@ export class RundownRelay extends DurableObject {
       }
       for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Organization deleted");
       await this.ctx.storage.deleteAll();
+      this.retired = false;
+      this.deletionFence = null;
       this.persistedItems.clear();
       this.itemRowsInitialized = false;
       this.state = {
@@ -494,11 +519,29 @@ export class RundownRelay extends DurableObject {
         return Response.json({ error: error instanceof ShowDetailsRequestError ? error.message : "Could not confirm the show details save. Retry the original save or review it before editing." }, { status: 503 });
       }
     }
+    if (url.pathname === "/internal/prepare-show-deletion" && request.method === "POST") {
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET)
+        return new Response("Unauthorized", { status: 401 });
+      await this.hydrateFromStorage();
+      if (this.retired) return this.targetJson({ ok: true });
+      const showId = url.searchParams.get("showId"), serviceDate = url.searchParams.get("serviceDate"), nonce = url.searchParams.get("nonce");
+      const belongs = url.searchParams.get("force") === "1" || this.state.showId === showId || (!this.state.showId && this.state.serviceDate === serviceDate);
+      if (!belongs) return this.targetJson({ ok: true, skipped: true });
+      if (!showId || !nonce || this.state.timer.playback !== "stop") return this.targetJson({ error: "Stop the show before deleting it" }, { status: 409 });
+      const operation = await this.env.DB.prepare("SELECT stage FROM show_deletion WHERE orgId=? AND showId=? AND nonce=? AND stage IN ('preparing','purging')")
+        .bind(this.orgId, showId, nonce).first();
+      if (!operation) return this.targetJson({ error: "Deletion preparation changed" }, { status: 409 });
+      const fence = { orgId: this.orgId, showId, nonce };
+      await this.ctx.storage.put("show-deletion-fence", fence);
+      this.deletionFence = fence;
+      return this.targetJson({ ok: true });
+    }
     if (url.pathname === "/internal/purge-show" && request.method === "POST") {
       if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) {
         return new Response("Unauthorized", { status: 401 });
       }
       await this.hydrateFromStorage();
+      if (this.retired) return this.targetJson({ ok: true });
       const targetShowId = url.searchParams.get("showId");
       const targetServiceDate = url.searchParams.get("serviceDate");
       const force = url.searchParams.get("force") === "1";
@@ -506,9 +549,24 @@ export class RundownRelay extends DurableObject {
         || (targetShowId !== null && this.state.showId === targetShowId)
         || (!this.state.showId && targetServiceDate !== null && this.state.serviceDate === targetServiceDate);
       if (!belongsToTarget) return this.targetJson({ ok: true, skipped: true });
+      if (this.state.timer.playback !== "stop") return this.targetJson({ error: "Stop the show before deleting it" }, { status: 409 });
+      const nonce = url.searchParams.get("nonce");
+      if (nonce && !await this.env.DB.prepare("SELECT 1 FROM show_deletion WHERE orgId=? AND showId=? AND nonce=? AND stage IN ('purging','deleted')")
+        .bind(this.orgId, targetShowId, nonce).first()) return this.targetJson({ error: "Deletion was not accepted" }, { status: 409 });
 
       for (const socket of this.ctx.getWebSockets()) socket.close(4404, "Show deleted");
-      await this.ctx.storage.deleteAll();
+      await this.ctx.storage.transaction(async storage => {
+        let startAfter: string | undefined;
+        while (true) {
+          const keys = [...(await storage.list({ limit: 128, ...(startAfter ? { startAfter } : {}) })).keys()];
+          if (!keys.length) break;
+          await storage.delete(keys);
+          startAfter = keys.at(-1);
+        }
+        await storage.put("retired", true);
+      });
+      this.retired = true;
+      this.deletionFence = null;
       this.persistedItems.clear();
       this.itemRowsInitialized = false;
       this.state = {
@@ -535,6 +593,10 @@ export class RundownRelay extends DurableObject {
     }
     const path = internal ? url.pathname.slice("/internal".length) : url.pathname;
     await this.hydrateFromStorage();
+    if (this.retired) {
+      if (path === "/state") return this.targetJson({ ...this.getPublicState(), retired: true });
+      return this.targetJson({ error: "This show's rundown has been retired" }, { status: 410 });
+    }
     await this.reconcileProPresenterOutputSetting();
     const serviceDate = url.searchParams.get("serviceDate");
     const showId = url.searchParams.get("showId");
@@ -547,6 +609,10 @@ export class RundownRelay extends DurableObject {
     };
     const canWrite = writeAccess !== null && (internal || await this.socketCanWrite(authority));
     const canObserve = access === "observe" && (internal || await this.socketCanObserve(authClaim));
+    if (canWrite && await this.showDeletionBlocksWrites()) {
+      if (path === "/state") return this.targetJson({ ...this.getPublicState(), deleting: true });
+      return this.targetJson({ ok: false, reason: "show-deleting", revision: this.state.revision }, { status: 409 });
+    }
     if (
       canWrite &&
       ((showId && showId !== this.state.showId) ||
@@ -706,6 +772,7 @@ export class RundownRelay extends DurableObject {
     } | null;
     if (attachment?.orgId) this.orgId = attachment.orgId;
     await this.hydrateFromStorage();
+    if (this.retired) { ws.close(4404, "Show deleted"); return; }
     try {
       const raw: unknown = JSON.parse(data as string);
       if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return;
@@ -751,6 +818,11 @@ export class RundownRelay extends DurableObject {
             revision: this.state.revision,
           }));
           ws.close(4403, "Rundown access changed");
+          return;
+        }
+        if (await this.showDeletionBlocksWrites()) {
+          ws.send(JSON.stringify({ type: "command-result", ...this.resolvedTarget(), id: parsed.id,
+            accepted: false, reason: "show-deleting", revision: this.state.revision }));
           return;
         }
         renewSocketReadLease(ws);
