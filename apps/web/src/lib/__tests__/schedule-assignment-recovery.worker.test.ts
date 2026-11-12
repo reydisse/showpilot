@@ -4,6 +4,11 @@ import { seedRelayMember } from "@/test/relay-fixtures";
 import { getPrisma } from "../db";
 import { hashPassword } from "better-auth/crypto";
 import { getAuth } from "../auth";
+import { handleMobileApi } from "../mobile-api.server";
+import {
+  scheduleAssignmentResultSchema as nativeResultSchema,
+  assignmentReadSchema,
+} from "../../../../mobile/src/lib/assignment-recovery";
 import { changeScheduleAssignment } from "../schedule-assignment";
 import {
   readScheduleAssignment,
@@ -597,4 +602,202 @@ it("stores the custom call in venue time and rejects show changes during the sav
   expect(
     await getPrisma().serviceAssignment.count({ where: { orgId: f.orgId } }),
   ).toBe(1);
+});
+
+async function nativeAssignment(
+  f: Awaited<ReturnType<typeof assignmentFixture>>,
+  command: ScheduleAssignmentCommand,
+  review = false,
+  cookie = f.headers.get("cookie")!,
+) {
+  const response = await handleMobileApi(
+    new Request(
+      `https://app.showpilot.tech/api/mobile/v1/schedule/assignments/${review ? "review" : "command"}?orgId=${f.orgId}`,
+      {
+        method: "POST",
+        headers: { Cookie: cookie, "Content-Type": "application/json" },
+        body: JSON.stringify(command),
+      },
+    ),
+    { DB: env.DB },
+  );
+  if (!response) throw new Error("Missing native assignment response");
+  return response;
+}
+async function nativeResult(
+  f: Awaited<ReturnType<typeof assignmentFixture>>,
+  command: ScheduleAssignmentCommand,
+  review = false,
+) {
+  const response = await nativeAssignment(f, command, review);
+  expect(response.status).toBe(200);
+  return nativeResultSchema.parse(await response.json());
+}
+it("native review cancels an undelivered create and fences its late arrival even after the show is removed", async () => {
+  const f = await assignmentFixture(),
+    command = create(f);
+  await getPrisma().rundown.delete({ where: { id: f.input.showId } });
+  expect((await nativeResult(f, command, true)).outcome).toBe("conflict");
+  expect((await nativeResult(f, command)).outcome).toBe("conflict");
+  expect(
+    await getPrisma().serviceAssignment.count({ where: { orgId: f.orgId } }),
+  ).toBe(0);
+  expect(mail.send).not.toHaveBeenCalled();
+});
+it.each(["edit", "delete"] as const)(
+  "native review fences a late %s without changing the reviewed row",
+  async (kind) => {
+    const f = await assignmentFixture(),
+      initial = await saved(f);
+    const operation =
+      kind === "edit"
+        ? {
+            kind,
+            id: initial.id,
+            expectedRevision: initial.revision,
+            fields: { ...f.input, notes: "Never apply" },
+          }
+        : { kind, id: initial.id, expectedRevision: initial.revision };
+    const command = { ...create(f), operation };
+    expect((await nativeResult(f, command, true)).outcome).toBe("conflict");
+    const late = await nativeResult(f, command);
+    expect(late.outcome).toBe("conflict");
+    expect(late.snapshot).toEqual(initial);
+  },
+);
+it("native review recovers a committed save and retries only its uncertain invitation", async () => {
+  const f = await assignmentFixture();
+  const crew = await getPrisma().crewMember.create({
+    data: {
+      orgId: f.orgId,
+      memberId: crypto.randomUUID(),
+      name: "Recovery crew",
+      role: "Audio",
+      email: "native@example.test",
+    },
+  });
+  const command: ScheduleAssignmentCommand = {
+    ...create(f),
+    operation: {
+      kind: "create",
+      fields: { ...f.input, crewMemberId: crew.id },
+    },
+  };
+  mail.send.mockRejectedValueOnce(new TypeError("Accepted but reply lost"));
+  const first = await nativeResult(f, command);
+  expect(first.invitation?.email).toBe("uncertain");
+  const recovered = await nativeResult(f, command, true);
+  expect(recovered.assignmentId).toBe(first.assignmentId);
+  expect(recovered.invitation?.email).toBe("accepted");
+  expect(mail.send.mock.calls[0]).toEqual(mail.send.mock.calls[1]);
+  await nativeResult(f, command, true);
+  expect(mail.send).toHaveBeenCalledTimes(2);
+  expect(
+    await getPrisma().serviceAssignment.count({ where: { orgId: f.orgId } }),
+  ).toBe(1);
+});
+it("native review racing a write has one durable result and replay never changes it", async () => {
+  const f = await assignmentFixture(),
+    command = create(f);
+  const results = await Promise.all([
+    nativeResult(f, command),
+    nativeResult(f, command, true),
+  ]);
+  expect(results[0].outcome).toBe(results[1].outcome);
+  const replay = await nativeResult(f, command);
+  expect(replay.outcome).toBe(results[0].outcome);
+  expect(
+    await getPrisma().serviceAssignment.count({ where: { orgId: f.orgId } }),
+  ).toBe(replay.outcome === "applied" ? 1 : 0);
+});
+it("native edits and deletes use revisions, preserving newer crew responses and tombstones", async () => {
+  const f = await assignmentFixture(),
+    initial = await saved(f);
+  const edit: ScheduleAssignmentCommand = {
+    ...create(f),
+    operation: {
+      kind: "edit",
+      id: initial.id,
+      expectedRevision: initial.revision,
+      fields: { ...f.input, notes: "Native notes" },
+    },
+  };
+  const updated = await nativeResult(f, edit);
+  const staleDelete: ScheduleAssignmentCommand = {
+    ...create(f),
+    operation: {
+      kind: "delete",
+      id: initial.id,
+      expectedRevision: initial.revision,
+    },
+  };
+  expect((await nativeResult(f, staleDelete)).outcome).toBe("conflict");
+  const remove: ScheduleAssignmentCommand = {
+    ...create(f),
+    operation: {
+      kind: "delete",
+      id: initial.id,
+      expectedRevision: updated.snapshot!.revision,
+    },
+  };
+  expect((await nativeResult(f, remove)).outcome).toBe("applied");
+  expect((await nativeResult(f, edit)).outcome).toBe("superseded");
+  expect((await nativeResult(f, remove)).outcome).toBe("applied");
+  expect(
+    await getPrisma().serviceAssignment.count({ where: { orgId: f.orgId } }),
+  ).toBe(0);
+});
+it("native assignment read returns the current revision and venue timezone with a missing-row result", async () => {
+  const f = await assignmentFixture(),
+    initial = await saved(f);
+  await env.DB.prepare(
+    "INSERT INTO app_setting (id,orgId,key,value) VALUES (?, ?,'org-timezone','America/Toronto')",
+  )
+    .bind(crypto.randomUUID(), f.orgId)
+    .run();
+  for (const id of [initial.id, "missing-position"]) {
+    const response = await handleMobileApi(
+      new Request(
+        `https://app.showpilot.tech/api/mobile/v1/schedule/assignments/${id}?orgId=${f.orgId}`,
+        { headers: f.headers },
+      ),
+      { DB: env.DB },
+    );
+    expect(response?.status).toBe(200);
+    const result = assignmentReadSchema.parse(await response!.json());
+    expect(result).toEqual({
+      orgId: f.orgId,
+      userId: f.userId,
+      timeZone: "America/Toronto",
+      snapshot: id === initial.id ? initial : null,
+    });
+  }
+});
+it("native command and review reject wrong actors, workspaces, anonymous and revoked access", async () => {
+  const f = await assignmentFixture(),
+    command = create(f);
+  for (const review of [false, true]) {
+    expect(
+      (await nativeAssignment(f, { ...command, userId: "other-user" }, review))
+        .status,
+    ).toBe(403);
+    expect(
+      (await nativeAssignment(f, { ...command, orgId: "other-org" }, review))
+        .status,
+    ).toBe(400);
+    expect((await nativeAssignment(f, command, review, "")).status).toBe(401);
+  }
+  await getPrisma().member.updateMany({
+    where: { organizationId: f.orgId, userId: f.userId },
+    data: { role: "member" },
+  });
+  for (const review of [false, true])
+    expect((await nativeAssignment(f, command, review)).status).toBe(403);
+  expect(
+    await env.DB.prepare(
+      "SELECT requestId FROM schedule_assignment_request WHERE orgId=?",
+    )
+      .bind(f.orgId)
+      .first(),
+  ).toBeNull();
 });

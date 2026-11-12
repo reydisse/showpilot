@@ -223,6 +223,7 @@ interface MobileShowInventoryRow {
 
 interface MobileAssignmentRow {
   id: string;
+  revision: string | null;
   showId: string | null;
   serviceDate: string;
   role: string;
@@ -2244,7 +2245,7 @@ async function schedule(
         .prepare(
           `SELECT a.id, a.showId, a.serviceDate, a.role, a.department, a.status,
               a.callTime, a.notes, a.responseNote, a.crewMemberId, a.invitedAt,
-              a.respondedAt, a.updatedAt, c.name AS crewName, c.email AS crewEmail,
+              a.respondedAt, a.updatedAt, v.revision, c.name AS crewName, c.email AS crewEmail,
               r.scheduledStartTime, r.scheduledCallTime,
               COALESCE((
                 SELECT SUM(ri.duration) FROM rundown_item ri
@@ -2252,6 +2253,7 @@ async function schedule(
               ), 0) AS plannedDurationMs
        FROM service_assignment a
        LEFT JOIN crew_member c ON c.id = a.crewMemberId AND c.orgId = a.orgId
+       LEFT JOIN schedule_assignment_revision v ON v.orgId=a.orgId AND v.assignmentId=a.id
        LEFT JOIN rundown r ON r.id = a.showId AND r.orgId = a.orgId
        WHERE a.orgId = ? AND a.serviceDate BETWEEN ? AND ?
          AND (? = 1 OR LOWER(c.email) = ?)
@@ -2536,6 +2538,65 @@ async function deliverMobileAssignmentInvitation(input: {
     console.error("[Mobile schedule] Assignment delivery failed", error);
     return { delivered: false, reason: "delivery-failed" as const };
   }
+}
+
+async function commandMobileAssignment(
+  request: Request,
+  url: URL,
+  db: MobileApiDatabase,
+  review: boolean,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  const { scheduleAssignmentCommandSchema } =
+    await import("./schedule-assignment-contract");
+  const parsed = scheduleAssignmentCommandSchema.safeParse(
+    await readJson(request),
+  );
+  if (!parsed.success || parsed.data.orgId !== access.orgId)
+    return json(
+      { error: "Check the assignment details and selected workspace." },
+      400,
+    );
+  if (parsed.data.userId !== access.identity.userId)
+    return json(
+      { error: "Your account changed. Reopen Schedule before saving." },
+      403,
+    );
+  const { writeScheduleAssignment, reviewScheduleAssignment } =
+    await import("./schedule-assignment.server");
+  const result = await (
+    review ? reviewScheduleAssignment : writeScheduleAssignment
+  )(request.headers, parsed.data);
+  return json({
+    ...result,
+    orgId: access.orgId,
+    userId: access.identity.userId,
+  });
+}
+
+async function readMobileAssignment(
+  request: Request,
+  url: URL,
+  id: string,
+  db: MobileApiDatabase,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  const { readScheduleAssignment } =
+    await import("./schedule-assignment.server");
+  const result = await readScheduleAssignment(
+    request.headers,
+    access.orgId,
+    id,
+  );
+  const zone = await db
+    .prepare(
+      "SELECT value FROM app_setting WHERE orgId=? AND key='org-timezone'",
+    )
+    .bind(access.orgId)
+    .first<{ value: string }>();
+  return json({ ...result, timeZone: zone?.value || "UTC" });
 }
 
 async function createMobileScheduleAssignment(
@@ -7132,6 +7193,11 @@ export async function handleMobileApi(
     return createRundown(request, env.DB);
   if (url.pathname === "/api/mobile/v1/schedule" && request.method === "GET")
     return schedule(request, url, env.DB);
+  if (request.method === "POST" && ["/api/mobile/v1/schedule/assignments/command", "/api/mobile/v1/schedule/assignments/review"].includes(url.pathname))
+    return commandMobileAssignment(request, url, env.DB, url.pathname.endsWith("/review"));
+  const mobileAssignmentRead = url.pathname.match(/^\/api\/mobile\/v1\/schedule\/assignments\/([^/]+)$/);
+  if (mobileAssignmentRead && request.method === "GET")
+    return readMobileAssignment(request, url, decodeURIComponent(mobileAssignmentRead[1]), env.DB);
   if (url.pathname === "/api/mobile/v1/schedule/copy-team" && request.method === "POST")
     return commandMobileScheduleCopy(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/schedule/reminders" && request.method === "POST")

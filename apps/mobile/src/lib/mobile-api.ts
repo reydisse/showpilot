@@ -1,3 +1,4 @@
+import { scheduleAssignmentResultSchema, assignmentReadSchema, type ScheduleAssignmentCommand } from "./assignment-recovery";
 import { copyTeamResultSchema, type CopyTeamCommand } from "./copy-recovery";
 import { scheduleReminderResultSchema, type ScheduleReminderCommand } from "./reminder-recovery";
 import { inventoryResultSchema, type InventoryCommand } from "./inventory-recovery";
@@ -251,6 +252,7 @@ const scheduleSchema = z.object({
       respondedAt: z.string().nullable(),
       updatedAt: z.string(),
       responseVersion: z.string(),
+      revision: z.string().nullable().optional(),
       canRespond: z.boolean(),
       responseWindow: z.discriminatedUnion("status", [
         z.object({
@@ -1506,6 +1508,29 @@ export async function respondToMobileAssignment(input: {
   });
 }
 
+export async function commandMobileAssignment(
+  input: ScheduleAssignmentCommand,
+  review: boolean,
+  signal: AbortSignal,
+) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/schedule/assignments/${review ? "review" : "command"}?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", signal, body: JSON.stringify(input) },
+  );
+  return scheduleAssignmentResultSchema.parse(await response.json());
+}
+export async function readMobileAssignment(
+  orgId: string,
+  id: string,
+  signal: AbortSignal,
+) {
+  const response = await authenticatedFetch(
+    `/api/mobile/v1/schedule/assignments/${encodeURIComponent(id)}?orgId=${encodeURIComponent(orgId)}`,
+    { signal },
+  );
+  return assignmentReadSchema.parse(await response.json());
+}
+
 export async function createMobileScheduleAssignment(input: {
   orgId: string;
   requestId: string;
@@ -1524,36 +1549,6 @@ export async function createMobileScheduleAssignment(input: {
     },
   );
   return scheduleWriteResultSchema.parse(await response.json());
-}
-
-export async function updateMobileScheduleAssignment(input: {
-  orgId: string;
-  assignmentId: string;
-  requestId: string;
-  showId: string;
-  role: string;
-  department: string;
-  crewMemberId: string | null;
-  callTime: string;
-  notes: string;
-  expectedUpdatedAt: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/schedule/assignments/${encodeURIComponent(input.assignmentId)}?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify(input) },
-  );
-  return scheduleWriteResultSchema.parse(await response.json());
-}
-
-export async function removeMobileScheduleAssignment(input: {
-  orgId: string;
-  assignmentId: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/schedule/assignments/${encodeURIComponent(input.assignmentId)}/remove?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify({}) },
-  );
-  return okSchema.parse(await response.json());
 }
 
 export async function sendMobileScheduleReminders(input: ScheduleReminderCommand, signal: AbortSignal) {

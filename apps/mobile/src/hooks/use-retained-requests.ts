@@ -37,6 +37,8 @@ export function useRetainedRequests<
   scope: { orgId: string; userId: string },
   options: {
     family: string;
+    scopeKey?: string;
+    review?: (command: Command, signal: AbortSignal) => Promise<Result>;
     enabled: boolean;
     slot: (command: Command) => string;
     send: (command: Command, signal: AbortSignal) => Promise<Result>;
@@ -50,7 +52,10 @@ export function useRetainedRequests<
   type Attempt = RetainedAttempt<Command, Result>;
   type Work = Record<string, Attempt>;
   const client = useQueryClient();
-  const key = [options.family, scope.userId, scope.orgId],
+  const key =
+      options.scopeKey === undefined
+        ? [options.family, scope.userId, scope.orgId]
+        : [options.family, scope.userId, scope.orgId, options.scopeKey],
     hash = hashKey(key);
   const initial = useMemo<Work>(() => ({}), [hash]);
   useQuery({
@@ -131,7 +136,7 @@ export function useRetainedRequests<
         owner.refreshes.delete(slot);
     }
   }
-  async function execute(command: Command, label: string) {
+  async function execute(command: Command, label: string, send = options.send) {
     const slot = options.slot(command),
       current = read()?.[slot];
     if (
@@ -156,7 +161,7 @@ export function useRetainedRequests<
     try {
       const result = await runMobileOperation(
         async (controller) =>
-          options.parseResult(await options.send(command, controller.signal)),
+          options.parseResult(await send(command, controller.signal)),
         undefined,
         15000,
       );
@@ -201,6 +206,12 @@ export function useRetainedRequests<
   }
   return {
     work,
+    isActive: active,
+    review: (slot: string) => {
+      const attempt = read()?.[slot];
+      if (attempt?.kind === "failed" && options.review)
+        void execute(attempt.command, attempt.label, options.review);
+    },
     start: (command: Command, label: string) => start(command, label),
     another: (slot: string) => {
       const attempt = read()?.[slot];
