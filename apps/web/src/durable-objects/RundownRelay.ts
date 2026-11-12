@@ -1,3 +1,5 @@
+import { showDetailsRelayRequestSchema } from "@/lib/show-details-contract";
+import { writeShowDetails, readCommittedShowDetails, ShowDetailsRequestError, type PendingShowDetails } from "@/lib/show-details-write.server";
 import { RundownMetadataConflictError } from "@/lib/rundown-metadata-conflict";
 import { reportRelayError } from "@/lib/operational-errors.server";
 import { parseLocalRundownJournal, reconcileLocalRundown } from "@showpilot/shared/local-rundown";
@@ -134,7 +136,10 @@ export class RundownRelay extends DurableObject {
 
   /** Load state from durable storage on first access */
   private async hydrateFromStorage(): Promise<void> {
-    if (this.hydrated) return;
+    if (this.hydrated) {
+      await this.recoverPendingShowDetails();
+      return;
+    }
     if (!this.hydrationPromise) {
       this.hydrationPromise = (async () => {
         const stored = await this.ctx.storage.get<StoredRundownState>("state");
@@ -187,6 +192,27 @@ export class RundownRelay extends DurableObject {
       });
     }
     await this.hydrationPromise;
+    await this.recoverPendingShowDetails();
+  }
+
+  private async recoverPendingShowDetails(): Promise<void> {
+    const pending = await this.ctx.storage.get<PendingShowDetails>("pending-show-details");
+    if (!pending) return;
+    if (pending.orgId !== this.orgId || (this.state.showId && this.state.showId !== pending.showId))
+      throw new Error("Show detail recovery belongs to a different room.");
+    const snapshot = await readCommittedShowDetails(this.env.DB, pending);
+    if (snapshot) {
+      const changed = this.state.showId !== snapshot.id || this.state.serviceDate !== snapshot.serviceDate
+        || this.state.serviceName !== snapshot.name || this.state.location !== snapshot.location
+        || this.state.scheduledStartTime !== snapshot.scheduledStartTime || this.state.scheduledCallTime !== snapshot.scheduledCallTime;
+      this.state = { ...this.state, showId: snapshot.id, serviceDate: snapshot.serviceDate,
+        serviceName: snapshot.name, location: snapshot.location, scheduledStartTime: snapshot.scheduledStartTime,
+        scheduledCallTime: snapshot.scheduledCallTime,
+        revision: Math.max(pending.revision, this.state.revision + (changed ? 1 : 0)) };
+      await this.persistState();
+    }
+    await this.ctx.storage.delete("pending-show-details");
+    if (snapshot) this.broadcastState();
   }
 
   /** Persist the authoritative state before any client sees the revision. */
@@ -445,6 +471,28 @@ export class RundownRelay extends DurableObject {
       this.hydrated = true;
       this.hydrationPromise = null;
       return this.targetJson({ ok: true });
+    }
+    if (url.pathname === "/internal/show-details" && request.method === "POST") {
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET)
+        return new Response("Unauthorized", { status: 401 });
+      const parsed = showDetailsRelayRequestSchema.safeParse(await request.json().catch(() => null));
+      if (!parsed.success || parsed.data.command.orgId !== this.orgId)
+        return this.targetJson({ error: "Invalid show details request." }, { status: 400 });
+      const { command, sessionId, mode } = parsed.data;
+      await this.hydrateFromStorage();
+      if (this.state.showId && this.state.showId !== command.showId)
+        return this.targetJson({ error: "Choose the correct show before editing it." }, { status: 400 });
+      try {
+        const result = await writeShowDetails(this.env.DB, command, sessionId, mode, async () => {
+          await this.ctx.storage.put("pending-show-details", { orgId: this.orgId, showId: command.showId,
+            actorId: command.userId, requestId: command.requestId, revision: this.state.revision + 1 } satisfies PendingShowDetails);
+        });
+        await this.recoverPendingShowDetails();
+        return Response.json(result);
+      } catch (error) {
+        reportRelayError(this.ctx, this.env.DB, this.orgId, "rundown_persistence", error);
+        return Response.json({ error: error instanceof ShowDetailsRequestError ? error.message : "Could not confirm the show details save. Retry the original save or review it before editing." }, { status: 503 });
+      }
     }
     if (url.pathname === "/internal/purge-show" && request.method === "POST") {
       if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET) {
