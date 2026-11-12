@@ -43,7 +43,11 @@ vi.mock("@tanstack/react-start", () => {
     };
     return chain;
   };
-  return { createServerFn: builder, createMiddleware: builder, createServerOnlyFn: <T>(fn: T): T => fn };
+  return {
+    createServerFn: builder,
+    createMiddleware: builder,
+    createServerOnlyFn: <T>(fn: T): T => fn,
+  };
 });
 const orgId = "workspace-contract-org";
 beforeAll(async () => {
@@ -177,22 +181,5 @@ describe("workspace mobile HTTP and D1 contract", () => {
         await (await request("workspace/modules", { modules: [] })).json(),
       ).workspace.modules,
     ).toEqual(CORE_MODULES);
-  });
-  it("omitted and general legacy provider fields preserve a theatre workspace and its modules", async () => {
-    await setting("workspace-type", "theatre");
-    await setting("workspace-modules", '["chat"]');
-    for (const field of [{}, { terminologyProfile: "general" }]) {
-      const response = await request("schedule/provider", {
-        provider: "native",
-        url: "",
-        token: "",
-        ...field,
-      });
-      expect(response.status).toBe(200);
-      expect(
-        profileSchema.parse(await (await request("bootstrap")).json())
-          .workspace,
-      ).toMatchObject({ type: "theatre", modules: [...CORE_MODULES, "chat"] });
-    }
   });
 });

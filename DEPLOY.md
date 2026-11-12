@@ -7387,3 +7387,67 @@ Phase 2 remains 67/79; these checks do not close the product-wide gates. Native
 provider/roster/rundown editing and broader UX checks remain. No production
 migration, deployment/release, real-org write or external email. Twenty necessary
 tracked Markdown files remain.
+
+### Phase 2 follow-up: native scheduling-source recovery
+
+Compiled Expo reproduced closing/reopening Schedule settings resetting the
+selected provider and removing entered fields. The old native API wrote three
+settings directly, without the web editor's request identity or reviewed revision.
+
+The native editor now retains its draft and original request by account and org,
+with a Resume action on Schedule. It loads the current source before editing,
+keeps controls frozen while an outcome is unknown, retries the same request,
+and separates confirmed saves from refresh failures. Loading current settings or
+discarding a draft requires confirmation. Reads, writes and refreshes have
+8s/15s/12s deadlines; late reads and results cannot replace another account's
+work. Platform fields use the existing theme, wrap on phones and have 44px or
+larger controls. The old sheet, unbounded save helper and client wrapper were
+removed.
+
+Native GET/POST now call the existing canonical scheduling-source reader/writer,
+including fresh authority, atomic revision checks and request receipts. Installed
+clients retain their response shape and use guarded writes, but require an app
+update for client-owned request IDs and reviewed revisions. Scheduling-source
+changes no longer alter workspace language, including legacy requests. No new
+migration is required.
+
+Validation:
+- Full web suite: 2,701 unit / 1,449 Worker tests; web typecheck/build pass. Main
+  remains 549,593 raw / 173,783 gzip bytes within unchanged budgets.
+- Thirty focused provider/workspace Worker cases pass, including six new native
+  HTTP cases: exact replay, superseded saves, conflicts, changed request payload,
+  actor/org/permission denial, invalid URLs and installed-client/workspace
+  behavior. The prior mocked legacy-workspace case moved to real auth/D1.
+- Fourteen actual native-hook cases pass: retained drafts, exact retry, independent
+  deadlines, refresh-only recovery, conflicts, explicit adoption/discard, identity
+  checks, late completion, account/focus isolation and selection of account IDs
+  when component props contain extra fields.
+- Native verify passes typecheck, lint with 17 existing warnings, iOS/Android/web
+  exports, Expo doctor 18/18, contracts and polling. Hermes: iOS 5,631,064 /
+  Android 5,630,144 bytes, below the unchanged 6,500,000-byte limit.
+- Compiled native editor + disposable real auth/D1 passes initial-read retry,
+  close/reopen retention, lost-reply exact retry, refresh without another write,
+  concurrent-source conflict, explicit current-source adoption, failed reload
+  preserving the draft and confirmed discard. Controls pass 44px/reachability
+  and no page overflow at 320/768/1440; phone/tablet screenshots inspected; zero
+  runtime errors. This run removes the browser-only AbortSignal convenience
+  method to check the native abort path. The compiled personal-response regression
+  also passes. Expo web is not physical-device proof.
+
+Evidence: `/tmp/showpilot-native-provider-{before,before2,worker1,worker2,
+hooks1,hooks2,props-before,full1,full2,web-tsc1,web-tsc2,tsc1,tsc2,build1,
+verify1,verify2,verify3,browser1,browser2,personal-browser}.log`.
+The first browser run of the replacement editor caught extra component props
+being spread into a strict command; the added regression reproduces it, and the
+hook now selects account identity explicitly. Browser2 passes. Screenshots:
+`/tmp/showpilot-native-provider-{unknown,refresh,conflict}-{320,768,1440}.png`.
+After web build/mobile verify, rerun
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-schedule-provider.mjs`.
+
+Preceding draft #258 is green (CI 42514502837, web 16m27s / Rust 3m8s).
+Phase 2 stays 67/79. The native roster still removes settled mutation records and
+allows an uncertain request to be discarded after a read without fencing a late
+write; reproduce that next. Rundown metadata and product-wide gates remain.
+The Founding Member closing date/timezone is still awaiting the owner's answer.
+No production deployment/release, remote migration, real-org write or external
+mail. Twenty necessary tracked Markdown files remain.

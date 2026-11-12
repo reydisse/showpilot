@@ -3189,61 +3189,43 @@ async function saveMobileWorkspace(
   }
 }
 
-async function saveMobileScheduleProvider(
+async function mobileScheduleProvider(
   request: Request,
   url: URL,
   db: MobileApiDatabase,
 ): Promise<Response> {
   const access = await authorize(request, url, db, ["schedule:manage"]);
   if (access instanceof Response) return access;
+  const { readScheduleProvider, writeScheduleProvider } = await import("./schedule-provider.server");
+  const { scheduleProviderCommandSchema, scheduleProviderConfigSchema, scheduleProviderSchema } = await import("./schedule-provider-contract");
+  if (request.method === "GET") {
+    if (url.searchParams.get("userId") !== access.identity.userId)
+      return json({ error: "Your account changed. Reopen Schedule." }, 403);
+    return json(await readScheduleProvider(request.headers, access.orgId));
+  }
   const body = await readJson(request);
-  const provider = typeof body?.provider === "string" ? body.provider : "";
-  const workspaceUrl = typeof body?.url === "string" ? body.url.trim() : "";
-  const label = typeof body?.label === "string" ? body.label.trim() : "";
-  const terminologyProfile = body?.terminologyProfile;
-  if (
-    !["native", "planning-center", "faithteams", "other"].includes(provider) ||
-    label.length > 80 ||
-    (terminologyProfile !== undefined &&
-      terminologyProfile !== "general" &&
-      terminologyProfile !== "church")
-  ) {
-    return json(
-      { error: "Check the scheduling source and organization language." },
-      400,
-    );
+  const modern = !!body && ["config", "userId", "requestId", "expectedRevision", "orgId"].some(key => key in body);
+  if (modern) {
+    const parsed = scheduleProviderCommandSchema.safeParse(body);
+    if (!parsed.success) return json({ error: "Check the scheduling source, URL and original request." }, 400);
+    if (parsed.data.orgId !== access.orgId || parsed.data.userId !== access.identity.userId)
+      return json({ error: "Your account or organization changed. Reopen Schedule." }, 403);
+    const result = await writeScheduleProvider(request.headers, parsed.data);
+    return json({ ...result, orgId: access.orgId, userId: access.identity.userId });
   }
-  if (provider !== "native" && !workspaceUrl)
-    return json({ error: "A scheduling workspace URL is required." }, 400);
-  if (workspaceUrl) {
-    try {
-      if (new URL(workspaceUrl).protocol !== "https:") throw new Error();
-    } catch {
-      return json({ error: "Scheduling links must use HTTPS." }, 400);
-    }
-  }
-  const values = [
-    ["schedule-provider", provider],
-    ["schedule-provider-url", workspaceUrl],
-    ["schedule-provider-label", label],
-  ];
-  await db.batch(
-    values.map(([key, value]) =>
-      db
-        .prepare(
-          `INSERT INTO app_setting (id, orgId, key, value)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`,
-        )
-        .bind(crypto.randomUUID(), access.orgId, key, value),
-    ),
-  );
-  if (terminologyProfile !== undefined)
-    await writeWorkspaceProfile(workspaceD1Store(db, access.orgId), {
-      kind: "legacy",
-      terminologyProfile,
-    });
-  return json({ ok: true });
+  // Installed clients have no request ID or reviewed revision. Preserve their
+  // response shape, but use the same atomic authority/revision guard. Workspace
+  // language is owned by Workspace settings, never by scheduling-source edits.
+  const legacy = z.object({ provider: scheduleProviderSchema, url: z.string().trim().max(500).default(""), label: z.string().trim().max(80).default(""), terminologyProfile: z.enum(["general", "church"]).optional() }).safeParse(body);
+  if (!legacy.success) return json({ error: "Check the scheduling source and URL." }, 400);
+  const { provider, url: workspaceUrl, label } = legacy.data;
+  const config = scheduleProviderConfigSchema.safeParse({ provider, url: provider === "native" ? "" : workspaceUrl, label: provider === "other" ? label : "" });
+  if (!config.success) return json({ error: "Enter a valid HTTPS scheduling workspace URL." }, 400);
+  const snapshot = await readScheduleProvider(request.headers, access.orgId);
+  const result = await writeScheduleProvider(request.headers, {
+    orgId: access.orgId, userId: access.identity.userId, requestId: crypto.randomUUID(), expectedRevision: snapshot.revision, config: config.data,
+  });
+  return result.outcome === "applied" ? json({ ok: true }) : json({ error: "The scheduling source changed. Reopen Schedule before saving." }, 409);
 }
 
 async function respondToAssignment(
@@ -7158,9 +7140,9 @@ export async function handleMobileApi(
     return createMobileShowInventory(request, url, env.DB);
   if (
     url.pathname === "/api/mobile/v1/schedule/provider" &&
-    request.method === "POST"
+    (request.method === "POST" || request.method === "GET")
   )
-    return saveMobileScheduleProvider(request, url, env.DB);
+    return mobileScheduleProvider(request, url, env.DB);
   if (
     url.pathname === "/api/mobile/v1/incidents/history" &&
     request.method === "GET"
