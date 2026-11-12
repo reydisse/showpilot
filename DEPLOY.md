@@ -7749,3 +7749,129 @@ with zero runtime errors. The final web export includes two copy-only correction
 (singular item count and a conflict message without an internal request ID);
 the six actual-form tests pass after those changes. Logs:
 `/tmp/showpilot-template-recovery-{copy-unit,copy-export,browser3,browser4}.log`.
+
+## Phase 2 follow-up: reviewed native rundown replacement
+
+Branch: fix/native-rundown-replacement-recovery, based on #263 (633eae2e).
+#263 is green in CI 42528526616: web 11m38s and Native Rust 3m37s.
+
+The actual native template sheet reproduced two failures before the change:
+its React Native Alert produced no visible confirmation in the web export, and
+a second attempt after a lost response generated a different replacement ID.
+The parent also supplied the latest relay revision on each attempt, while the
+server reread the source. Together these could make a retry replace changes made
+after the original operation. Baseline: /tmp/showpilot-template-load-before.log,
+two failed assertions against the real sheet, with native rendering boundaries
+stubbed.
+
+Template and previous-show loading now capture a reviewed source and target
+snapshot before confirmation. The form shows the destination, source, item count,
+show title, start time (with the organization timezone), venue and timing reset.
+The draft and immutable command survive navigation. Explicit source reread is
+separate from exact retry and review/cancellation; a confirmed result has its own
+refresh-only recovery. Selecting Load scrolls to the confirmation. A show must
+be stopped and its reviewed metadata version and relay revision must still match.
+
+Migration 0091 adds immutable rundown_replacement_request outcomes. The existing
+serialized show relay owns replacement writes. One guarded D1 batch commits the
+receipt, rows, stopped timer, metadata and row-storage marker. A small DO intent
+recovers the current committed D1 state after a crash between D1 and DO storage;
+it never replays the old source payload. Item rows are separately bound rather
+than packed into one large database value. Existing metadata, PIN and permission
+guards are reused, and unrelated lyrics, stage messages and output settings are
+preserved. Old installed-client endpoints remain; the current native callers
+use the new reviewed replacement contract.
+
+Focused verification includes late delivery after cancellation, changed target
+revision and metadata, atomic rollback, relay eviction recovery, changed body
+under an old ID, concurrent save/review, removal, current PIN rotation at commit,
+cross-org source isolation and a 500-item replacement with 4,000-character notes.
+Native hook/form checks cover source and actor reply identity, read/save/refresh
+deadlines, late responses after navigation, locked uncertain requests, explicit
+reread after cancellation and refresh-only retry. The first Worker attempt used
+the generic internal-request helper on an unsupported dedicated route; the
+fixture now uses the real dedicated secret-header contract. A read-contract test
+also exposed the native live-item revision field being required for an immutable
+copy; copy item validation now shares the existing bounds without requiring that
+unrelated live-item revision. The existing template-save validation is preserved.
+
+Full verification and compiled browser evidence are recorded below once terminal.
+Template deletion recovery is still outstanding; this narrow change does not
+close the product-wide UX gate or reduce the Phase 2 count from 67/79. The owner
+still needs to supply the Founding Member offer closing date/timezone. No remote
+migration, deployment, release, external mail or real-org writes. Twenty necessary
+Markdown files remain.
+
+Compiled-browser run 1 found a real integration failure: templates saved by the
+actual save API include createdAt/updatedAt. The new stored-template reader had
+inherited the strict command schema and rejected those storage metadata keys.
+The Worker fixture now includes the real persisted shape and reproduced the 503
+before the fix. Stored-template parsing now strips unrelated storage metadata;
+replacement commands remain strict. Browser run 2 then passed stalled reads,
+navigation retention, lost replies, exact retry preserving a newer operator edit,
+refresh-only recovery, cancellation before late delivery, and conflict requiring
+explicit rereview at 320/768/1440px, with no runtime errors. Inspected the narrow
+review/uncertain states and tablet cancellation state. Final read responses also
+carry private/no-store headers, and retained-replacement row buttons visibly dim.
+
+A final numeric timestamp regression reproduced a second 503: the shared snapshot
+reader accepts numeric millisecond updatedAt values, but the new writer initially
+advanced them with julianday(updatedAt), which only handled the text case. Its
+SQL now explicitly converts numeric milliseconds with unixepoch before advancing
+the version, matching the existing show-inventory writer's handling. The older
+show-details and ordinary relay timestamp-update expressions still need a
+separate follow-up audit; this change does not claim those are repaired.
+
+Intermediate full suites pass 2,791 unit / 1,529 Worker tests. The added numeric
+metadata-version regression brings the final Worker expectation to 1,530; final
+results are recorded only after the running checks finish. Mobile verify 2 is
+green: typecheck, lint (17 existing warnings), all three exports, Expo Doctor 18/18,
+contracts and polling boundaries. iOS Hermes is 5,698,195 bytes, Android 5,697,287.
+Web main remains 549,593 raw / 173,783 gzip bytes against the unchanged budgets.
+Expo web evidence is not a physical-device run.
+
+Evidence prefix: /tmp/showpilot-template-load-, including before, form1, unit1,
+unit2, worker1–6, stored-metadata-before, timestamp-before, full1–4, web-tsc1–7,
+native-tsc1–2, build1–4, verify1–2 and browser1–2 logs. Rehearsal command after
+web build/mobile export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-rundown-replacement.mjs`.
+Screenshots: /tmp/showpilot-native-replacement-{reviewed,unknown,refresh,cancelled}-{320,768,1440}.png.
+
+Final verification: full run 4 passes 345 unit files / 2,791 tests and 137 Worker
+files / 1,530 tests (4,321 total), including the numeric timestamp regression.
+Web typecheck 7 and production build 4 pass. Compiled-browser run 3 passes all
+scenarios above against the final server build and mobile export, including the
+private/no-store header assertion and dimmed retained-action buttons. There are
+zero runtime errors. The final screenshots use the paths above; browser log is
+/tmp/showpilot-template-load-browser3.log. No broader gate is claimed complete.
+
+### Phase 2 follow-up: replacement request boundaries and coverage
+
+PR #264's first CI run, 42530711027, passed all 2,791 unit and 1,530 Worker
+tests but failed the unchanged relay function coverage floor: 329/366 functions,
+89.89%, below 90%. The missing new function was the invalid-JSON handler on the
+replacement endpoint. Seven boundary cases now verify malformed JSON/schema
+bodies, a missing internal credential, and commands for another organization or
+show. Rejected calls leave rundown metadata, items, revision, timer state and
+replacement receipts unchanged. The response clock is asserted as a number rather
+than compared with an earlier sample. No app behavior or coverage floor changed.
+
+The full coverage run passes 2,791 unit / 1,537 Worker tests, 4,328 total. Relay
+function coverage is now 330/366, 90.16%. All measured coverage groups pass:
+timecode statements/branches/functions/lines 92.44/90.57/91.56/95.09;
+relays 86.47/84.19/90.16/92; devices 64.55/49.88/62.9/67.19. Web typecheck passes.
+Evidence: /tmp/showpilot-pr264-{ci-failure,boundaries1,coverage2,tsc2}.log and the
+CI coverage artifact from that run. The initial boundary test assertions compared
+the sampled timer serverTime; the final assertions exclude only that clock from
+exact equality. That was a fixture assertion error, not a product regression.
+
+A separate full run on the timestamp follow-up exposed a fixture login returning
+429 before a moderation test ran. Eight random-address login fixtures now use a
+shared sequential address allocator; the previously corrected Stream fixture uses
+it too. Real auth and production rate limits remain enabled and unchanged.
+
+Timestamp attribution correction: the installed Prisma adapter writes ISO-offset
+text, confirmed by a real Prisma create/read. The numeric millisecond regression
+explicitly seeds that supported representation in D1. It does not demonstrate
+that the current Prisma adapter writes numeric values. Earlier test and evidence
+wording has been corrected. No deployment or broad Phase 2 gate closure.

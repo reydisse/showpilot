@@ -1,3 +1,6 @@
+import { replacementRelaySchema } from "@/lib/rundown-replacement-contract";
+import { readRundownReplacement } from "@/lib/rundown-replacement-read.server";
+import { writeRundownReplacement, readCommittedReplacement, RundownReplacementError, type PendingReplacement } from "@/lib/rundown-replacement-write.server";
 import { showDetailsRelayRequestSchema } from "@/lib/show-details-contract";
 import { writeShowDetails, writeRundownDetails, readShowDetailsSnapshot, readCommittedShowDetails, ShowDetailsRequestError, type PendingShowDetails } from "@/lib/show-details-write.server";
 import { rundownDetailsRelaySchema } from "@/lib/rundown-details-contract";
@@ -142,6 +145,7 @@ export class RundownRelay extends DurableObject {
   private async hydrateFromStorage(): Promise<void> {
     if (this.hydrated) {
       await this.recoverPendingShowDetails();
+      await this.recoverPendingReplacement();
       return;
     }
     if (!this.hydrationPromise) {
@@ -203,6 +207,25 @@ export class RundownRelay extends DurableObject {
     }
     await this.hydrationPromise;
     await this.recoverPendingShowDetails();
+    await this.recoverPendingReplacement();
+  }
+
+  private async recoverPendingReplacement(): Promise<void> {
+    if (this.retired) return;
+    const pending = await this.ctx.storage.get<PendingReplacement>("pending-rundown-replacement");
+    if (!pending) return;
+    if (pending.orgId !== this.orgId || (this.state.showId && this.state.showId !== pending.showId))
+      throw new Error("Rundown replacement recovery belongs to another room.");
+    const committed = await readCommittedReplacement(this.env.DB,pending);
+    if (committed) {
+      const {show,items,timer,revision} = committed;
+      this.state = {...this.state,showId:show.id,serviceDate:show.serviceDate,serviceName:show.name,
+        scheduledStartTime:show.scheduledStartTime,scheduledCallTime:show.scheduledCallTime,location:show.location,
+        initialized:true,items,timer,removedItems:[],revision:Math.max(this.state.revision,revision)};
+      await this.persistState();
+    }
+    await this.ctx.storage.delete("pending-rundown-replacement");
+    if (committed) this.broadcastState();
   }
 
   private async recoverPendingShowDetails(): Promise<void> {
@@ -498,6 +521,32 @@ export class RundownRelay extends DurableObject {
       this.hydrated = true;
       this.hydrationPromise = null;
       return this.targetJson({ ok: true });
+    }
+    if (url.pathname === "/internal/rundown-replacement" && request.method === "POST") {
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET)
+        return new Response("Unauthorized",{status:401});
+      const parsed = replacementRelaySchema.safeParse(await request.json().catch(()=>null));
+      if (!parsed.success) return Response.json({error:"Invalid rundown replacement."},{status:400});
+      const input=parsed.data,scope=input.mode === "read" ? input.scope : input.command;
+      if(scope.orgId !== this.orgId) return Response.json({error:"Choose the correct organization."},{status:400});
+      await this.hydrateFromStorage();
+      if(this.state.showId && this.state.showId !== scope.showId)
+        return Response.json({error:"Choose the correct show before replacing its rundown."},{status:400});
+      const live={revision:this.retired ? -1 : this.state.revision,stopped:!this.retired && this.state.timer.playback === "stop"};
+      try {
+        if(input.mode === "read") return Response.json(await readRundownReplacement(this.env.DB,input.scope,input,live),{headers:{"Cache-Control":"private, no-store, max-age=0"}});
+        const result=await writeRundownReplacement(this.env.DB,input.command,input,input.mode,live,async()=>{
+          await this.ctx.storage.put("pending-rundown-replacement",{orgId:scope.orgId,showId:scope.showId,
+            requestId:input.command.requestId,actorId:scope.userId} satisfies PendingReplacement);
+        });
+        await this.recoverPendingReplacement();
+        const outcome=result.outcome === "applied" && result.revision !== this.state.revision ? "superseded" : result.outcome;
+        return Response.json({...result,outcome});
+      } catch(error) {
+        const expected=error instanceof RundownReplacementError || error instanceof RundownDetailsAccessError;
+        if(!expected) reportRelayError(this.ctx,this.env.DB,this.orgId,"rundown_persistence",error);
+        return Response.json({error:expected ? error.message : "Could not confirm the rundown replacement. Retry or review the original request."},{status:503});
+      }
     }
     if (url.pathname === "/internal/rundown-details" && request.method === "POST") {
       if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET)
