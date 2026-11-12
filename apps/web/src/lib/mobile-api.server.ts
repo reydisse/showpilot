@@ -1,3 +1,4 @@
+import { markDatabaseWrite } from "./request-database.server";
 import { notificationPreferenceCommandSchema } from "./notification-preference-contract";
 import { readNotificationPreferences, readPreferenceActor, writeNotificationPreference, NotificationPreferenceError } from "./notification-preferences.server";
 import { readAccessActor, retryAccessNotice } from "./access-write.server";
@@ -1411,6 +1412,32 @@ async function loadMobilePreviousRundown(
     scheduledStartTime: sourceStartTime,
     itemCount: freshItems.length,
   });
+}
+
+async function recoverMobileRundownDetails(
+  request: Request, url: URL, showId: string, env: MobileApiEnvironment,
+  mode: "read" | "save" | "review",
+): Promise<Response> {
+  const access = await authorize(request, url, env.DB, ["rundown:edit"]);
+  if (access instanceof Response) return access;
+  const { rundownDetailsCommandSchema, rundownDetailsReadSchema } = await import("./rundown-details-contract");
+  const parsed = mode === "read"
+    ? rundownDetailsReadSchema.safeParse({ orgId: url.searchParams.get("orgId"), userId: url.searchParams.get("userId"), showId })
+    : rundownDetailsCommandSchema.safeParse(await readJson(request));
+  if (!parsed.success) return json({ error: "Check the original rundown details and reviewed revision." }, 400);
+  const data = parsed.data;
+  if (data.orgId !== access.orgId || data.userId !== access.identity.userId || data.showId !== showId)
+    return json({ error: "Your account or rundown selection changed. Reopen the editor." }, 403);
+  const session = await getAuth().api.getSession({ headers: request.headers, query: { disableCookieCache: true } });
+  if (!session || session.user.id !== data.userId) return json({ error: "Sign in again before editing this rundown." }, 401);
+  if (!env.RUNDOWN_RELAY || !env.BETTER_AUTH_SECRET) return json({ error: "Live rundown editing is temporarily unavailable." }, 503);
+  const relay = env.RUNDOWN_RELAY.get(env.RUNDOWN_RELAY.idFromName(rundownRelayKey(data.orgId, "", "", showId)));
+  if (mode !== "read") markDatabaseWrite();
+  return relay.fetch(new Request(`https://rundown.internal/internal/rundown-details?orgId=${encodeURIComponent(data.orgId)}`, {
+    method: "POST", headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET },
+    body: JSON.stringify({ mode, ...(mode === "read" ? { scope: data } : { command: data }), sessionId: session.session.id,
+      pin: getPresentedRundownPin(request, data.orgId) }),
+  }));
 }
 
 async function updateMobileRundownMeta(
@@ -7591,6 +7618,12 @@ export async function handleMobileApi(
       return mobileRundownTemplates(request, url, showId, env.DB);
     if (request.method === "POST")
       return saveMobileRundownTemplate(request, url, showId, env.DB);
+  }
+  const rundownDetailsMatch = url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)\/details(?:\/(command|review))?$/);
+  if (rundownDetailsMatch && ((request.method === "GET" && !rundownDetailsMatch[2]) || (request.method === "POST" && rundownDetailsMatch[2]))) {
+    const showId = decodePathId(rundownDetailsMatch[1]);
+    return showId ? recoverMobileRundownDetails(request, url, showId, env,
+      request.method === "GET" ? "read" : rundownDetailsMatch[2] === "review" ? "review" : "save") : json({ error: "Not found." }, 404);
   }
   const rundownMetaMatch = url.pathname.match(
     /^\/api\/mobile\/v1\/rundowns\/([^/]+)\/meta$/,

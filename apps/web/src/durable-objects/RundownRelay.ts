@@ -1,5 +1,7 @@
 import { showDetailsRelayRequestSchema } from "@/lib/show-details-contract";
-import { writeShowDetails, readCommittedShowDetails, ShowDetailsRequestError, type PendingShowDetails } from "@/lib/show-details-write.server";
+import { writeShowDetails, writeRundownDetails, readShowDetailsSnapshot, readCommittedShowDetails, ShowDetailsRequestError, type PendingShowDetails } from "@/lib/show-details-write.server";
+import { rundownDetailsRelaySchema } from "@/lib/rundown-details-contract";
+import { rundownDetailsAuthority, RundownDetailsAccessError } from "@/lib/rundown-details-authority.server";
 import { RundownMetadataConflictError } from "@/lib/rundown-metadata-conflict";
 import { reportRelayError } from "@/lib/operational-errors.server";
 import { parseLocalRundownJournal, reconcileLocalRundown } from "@showpilot/shared/local-rundown";
@@ -496,6 +498,38 @@ export class RundownRelay extends DurableObject {
       this.hydrated = true;
       this.hydrationPromise = null;
       return this.targetJson({ ok: true });
+    }
+    if (url.pathname === "/internal/rundown-details" && request.method === "POST") {
+      if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET)
+        return new Response("Unauthorized", { status: 401 });
+      const parsed = rundownDetailsRelaySchema.safeParse(await request.json().catch(() => null));
+      if (!parsed.success) return Response.json({ error: "Invalid rundown details request." }, { status: 400 });
+      const input = parsed.data, scope = input.mode === "read" ? input.scope : input.command;
+      if (scope.orgId !== this.orgId) return Response.json({ error: "Choose the correct organization." }, { status: 400 });
+      await this.hydrateFromStorage();
+      if (this.state.showId && this.state.showId !== scope.showId)
+        return Response.json({ error: "Choose the correct rundown before editing it." }, { status: 400 });
+      try {
+        if (input.mode === "read") {
+          const access = await rundownDetailsAuthority(this.env.DB, scope.orgId, { userId: scope.userId, sessionId: input.sessionId }, input.pin);
+          const snapshot = (await readShowDetailsSnapshot(this.env.DB, scope.orgId, scope.showId))?.snapshot ?? null;
+          const timeZone = (await this.env.DB.prepare("SELECT value FROM app_setting WHERE orgId=? AND key='org-timezone'")
+            .bind(scope.orgId).first<{ value: string }>())?.value || "UTC";
+          if (!await this.env.DB.prepare(`SELECT 1 WHERE ${access.guard}`).bind(...access.guardArgs).first())
+            throw new RundownDetailsAccessError("Your rundown editing authority changed. Reopen the editor.");
+          return Response.json({ ...input.scope, revision: this.state.revision, timeZone, snapshot });
+        }
+        const result = await writeRundownDetails(this.env.DB, input.command, { sessionId: input.sessionId, pin: input.pin }, input.mode, this.retired ? -1 : this.state.revision, async () => {
+          await this.ctx.storage.put("pending-show-details", { orgId: scope.orgId, showId: scope.showId,
+            actorId: scope.userId, requestId: input.command.requestId, revision: this.state.revision + 1 } satisfies PendingShowDetails);
+        });
+        await this.recoverPendingShowDetails();
+        return Response.json({ ...result, orgId: scope.orgId, userId: scope.userId });
+      } catch (error) {
+        const expected = error instanceof ShowDetailsRequestError || error instanceof RundownDetailsAccessError;
+        if (!expected) reportRelayError(this.ctx, this.env.DB, this.orgId, "rundown_persistence", error);
+        return Response.json({ error: expected ? error.message : "Could not confirm the rundown details. Retry or review the original request." }, { status: 503 });
+      }
     }
     if (url.pathname === "/internal/show-details" && request.method === "POST") {
       if (!this.env.BETTER_AUTH_SECRET || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET)
