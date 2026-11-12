@@ -90,3 +90,4 @@
 0083_show_creation_review.sql
 0084_show_details_recovery.sql
 0085_show_deletion_lifecycle.sql
+0086_show_inventory_recovery.sql
