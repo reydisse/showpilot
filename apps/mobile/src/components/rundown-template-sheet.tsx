@@ -1,12 +1,10 @@
-import { workspaceCopy } from "@showpilot/shared";
-import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useState } from "react";
-import FilePlus from "lucide-react-native/icons/file-plus";
+import { TemplateSaveForm } from "@/components/template-save-form";
+import type { TemplateCopyInput } from "@/lib/template-save-recovery";
 import Trash2 from "lucide-react-native/icons/trash-2";
 import X from "lucide-react-native/icons/x";
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AppButton } from "@/components/app-button";
-import { AppField } from "@/components/app-field";
 import { Page } from "@/components/page";
 import type { MobilePreviousRundown, MobileRundownTemplate } from "@/lib/mobile-api";
 import { createLocalRequestId } from "@/lib/request-id";
@@ -18,7 +16,7 @@ export function RundownTemplateSheet({
   onDelete,
   onLoad,
   onLoadPrevious,
-  onSave,
+  orgId, userId, showId, copy, canCapture, error, refreshing, onRetry,
   templates,
   previousShows,
 }: {
@@ -27,15 +25,12 @@ export function RundownTemplateSheet({
   onDelete: (template: MobileRundownTemplate) => Promise<void>;
   onLoad: (template: MobileRundownTemplate, requestId: string) => Promise<void>;
   onLoadPrevious: (show: MobilePreviousRundown, requestId: string) => Promise<void>;
-  onSave: (name: string, requestId: string) => Promise<void>;
+  orgId: string; userId: string; showId: string; copy: TemplateCopyInput; canCapture: boolean; error?: string; refreshing: boolean; onRetry: () => void;
   templates: MobileRundownTemplate[];
   previousShows: MobilePreviousRundown[];
 }) {
-  const workspaceTerms = useWorkspaceTerms();
   const { colors } = useAppTheme();
   const styles = useStyles();
-  const [name, setName] = useState("");
-  const [saveRequestId, setSaveRequestId] = useState(() => createLocalRequestId("rundown-template"));
   const [busyId, setBusyId] = useState<string | null>(null);
 
   async function run(id: string, action: () => Promise<void>) {
@@ -58,34 +53,7 @@ export function RundownTemplateSheet({
       </View>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.saveCard}>
-            <View style={styles.saveHeading}>
-              <FilePlus color={colors.amberText} size={19} />
-              <View style={styles.saveCopy}>
-                <Text style={styles.saveTitle}>Save current rundown</Text>
-                <Text style={styles.saveHint}>
-                  {workspaceCopy(
-                    "Includes the service title, start time, and every item.",
-                    workspaceTerms,
-                  )}
-                </Text>
-              </View>
-            </View>
-            <AppField
-              autoCapitalize="sentences"
-              label="Template name"
-              maxLength={200}
-              onChangeText={setName}
-              placeholder={workspaceCopy(
-                "Sunday morning standard",
-                workspaceTerms,
-              )}
-              value={name}
-            />
-            <AppButton disabled={!name.trim() || busyId !== null} label={busyId === "save" ? "Saving template…" : "Save template"} loading={busyId === "save"} onPress={() => run("save", async () => {
-            await onSave(name.trim(), saveRequestId);
-            setName("");
-            setSaveRequestId(createLocalRequestId("rundown-template"));
-          })} />
+            <TemplateSaveForm orgId={orgId} userId={userId} showId={showId} copy={copy} canCapture={canCapture}/>
           </View>
 
           {previousShows.length > 0 ? (
@@ -101,9 +69,10 @@ export function RundownTemplateSheet({
           ) : null}
 
           <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>SAVED TEMPLATES</Text><Text style={styles.sectionCount}>{templates.length}</Text></View>
+          {error ? <View><Text accessibilityRole="alert" style={styles.error}>{error}</Text><AppButton label="Retry saved templates" loading={refreshing} onPress={onRetry}/></View> : null}
           {loading ? (
             <ActivityIndicator color={colors.amber} size="large" />
-          ) : templates.length === 0 ? (
+          ) : templates.length === 0 && !error ? (
             <Text style={styles.empty}>No saved templates yet. Save the current rundown to create one.</Text>
           ) : (
             templates.map((template) => (
@@ -147,5 +116,6 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   loadButton: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radii.small, backgroundColor: colors.amber },
   loadText: { color: colors.black, fontFamily, fontSize: 12, fontWeight: "800" },
   deleteButton: { width: 46, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radii.small, borderWidth: 1, borderColor: colors.redBorder, backgroundColor: colors.redSoft },
+  error: { color: colors.red, fontFamily, fontSize: 14, lineHeight: 21 },
   disabled: { opacity: 0.4 },
 }));

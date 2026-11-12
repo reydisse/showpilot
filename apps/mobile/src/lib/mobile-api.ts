@@ -1,3 +1,4 @@
+import { templateSaveReplySchema, type TemplateSaveCommand } from "./template-save-recovery";
 import { rundownDetailsReadSchema, rundownDetailsReplySchema, type RundownDetailsScope, type RundownDetailsCommand } from "./rundown-details-recovery";
 import { scheduleProviderSnapshotSchema, providerReplySchema, type ScheduleProviderCommand } from "./schedule-provider-recovery";
 import { personalResponseResultSchema, type PersonalResponseCommand } from "./personal-response-recovery";
@@ -1301,28 +1302,15 @@ export async function getMobileRundown(orgId: string, showId: string): Promise<M
 }
 
 export async function getMobileRundownTemplates(orgId: string, showId: string) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/rundowns/${encodeURIComponent(showId)}/templates?orgId=${encodeURIComponent(orgId)}`,
-  );
-  return mobileRundownTemplatesSchema.parse(await response.json());
+  return withMobileRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/rundowns/${encodeURIComponent(showId)}/templates?orgId=${encodeURIComponent(orgId)}`, { signal });
+    return mobileRundownTemplatesSchema.parse(await response.json());
+  });
 }
 
-export async function saveMobileRundownTemplate(input: {
-  orgId: string;
-  showId: string;
-  requestId: string;
-  name: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/templates?orgId=${encodeURIComponent(input.orgId)}`,
-    {
-      method: "POST",
-      body: JSON.stringify({ requestId: input.requestId, name: input.name }),
-    },
-  );
-  return z
-    .object({ ok: z.literal(true), id: z.string(), created: z.boolean() })
-    .parse(await response.json());
+export async function commandMobileTemplateSave(input: TemplateSaveCommand, review: boolean, signal: AbortSignal) {
+  const response = await authenticatedFetch(`/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/templates/${review ? "review" : "command"}?orgId=${encodeURIComponent(input.orgId)}`, { method: "POST", signal, body: JSON.stringify(input) });
+  return templateSaveReplySchema.parse(await response.json());
 }
 
 export async function loadMobileRundownTemplate(input: {

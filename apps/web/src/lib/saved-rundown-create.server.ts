@@ -16,21 +16,7 @@ export async function createSavedRundown(
 ): Promise<
   { ok: true; id: string } | { ok: false; reason: "conflict" | "removed" }
 > {
-  // Explicit field order makes the receipt independent of argument property order.
-  const canonical = {
-    id: content.id,
-    name: content.name,
-    serviceName: content.serviceName,
-    scheduledStartTime: content.scheduledStartTime,
-    items: content.items,
-  };
-  const hash = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(JSON.stringify(canonical)),
-  );
-  const digest = Array.from(new Uint8Array(hash), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
+  const { canonical, digest } = await savedRundownIdentity(content);
   const key = `rundown-saved:${content.id}`;
   const receiptKey = `rundown-template-save:${content.id}`;
   const now = new Date().toISOString();
@@ -86,4 +72,23 @@ export async function createSavedRundown(
   if (result[3].results.length === 0) return { ok: false, reason: "removed" };
   // The receipt outlives template deletion so a delayed retry cannot resurrect it.
   return { ok: true, id: content.id };
+}
+
+export async function savedRundownIdentity(content: TemplateContent) {
+  // Explicit field order makes the receipt independent of argument property order.
+  const canonical = {
+    id: content.id,
+    name: content.name,
+    serviceName: content.serviceName,
+    scheduledStartTime: content.scheduledStartTime,
+    items: content.items,
+  };
+  const hash = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(canonical)),
+  );
+  const digest = Array.from(new Uint8Array(hash), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return { canonical, digest };
 }

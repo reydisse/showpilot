@@ -1003,6 +1003,32 @@ async function mobileRundownTemplates(
   });
 }
 
+async function recoverMobileTemplateSave(request: Request, url: URL, showId: string, env: MobileApiEnvironment, review: boolean) {
+  const access = await authorize(request, url, env.DB, ["rundown:edit"]);
+  if (access instanceof Response) return access;
+  const { templateSaveCommandSchema } = await import("./template-save-contract");
+  const parsed = templateSaveCommandSchema.safeParse(await readJson(request));
+  if (!parsed.success) return json({ error: "Check the template name and reviewed rundown items." }, 400);
+  const command = parsed.data;
+  if (command.orgId !== access.orgId || command.userId !== access.identity.userId || command.showId !== showId)
+    return json({ error: "Your account or show changed. Reopen the template draft." }, 403);
+  const session = await getAuth().api.getSession({ headers: request.headers, query: { disableCookieCache: true } });
+  if (!session || session.user.id !== command.userId) return json({ error: "Sign in again before reviewing the template save." }, 401);
+  const { writeTemplateSave, TemplateSaveRequestError } = await import("./template-save-write.server");
+  const { RundownDetailsAccessError } = await import("./rundown-details-authority.server");
+  // The supplied production database is D1; use its complete typed binding for
+  // this transactional writer just as the other retained native writers do.
+  const { getD1 } = await import("./d1");
+  try {
+    markDatabaseWrite();
+    return json(await writeTemplateSave(getD1(), command, { sessionId: session.session.id, pin: getPresentedRundownPin(request, access.orgId) }, review ? "review" : "save"));
+  } catch (error) {
+    if (error instanceof TemplateSaveRequestError || error instanceof RundownDetailsAccessError)
+      return json({ error: error.message }, 409);
+    throw error;
+  }
+}
+
 async function saveMobileRundownTemplate(
   request: Request,
   url: URL,
@@ -7604,6 +7630,11 @@ export async function handleMobileApi(
       return mobileRundownTemplates(request, url, showId, env.DB);
     if (request.method === "POST")
       return saveMobileRundownTemplate(request, url, showId, env.DB);
+  }
+  const templateSaveMatch = url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)\/templates\/(command|review)$/);
+  if (templateSaveMatch && request.method === "POST") {
+    const showId = decodePathId(templateSaveMatch[1]);
+    return showId ? recoverMobileTemplateSave(request, url, showId, env, templateSaveMatch[2] === "review") : json({ error: "Not found." }, 404);
   }
   const rundownDetailsMatch = url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)\/details(?:\/(command|review))?$/);
   if (rundownDetailsMatch && ((request.method === "GET" && !rundownDetailsMatch[2]) || (request.method === "POST" && rundownDetailsMatch[2]))) {

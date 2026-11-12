@@ -30,6 +30,7 @@ import { ShowCreationSheet } from "@/components/show-creation-sheet";
 import { useShowCreationDrafts } from "@/hooks/use-show-creation";
 import { nextShowStartTime, type ShowCreationDraft } from "@/lib/show-creation-recovery";
 import { RundownTemplateSheet } from "@/components/rundown-template-sheet";
+import { useTemplateSaveDraft } from "@/hooks/use-template-save";
 import { useRundownDetailsDraft } from "@/hooks/use-rundown-details";
 import { RundownShowSheet } from "@/components/rundown-show-sheet";
 import { useRundownRelay } from "@/hooks/use-rundown-relay";
@@ -42,7 +43,6 @@ import {
   getMobileRundownTemplates,
   loadMobilePreviousRundown,
   loadMobileRundownTemplate,
-  saveMobileRundownTemplate,
   updateMobileProPresenterStageDisplay,
   type MobileRundown,
   type RundownItem,
@@ -175,6 +175,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
   const [showDetailsOpen, setShowDetailsOpen] = useState(false);
   const detailsDraft = useRundownDetailsDraft({ orgId, userId, showId: detail.show.id });
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const templateDraft = useTemplateSaveDraft({ orgId, userId, showId: detail.show.id });
   const [message, setMessage] = useState("");
   const [messagePriority, setMessagePriority] = useState(false);
   const [stageDisplayEnabled, setStageDisplayEnabled] = useState(detail.proPresenter.stageDisplayEnabled);
@@ -189,7 +190,8 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
   const canAuthor = detail.canEdit;
   const canUseLiveRelay = detail.canEdit || detail.canControl;
   const templatesQuery = useQuery({
-    queryKey: ["mobile-rundown-templates", orgId, detail.show.id],
+    queryKey: ["mobile-rundown-templates", orgId, detail.show.id, userId],
+    networkMode: "always", retry: false,
     queryFn: () => getMobileRundownTemplates(orgId, detail.show.id),
     enabled: canAuthor,
   });
@@ -349,6 +351,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
         ListHeaderComponent={(
           <View style={styles.listHeader}>
             {refreshError ? <View><Text accessibilityRole="alert" style={styles.syncError}>{refreshError} The last loaded show is still displayed.</Text><AppButton label="Refresh show" loading={refreshing} onPress={onRefresh} /></View> : null}
+            {templateDraft?.name ? <AppButton label="Resume template draft" variant="secondary" onPress={() => setTemplatesOpen(true)}/> : null}
             {detailsDraft ? <AppButton label="Resume rundown details" variant="secondary" onPress={() => setShowDetailsOpen(true)} /> : null}
             <View style={styles.connectionRow}>
               {relay.status === "connected" ? <Wifi size={15} color={colors.green} /> : <WifiOff size={15} color={colors.amberText} />}
@@ -433,7 +436,10 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
       />
       {editor ? <RundownItemSheet index={editor.index} item={editor.item} itemCount={items.length} onClose={() => setEditor(null)} onDelete={deleteItem} onMove={moveItem} onSave={saveItem} /> : null}
       {templatesOpen ? <RundownTemplateSheet
-        loading={templatesQuery.isPending}
+        key={`${userId}:${orgId}:${detail.show.id}`} orgId={orgId} userId={userId} showId={detail.show.id}
+        copy={{ serviceName: showTitle, scheduledStartTime: serviceWallTimeInput(showStart, detail.timeZone), items }} canCapture={editControlsEnabled}
+        error={canAuthor ? templatesQuery.error?.message : "Rundown editing permission is unavailable. Reopen after your access is restored."} refreshing={templatesQuery.isFetching} onRetry={() => void templatesQuery.refetch()}
+        loading={templatesQuery.isPending && templatesQuery.isFetching}
         onClose={() => setTemplatesOpen(false)}
         onDelete={async (template) => {
           await deleteMobileRundownTemplate({ orgId, showId: detail.show.id, templateId: template.id });
@@ -461,10 +467,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
           });
           setTemplatesOpen(false);
         }}
-        onSave={async (name, requestId) => {
-          await saveMobileRundownTemplate({ orgId, showId: detail.show.id, requestId, name });
-          await templatesQuery.refetch();
-        }}
+
         previousShows={templatesQuery.data?.previousShows ?? []}
         templates={templatesQuery.data?.templates ?? []}
       /> : null}

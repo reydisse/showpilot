@@ -7666,3 +7666,86 @@ and load/delete recovery UI remain unfinished. This shared storage fix is a
 prerequisite, not completion of the template workflow or product-wide UX gate.
 Phase 2 remains 67/79. No deployment, release, remote migration, real-org write
 or external mail. Twenty necessary Markdown files remain.
+
+### Phase 2 follow-up: native template draft and save recovery
+
+Three tests of the original native template sheet reproduced loss of the draft
+name after close, editable fields after an uncertain save, and a new request ID
+after reopening. The former endpoint also read the live source again on every
+retry, so it could not recover the exact copy the operator had reviewed.
+
+The native form now retains an actor/org/show draft and a complete reviewed copy
+of the title, start time and items. Later live changes do not change that copy.
+Save freezes a strict command; Retry sends it unchanged, and Review either
+recovers its result or cancels it before late delivery. Editing after cancellation
+is explicit and starts a fresh ID. Source replacement and unsent draft discard
+require confirmation. A confirmed save has separate list-refresh recovery.
+The original draft remains reachable from the show after navigation.
+
+Migration 0090 adds org-cascaded template_save_request receipts. The native
+command/review entry points verify actor and show identity and preserve rundown
+editing/PIN access. Session, role, grants, PIN configuration and organization
+deletion participate in the commit guard. The receipt, immutable copy and
+installed-client fence commit atomically. Review never binds the template copy
+for insertion, so it can cancel a copy too large for a database value. Existing
+web and installed-client creation/deletion use the same digest/fence protocol.
+No remote migration was run.
+
+Invalid reviewed copies show a recoverable error instead of throwing or silently
+refusing Save. Item bounds match the relay; duplicate IDs are rejected. The
+3,250,000-byte mobile request limit is checked with UTF-8 accounting before a
+command is frozen, preserving oversized drafts for correction. Save/review are
+bounded at 15s, list refresh at 12s, and the list read at 10s. Template list errors
+have Retry and do not render the empty-state message. Query keys include the
+actor, and a disabled permission-gated query no longer leaves a resume view
+showing a permanent spinner.
+
+The compiled Expo web rehearsal uses real isolated auth, D1 and WebSockets. It
+passes a stalled initial list read, navigation retention, an actual rundown item
+changing at another operator while the reviewed copy stays frozen, a lost reply
+and exact retry, failed refresh and refresh-only recovery, cancellation before
+late delivery, a saved copy removed before review, explicit copy adoption and
+discard, and 320/768/1440px controls with no horizontal overflow or runtime errors.
+Inspected the 320px unknown/refresh states and the 768px cancellation state.
+Re-run after web build and native verify with
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-template-recovery.mjs`.
+Screenshots: `/tmp/showpilot-native-template-{unknown,refresh,cancelled}-{320,768,1440}.png`.
+Expo web is not physical-device evidence.
+
+Verification history: the initial native typecheck exposed the distinction
+between incoming item timestamps and the normalized saved copy; the input and
+output types are now separate. A test-fixture PIN parameter initially lacked its
+header forwarding and failed web typecheck; that fixture now exercises the real
+PIN path. Full-suite run 2 hit a 429 in the unrelated Stream fixture's login. Its
+random address pool allowed collisions; a monotonic fixture-only address now
+isolates every login, with all 21 Stream recovery cases passing. Production rate
+limits are unchanged. A size-limit test caught the generic error message still
+being used for an oversized copy; it now reports the size error explicitly.
+
+Evidence: `/tmp/showpilot-native-template-form-{before,unit1}.log`,
+`/tmp/showpilot-template-recovery-{worker1,worker2,worker3,unit2,unit3,unit4,
+web-tsc1,web-tsc2,web-tsc3,web-tsc4,web-tsc5,native-tsc1,native-tsc2,
+full1,full2,full3,full4,verify1,verify2,verify3,build1,build2,browser1,browser2,
+stream-fixture}.log`. Final verification is recorded below.
+
+Preceding #261 is green at b276c44b in CI 42525948014, web 11m35s / Rust 4m52s.
+Draft #262 contains the shared storage prerequisite and is green at 5e6d488c
+in CI 42527003570, web 14m20s / Rust 3m3s. Template load/previous-show
+replacement and delete recovery controls still use the older flow and remain
+next work; this does not close the product-wide gate. Phase 2 remains 67/79.
+The Founding Member closing date/timezone still needs the owner's answer.
+No production deployment, release, remote migration, real-org write or external
+mail. Twenty necessary Markdown files remain.
+
+Final local verification: 343 unit files / 2,777 tests and 136 Worker files /
+1,512 tests pass (4,289 total). Web typecheck and production build pass; main
+549,593 raw / 173,783 gzip bytes remains below the unchanged 175,000-byte budget.
+Mobile verify passes typecheck, lint (17 existing warnings), iOS/Android/web
+exports, Expo Doctor 18/18, API/store contracts and polling boundaries. Hermes
+bundles are 5,680,695 bytes iOS and 5,679,746 bytes Android.
+
+Final compiled-browser run 4 passes all recovery scenarios at 320/768/1440px
+with zero runtime errors. The final web export includes two copy-only corrections
+(singular item count and a conflict message without an internal request ID);
+the six actual-form tests pass after those changes. Logs:
+`/tmp/showpilot-template-recovery-{copy-unit,copy-export,browser3,browser4}.log`.
