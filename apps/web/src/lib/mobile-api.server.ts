@@ -4644,6 +4644,41 @@ async function teamCrew(
   return json({ members: (result.results ?? []).map(row => ({ ...serializeCheckInMember(row), profileRevision: row.profileRevision })) });
 }
 
+async function recoverMobileCrew(request: Request, url: URL, db: MobileApiDatabase, review: boolean) {
+  const access = await authorize(request, url, db, ["settings:members"]);
+  if (access instanceof Response) return access;
+  const { mobileCrewCommandSchema } = await import("./mobile-crew-recovery-contract");
+  const parsed = mobileCrewCommandSchema.safeParse(await readJson(request));
+  if (!parsed.success || (parsed.data.kind !== "delete" && !validCrewPhoto(parsed.data.photoUrl))) return json({ error: "Check the crew details and original request." }, 400);
+  const command = parsed.data;
+  if (command.orgId !== access.orgId || command.userId !== access.identity.userId) return json({ error: "Your account or organization changed. Reopen the roster." }, 403);
+  try {
+    const actor = await crewActor(request.headers);
+    if (actor.userId !== command.userId) return json({ error: "Your account changed. Reopen the roster." }, 403);
+    const { recoverCrewProfile } = await import("./crew-roster.server");
+    const profile = command.kind === "delete" ? command : { memberId: command.memberId, name: command.name, role: command.role, email: command.email, photoUrl: command.photoUrl };
+    const input = command.kind === "create" ? { ...command, ...profile }
+      : command.kind === "update" ? { orgId: command.orgId, requestId: command.requestId, id: command.id, expectedRevision: command.expectedRevision, updates: profile, kind: command.kind }
+      : command;
+    const result = await recoverCrewProfile(db, actor, crewProfileCommandSchema.parse(input), review);
+    return json({ ...result, orgId: command.orgId, userId: command.userId });
+  } catch (error) { return json({ error: error instanceof Error ? error.message : "The crew change could not be confirmed. Retry the original request." }, membershipMutationStatus(error)); }
+}
+async function readMobileCrewProfile(request: Request, url: URL, db: MobileApiDatabase) {
+  const access = await authorize(request, url, db, ["settings:members"]);
+  if (access instanceof Response) return access;
+  const { mobileCrewReadSchema } = await import("./mobile-crew-recovery-contract");
+  const parsed = mobileCrewReadSchema.safeParse(Object.fromEntries(url.searchParams));
+  if (!parsed.success) return json({ error: "Choose the original crew profile." }, 400);
+  if (parsed.data.orgId !== access.orgId || parsed.data.userId !== access.identity.userId) return json({ error: "Your account or organization changed. Reopen the roster." }, 403);
+  try {
+    const actor = await crewActor(request.headers);
+    if (actor.userId !== parsed.data.userId) return json({ error: "Your account changed. Reopen the roster." }, 403);
+    const { readCrewProfile } = await import("./crew-roster.server");
+    return json({ ...parsed.data, snapshot: await readCrewProfile(db, actor, access.orgId, parsed.data.id) });
+  } catch (error) { return json({ error: error instanceof Error ? error.message : "Could not load the crew profile." }, membershipMutationStatus(error)); }
+}
+
 async function changeTeamCrewMember(
   request: Request, url: URL, db: MobileApiDatabase,
   target: { kind: "create" } | { kind: "update" | "delete"; id: string },
@@ -7213,6 +7248,10 @@ export async function handleMobileApi(
     return inviteTeamMember(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/invitations/retry-delivery" && request.method === "POST")
     return retryMobileInvitationDelivery(request, url, env.DB);
+  if (["/api/mobile/v1/team/crew/command", "/api/mobile/v1/team/crew/review"].includes(url.pathname) && request.method === "POST")
+    return recoverMobileCrew(request, url, env.DB, url.pathname.endsWith("/review"));
+  if (url.pathname === "/api/mobile/v1/team/crew/profile" && request.method === "GET")
+    return readMobileCrewProfile(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/crew" && request.method === "GET")
     return teamCrew(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/team/crew" && request.method === "POST")

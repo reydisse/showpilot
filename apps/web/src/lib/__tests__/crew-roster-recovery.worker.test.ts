@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { env } from "cloudflare:workers";
 import { beforeEach, expect, it, vi } from "vitest";
 import { hashPassword } from "better-auth/crypto";
@@ -467,8 +468,331 @@ it("rejects foreign targets, expired sessions, and reused native request payload
 
 it("rejects a whitespace badge before normalization and accepts the native 128-character badge limit", async () => {
   const f = await fixture();
-  await expect(addCrewMember({ data: { ...f.input, memberId: "   " } })).rejects.toThrow("Badge ID");
+  await expect(
+    addCrewMember({ data: { ...f.input, memberId: "   " } }),
+  ).rejects.toThrow("Badge ID");
   const longBadge = "A".repeat(128);
-  const created = await addCrewMember({ data: { ...f.input, memberId: longBadge } });
-  expect((await getPrisma().crewMember.findUniqueOrThrow({ where: { id: created.id } })).memberId).toBe(longBadge);
+  const created = await addCrewMember({
+    data: { ...f.input, memberId: longBadge },
+  });
+  expect(
+    (
+      await getPrisma().crewMember.findUniqueOrThrow({
+        where: { id: created.id },
+      })
+    ).memberId,
+  ).toBe(longBadge);
+});
+
+it("a roster read alone cannot cancel an undelivered crew creation", async () => {
+  const f = await fixture();
+  expect(await getCrewMembers({ data: { orgId: f.orgId } })).toEqual([]);
+  await addCrewMember({ data: f.input });
+  expect(
+    await getPrisma().crewMember.count({ where: { orgId: f.orgId } }),
+  ).toBe(1);
+});
+
+async function recovery(
+  f: Awaited<ReturnType<typeof fixture>>,
+  command: unknown,
+  review = false,
+) {
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const response = await handleMobileApi(
+    new Request(
+      `https://app.showpilot.tech/api/mobile/v1/team/crew/${review ? "review" : "command"}?orgId=${f.orgId}`,
+      {
+        method: "POST",
+        headers: { Cookie: auth.cookie, "Content-Type": "application/json" },
+        body: JSON.stringify(command),
+      },
+    ),
+    { DB: env.DB },
+  );
+  if (!response) throw new Error("Missing route");
+  return response;
+}
+const creation = (f: Awaited<ReturnType<typeof fixture>>) => ({
+  ...f.input,
+  userId: f.userId,
+  kind: "create",
+});
+it("review cancels a delayed native creation, including legacy retries of the same request", async () => {
+  const f = await fixture(),
+    command = creation(f);
+  const cancelled = await recovery(f, command, true);
+  expect(cancelled.status).toBe(200);
+  expect(await cancelled.json()).toMatchObject({
+    outcome: "cancelled",
+    id: null,
+    requestId: command.requestId,
+    userId: f.userId,
+  });
+  expect(await (await recovery(f, command)).json()).toMatchObject({
+    outcome: "cancelled",
+    id: null,
+  });
+  await expect(addCrewMember({ data: f.input })).rejects.toThrow("cancelled");
+  expect(
+    await getPrisma().crewMember.count({ where: { orgId: f.orgId } }),
+  ).toBe(0);
+});
+it.each(["update", "delete"] as const)(
+  "review fences a delayed native %s without changing the crew profile",
+  async (kind) => {
+    const f = await fixture();
+    await addCrewMember({ data: f.input });
+    const row = await f.row();
+    const command = {
+      ...(kind === "update" ? f.input : {}),
+      orgId: f.orgId,
+      userId: f.userId,
+      requestId: crypto.randomUUID(),
+      kind,
+      id: row.id,
+      expectedRevision: (await getCrewMembers({ data: { orgId: f.orgId } }))[0]
+        .profileRevision,
+      ...(kind === "update" ? { name: "Late update" } : {}),
+    };
+    expect(await (await recovery(f, command, true)).json()).toMatchObject({
+      outcome: "cancelled",
+      id: row.id,
+    });
+    expect(await (await recovery(f, command)).json()).toMatchObject({
+      outcome: "cancelled",
+      id: row.id,
+    });
+    expect((await f.row()).name).toBe(f.input.name);
+  },
+);
+it("review recovers a saved native command without restoring older profile details", async () => {
+  const f = await fixture(),
+    command = creation(f);
+  const applied = await (await recovery(f, command)).json();
+  expect(applied).toMatchObject({
+    outcome: "applied",
+    requestId: command.requestId,
+  });
+  await getPrisma().crewMember.updateMany({
+    where: { orgId: f.orgId },
+    data: { name: "Later name" },
+  });
+  expect(await (await recovery(f, command, true)).json()).toEqual(applied);
+  expect((await f.row()).name).toBe("Later name");
+});
+it("send and review racing agree on one native result", async () => {
+  const f = await fixture(),
+    command = creation(f);
+  const replies = await Promise.all([
+    recovery(f, command),
+    recovery(f, command, true),
+  ]);
+  expect(replies.map((r) => r.status)).toEqual([200, 200]);
+  const [sent, reviewed] = await Promise.all(replies.map((r) => r.json()));
+  expect(sent).toEqual(reviewed);
+  const parsed = z
+    .object({ outcome: z.enum(["applied", "cancelled"]) })
+    .parse(sent);
+  expect(
+    await getPrisma().crewMember.count({ where: { orgId: f.orgId } }),
+  ).toBe(parsed.outcome === "applied" ? 1 : 0);
+});
+it("rejects a different payload under a cancelled request and permits a fresh reviewed request", async () => {
+  const f = await fixture(),
+    command = creation(f);
+  await recovery(f, command, true);
+  expect((await recovery(f, { ...command, name: "Changed" })).status).toBe(409);
+  expect(
+    (
+      await recovery(f, {
+        ...command,
+        requestId: crypto.randomUUID(),
+        name: "Changed",
+      })
+    ).status,
+  ).toBe(200);
+  expect((await f.row()).name).toBe("Changed");
+});
+it("rejects another native actor, malformed photos and cross-org profiles", async () => {
+  const f = await fixture(),
+    command = creation(f);
+  expect(
+    (await recovery(f, { ...command, userId: "wrong" }, true)).status,
+  ).toBe(403);
+  expect(
+    (await recovery(f, { ...command, photoUrl: "javascript:alert(1)" })).status,
+  ).toBe(400);
+  const other = await seedRelayMember(crypto.randomUUID());
+  const foreign = await getPrisma().crewMember.create({
+    data: {
+      orgId: other.orgId,
+      memberId: "OTHER",
+      name: "Private",
+      role: "Audio",
+    },
+  });
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const response = await handleMobileApi(
+    new Request(
+      `https://app.showpilot.tech/api/mobile/v1/team/crew/profile?${new URLSearchParams({ orgId: f.orgId, userId: f.userId, id: foreign.id })}`,
+      { headers: { Cookie: auth.cookie } },
+    ),
+    { DB: env.DB },
+  );
+  expect(await response?.json()).toMatchObject({ snapshot: null });
+});
+it.each(["session", "role", "deleting"])(
+  "does not cancel or apply a crew request after %s authority changes",
+  async (change) => {
+    const f = await fixture();
+    const { crewActor, recoverCrewProfile } =
+      await import("../crew-roster.server");
+    const actor = await crewActor(new Headers({ Cookie: auth.cookie }));
+    if (change === "session")
+      await env.DB.prepare("DELETE FROM session WHERE userId=?")
+        .bind(f.userId)
+        .run();
+    if (change === "role")
+      await env.DB.prepare(
+        "UPDATE member SET role='member' WHERE organizationId=? AND userId=?",
+      )
+        .bind(f.orgId, f.userId)
+        .run();
+    if (change === "deleting")
+      await env.DB.prepare(
+        "INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,'organization-deleting','true')",
+      )
+        .bind(crypto.randomUUID(), f.orgId)
+        .run();
+    await expect(
+      recoverCrewProfile(env.DB, actor, { ...f.input, kind: "create" }, true),
+    ).rejects.toThrow();
+    await expect(
+      recoverCrewProfile(env.DB, actor, { ...f.input, kind: "create" }, false),
+    ).rejects.toThrow();
+    expect(
+      await env.DB.prepare("SELECT 1 FROM crew_write_receipt WHERE orgId=?")
+        .bind(f.orgId)
+        .first(),
+    ).toBeNull();
+  },
+);
+
+it.each([
+  ["session", "commit"],
+  ["role", "commit"],
+  ["deleting", "commit"],
+  ["session", "reply"],
+  ["role", "reply"],
+  ["deleting", "reply"],
+])(
+  "rechecks %s authority at the review %s boundary",
+  async (change, boundary) => {
+    const f = await fixture();
+    const { crewActor, reviewCrewProfile } =
+      await import("../crew-roster.server");
+    const actor = await crewActor(new Headers({ Cookie: auth.cookie }));
+    async function revoke() {
+      if (change === "session")
+        await env.DB.prepare("DELETE FROM session WHERE userId=?")
+          .bind(f.userId)
+          .run();
+      if (change === "role")
+        await env.DB.prepare(
+          "UPDATE member SET role='member' WHERE organizationId=? AND userId=?",
+        )
+          .bind(f.orgId, f.userId)
+          .run();
+      if (change === "deleting")
+        await env.DB.prepare(
+          "INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,'organization-deleting','true')",
+        )
+          .bind(crypto.randomUUID(), f.orgId)
+          .run();
+    }
+    const database = {
+      prepare(sql: string) {
+        return {
+          bind(...params: unknown[]) {
+            const statement = env.DB.prepare(sql).bind(...params);
+            return {
+              all: <T>() => statement.all<T>(),
+              first: async <T>() => {
+                if (
+                  boundary === "reply" &&
+                  sql.startsWith("SELECT fingerprint")
+                )
+                  await revoke();
+                return statement.first<T>();
+              },
+              run: async () => {
+                if (
+                  boundary === "commit" &&
+                  sql.startsWith("INSERT INTO crew_write_receipt")
+                )
+                  await revoke();
+                return statement.run();
+              },
+            };
+          },
+        };
+      },
+      batch: async () => {
+        throw new Error("Review should use one atomic statement");
+      },
+    };
+    await expect(
+      reviewCrewProfile(database, actor, { ...f.input, kind: "create" }),
+    ).rejects.toThrow("authority changed");
+    const receipt = await env.DB.prepare(
+      "SELECT outcome FROM crew_write_receipt WHERE orgId=?",
+    )
+      .bind(f.orgId)
+      .first();
+    expect(receipt).toEqual(
+      boundary === "commit" ? null : { outcome: "cancelled" },
+    );
+    expect(
+      await getPrisma().crewMember.count({ where: { orgId: f.orgId } }),
+    ).toBe(0);
+  },
+);
+
+it("reads the native profile revision and reviews an edit rejected for a stale version", async () => {
+  const f = await fixture();
+  await addCrewMember({ data: f.input });
+  const row = await f.row();
+  await getPrisma().crewMember.update({
+    where: { id: row.id },
+    data: { name: "Current name" },
+  });
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const { crewReadSchema, crewReceiptSchema } =
+    await import("../../../../mobile/src/lib/crew-recovery");
+  const response = await handleMobileApi(
+    new Request(
+      `https://app.showpilot.tech/api/mobile/v1/team/crew/profile?${new URLSearchParams({ orgId: f.orgId, userId: f.userId, id: row.id })}`,
+      { headers: { Cookie: auth.cookie } },
+    ),
+    { DB: env.DB },
+  );
+  const current = crewReadSchema.parse(await response?.json());
+  expect(current.snapshot).toMatchObject({
+    name: "Current name",
+    profileRevision: 1,
+  });
+  const command = {
+    ...creation(f),
+    kind: "update",
+    id: row.id,
+    expectedRevision: 0,
+    requestId: crypto.randomUUID(),
+  };
+  expect((await recovery(f, command)).status).toBe(409);
+  const result = crewReceiptSchema.parse(
+    await (await recovery(f, command, true)).json(),
+  );
+  expect(result).toMatchObject({ outcome: "cancelled", id: row.id });
+  expect((await f.row()).name).toBe("Current name");
 });
