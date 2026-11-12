@@ -88,3 +88,5 @@
 0081_schedule_copy_recovery.sql
 0082_show_creation_recovery.sql
 0083_show_creation_review.sql
+0084_show_details_recovery.sql
+0085_show_deletion_lifecycle.sql
