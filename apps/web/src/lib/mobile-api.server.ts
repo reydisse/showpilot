@@ -2016,6 +2016,38 @@ async function loadMobileShowInventory(db: MobileApiDatabase, orgId: string) {
   }
 }
 
+async function commandMobileShowInventory(
+  request: Request,
+  url: URL,
+  db: MobileApiDatabase,
+  review: boolean,
+): Promise<Response> {
+  const access = await authorize(request, url, db, ["schedule:manage"]);
+  if (access instanceof Response) return access;
+  const { inventoryCommandSchema } = await import("./show-inventory-contract");
+  const parsed = inventoryCommandSchema.safeParse(await readJson(request));
+  if (!parsed.success || parsed.data.orgId !== access.orgId)
+    return json(
+      { error: "Check the inventory request and selected workspace." },
+      400,
+    );
+  if (parsed.data.userId && parsed.data.userId !== access.identity.userId)
+    return json(
+      { error: "Your account changed. Reopen inventory before continuing." },
+      403,
+    );
+  const { writeShowInventory } = await import("./show-inventory-write.server");
+  return json(
+    (
+      await writeShowInventory(
+        parsed.data,
+        request.headers,
+        review ? "review" : "apply",
+      )
+    ).result,
+  );
+}
+
 async function createMobileShowInventory(
   request: Request,
   url: URL,
@@ -7152,6 +7184,8 @@ export async function handleMobileApi(
     request.method === "POST"
   )
     return createMobileScheduleAssignment(request, url, env.DB);
+  if ((url.pathname === "/api/mobile/v1/schedule/inventory/command" || url.pathname === "/api/mobile/v1/schedule/inventory/review") && request.method === "POST")
+    return commandMobileShowInventory(request, url, env.DB, url.pathname.endsWith("/review"));
   if (
     url.pathname === "/api/mobile/v1/schedule/inventory" &&
     request.method === "POST"

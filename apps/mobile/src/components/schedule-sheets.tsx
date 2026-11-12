@@ -1,3 +1,5 @@
+import { useMobileInventory } from "@/hooks/use-mobile-inventory";
+import type { InventoryCommand, InventoryResult, InventoryDraft } from "@/lib/inventory-recovery";
 import { workspaceCopy , WORKSPACE_DEFINITIONS } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms , useWorkspace } from "@/providers/workspace-provider";
 import { useMemo, useState, type ReactNode } from "react";
@@ -45,15 +47,6 @@ export interface ScheduleTeamDraft {
   showId: string;
   department: string;
   rows: { requestId: string; crewMemberId: string; role: string }[];
-}
-
-export interface ScheduleInventoryDraft {
-  requestId: string;
-  name: string;
-  description: string;
-  location: string;
-  defaultStartTime: string;
-  sourceTemplateId: string | null;
 }
 
 function ScheduleSheet({ children, onClose, title, eyebrow }: {
@@ -344,59 +337,198 @@ export function ScheduleTeamSheet({ crew, onClose, onSave, showId }: {
   );
 }
 
-export function ScheduleInventorySheet({ archivedInventory, canManage, inventory, onArchive, onClose, onCreate, onUse, savedTemplates }: {
+export function ScheduleInventorySheet({
+  orgId,
+  userId,
+  active,
+  archivedInventory,
+  canManage,
+  inventory,
+  onCommand,
+  onRefresh,
+  onClose,
+  onUse,
+  savedTemplates,
+}: {
+  orgId: string;
+  userId: string;
+  active: boolean;
+  onCommand: (
+    command: InventoryCommand,
+    review: boolean,
+    signal: AbortSignal,
+  ) => Promise<InventoryResult>;
+  onRefresh: (signal: AbortSignal) => Promise<void>;
   archivedInventory: MobileSchedule["archivedInventory"];
   canManage: boolean;
   inventory: MobileSchedule["inventory"];
-  onArchive: (item: MobileSchedule["inventory"][number], archived: boolean) => Promise<void>;
   onClose: () => void;
-  onCreate: (draft: ScheduleInventoryDraft) => Promise<void>;
   onUse: (inventoryId: string) => void;
   savedTemplates: MobileSchedule["savedTemplates"];
 }) {
   const workspaceTerms = useWorkspaceTerms();
   const styles = useStyles();
-  const [requestId, setRequestId] = useState(() => createLocalRequestId("inventory"));
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [location, setLocation] = useState("");
-  const [defaultStartTime, setDefaultStartTime] = useState("");
-  const [sourceTemplateId, setSourceTemplateId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const valid = name.trim().length > 0 && (!defaultStartTime || /^([01]\d|2[0-3]):[0-5]\d$/.test(defaultStartTime));
-  const create = async () => {
-    await onCreate({
-      requestId,
-      name: name.trim(),
-      description: description.trim(),
-      location: location.trim(),
-      defaultStartTime,
-      sourceTemplateId,
-    });
-    setRequestId(createLocalRequestId("inventory"));
-    setName("");
-    setDescription("");
-    setLocation("");
-    setDefaultStartTime("");
-    setSourceTemplateId(null);
-  };
+  const work = useMobileInventory(
+    { orgId, userId },
+    onRefresh,
+    onCommand,
+    active,
+  );
+  const { name, description, location, defaultStartTime, sourceTemplateId } =
+    work.draft;
+  const missingSource =
+    !!sourceTemplateId &&
+    !savedTemplates.some((source) => source.id === sourceTemplateId);
+  const valid =
+    name.trim().length > 0 &&
+    (!defaultStartTime || /^([01]\d|2[0-3]):[0-5]\d$/.test(defaultStartTime)) &&
+    !missingSource;
+  function change<K extends keyof InventoryDraft>(
+    field: K,
+    value: InventoryDraft[K],
+  ) {
+    work.setDraft((draft) => ({ ...draft, [field]: value }));
+  }
+  const setName = (value: string) => change("name", value);
+  const setDescription = (value: string) => change("description", value);
+  const setLocation = (value: string) => change("location", value);
+  const setDefaultStartTime = (value: string) =>
+    change("defaultStartTime", value);
+  const setSourceTemplateId = (value: string | null) =>
+    change("sourceTemplateId", value);
+  const attempt = work.attempt;
+  const archive = (item: MobileSchedule["inventory"][number]) =>
+    Alert.alert(
+      "Archive reusable show?",
+      `Archive “${item.name}” from inventory? Scheduled shows are unchanged. You can restore this definition from Archived.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Archive",
+          style: "destructive",
+          onPress: () => work.archive(item, true),
+        },
+      ],
+    );
   return (
-    <ScheduleSheet eyebrow="REUSABLE SHOWS" onClose={onClose} title="Show inventory">
-      <Text style={styles.intro}>Save a clean show structure once, then load that snapshot into any future date. Scheduled changes never rewrite the inventory.</Text>
+    <ScheduleSheet
+      eyebrow="REUSABLE SHOWS"
+      onClose={onClose}
+      title="Show inventory"
+    >
+      <Text style={styles.intro}>
+        Save a clean show structure once, then load that snapshot into any
+        future date. Scheduled changes never rewrite the inventory.
+      </Text>
+      {work.notice ? (
+        <Text accessibilityRole="alert" style={styles.intro}>
+          {work.notice}
+        </Text>
+      ) : null}
+      {attempt ? (
+        <View style={styles.inventorySection} accessibilityLiveRegion="polite">
+          <Text style={styles.choiceName}>{attempt.label}</Text>
+          {attempt.kind === "saving" || attempt.kind === "reviewing" ? (
+            <Text style={styles.intro}>
+              {attempt.kind === "saving"
+                ? "Saving…"
+                : "Reviewing original request…"}{" "}
+              You can close this sheet and return to check the result.
+            </Text>
+          ) : null}
+          {attempt.kind === "unconfirmed" ? (
+            <>
+              <Text accessibilityRole="alert" style={styles.intro}>
+                {attempt.message}
+              </Text>
+              <Text style={styles.intro}>
+                The result is unconfirmed. Retry the same request, or review it
+                before editing. Review cancels a request that has not reached
+                the server.
+              </Text>
+              <AppButton label="Retry change" onPress={work.retry} />
+              <AppButton
+                label="Review original request"
+                onPress={work.review}
+              />
+            </>
+          ) : null}
+          {attempt.kind === "settled" ? (
+            <>
+              <Text style={styles.intro}>
+                {attempt.result.outcome === "applied"
+                  ? "Change confirmed. Refresh inventory to see the latest list."
+                  : attempt.result.outcome === "superseded"
+                    ? "The original change succeeded. Later changes are preserved."
+                    : attempt.result.outcome === "removed"
+                      ? "This item was removed. Retrying this request will not recreate it."
+                      : "The item or its source changed. Refresh and review the current details before trying again."}
+              </Text>
+              {attempt.result.item ? (
+                <Text style={styles.intro}>
+                  Current item: {attempt.result.item.name} ·{" "}
+                  {attempt.result.item.archivedAt ? "Archived" : "Active"}
+                </Text>
+              ) : null}
+              {attempt.message ? (
+                <Text accessibilityRole="alert" style={styles.intro}>
+                  {attempt.message}
+                </Text>
+              ) : null}
+              <AppButton
+                label={
+                  attempt.refresh === "pending"
+                    ? "Refreshing inventory…"
+                    : "Refresh inventory"
+                }
+                disabled={attempt.refresh === "pending"}
+                onPress={work.refresh}
+              />
+            </>
+          ) : null}
+        </View>
+      ) : null}
       <View style={styles.inventorySection}>
         <Text style={styles.fieldLabel}>AVAILABLE</Text>
         {inventory.length ? (
           inventory.map((item) => (
             <View key={item.id} style={styles.inventoryRow}>
-              <View style={styles.choiceCopy}>
+              <View style={[styles.choiceCopy, styles.inventoryCopy]}>
                 <Text style={styles.choiceName}>{item.name}</Text>
-                <Text style={styles.choiceMeta}>{item.itemCount} rundown item{item.itemCount === 1 ? "" : "s"}{item.defaultStartTime ? ` · ${item.defaultStartTime}` : ""}{item.location ? ` · ${item.location}` : ""}</Text>
+                <Text style={styles.choiceMeta}>
+                  {item.itemCount} rundown item{item.itemCount === 1 ? "" : "s"}
+                  {item.defaultStartTime ? ` · ${item.defaultStartTime}` : ""}
+                  {item.location ? ` · ${item.location}` : ""}
+                </Text>
                 {item.description ? (
-                  <Text numberOfLines={2} style={styles.hint}>{item.description}</Text>
+                  <Text style={styles.hint}>{item.description}</Text>
                 ) : null}
               </View>
               {canManage ? (
-                <View style={styles.inventoryActions}><Pressable accessibilityRole="button" onPress={() => onUse(item.id)} style={styles.miniButton}><Text style={styles.miniButtonPrimary}>Use</Text></Pressable><Pressable accessibilityRole="button" disabled={busy} onPress={() => runSave(() => onArchive(item, true), setBusy)} style={styles.miniButton}><Text style={styles.miniButtonDanger}>Archive</Text></Pressable></View>
+                <View style={styles.inventoryActions}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Use ${item.name}`}
+                    disabled={
+                      !!attempt &&
+                      attempt.command.operation.kind === "archive" &&
+                      attempt.command.operation.id === item.id
+                    }
+                    onPress={() => onUse(item.id)}
+                    style={styles.miniButton}
+                  >
+                    <Text style={styles.miniButtonPrimary}>Use</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Archive ${item.name}`}
+                    disabled={work.locked}
+                    onPress={() => archive(item)}
+                    style={[styles.miniButton, work.locked && styles.choiceDisabled]}
+                  >
+                    <Text style={styles.miniButtonDanger}>Archive</Text>
+                  </Pressable>
+                </View>
               ) : null}
             </View>
           ))
@@ -409,9 +541,22 @@ export function ScheduleInventorySheet({ archivedInventory, canManage, inventory
           <Text style={styles.fieldLabel}>ARCHIVED</Text>
           {archivedInventory.map((item) => (
             <View key={item.id} style={styles.inventoryRow}>
-              <View style={styles.choiceCopy}><Text style={styles.choiceName}>{item.name}</Text><Text style={styles.choiceMeta}>{item.itemCount} rundown items</Text></View>
+              <View style={[styles.choiceCopy, styles.inventoryCopy]}>
+                <Text style={styles.choiceName}>{item.name}</Text>
+                <Text style={styles.choiceMeta}>
+                  {item.itemCount} rundown items
+                </Text>
+              </View>
               {canManage ? (
-                <Pressable accessibilityRole="button" disabled={busy} onPress={() => runSave(() => onArchive(item, false), setBusy)} style={styles.miniButton}><Text style={styles.miniButtonPrimary}>Restore</Text></Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Restore ${item.name}`}
+                  disabled={work.locked}
+                  onPress={() => work.archive(item, false)}
+                  style={[styles.miniButton, work.locked && styles.choiceDisabled]}
+                >
+                  <Text style={styles.miniButtonPrimary}>Restore</Text>
+                </Pressable>
               ) : null}
             </View>
           ))}
@@ -421,6 +566,7 @@ export function ScheduleInventorySheet({ archivedInventory, canManage, inventory
         <View style={styles.inventoryForm}>
           <Text style={styles.fieldLabel}>ADD REUSABLE SHOW</Text>
           <AppField
+            editable={!work.locked}
             autoCapitalize="words"
             label="Show name"
             maxLength={120}
@@ -428,19 +574,99 @@ export function ScheduleInventorySheet({ archivedInventory, canManage, inventory
             placeholder={workspaceCopy("Sunday Morning", workspaceTerms)}
             value={name}
           />
-          <AppField autoCapitalize="none" error={defaultStartTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(defaultStartTime) ? "Use 24-hour HH:mm." : undefined} keyboardType="numbers-and-punctuation" label="Default start (optional)" maxLength={5} onChangeText={setDefaultStartTime} placeholder="10:00" value={defaultStartTime} />
-          <AppField autoCapitalize="words" label="Location (optional)" maxLength={240} onChangeText={setLocation} placeholder="Main room" value={location} />
-          {savedTemplates.length ? (
+          <AppField
+            editable={!work.locked}
+            autoCapitalize="none"
+            error={
+              defaultStartTime &&
+              !/^([01]\d|2[0-3]):[0-5]\d$/.test(defaultStartTime)
+                ? "Use 24-hour HH:mm."
+                : undefined
+            }
+            keyboardType="numbers-and-punctuation"
+            label="Default start (optional)"
+            maxLength={5}
+            onChangeText={setDefaultStartTime}
+            placeholder="10:00"
+            value={defaultStartTime}
+          />
+          <AppField
+            editable={!work.locked}
+            autoCapitalize="words"
+            label="Location (optional)"
+            maxLength={240}
+            onChangeText={setLocation}
+            placeholder="Main room"
+            value={location}
+          />
+          {savedTemplates.length || missingSource ? (
             <View style={styles.picker}>
               <Text style={styles.fieldLabel}>RUNDOWN SOURCE</Text>
-              <Pressable accessibilityRole="radio" accessibilityState={{ checked: sourceTemplateId === null }} onPress={() => setSourceTemplateId(null)} style={[styles.choice, sourceTemplateId === null && styles.choiceActive]}><View style={styles.choiceCopy}><Text style={styles.choiceName}>Empty rundown</Text><Text style={styles.choiceMeta}>Add items after scheduling</Text></View></Pressable>
+              {missingSource ? (
+                <Text accessibilityRole="alert" style={styles.intro}>
+                  The selected saved rundown is unavailable. Choose another
+                  source or explicitly choose an empty rundown.
+                </Text>
+              ) : null}
+              <Pressable
+                disabled={work.locked}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: sourceTemplateId === null }}
+                onPress={() => setSourceTemplateId(null)}
+                style={[
+                  styles.choice,
+                  sourceTemplateId === null && styles.choiceActive,
+                ]}
+              >
+                <View style={[styles.choiceCopy, styles.inventoryCopy]}>
+                  <Text style={styles.choiceName}>Empty rundown</Text>
+                  <Text style={styles.choiceMeta}>
+                    Add items after scheduling
+                  </Text>
+                </View>
+              </Pressable>
               {savedTemplates.map((template) => (
-                <Pressable accessibilityRole="radio" accessibilityState={{ checked: sourceTemplateId === template.id }} key={template.id} onPress={() => setSourceTemplateId(template.id)} style={[styles.choice, sourceTemplateId === template.id && styles.choiceActive]}><View style={styles.choiceCopy}><Text style={styles.choiceName}>{template.name}</Text><Text style={styles.choiceMeta}>{template.itemCount} saved item{template.itemCount === 1 ? "" : "s"}</Text></View></Pressable>
+                <Pressable
+                  disabled={work.locked}
+                  accessibilityRole="radio"
+                  accessibilityState={{
+                    checked: sourceTemplateId === template.id,
+                  }}
+                  key={template.id}
+                  onPress={() => setSourceTemplateId(template.id)}
+                  style={[
+                    styles.choice,
+                    sourceTemplateId === template.id && styles.choiceActive,
+                  ]}
+                >
+                  <View style={[styles.choiceCopy, styles.inventoryCopy]}>
+                    <Text style={styles.choiceName}>{template.name}</Text>
+                    <Text style={styles.choiceMeta}>
+                      {template.itemCount} saved item
+                      {template.itemCount === 1 ? "" : "s"}
+                    </Text>
+                  </View>
+                </Pressable>
               ))}
             </View>
           ) : null}
-          <AppField autoCapitalize="sentences" label="Description (optional)" maxLength={500} multiline onChangeText={setDescription} placeholder="When this reusable show should be used" style={styles.notes} textAlignVertical="top" value={description} />
-          <AppButton disabled={!valid || busy} label={busy ? "Saving reusable show…" : "Add to inventory"} loading={busy} onPress={() => runSave(create, setBusy)} />
+          <AppField
+            editable={!work.locked}
+            autoCapitalize="sentences"
+            label="Description (optional)"
+            maxLength={500}
+            multiline
+            onChangeText={setDescription}
+            placeholder="When this reusable show should be used"
+            style={styles.notes}
+            textAlignVertical="top"
+            value={description}
+          />
+          <AppButton
+            disabled={!valid || work.locked}
+            label="Add to inventory"
+            onPress={work.create}
+          />
         </View>
       ) : null}
     </ScheduleSheet>
@@ -506,7 +732,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   headerCopy: { flex: 1, gap: 4 },
   eyebrow: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.2 },
   title: { color: colors.text, fontFamily, fontSize: 21, fontWeight: "900" },
-  close: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 13, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
+  close: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 13, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
   content: { gap: spacing.medium, paddingBottom: 40 },
   intro: { color: colors.textMuted, fontFamily, fontSize: 12, lineHeight: 19 },
   picker: { gap: 7 },
@@ -530,11 +756,12 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   checkbox: { width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 7, borderWidth: 1, borderColor: colors.border },
   checkboxActive: { borderColor: colors.amber, backgroundColor: colors.amber },
   inventorySection: { gap: 8 },
-  inventoryRow: { minHeight: 62, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.panel, padding: 11 },
+  inventoryCopy: { flex: 0, width: "100%" },
+  inventoryRow: { minHeight: 62, flexDirection: "column", alignItems: "stretch", gap: 10, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.panel, padding: 11 },
   inventoryActions: { flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 5 },
-  miniButton: { minHeight: 38, alignItems: "center", justifyContent: "center", borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10 },
-  miniButtonPrimary: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900" },
-  miniButtonDanger: { color: colors.red, fontFamily, fontSize: 11, fontWeight: "900" },
+  miniButton: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center", borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10 },
+  miniButtonPrimary: { color: colors.amberText, fontFamily, fontSize: 13, fontWeight: "900" },
+  miniButtonDanger: { color: colors.red, fontFamily, fontSize: 13, fontWeight: "900" },
   emptyInventory: { color: colors.textFaint, fontFamily, fontSize: 11, textAlign: "center", borderRadius: radii.medium, borderWidth: 1, borderStyle: "dashed", borderColor: colors.border, padding: 18 },
   inventoryForm: { gap: spacing.medium, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: spacing.medium },
   options: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
