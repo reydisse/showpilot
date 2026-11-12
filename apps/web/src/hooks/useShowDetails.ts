@@ -14,6 +14,7 @@ import {
   type ShowDetailsResult,
   type ShowDetailsSnapshot,
 } from "@/lib/show-details-contract";
+import { showDeletionLocksEdits } from "./useShowDeletions";
 import { formatTimeInput } from "@/lib/utils";
 
 export type ShowDetailsDraft = Omit<
@@ -236,7 +237,7 @@ export function useShowDetails(
   }
   function save() {
     const current = read();
-    if (!current || current.attempt) return;
+    if (!current || current.attempt || showDeletionLocksEdits(client, scope)) return;
     const parsed = showDetailsCommandSchema.safeParse({
       ...current.draft,
       ...scope,

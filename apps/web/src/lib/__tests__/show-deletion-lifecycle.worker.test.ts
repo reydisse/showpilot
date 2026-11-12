@@ -10,6 +10,7 @@ import { TestRundownRelay } from "@/test/worker-entry";
 import { getPrisma } from "../db";
 import { getAuth } from "../auth";
 import { hashPassword } from "better-auth/crypto";
+import { deleteService } from "../schedule";
 import { deleteServiceForOrg } from "../service-deletion.server";
 import {
   showDeletionRelays,
@@ -710,4 +711,79 @@ it("blocks an upsert or renamed snapshot during preparation without blocking unr
       .first(),
   ).toEqual({ value: "Allowed" });
   await f.remove();
+});
+
+it("returns an explicit rejected result for a stale confirmation or a running show", async () => {
+  const f = await fixture();
+  const data = { orgId: f.orgId, userId: f.userId, showId: f.showId };
+  expect(
+    await deleteService({
+      data: { ...data, expectedUpdatedAt: "2020-01-01T00:00:00Z" },
+    }),
+  ).toEqual({ ok: false, message: expect.stringContaining("changed") });
+  await env.DB.prepare(
+    "UPDATE rundown SET status='running' WHERE orgId=? AND id=?",
+  )
+    .bind(f.orgId, f.showId)
+    .run();
+  expect(await deleteService({ data })).toEqual({
+    ok: false,
+    message: "Stop the show before deleting it",
+  });
+  expect(await f.operation()).toBeNull();
+});
+
+it("does not describe an interrupted accepted deletion as rejected", async () => {
+  const f = await fixture();
+  await env.DB.prepare(
+    "CREATE TRIGGER deletion_reply_failure BEFORE DELETE ON rundown BEGIN SELECT RAISE(ABORT,'cleanup interrupted'); END",
+  ).run();
+  try {
+    await expect(
+      deleteService({ data: { orgId: f.orgId, showId: f.showId } }),
+    ).rejects.toThrow("cleanup interrupted");
+  } finally {
+    await env.DB.prepare("DROP TRIGGER deletion_reply_failure").run();
+  }
+  expect(await f.operation()).toEqual({ stage: "purging" });
+  expect(
+    await deleteService({ data: { orgId: f.orgId, showId: f.showId } }),
+  ).toEqual({ ok: true });
+});
+
+it("keeps an accepted deletion unconfirmed when a purge endpoint refuses cleanup", async () => {
+  const f = await fixture();
+  vi.spyOn(showDeletionRelays, "purge").mockRejectedValueOnce(
+    new ShowDeletionBlockedError(),
+  );
+  await expect(
+    deleteService({ data: { orgId: f.orgId, showId: f.showId } }),
+  ).rejects.toThrow("cleanup");
+  expect(await f.operation()).toEqual({ stage: "purging" });
+  expect(
+    await deleteService({ data: { orgId: f.orgId, showId: f.showId } }),
+  ).toEqual({ ok: true });
+});
+
+it("does not reject a preparation refusal if an overlapping request already accepted deletion", async () => {
+  const f = await fixture(),
+    prepare = showDeletionRelays.prepare;
+  vi.spyOn(showDeletionRelays, "prepare").mockImplementationOnce(
+    async (target) => {
+      await prepare(target);
+      await env.DB.prepare(
+        "UPDATE show_deletion SET stage='purging' WHERE orgId=? AND showId=? AND nonce=? AND stage='preparing'",
+      )
+        .bind(target.orgId, target.showId, target.nonce)
+        .run();
+      throw new ShowDeletionBlockedError();
+    },
+  );
+  await expect(
+    deleteService({ data: { orgId: f.orgId, showId: f.showId } }),
+  ).rejects.toThrow("cleanup");
+  expect(await f.operation()).toEqual({ stage: "purging" });
+  expect(
+    await deleteService({ data: { orgId: f.orgId, showId: f.showId } }),
+  ).toEqual({ ok: true });
 });
