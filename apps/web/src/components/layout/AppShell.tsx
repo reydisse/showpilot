@@ -1,13 +1,15 @@
 import { RundownHandoffNotice } from "./RundownHandoffNotice";
 import { RuntimeErrorNotice } from "./RuntimeErrorNotice";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, lazy, Suspense, useContext, useEffect, useState } from "react";
+import { useDesktopRuntime } from "@/hooks/useDesktopRuntime";
 import { SidebarProvider } from "./SidebarContext";
 import { Sidebar } from "./Sidebar";
 import { FullscreenExitButton } from "./FullscreenExitButton";
 import { MobileHeader } from "./MobileHeader";
-import { DesktopStatusBar } from "./DesktopStatusBar";
 import { LiveRundownBar } from "./LiveRundownBar";
+
+const DesktopStatusBar = lazy(() => import("./DesktopStatusBar").then(module => ({ default: module.DesktopStatusBar })));
 
 const SettingsReturnContext = createContext<string | null>(null);
 
@@ -30,6 +32,7 @@ export function AppShell({
   canControlRundown = false,
   showLiveRundown = true,
 }: AppShellProps) {
+  const desktop = useDesktopRuntime();
   const location = useRouterState({ select: state => state.resolvedLocation });
   const [previousPage, setPreviousPage] = useState<{ slug: string; href: string } | null>(null);
   useEffect(() => {
@@ -54,7 +57,7 @@ export function AppShell({
 
           <Sidebar />
           <div className="flex-1 min-w-0 flex flex-col">
-            <DesktopStatusBar orgId={orgId} />
+            {desktop && <Suspense fallback={null}><DesktopStatusBar orgId={orgId} /></Suspense>}
             <MobileHeader />
             {orgId && <RuntimeErrorNotice orgId={orgId} />}
             {orgId && slug && <RundownHandoffNotice orgId={orgId} slug={slug} />}
