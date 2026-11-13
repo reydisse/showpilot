@@ -1,3 +1,5 @@
+import { composerFields } from "@showpilot/shared/chat-composer";
+import type { WebChatComposer } from "@/lib/chat-composer";
 import type { WebChatAttachmentDraft } from "@/lib/chat-attachment-draft";
 import type { ChatAttachmentWork } from "@showpilot/shared/chat-attachment-draft";
 import { chatEditTime, chatMutationSummary, chatMutationOutcomeMessage } from "@showpilot/shared/chat-mutation";
@@ -54,7 +56,8 @@ function RoleBadge({ role }: { role?: string }) {
 
 // -- Message type selector --
 
-const MESSAGE_TYPES: { value: MessageType; label: string; icon: React.ReactNode }[] = [
+type ComposedMessageType = Exclude<MessageType, "system">;
+const MESSAGE_TYPES: { value: ComposedMessageType; label: string; icon: React.ReactNode }[] = [
   { value: "text", label: "Text", icon: <MessageSquare className="w-3 h-3" /> },
   { value: "cue", label: "Cue", icon: <Radio className="w-3 h-3" /> },
   { value: "alert", label: "Alert", icon: <AlertTriangle className="w-3 h-3" /> },
@@ -73,18 +76,18 @@ function MessageTypeSelector({
   value,
   onChange,
 }: {
-  value: MessageType;
-  onChange: (type: MessageType) => void;
+  value: ComposedMessageType;
+  onChange: (type: ComposedMessageType) => void;
 }) {
   return (
-    <div className="inline-flex items-center rounded-lg border border-board-border bg-board-bg/70 p-0.5">
+    <div className="inline-flex items-center rounded-lg border border-board-border bg-board-bg/70">
       {MESSAGE_TYPES.map((mt) => (
         <button
           key={mt.value}
           type="button"
           onClick={() => onChange(mt.value)}
           className={cn(
-            "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-semibold transition-colors",
+            "flex min-h-11 min-w-11 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-semibold transition-colors",
             value === mt.value
               ? mt.value === "alert"
                 ? "bg-red-500/20 text-red-400"
@@ -400,6 +403,7 @@ interface ChatPanelProps {
   unreadCount: number;
   onSendMessage: (text: string, type: MessageType, options?: ChatMessageOptions) => void | Promise<void>;
   attachmentDraft?: WebChatAttachmentDraft;
+  composer: WebChatComposer;
   onEditMessage?: (messageId: string, text: string, expectedEditTime: number) => Promise<void>;
   onDeleteMessage?: (messageId: string, expectedEditTime: number) => Promise<void>;
   mentionMembers?: ChatMemberSummary[];
@@ -452,6 +456,7 @@ export function ChatPanel({
   allowOperationalMessages = true,
   headerActions,
   attachmentDraft,
+  composer,
   attachmentAccessToken,
   onEditMessage,
   onDeleteMessage,
@@ -479,16 +484,15 @@ export function ChatPanel({
   onRetryQueuedMessage,
   onCancelQueuedMessage,
 }: ChatPanelProps) {
-  const [inputText, setInputText] = useState("");
-  const [messageType, setMessageType] = useState<MessageType>("text");
+  const composerSnapshot = useSyncExternalStore(composer.subscribe, composer.getSnapshot, composer.getSnapshot);
+  const { text: inputText, messageType, replyingTo, editing: editingMessage, pollOpen, pollQuestion, pollOptions } = composerFields(composerSnapshot);
+  const { setText: setInputText, setMessageType, setReplyingTo, setPollQuestion, setPollOptions, setPollOpen } = composer;
   const [showScrollButton, setShowScrollButton] = useState(false);
-  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [openImage, setOpenImage] = useState<{ name: string; url: string } | null>(null);
   const attachmentWork = useSyncExternalStore(attachmentDraft?.subscribe ?? noAttachmentSubscription, attachmentDraft?.getSnapshot ?? emptyAttachmentSnapshot, emptyAttachmentSnapshot);
   const pendingAttachments = attachmentWork.flatMap(work => work.state === "ready" ? [work.attachment] : []);
   const attachmentsBlocked = attachmentWork.some(work => work.state !== "ready");
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [messageActionError, setMessageActionError] = useState<string | null>(null);
   const blockedMessages = new Set(mutations.filter(item => item.state !== "settled" || item.result.cleanup !== "complete").map(item => item.command.messageId));
   const voteSafely: NonNullable<ChatPanelProps["onVotePoll"]> = async (...args) => {
@@ -499,9 +503,6 @@ export function ChatPanel({
     try { await onSetReaction?.(...args); setMessageActionError(null); }
     catch (error) { setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "Reaction was not confirmed. Recover the original change."); }
   };
-  const [pollOpen, setPollOpen] = useState(false);
-  const [pollQuestion, setPollQuestion] = useState("");
-  const [pollOptions, setPollOptions] = useState(["", ""]);
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -689,57 +690,41 @@ export function ChatPanel({
     });
   };
 
-  const sendingMessage = useRef(false);
   const handleSend = async () => {
-    if ((!editingMessage && attachmentsBlocked) || sendingMessage.current) return;
-    if (!inputText.trim() && pendingAttachments.length === 0) return;
+    if ((!editingMessage && attachmentsBlocked) || (!inputText.trim() && pendingAttachments.length === 0)) return;
     onTypingChange?.(false);
-    if (editingMessage) {
-      if (inputText.trim() && onEditMessage) {
-        const messageId = editingMessage.id;
-        const submittedText = inputText;
-        const nextText = submittedText.trim();
-        sendingMessage.current = true;
-        void onEditMessage(messageId, nextText, chatEditTime(editingMessage)).then(() => {
-          setEditingMessage(current => current === editingMessage ? null : current);
-          setInputText(current => current === submittedText ? "" : current);
-          setMessageActionError(null);
-        }).catch((error) => setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "Could not edit message")).finally(() => { sendingMessage.current = false; });
-      }
-      return;
-    }
-    const replyTarget = replyingTo;
-    const submittedText = inputText;
-    sendingMessage.current = true;
     try {
-      const enqueue = (attachments: typeof pendingAttachments) => onSendMessage(inputText.trim(), messageType, {
-        replyTo: replyTarget ? { messageId: replyTarget.id, senderName: replyTarget.senderName, text: replyTarget.text } : undefined,
-        attachments: attachments.length ? attachments : undefined,
-        mentionedUserIds: mentionedUserIds(inputText, mentionMembers),
+      await composer.send("message", async snapshot => {
+        if (snapshot.edit) {
+          if (!onEditMessage || !snapshot.edit.text.trim()) throw new Error("Enter text to save this edit.");
+          await onEditMessage(snapshot.edit.target.id, snapshot.edit.text.trim(), chatEditTime(snapshot.edit.target));
+          return;
+        }
+        const { text, messageType: type, replyingTo: reply } = snapshot.message;
+        const enqueue = (attachments: typeof pendingAttachments) => onSendMessage(text.trim(), type, {
+          replyTo: reply ? { messageId: reply.id, senderName: reply.senderName, text: reply.text } : undefined,
+          attachments: attachments.length ? attachments : undefined,
+          mentionedUserIds: mentionedUserIds(text, mentionMembers),
+        });
+        if (attachmentDraft) await attachmentDraft.handoff(enqueue); else await enqueue([]);
       });
-      if (attachmentDraft) await attachmentDraft.handoff(enqueue);
-      else await enqueue([]);
-      setInputText(current => current === submittedText ? "" : current);
-      setReplyingTo(null);
-
-      setMessageType("text");
       setMessageActionError(null);
-      textareaRef.current?.focus();
     } catch (error) {
-      setMessageActionError(error instanceof Error ? error.message : "Message could not be queued. Retry sending your draft.");
-    } finally { sendingMessage.current = false; }
+      setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "Message could not be queued. Retry sending your draft.");
+    }
   };
 
   const sendPoll = async () => {
-    const options = pollOptions.map(text => text.trim()).filter(Boolean);
-    if (sendingMessage.current || !pollQuestion.trim() || options.length < 2) return;
-    sendingMessage.current = true;
+    if (!pollQuestion.trim() || pollOptions.filter(text => text.trim()).length < 2) return;
     try {
-      await onSendMessage("", "text", { poll: { question: pollQuestion.trim(), options: options.map(text => ({ id: "", text, voterIds: [] })) } });
-      setPollOpen(false); setPollQuestion(""); setPollOptions(["", ""]); setMessageActionError(null);
+      await composer.send("poll", snapshot => onSendMessage("", "text", { poll: {
+        question: snapshot.poll.question.trim(),
+        options: snapshot.poll.options.map(text => text.trim()).filter(Boolean).map(text => ({ id: "", text, voterIds: [] })),
+      } }));
+      setMessageActionError(null);
     } catch (error) {
       setMessageActionError(error instanceof Error ? error.message : "Poll could not be queued. Retry sending the poll.");
-    } finally { sendingMessage.current = false; }
+    }
   };
 
   useEffect(() => {
@@ -756,10 +741,7 @@ export function ChatPanel({
   useEffect(() => () => onTypingChange?.(false), [onTypingChange]);
 
   const beginEdit = (message: ChatMessage) => {
-    setEditingMessage(message);
-    setReplyingTo(null);
-
-    setInputText(message.text);
+    composer.beginEdit(message);
     textareaRef.current?.focus();
   };
 
@@ -861,7 +843,6 @@ export function ChatPanel({
 
   const beginReply = (message: ChatMessage) => {
     setReplyingTo(message);
-    setEditingMessage(null);
     requestAnimationFrame(() => textareaRef.current?.focus());
   };
   const gatewaySummary = gatewayStatus?.platform
@@ -1024,7 +1005,13 @@ export function ChatPanel({
         </div>
       )}
 
-      {(mutations.length > 0 || notifications.length > 0 || (attachmentWork.length > 0 && !editingMessage)) && <div aria-label="Chat recovery" className="min-h-20 max-h-48 shrink overflow-x-hidden overflow-y-auto">
+      {(pollOpen || mutations.length > 0 || notifications.length > 0 || (attachmentWork.length > 0 && !editingMessage)) && <div aria-label="Chat recovery" className={cn("min-h-20 shrink overflow-x-hidden overflow-y-auto", pollOpen ? "max-h-[50%]" : "max-h-48")}>
+      {pollOpen && <section aria-label="Poll draft" className="space-y-2 rounded-xl border border-board-border bg-board-card p-3">
+        <div className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-sky-300" /><p className="text-sm font-semibold text-board-text">Create a poll</p><button type="button" onClick={() => setPollOpen(false)} className="ml-auto min-h-11 min-w-11 text-board-muted" aria-label="Close poll composer"><X className="mx-auto h-4 w-4" /></button></div>
+        <label className="block text-xs text-board-muted">Question<input maxLength={240} value={pollQuestion} onChange={event => setPollQuestion(event.target.value)} placeholder="Ask a question" className="mt-1 min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm text-board-text" /></label>
+        {pollOptions.map((option, index) => <label key={index} className="block text-xs text-board-muted">Option {index + 1}<input maxLength={120} value={option} onChange={event => setPollOptions(items => items.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder={`Option ${index + 1}`} className="mt-1 min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm text-board-text" /></label>)}
+        <div className="flex items-center gap-2"><button type="button" disabled={pollOptions.length >= 6} onClick={() => setPollOptions(items => [...items, ""])} className="flex min-h-11 items-center gap-1 text-xs text-board-muted"><Plus className="h-3 w-3" />Add option</button><button type="button" disabled={!pollQuestion.trim() || pollOptions.filter(item => item.trim()).length < 2} onClick={sendPoll} className="ml-auto min-h-11 rounded-lg bg-sky-400 px-3 text-xs font-semibold text-black disabled:opacity-40">Send poll</button></div>
+      </section>}
       {mutations.length > 0 && <section aria-label="Message changes" className="border-t border-board-border">
         {mutations.map(item => <div key={item.command.requestId} role={item.state === "sending" ? "status" : "alert"} className="space-y-2 border-b border-board-border px-4 py-3 text-sm text-amber-200">
           <p className="break-words">{item.state === "sending" ? "Confirming message change…" : item.state === "unknown" ? item.error : chatMutationOutcomeMessage(item.result)}</p>
@@ -1061,7 +1048,7 @@ export function ChatPanel({
 
       {/* Input area */}
       <div className="min-w-0 shrink-0 border-t border-board-border bg-board-bg/40 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3">
-        {pollOpen && <div className="mb-2 rounded-xl border border-board-border bg-board-card p-3 shadow-xl"><div className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-sky-300" /><p className="text-xs font-semibold text-board-text">Create a poll</p><button type="button" onClick={() => setPollOpen(false)} className="ml-auto text-board-muted" aria-label="Close poll composer"><X className="h-4 w-4" /></button></div><input value={pollQuestion} onChange={(event) => setPollQuestion(event.target.value)} placeholder="Ask a question" className="mt-3 w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none" />{pollOptions.map((option, index) => <input key={index} value={option} onChange={(event) => setPollOptions((items) => items.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder={`Option ${index + 1}`} className="mt-2 w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none" />)}<div className="mt-3 flex items-center gap-2"><button type="button" disabled={pollOptions.length >= 6} onClick={() => setPollOptions((items) => [...items, ""])} className="flex items-center gap-1 text-[10px] text-board-muted"><Plus className="h-3 w-3" />Add option</button><button type="button" disabled={!pollQuestion.trim() || pollOptions.filter((item) => item.trim()).length < 2} onClick={sendPoll} className="ml-auto rounded-lg bg-sky-400 px-3 py-2 text-[10px] font-semibold text-black disabled:opacity-40">Send poll</button></div></div>}
+
         {mentionSuggestions.length > 0 && !editingMessage && (
           <div className="mb-2 overflow-hidden rounded-xl border border-board-border bg-board-card shadow-xl">
             <div className="flex items-center gap-2 border-b border-board-border px-3 py-2 text-[9px] font-semibold uppercase tracking-wider text-board-muted"><AtSign className="h-3 w-3" />Mention someone</div>
@@ -1069,24 +1056,24 @@ export function ChatPanel({
           </div>
         )}
         <div className="overflow-hidden rounded-xl border border-board-border/90 bg-board-bg/55 shadow-[0_12px_32px_rgba(0,0,0,0.18)] transition focus-within:border-fire-500/45 focus-within:ring-2 focus-within:ring-fire-500/10">
-          {editingMessage && <div className="flex items-center gap-3 border-b border-board-border/70 bg-sky-500/[0.045] px-3 py-2"><Pencil className="h-3.5 w-3.5 text-sky-300" /><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-sky-300">Editing message</p><p className="truncate text-xs text-board-muted">Changes update for everyone in this room.</p></div><button type="button" onClick={() => { setEditingMessage(null); setInputText(""); }} className="min-h-11 min-w-11 rounded p-2 text-board-muted hover:bg-board-border hover:text-board-text" aria-label="Cancel edit"><X className="h-3.5 w-3.5" /></button></div>}
+          {editingMessage && <div className="flex items-center gap-3 border-b border-board-border/70 bg-sky-500/[0.045] px-3 py-2"><Pencil className="h-3.5 w-3.5 text-sky-300" /><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-sky-300">Editing message</p><p className="truncate text-xs text-board-muted">Changes update for everyone in this room.</p></div><button type="button" onClick={composer.cancelEdit} className="min-h-11 min-w-11 rounded p-2 text-board-muted hover:bg-board-border hover:text-board-text" aria-label="Cancel edit"><X className="h-3.5 w-3.5" /></button></div>}
           {replyingTo && (
             <div className="flex items-center gap-3 border-b border-board-border/70 bg-fire-500/[0.045] px-3 py-2">
               <Reply className="h-3.5 w-3.5 shrink-0 text-fire-300" />
               <div className="min-w-0 flex-1"><p className="text-[10px] font-semibold text-fire-300">Replying to {replyingTo.senderName}</p><p className="truncate text-[10px] text-board-muted">{replyingTo.text || "Attachment"}</p></div>
-              <button type="button" onClick={() => setReplyingTo(null)} className="rounded p-1 text-board-muted hover:bg-board-border hover:text-board-text" aria-label="Cancel reply"><X className="h-3.5 w-3.5" /></button>
+              <button type="button" onClick={() => setReplyingTo(null)} className="min-h-11 min-w-11 rounded p-1 text-board-muted hover:bg-board-border hover:text-board-text" aria-label="Cancel reply"><X className="h-3.5 w-3.5" /></button>
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-y-1 border-b border-board-border/70 px-2 py-1.5">
+          <div className="flex flex-wrap items-center gap-y-1 border-b border-board-border/70 px-2 py-0.5">
             {allowOperationalMessages && !editingMessage ? (
               <MessageTypeSelector value={messageType} onChange={setMessageType} />
             ) : (
               <span className="px-2 py-1 text-[10px] font-medium text-board-muted">{editingMessage ? "Edit message" : "Guest message"}</span>
             )}
             <span className="ml-auto px-2 text-[9px] text-board-muted/55">{attachmentWork.length}/6 files</span>
-            {onVotePoll && !editingMessage ? <button type="button" onClick={() => setPollOpen((open) => !open)} className="rounded-md p-1.5 text-board-muted hover:bg-board-border hover:text-sky-300" aria-label="Create poll" title="Create poll"><BarChart3 className="h-3.5 w-3.5" /></button> : null}
+            {onVotePoll && !editingMessage ? <button type="button" onClick={() => setPollOpen((open) => !open)} className="min-h-11 min-w-11 rounded-md p-1.5 text-board-muted hover:bg-board-border hover:text-sky-300" aria-label="Create poll" title="Create poll"><BarChart3 className="h-3.5 w-3.5" /></button> : null}
           </div>
-          <div className="flex items-end gap-2 p-2">
+          <div className="flex items-end gap-2 px-2 py-1">
           {attachmentDraft && !editingMessage && (
             <>
               <input ref={fileInputRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif,image/avif,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx" onChange={handleFiles} className="hidden" />

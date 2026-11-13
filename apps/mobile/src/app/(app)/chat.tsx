@@ -346,8 +346,8 @@ export default function ChatScreen() {
     staleTime: 60_000,
   });
   const composer = useChatComposer(session?.user.id, organization?.id, roomId);
-  const { text, messageType, replyingTo, editing, pollQuestion, pollOptions } = composer.draft;
-  const { setText, setMessageType, setReplyingTo, setEditing, setPollQuestion, setPollOptions } = composer;
+  const { text, messageType, replyingTo, editing, pollQuestion, pollOptions, pollOpen } = composer.draft;
+  const { setText, setMessageType, setReplyingTo, beginEdit, cancelEdit, setPollQuestion, setPollOptions, setPollOpen } = composer;
   const [previewAttachment, setPreviewAttachment] = useState<MobileChatAttachment | null>(null);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -371,7 +371,6 @@ export default function ChatScreen() {
   const uploading = Boolean(picker?.scope === mutationScope && picker.busy) || attachments.work.length > 0;
   const pendingToolRef = useRef<"photo" | "document" | "poll" | null>(null);
   const attachmentContextRef = useRef(0);
-  const [pollOpen, setPollOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [roomPickerOpen, setRoomPickerOpen] = useState(false);
   const [roomSearch, setRoomSearch] = useState("");
@@ -443,7 +442,6 @@ export default function ChatScreen() {
     userHasScrolledRef.current = false;
     setShowLatestButton(false);
     setToolsOpen(false);
-    setPollOpen(false);
     setActionTarget(null);
     setReactionTarget(null);
     setPreviewAttachment(null);
@@ -475,41 +473,32 @@ export default function ChatScreen() {
     typingTimerRef.current = setTimeout(() => relay.setTyping(false), 2_500);
   }
 
-  function clearComposer(submitted: typeof composer.draft) {
-    composer.clear(submitted);
-    relay.setTyping(false);
-  }
-
   async function submit() {
-    const submitted = composer.capture();
-    if (editing) {
-      try {
-        await relay.editMessage(editing.id, text, chatEditTime(editing));
-        composer.clear(submitted);
-        if (currentMutationScope.current !== mutationScope) return;
+    if (!editing && (!attachments.draft || attachments.blocked || picker?.scope === mutationScope && picker.busy)) return;
+    try {
+      const sent = await composer.send("message", async snapshot => {
+        if (snapshot.edit) {
+          await relay.editMessage(snapshot.edit.target.id, snapshot.edit.text, chatEditTime(snapshot.edit.target));
+          return;
+        }
+        const { text: submittedText, messageType: type, replyingTo: reply } = snapshot.message;
+        const mentionedUserIds = members
+          .filter((member) => new RegExp(`(^|\\s)@${member.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$|[.,!?])`, "i").test(submittedText))
+          .map((member) => member.userId);
+        if (!attachments.draft) throw new Error("Chat is not ready. Keep this draft and retry sending.");
+        await attachments.draft.handoff(files => {
+          const messageId = relay.send(submittedText, type, {
+            mentionedUserIds,
+            ...(reply ? { replyTo: { messageId: reply.id, senderName: reply.senderName, text: reply.text } } : {}),
+            ...(files.length ? { attachments: files } : {}),
+          });
+          if (!messageId) throw new Error("Message could not be queued. Keep this draft and retry sending.");
+        });
+      });
+      if (sent && currentMutationScope.current === mutationScope) {
         relay.setTyping(false);
         await Haptics.selectionAsync();
-      } catch (error) {
-        mutationFailure(error);
       }
-      return;
-    }
-    const replyTarget = replyingTo;
-    const mentionedUserIds = members
-      .filter((member) => new RegExp(`(^|\\s)@${member.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$|[.,!?])`, "i").test(text))
-      .map((member) => member.userId);
-    if (!attachments.draft || attachments.blocked || picker?.scope === mutationScope && picker.busy) return;
-    try {
-      await attachments.draft.handoff(files => {
-        const messageId = relay.send(text, messageType, {
-          mentionedUserIds,
-          ...(replyTarget ? { replyTo: { messageId: replyTarget.id, senderName: replyTarget.senderName, text: replyTarget.text } } : {}),
-          ...(files.length ? { attachments: files } : {}),
-        });
-        if (!messageId) throw new Error("Message could not be queued. Keep this draft and retry sending.");
-      });
-      clearComposer(submitted);
-      if (currentMutationScope.current === mutationScope) await Haptics.selectionAsync();
     } catch (error) { mutationFailure(error); }
   }
 
@@ -590,19 +579,18 @@ export default function ChatScreen() {
     void shareAttachment(file);
   }, [shareAttachment]);
 
-  function sendPoll() {
-    const question = pollQuestion.trim();
-    const options = pollOptions.map((option) => option.trim()).filter(Boolean);
-    if (!question || options.length < 2) return;
-    const replyTarget = replyingTo;
-    const messageId = relay.send("", "text", {
-      ...(replyTarget ? { replyTo: { messageId: replyTarget.id, senderName: replyTarget.senderName, text: replyTarget.text } } : {}),
-      poll: { question, options },
-    });
-    if (!messageId) return;
-    setPollOpen(false);
-    setPollQuestion("");
-    setPollOptions(["", ""]);
+  async function sendPoll() {
+    if (!pollQuestion.trim() || pollOptions.filter(option => option.trim()).length < 2) return;
+    try {
+      await composer.send("poll", snapshot => {
+        const reply = snapshot.message.replyingTo;
+        const messageId = relay.send("", "text", {
+          ...(reply ? { replyTo: { messageId: reply.id, senderName: reply.senderName, text: reply.text } } : {}),
+          poll: { question: snapshot.poll.question.trim(), options: snapshot.poll.options.map(option => option.trim()).filter(Boolean) },
+        });
+        if (!messageId) throw new Error("Poll could not be queued. Keep this poll and retry sending.");
+      });
+    } catch (error) { mutationFailure(error); }
   }
 
   function selectMention(member: MobileChatMember) {
@@ -617,10 +605,9 @@ export default function ChatScreen() {
   }, []);
 
   const beginReply = useCallback((message: MobileChatMessage) => {
-    setEditing(null);
     setReplyingTo(message);
     setActionTarget(null);
-  }, [setEditing, setReplyingTo]);
+  }, [setReplyingTo]);
 
   const confirmDelete = useCallback((message: MobileChatMessage) => {
     setActionTarget(null);
@@ -798,7 +785,7 @@ export default function ChatScreen() {
           <View style={styles.composerContext}>
             {editing ? <Pencil color={colors.amberText} size={15} /> : <CornerUpLeft color={colors.amberText} size={15} />}
             <View style={styles.composerContextCopy}><Text style={styles.composerContextTitle}>{editing ? "Editing message" : `Replying to ${replyingTo?.senderName}`}</Text><Text numberOfLines={1} style={styles.composerContextText}>{readableChatText((editing ?? replyingTo)?.text ?? "")}</Text></View>
-            <Pressable accessibilityRole="button" style={styles.composerToolButton} accessibilityLabel="Cancel message action" onPress={() => { setEditing(null); setReplyingTo(null); if (editing) setText(""); }}><X color={colors.textMuted} size={18} /></Pressable>
+            <Pressable accessibilityRole="button" style={styles.composerToolButton} accessibilityLabel="Cancel message action" onPress={() => { if (editing) cancelEdit(); else setReplyingTo(null); }}><X color={colors.textMuted} size={18} /></Pressable>
           </View>
         ) : null}
         {picker?.scope === mutationScope && picker.error ? <View><Text accessibilityRole="alert" style={styles.error}>{picker.error}</Text><Text style={styles.error}>Updated {new Date(picker.at).toLocaleTimeString()}</Text><Pressable accessibilityRole="button" accessibilityLabel="Retry choosing attachment" style={styles.toolRow} onPress={() => void chooseFile(picker.kind)}><Text style={styles.toolTitle}>Choose attachment again</Text></Pressable></View> : null}
@@ -892,7 +879,7 @@ export default function ChatScreen() {
               {!actionTarget.external ? <Pressable onPress={() => actionTarget && confirmBlock(actionTarget)} style={styles.actionButton}><Text style={styles.actionEmoji}>🚫</Text><Text style={[styles.actionText, styles.actionDanger]}>Block {actionTarget.senderName}</Text></Pressable> : null}
             </> : null}
             {actionTarget?.senderId === currentUserId ? <>
-              <Pressable accessibilityRole="button" disabled={Boolean(actionTarget && blockedMessages.has(actionTarget.id))} onPress={() => { if (actionTarget) { setReplyingTo(null); setEditing(actionTarget); setText(actionTarget.text); } setActionTarget(null); }} style={styles.actionButton}><Pencil color={colors.textMuted} size={17} /><Text style={styles.actionText}>Edit message</Text></Pressable>
+              <Pressable accessibilityRole="button" disabled={Boolean(actionTarget && blockedMessages.has(actionTarget.id))} onPress={() => { if (actionTarget) { beginEdit(actionTarget); } setActionTarget(null); }} style={styles.actionButton}><Pencil color={colors.textMuted} size={17} /><Text style={styles.actionText}>Edit message</Text></Pressable>
               <Pressable accessibilityRole="button" disabled={Boolean(actionTarget && blockedMessages.has(actionTarget.id))} onPress={() => { if (actionTarget) confirmDelete(actionTarget); }} style={styles.actionButton}><Trash2 color={colors.red} size={17} /><Text style={[styles.actionText, styles.actionDanger]}>Delete message</Text></Pressable>
             </> : null}
           </Pressable>
@@ -915,12 +902,14 @@ export default function ChatScreen() {
       <Modal animationType="slide" onRequestClose={() => setPollOpen(false)} transparent visible={pollOpen}>
         <Pressable onPress={() => setPollOpen(false)} style={styles.modalBackdrop}>
           <Pressable onPress={() => undefined} style={styles.sheet}>
-            <View style={styles.sheetHeader}><View><Text style={styles.sheetEyebrow}>QUICK POLL</Text><Text style={styles.sheetTitle}>Ask the crew</Text></View><Pressable accessibilityLabel="Close poll" onPress={() => setPollOpen(false)}><X color={colors.textMuted} size={22} /></Pressable></View>
+            <View style={styles.sheetHeader}><View><Text style={styles.sheetEyebrow}>QUICK POLL</Text><Text style={styles.sheetTitle}>Ask the crew</Text></View><Pressable accessibilityRole="button" style={styles.composerToolButton} accessibilityLabel="Close poll" onPress={() => setPollOpen(false)}><X color={colors.textMuted} size={22} /></Pressable></View>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 12 }}>
             <Text style={styles.sheetLabel}>QUESTION</Text>
-            <TextInput maxLength={240} value={pollQuestion} onChangeText={setPollQuestion} placeholder="What should the team decide?" placeholderTextColor={colors.textFaint} style={styles.sheetInput} />
+            <TextInput accessibilityLabel="Poll question" maxLength={240} value={pollQuestion} onChangeText={setPollQuestion} placeholder="What should the team decide?" placeholderTextColor={colors.textFaint} style={styles.sheetInput} />
             <Text style={styles.sheetLabel}>OPTIONS</Text>
-            {pollOptions.map((option, index) => <TextInput key={index} maxLength={120} value={option} onChangeText={(value) => setPollOptions((current) => current.map((item, optionIndex) => optionIndex === index ? value : item))} placeholder={`Option ${index + 1}`} placeholderTextColor={colors.textFaint} style={styles.sheetInput} />)}
-            {pollOptions.length < 6 ? <Pressable onPress={() => setPollOptions((current) => [...current, ""])} style={styles.addOption}><Text style={styles.addOptionText}>+ Add option</Text></Pressable> : null}
+            {pollOptions.map((option, index) => <TextInput key={index} accessibilityLabel={`Poll option ${index + 1}`} maxLength={120} value={option} onChangeText={(value) => setPollOptions((current) => current.map((item, optionIndex) => optionIndex === index ? value : item))} placeholder={`Option ${index + 1}`} placeholderTextColor={colors.textFaint} style={styles.sheetInput} />)}
+            {pollOptions.length < 6 ? <Pressable accessibilityRole="button" onPress={() => setPollOptions((current) => [...current, ""])} style={styles.addOption}><Text style={styles.addOptionText}>+ Add option</Text></Pressable> : null}
+            </ScrollView>
             <Pressable accessibilityRole="button" accessibilityState={{ disabled: !pollQuestion.trim() || pollOptions.filter((option) => option.trim()).length < 2 }} disabled={!pollQuestion.trim() || pollOptions.filter((option) => option.trim()).length < 2} onPress={sendPoll} style={[styles.pollSend, (!pollQuestion.trim() || pollOptions.filter((option) => option.trim()).length < 2) && styles.disabled]}><Text style={styles.pollSendText}>Send poll</Text></Pressable>
           </Pressable>
         </Pressable>
@@ -1110,7 +1099,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   customReactionInput: { minHeight: 44, flex: 1, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, color: colors.text, fontFamily, fontSize: 14, paddingHorizontal: 12 },
   customReactionButton: { minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radii.small, backgroundColor: colors.amber, paddingHorizontal: 16 },
   customReactionButtonText: { color: colors.black, fontFamily, fontSize: 12, fontWeight: "900" },
-  addOption: { alignSelf: "flex-start", minHeight: 34, justifyContent: "center", paddingHorizontal: 4 },
+  addOption: { alignSelf: "flex-start", minHeight: 44, justifyContent: "center", paddingHorizontal: 4 },
   addOptionText: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800" },
   pollSend: { minHeight: 46, alignItems: "center", justifyContent: "center", borderRadius: radii.medium, backgroundColor: colors.amber },
   pollSendText: { color: colors.black, fontFamily, fontSize: 12, fontWeight: "900" },
