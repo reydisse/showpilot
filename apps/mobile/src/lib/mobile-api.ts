@@ -1,4 +1,4 @@
-import { proPresenterReplySchema, type ProPresenterCommand } from "./propresenter-command";
+import { proPresenterReplySchema, type ProPresenterCommand } from "@showpilot/shared/propresenter-command";
 import { chatInviteReplySchema, type ChatInviteCommand } from "./chat-pass-recovery";
 import { chatNotificationResultSchema, type ChatNotificationCommand } from "./chat-notification";
 import { lyricsControlReplySchema, type MobileLyricsControl } from "./timecode-lyrics-recovery";

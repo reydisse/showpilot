@@ -4,7 +4,7 @@ import ts from "typescript";
 import * as React from "react";
 import * as queries from "@tanstack/react-query";
 import * as deadline from "../../../mobile/src/lib/request-deadline.ts";
-import * as contract from "../../../mobile/src/lib/propresenter-command.ts";
+import * as contract from "@showpilot/shared/propresenter-command";
 import * as shared from "@showpilot/shared";
 import * as retained from "./native-retained-requests.js";
 import * as requestIds from "../../../mobile/src/lib/request-id.ts";
@@ -28,7 +28,7 @@ const modules = {
   "@showpilot/shared": shared,
   "./use-retained-requests": retained,
   "@tanstack/react-query": queries,
-  "../lib/propresenter-command": contract,
+  "@showpilot/shared/propresenter-command": contract,
   "../lib/request-id": requestIds,
   "../lib/request-deadline": deadline,
 };
