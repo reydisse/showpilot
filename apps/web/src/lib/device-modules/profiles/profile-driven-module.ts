@@ -6,7 +6,7 @@ import type {
   ProfileFeedback,
   ParamTransform,
 } from "./types";
-import { normalizeActionParams } from "../action-params";
+import { normalizeActionParams } from "@showpilot/shared";
 
 function applyProfileTransform(value: unknown, transform: ParamTransform): unknown {
   switch (transform.type) {

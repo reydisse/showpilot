@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { getAutomationDeviceTargets, getAutomationHomeAssistantActions } from "@/lib/automation-targets";
-import { normalizeActionParams } from "@/lib/device-modules/action-params";
+import { normalizeActionParams } from "@showpilot/shared";
 import type { AutomationDeviceAction, AutomationDeviceTarget, CueDetails } from "@/lib/automation-catalog";
 import type { ModuleAction } from "@/lib/device-modules/types";
 import { useCueChoices } from "./useCueChoices";

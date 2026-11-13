@@ -1,3 +1,4 @@
+import { AUTOMATION_ACTIONS as ACTION_OPTIONS } from "@showpilot/shared";
 import { BasicCueFields } from "./BasicCueFields";
 import type { CueDetails } from "@/lib/automation-catalog";
 import { parseNamedTimerDuration, formatNamedTimerRemaining } from "@/lib/named-timers";
@@ -30,45 +31,7 @@ interface AutomationEventEditorProps {
   format: import("@/types/timecode").TimecodeFormat;
 }
 
-const ACTION_OPTIONS: {
-  value: AutomationActionType;
-  label: string;
-  category: string;
-}[] = [
-  { value: "lower-third-show", label: "Show Lower Third", category: "Lower Thirds" },
-  { value: "lower-third-clear", label: "Clear Lower Third", category: "Lower Thirds" },
-  { value: "rundown-advance", label: "Advance Rundown", category: "Rundown" },
-  { value: "rundown-start-item", label: "Start Rundown Item", category: "Rundown" },
-  { value: "rundown-goto-item", label: "Jump to Rundown Item", category: "Rundown" },
-  { value: "rundown-previous", label: "Previous Rundown Item", category: "Rundown" },
-  { value: "rundown-pause", label: "Pause Rundown Timer", category: "Rundown" },
-  { value: "rundown-resume", label: "Resume Rundown Timer", category: "Rundown" },
-  { value: "rundown-stop", label: "Stop Rundown", category: "Rundown" },
-  { value: "rundown-adjust", label: "Adjust Rundown Timer", category: "Rundown" },
-  { value: "stage-message", label: "Send Stage Message", category: "Stage Display" },
-  { value: "triggers-disable", label: "Pause Automatic Cues", category: "Automation" },
-  { value: "triggers-enable", label: "Resume Automatic Cues", category: "Automation" },
-  { value: "timer-start", label: "Start Named Timer", category: "Timers" },
-  { value: "timer-stop", label: "Stop Named Timer", category: "Timers" },
-  { value: "media-play", label: "Play Media", category: "Media" },
-  { value: "media-stop", label: "Stop Media", category: "Media" },
-  { value: "crew-message", label: "Post to Production Chat", category: "Crew" },
-  { value: "stage-clear", label: "Clear Stage Message", category: "Stage Display" },
-  { value: "device-action", label: "Trigger Device Action", category: "Devices" },
-  { value: "lighting-scene", label: "Recall Lighting Scene", category: "Devices" },
-  { value: "lighting-blackout", label: "Lighting Blackout", category: "Devices" },
-  { value: "lyrics-goto", label: "Show Lyrics Section", category: "Lyrics" },
-  { value: "lyrics-next-section", label: "Next Lyrics Section", category: "Lyrics" },
-  { value: "lyrics-previous-section", label: "Previous Lyrics Section", category: "Lyrics" },
-  { value: "lyrics-clear", label: "Clear Lyrics", category: "Lyrics" },
-  { value: "pp-trigger-slide", label: "Trigger ProPresenter Slide", category: "Lyrics" },
-  { value: "pp-trigger-next", label: "Next ProPresenter Slide", category: "Lyrics" },
-  { value: "pp-trigger-previous", label: "Previous ProPresenter Slide", category: "Lyrics" },
-  { value: "pp-trigger-prop", label: "Trigger ProPresenter Prop", category: "ProPresenter" },
-  { value: "pp-clear-props", label: "Clear ProPresenter Props", category: "ProPresenter" },
-  { value: "pp-trigger-clear", label: "Clear ProPresenter Slide", category: "Lyrics" },
-  { value: "custom-webhook", label: "Custom Webhook", category: "Other" },
-];
+
 
 export function AutomationEventEditor({ onAdd, format, connected, loadTargets, timerNames = [], orgId, editing, blockedReason }: AutomationEventEditorProps) {
   const workspaceTerms = useWorkspaceTerms();

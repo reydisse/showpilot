@@ -1,6 +1,6 @@
 import { BaseDeviceModule } from "../base-module";
 import type { ModuleAction, ModuleFeedback, ModuleDefinition } from "../types";
-import { findAndNormalizeAction } from "../action-params";
+import { findAndNormalizeAction } from "@showpilot/shared";
 
 export const VMIX_ACTIONS: ModuleAction[] = [
   { id: "cut", label: "Cut", category: "transitions", params: [] },

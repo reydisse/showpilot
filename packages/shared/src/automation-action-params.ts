@@ -1,4 +1,8 @@
-import type { ModuleAction } from "./types";
+export type AutomationActionParameter = {
+  id: string; label: string; type: "number" | "string" | "boolean" | "select";
+  options?: { value: string; label: string }[]; min?: number; max?: number; step?: number; default?: unknown;
+};
+type ModuleAction = { id: string; label: string; category: string; params: AutomationActionParameter[] };
 
 const MAX_TEXT_PARAM_LENGTH = 256;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
