@@ -107,7 +107,7 @@ export function WidgetCard({
 
 export function WidgetLabel({ children }: { children: ReactNode }) {
   return (
-    <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-board-muted">
+    <span className="text-xs font-medium uppercase tracking-[0.12em] text-board-muted">
       {children}
     </span>
   );
@@ -197,7 +197,7 @@ export function HealthChip({
   return (
     <span
       className={cn(
-        "inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium tabular-nums",
+        "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium tabular-nums",
         HEALTH_CHIP[status],
         className,
       )}
@@ -210,7 +210,7 @@ export function HealthChip({
 /** Small bordered action, used for every in-card affordance. */
 export function WidgetAction({ children }: { children: ReactNode }) {
   return (
-    <span className="text-[11px] px-2 py-1 rounded border border-board-border/80 text-board-muted hover:text-board-text hover:border-board-border transition-colors">
+    <span className="inline-flex min-h-11 items-center text-xs px-2 py-1 rounded border border-board-border/80 text-board-muted hover:text-board-text hover:border-board-border transition-colors">
       {children}
     </span>
   );

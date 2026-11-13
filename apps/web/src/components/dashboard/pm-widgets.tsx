@@ -141,8 +141,8 @@ function PmControlPad({ orgId, serviceDate, showId, initialState }: {
       {endShowDialog}
       <header className="flex items-center gap-3 border-b border-board-border px-4 py-3">
         <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-fire-500/10 text-fire-400"><RadioTower className="h-4 w-4" /></span>
-        <div className="min-w-0"><h2 className="text-xs font-semibold text-board-text">Production control pad</h2><p className="truncate text-[11px] text-board-muted">{current?.title ?? first?.title ?? "No playable rundown item"} · {displayedTime}</p></div>
-        <span className={`ml-auto text-[10px] uppercase tracking-wider ${timer.playback === "play" ? "text-green-400" : timer.playback === "pause" ? "text-yellow-300" : "text-board-muted"}`}>{timer.playback}</span>
+        <div className="min-w-0"><h2 className="text-xs font-semibold text-board-text">Production control pad</h2><p className="truncate text-xs text-board-muted">{current?.title ?? first?.title ?? "No playable rundown item"} · {displayedTime}</p></div>
+        <span className={`ml-auto text-xs uppercase tracking-wider ${timer.playback === "play" ? "text-green-400" : timer.playback === "pause" ? "text-yellow-300" : "text-board-muted"}`}>{timer.playback}</span>
       </header>
       {!connected && <p role="status" className="px-4 py-2 text-xs text-amber-300">Offline. Reconnect to control this show.</p>}
       <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4 lg:grid-cols-7">
@@ -158,7 +158,7 @@ function PmControlPad({ orgId, serviceDate, showId, initialState }: {
           <ControlButton icon={ChevronRight} label="Next" detail="Advance item" onClick={() => command("timer-next")} disabled={!connected || timer.playback === "stop"} />
           <ControlButton icon={TimerReset} label="+1 minute" detail="Add time" onClick={() => adjust(60_000)} disabled={!connected || timer.playback === "stop"} />
           <ControlButton icon={RotateCcw} label="−1 minute" detail="Subtract time" onClick={() => adjust(-60_000)} disabled={!connected || timer.playback === "stop"} />
-          <div className={`${controlClass} flex flex-col justify-between`}><Clock3 className="h-4 w-4 text-board-muted" /><span><span className="block text-[11px] font-medium">{displayedTime}</span><span className="mt-0.5 block text-[9px] text-board-muted">{displayedTimeLabel}</span></span></div>
+          <div className={`${controlClass} flex flex-col justify-between`}><Clock3 className="h-4 w-4 text-board-muted" /><span><span className="block text-xs font-medium">{displayedTime}</span><span className="mt-0.5 block text-xs text-board-muted">{displayedTimeLabel}</span></span></div>
       </div>
     </section>
   );
@@ -173,15 +173,15 @@ function ControlButton({ icon: Icon, label, detail, onClick, disabled = false, a
   active?: boolean;
 }) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick} className={`min-h-[72px] rounded-lg border p-3 text-left transition-colors disabled:opacity-40 ${active ? "border-green-500/40 bg-green-500/10 text-green-300" : "border-board-border bg-board-bg/40 text-board-text hover:border-fire-500/35 hover:bg-board-bg"}`}>
+    <button type="button" disabled={disabled} onClick={onClick} className={`min-h-11 min-w-11 min-h-[72px] rounded-lg border p-3 text-left transition-colors disabled:opacity-40 ${active ? "border-green-500/40 bg-green-500/10 text-green-300" : "border-board-border bg-board-bg/40 text-board-text hover:border-fire-500/35 hover:bg-board-bg"}`}>
       <span className="flex items-center justify-between">
         <Icon className="h-4 w-4" />
         {active ? (
           <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
         ) : null}
       </span>
-      <span className="mt-2 block text-[11px] font-medium">{label}</span>
-      <span className="mt-0.5 block text-[9px] text-board-muted">{detail}</span>
+      <span className="mt-2 block text-xs font-medium">{label}</span>
+      <span className="mt-0.5 block text-xs text-board-muted">{detail}</span>
     </button>
   );
 }
@@ -223,12 +223,12 @@ function AttentionRow({ item, slug }: { item: AttentionItem; slug: string }) {
         <p className="text-[13px] leading-snug text-board-text truncate">
           {item.title}
         </p>
-        <p className="text-[11px] leading-snug text-board-muted truncate">
+        <p className="text-xs leading-snug text-board-muted truncate">
           {item.detail}
         </p>
       </div>
       {item.actionPath && (
-        <Link to={orgLink(slug, item.actionPath)} className="shrink-0">
+        <Link to={orgLink(slug, item.actionPath)} className="min-h-11 min-w-11 inline-flex items-center shrink-0">
           <WidgetAction>{item.actionLabel}</WidgetAction>
         </Link>
       )}
@@ -245,7 +245,7 @@ const attentionWidget: PmWidget = {
     <WidgetCard
       title="Needs attention"
       action={
-        <span className="text-[11px] tabular-nums text-board-muted">
+        <span className="text-xs tabular-nums text-board-muted">
           {model.attention.length}
         </span>
       }
@@ -290,7 +290,7 @@ const rundownHealthWidget: PmWidget = {
       <WidgetCard
         title="Rundown"
         action={
-          <Link to={orgLink(slug, "rundown")}>
+          <Link to={orgLink(slug, "rundown")} className="min-h-11 min-w-11 inline-flex items-center">
             <WidgetAction>Open</WidgetAction>
           </Link>
         }
@@ -309,7 +309,7 @@ const rundownHealthWidget: PmWidget = {
                 unit="planned runtime"
               />
             )}
-            <p className="text-[11px] text-board-muted mt-1.5">
+            <p className="text-xs text-board-muted mt-1.5">
               {judged
                 ? `Planned ${formatDuration(health.plannedMs, true)} · window ${formatDuration(health.windowMs as number, true)}`
                 : "Calculated automatically from rundown item durations"}
@@ -366,7 +366,7 @@ function HealthStat({
       >
         {value}
       </dd>
-      <dt className="text-[10px] uppercase tracking-[0.12em] text-board-muted mt-1.5">
+      <dt className="text-xs uppercase tracking-[0.12em] text-board-muted mt-1.5">
         {label}
       </dt>
     </div>
@@ -385,7 +385,7 @@ const readinessWidget: PmWidget = {
       title="Readiness"
       action={
         <span
-          className={`text-[11px] tabular-nums ${healthTextClass(model.readiness.status)}`}
+          className={`text-xs tabular-nums ${healthTextClass(model.readiness.status)}`}
         >
           {model.readiness.score}%
         </span>
@@ -398,7 +398,7 @@ const readinessWidget: PmWidget = {
             <span className="text-xs text-board-text w-[70px] shrink-0">
               {factor.label}
             </span>
-            <span className="text-[11px] text-board-muted truncate">
+            <span className="text-xs text-board-muted truncate">
               {factor.detail}
             </span>
           </li>
@@ -422,7 +422,7 @@ const departmentsWidget: PmWidget = {
         <span key={dept.key} className="flex items-baseline gap-2 min-w-0">
           <StatusDot status={dept.status} className="translate-y-[-1px]" />
           <span className="text-xs text-board-text">{dept.label}</span>
-          <span className="text-[11px] text-board-muted truncate max-w-[190px]">
+          <span className="text-xs text-board-muted truncate max-w-[190px]">
             {dept.detail}
           </span>
         </span>
@@ -445,7 +445,7 @@ const arrivalsWidget: PmWidget = {
     <WidgetCard
       title="Arrivals"
       action={
-        <Link to={orgLink(slug, "checkin")}>
+        <Link to={orgLink(slug, "checkin")} className="min-h-11 min-w-11 inline-flex items-center">
           <WidgetAction>Check-in</WidgetAction>
         </Link>
       }
@@ -459,7 +459,7 @@ const arrivalsWidget: PmWidget = {
         }
       />
       {!model.arrivals.expectedKnown && (
-        <p className="text-[11px] text-board-muted mt-1.5">
+        <p className="text-xs text-board-muted mt-1.5">
           {workspaceCopy(
             "\n          Nobody is scheduled for this service, so there is no expected list to\n          compare against — this is just who has checked in.\n        ",
             workspaceTerms,
@@ -478,7 +478,7 @@ const arrivalsWidget: PmWidget = {
               {dept.label}
             </span>
             {dept.alarm && (
-              <span className="text-[10px] uppercase tracking-wide text-red-400">
+              <span className="text-xs uppercase tracking-wide text-red-400">
                 No-show
               </span>
             )}
@@ -519,7 +519,7 @@ const weekAheadWidget: PmWidget = {
                   },
                 )}
               </p>
-              <p className="text-[10px] text-board-muted truncate">
+              <p className="text-xs text-board-muted truncate">
                 {service.name ? `${service.name} · ` : ""}
                 {service.itemCount} {service.itemCount === 1 ? "item" : "items"}
                 {service.scheduledStartTime ? "" : " · no start time"}
@@ -553,7 +553,7 @@ const liveStripWidget: PmWidget = {
           <WidgetLabel>On air</WidgetLabel>
         </span>
         <div>
-          <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted">
+          <p className="text-xs uppercase tracking-[0.12em] text-board-muted">
             Drift
           </p>
           <p
@@ -567,14 +567,14 @@ const liveStripWidget: PmWidget = {
           </p>
         </div>
         <div>
-          <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted">
+          <p className="text-xs uppercase tracking-[0.12em] text-board-muted">
             Projected end
           </p>
           <p className="text-lg leading-none font-semibold tabular-nums text-board-text mt-1">
             {timeOfDay(health.projectedEndMs)}
           </p>
         </div>
-        <Link to={orgLink(slug, "show")} className="ml-auto">
+        <Link to={orgLink(slug, "show")} className="min-h-11 min-w-11 inline-flex items-center ml-auto">
           <WidgetAction>Open show</WidgetAction>
         </Link>
       </div>
@@ -598,7 +598,7 @@ const debriefWidget: PmWidget = {
       <WidgetCard
         title="Debrief"
         action={
-          <Link to={orgLink(slug, "production/incidents")}>
+          <Link to={orgLink(slug, "production/incidents")} className="min-h-11 min-w-11 inline-flex items-center">
             <WidgetAction>Log an incident</WidgetAction>
           </Link>
         }
@@ -659,7 +659,7 @@ function DebriefStat({
 }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-[0.12em] text-board-muted">
+      <p className="text-xs uppercase tracking-[0.12em] text-board-muted">
         {label}
       </p>
       <p
@@ -721,7 +721,7 @@ function PlanNextCard({ model, slug, orgId, userId }: PmWidgetModel) {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[15px] text-board-text">
-            Nothing scheduled for {longDate(model.serviceDate)}
+            No rundown items for {longDate(model.serviceDate)}
           </p>
           <p className="text-xs text-board-muted mt-1">
             {canClone
@@ -737,7 +737,7 @@ function PlanNextCard({ model, slug, orgId, userId }: PmWidgetModel) {
               type="button"
               onClick={() => void clone()}
               disabled={work.locked}
-              className="inline-flex min-h-11 items-center gap-2 text-xs px-3 py-2 rounded-lg bg-fire-500/15 border border-fire-500/30 text-fire-400 hover:bg-fire-500/25 disabled:opacity-50 transition-colors"
+              className="min-h-11 min-w-11 inline-flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-fire-500/15 border border-fire-500/30 text-fire-400 hover:bg-fire-500/25 disabled:opacity-50 transition-colors"
             >
               <Copy className="w-3.5 h-3.5" />
               {workspaceCopy("Copy last service", workspaceTerms)}
@@ -745,7 +745,7 @@ function PlanNextCard({ model, slug, orgId, userId }: PmWidgetModel) {
           )}
           <Link
             to={orgLink(slug, "rundown")}
-            className="inline-flex min-h-11 items-center gap-2 text-xs px-3 py-2 rounded-lg border border-board-border/80 text-board-muted hover:text-board-text transition-colors"
+            className="min-h-11 min-w-11 inline-flex items-center gap-2 text-xs px-3 py-2 rounded-lg border border-board-border/80 text-board-muted hover:text-board-text transition-colors"
           >
             <Clapperboard className="w-3.5 h-3.5" />
             Start blank
@@ -796,14 +796,14 @@ const onFloorWidget: PmWidget = {
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <span className="w-full h-full flex items-center justify-center text-[9px] font-medium text-board-muted">
+                <span className="w-full h-full flex items-center justify-center text-xs font-medium text-board-muted">
                   {member.initials}
                 </span>
               )}
             </span>
           ))}
           {overflow > 0 && (
-            <span className="relative w-7 h-7 rounded-full bg-board-bg ring-2 ring-board-card shrink-0 flex items-center justify-center text-[9px] font-medium text-board-muted tabular-nums">
+            <span className="relative w-7 h-7 rounded-full bg-board-bg ring-2 ring-board-card shrink-0 flex items-center justify-center text-xs font-medium text-board-muted tabular-nums">
               +{overflow}
             </span>
           )}
@@ -813,7 +813,7 @@ const onFloorWidget: PmWidget = {
           {total} checked in
         </span>
 
-        <Link to={orgLink(slug, "checkin")} className="ml-auto shrink-0">
+        <Link to={orgLink(slug, "checkin")} className="min-h-11 min-w-11 inline-flex items-center ml-auto shrink-0">
           <WidgetAction>Check-in</WidgetAction>
         </Link>
       </div>
@@ -863,10 +863,10 @@ function CrewAssignments({
         title={workspaceCopy("Service assignments", workspaceTerms)}
         action={
           <div className="flex flex-wrap items-center justify-end gap-1.5">
-            <button type="button" onClick={() => setDetailsOpen(true)} className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-board-border/80 px-2.5 py-1.5 text-[11px] font-medium text-board-muted transition hover:border-board-border hover:text-board-text">
+            <button type="button" onClick={() => setDetailsOpen(true)} className="min-h-11 min-w-11 inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-board-border/80 px-2.5 py-1.5 text-xs font-medium text-board-muted transition hover:border-board-border hover:text-board-text">
               <Expand data-icon="inline-start" /> View details
             </button>
-            <Link to="/$slug/schedule" params={{ slug }} search={{ date: model.serviceDate, assignment: undefined }} className="inline-flex items-center whitespace-nowrap rounded-md bg-fire-500/15 px-2.5 py-1.5 text-[11px] font-medium text-fire-300 transition hover:bg-fire-500/25">
+            <Link to="/$slug/schedule" params={{ slug }} search={{ date: model.serviceDate, assignment: undefined }} className="min-h-11 min-w-11 inline-flex items-center whitespace-nowrap rounded-md bg-fire-500/15 px-2.5 py-1.5 text-xs font-medium text-fire-300 transition hover:bg-fire-500/25">
               Open schedule
             </Link>
           </div>
@@ -900,11 +900,11 @@ function CrewAssignments({
                         <span className={config.className}>Open position</span>
                       )}
                     </p>
-                    <p className="text-[11px] text-board-muted truncate">
+                    <p className="text-xs text-board-muted truncate">
                       {position.department} · {position.role}
                     </p>
                   </div>
-                  <span className={`text-[10px] shrink-0 ${config.className}`}>
+                  <span className={`text-xs shrink-0 ${config.className}`}>
                     {config.label}
                   </span>
                 </li>
@@ -913,7 +913,7 @@ function CrewAssignments({
           </ul>
         )}
         {crew.positions.length > 4 ? (
-          <button type="button" onClick={() => setExpanded((value) => !value)} className="mt-3 flex w-full items-center justify-center gap-1.5 border-t border-board-border/60 pt-3 text-[11px] font-medium text-board-muted hover:text-board-text">
+          <button type="button" onClick={() => setExpanded((value) => !value)} className="min-h-11 min-w-11 mt-3 flex w-full items-center justify-center gap-1.5 border-t border-board-border/60 pt-3 text-xs font-medium text-board-muted hover:text-board-text">
             {expanded ? (
               <ChevronUp data-icon="inline-start" />
             ) : (
@@ -941,7 +941,7 @@ function CrewAssignments({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
                       <p className="text-sm font-medium text-board-text">{position.name ?? "Open position"}</p>
-                      <span className={`text-[10px] font-medium uppercase tracking-[0.12em] ${config.className}`}>{config.label}</span>
+                      <span className={`text-xs font-medium uppercase tracking-[0.12em] ${config.className}`}>{config.label}</span>
                     </div>
                       <p className="mt-1 text-xs text-board-muted">{position.department} · {position.role}</p>
                       {position.notes ? (
@@ -951,7 +951,7 @@ function CrewAssignments({
                         <p className="mt-2 text-xs text-board-text/80"><span className="text-board-muted">Crew note:</span> {position.responseNote}</p>
                       ) : null}
                       {position.respondedAt ? (
-                        <p className="mt-1 text-[10px] text-board-muted">Responded {new Date(position.respondedAt).toLocaleString()}</p>
+                        <p className="mt-1 text-xs text-board-muted">Responded {new Date(position.respondedAt).toLocaleString()}</p>
                       ) : null}
                     </div>
                   </div>
@@ -959,7 +959,7 @@ function CrewAssignments({
               );
             })}
           </div>
-          <Link to="/$slug/schedule" params={{ slug }} search={{ date: model.serviceDate, assignment: undefined }} className="text-xs font-medium text-fire-400">Open full scheduling system</Link>
+          <Link to="/$slug/schedule" params={{ slug }} search={{ date: model.serviceDate, assignment: undefined }} className="min-h-11 min-w-11 inline-flex items-center text-xs font-medium text-fire-400">Open full scheduling system</Link>
         </DialogContent>
       </Dialog>
     </>
@@ -978,7 +978,7 @@ const openItemsWidget: PmWidget = {
     <WidgetCard
       title={workspaceCopy("Still open from earlier services", workspaceTerms)}
       action={
-        <Link to={orgLink(slug, "production/incidents")}>
+        <Link to={orgLink(slug, "production/incidents")} className="min-h-11 min-w-11 inline-flex items-center">
           <WidgetAction>All incidents</WidgetAction>
         </Link>
       }
@@ -1002,14 +1002,14 @@ const openItemsWidget: PmWidget = {
               <p className="text-[13px] leading-snug text-board-text truncate">
                 {entry.description}
               </p>
-              <p className="text-[11px] leading-snug text-board-muted">
+              <p className="text-xs leading-snug text-board-muted">
                 {entry.category} ·{" "}
                 {entry.ageDays === 0 ? "today" : `${entry.ageDays}d ago`}
               </p>
             </div>
             <Link
               to={orgLink(slug, "production/incidents")}
-              className="shrink-0"
+              className="min-h-11 min-w-11 inline-flex items-center shrink-0"
             >
               <WidgetAction>Resolve</WidgetAction>
             </Link>
@@ -1045,7 +1045,7 @@ const incidentsWidget: PmWidget = {
             to: "",
             sort: "newest",
             page: 1,
-          }}
+          }} className="min-h-11 min-w-11 inline-flex items-center"
         >
           <WidgetAction>History</WidgetAction>
         </Link>
@@ -1070,7 +1070,7 @@ const incidentsWidget: PmWidget = {
               <p className="truncate text-[13px] text-board-text">
                 {incident.description}
               </p>
-              <p className="text-[11px] text-board-muted">
+              <p className="text-xs text-board-muted">
                 {incident.category} · reported by{" "}
                 {incident.reportedBy || "unknown"}
               </p>
@@ -1078,7 +1078,7 @@ const incidentsWidget: PmWidget = {
             <Link
               to="/$slug/production/incidents"
               params={{ slug }}
-              search={{ incident: incident.id, date: model.serviceDate, show: showId ?? undefined }}
+              search={{ incident: incident.id, date: model.serviceDate, show: showId ?? undefined }} className="min-h-11 min-w-11 inline-flex items-center"
             >
               <WidgetAction>Open</WidgetAction>
             </Link>
@@ -1139,13 +1139,13 @@ const recentWidget: PmWidget = {
                   <p className="text-xs text-board-text">
                     {service.name || dateLabel}
                   </p>
-                  <p className="text-[10px] text-board-muted truncate">
+                  <p className="text-xs text-board-muted truncate">
                     {facts.length > 0 ? facts.join(" · ") : "No rundown"}
                   </p>
                 </div>
                 {service.deltaMs !== null && (
                   <span
-                    className={`text-[11px] tabular-nums shrink-0 ${
+                    className={`text-xs tabular-nums shrink-0 ${
                       over ? "text-red-400" : "text-green-400"
                     }`}
                   >
@@ -1158,7 +1158,7 @@ const recentWidget: PmWidget = {
           })}
         </ul>
         {!anyTimed && (
-          <p className="text-[10px] text-board-muted/70 mt-3 pt-2.5 border-t border-board-border/60">
+          <p className="text-xs text-board-muted/70 mt-3 pt-2.5 border-t border-board-border/60">
             {workspaceCopy(
               "\n            Actual runtimes appear once you run a service with the timer.\n          ",
               workspaceTerms,
@@ -1302,7 +1302,7 @@ export function EditableDutyOfficers({
                   onChange={(event) =>
                     void assign(officer.key, event.target.value, selected)
                   }
-                  className="min-h-11 w-full min-w-0 rounded border border-board-border bg-board-bg px-2 text-sm text-board-text disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2"
+                  className="min-h-11 min-w-11 w-full min-w-0 rounded border border-board-border bg-board-bg px-2 text-sm text-board-text disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2"
                 >
                   <option value="">Not assigned</option>
                   {selected && !member ? (
