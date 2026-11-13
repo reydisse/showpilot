@@ -9396,3 +9396,97 @@ tracked Markdown files remain, with none added.
 
 Logs: /tmp/showpilot-webpp-{before,unit1,worker1,full1,full2,tsc2,tsc3,shared1,build1,build2,verify1,bridge-build1,install,controls2,controls3,browser1,browser2}.log.
 Screenshots: /tmp/showpilot-web-pp-{lost-reply,clear-review,uncertain}-{320,768,1440}.png.
+
+
+## Phase 2 native ProPresenter output recovery (2026-11-09)
+
+The native stage-display toggle used a boolean initialized once from the show
+loader, an unbounded mutation and an alert claiming that failed replies meant no
+change. A real D1 regression also found that its SQL inserted nonexistent
+`createdAt`/`updatedAt` columns on `app_setting`; mocked route tests missed this.
+The first real-database run failed both output cases on that schema error.
+
+The native control now reads the workspace output state, requires an explicit
+Show/Hide confirmation, retains its original account/workspace/request across
+navigation and offers recovery of that same request. It distinguishes saved,
+conflicting, expired and superseded outcomes from an unconfirmed reply. Reads
+expire after eight seconds, command waits after fifteen, and refresh failures
+have their own retry without another write. Polling stops on screen blur or read
+failure. Confirmation invalidates on changed scope, access or output revision;
+retention covers navigation during the app session, not app termination.
+
+The new `/api/mobile/v1/propresenter/output` GET/POST contract uses shared strict
+schemas. A D1 transaction claims the request, compares the workspace-wide output
+revision, writes the desired boolean and advances the revision together. Original
+receipts are retained for deduplication. Expired or excessively future-dated first
+deliveries become terminal without writing output; retries cannot resurrect them.
+The client normally allows five seconds for first delivery. Fresh membership,
+session, role/grant and PIN configuration are guarded at the write boundary.
+Existing Settings, rundown/Companion and fallback writers also advance this
+revision. A second before-fix regression demonstrated a stale review overwriting
+a Settings change away and back; it now returns conflict.
+
+A saved setting is reconciled through an authenticated internal request to the
+active show relay. It reads the latest setting, persists the resulting slide,
+advances the room revision and broadcasts to connected displays. Lost delivery
+acknowledgements can retry this reconciliation without rewriting the setting.
+Failed reads no longer silently turn output off. Real read-only display-socket
+coverage proves a held lyric appears and disappears without another slide event.
+The relay keeps this reconciliation in its existing single-writer queue.
+
+Rollout: deploy the new API/relay before distributing this native build. The old
+show-scoped boolean endpoint now returns an update-required response; the old
+native helper was removed. No D1 migration, deployment, release, real-org write
+or external-device command was performed. Web output controls still use their
+existing recovery UI; migrating those controls to the receipt contract remains
+separate work. This does not close the product-wide UX gate.
+
+Verification: full web suite passed twice, 3,316 unit + 1,729 Worker = 5,045 tests.
+Final additional focus/PIN/writer assertions passed 26 focused unit tests and all
+16 output Worker tests. The configured-PIN test uses the same 15-second integration
+budget as the existing Worker PIN crypto suite because it performs multiple real
+PBKDF2 checks; request deadlines remain unchanged. Coverage includes read/write
+permissions, original actor/workspace binding, permission revocation at commit,
+Settings/Companion/fallback revision changes, lost relay replies, expiry, changed
+payloads, navigation retention and bounded reads. Web/shared/native typechecks
+and web production build pass. Main bundle remains 542,230 raw / 171,089 gzip bytes.
+
+Native verification passes all three exports, Expo Doctor 18/18, contract and
+polling checks, with 18 existing lint warnings and zero errors. Hermes bundles:
+iOS 6,050,267 / Android 6,049,384 bytes, within unchanged 6,500,000-byte budgets.
+The compiled Expo web rehearsal passed and exited zero:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-propresenter-command.mjs`.
+Its output tests use the real disposable Worker/D1 API with lost-reply, failed-read
+and delayed-delivery injection. Original request recovery preserves a later
+operator's state; navigation retains uncertainty; delayed delivery expires without
+changing output. Existing slide-command recovery tests still pass against their
+local receipt stub. At 320x480, 768x1024 and 1440x1000, confirmation and recovery
+targets are unobstructed and at least 44px, without horizontal overflow. Screenshots
+were inspected. This does not establish physical iOS/Android or ProPresenter behavior.
+
+Parent #286 exact head 39d795fae0e29ae3fee463013135d696a2e0bb5b passed both CI jobs
+in run 42584267748 before this successor. Phase 2 remains 67/79. Twenty necessary
+tracked Markdown files remain; none added.
+Logs: /tmp/showpilot-output-{before,before-settings,unit3,unit4,worker4,worker7,full2,full3,tsc3,tsc4,shared1,build1,verify2,browser1}.log.
+Screenshots: /tmp/showpilot-native-propresenter-output-{review,lost,refresh-error}-{320,768,1440}.png.
+
+### Native output CI repair: one PIN verification per request (2026-11-09)
+
+Run 42588931063 failed the configured-TM-PIN test: a valid output command
+returned `expired` instead of `applied`. The mobile handler verified the same
+210,000-iteration PIN in its generic authorization and again in the shared output
+authority. On the coverage runner those two checks consumed the five-second
+command lifetime. The endpoint now checks identity first and delegates live
+permission/PIN verification to the shared output authority once. Typed access
+failures preserve the 401 PIN challenge and 403 denial. The transaction still
+checks the exact session, role/grant and PIN configuration; changing the PIN
+between verification and commit rejects the write. No hash work factor, command
+expiry, client timeout, or integration-test timeout was increased.
+
+Validation: full web suite passes 3,317 unit + 1,733 Worker = 5,050 tests.
+All 17 output Worker tests also pass under Istanbul coverage, including exact
+PIN-verification call counts and the new PIN-change-at-commit regression.
+Web typecheck and production build pass; main stays 542,230 raw / 171,089 gzip.
+The PIN boundary unit test now supplies a valid output command so it tests the
+PIN gate rather than an obsolete malformed payload. No deployment or release.
+Logs: /tmp/showpilot-output-ci-{pin1,full2,coverage1,tsc1,build1}.log.

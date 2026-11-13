@@ -412,6 +412,10 @@ export class RundownRelay extends DurableObject {
         this.orgId,
         this.state.ppOutputEnabled ? "true" : "false",
       ));
+      statements.push(env.DB.prepare(
+        `INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,'propresenter-output-revision',?)
+         ON CONFLICT(orgId,key) DO UPDATE SET value=excluded.value`,
+      ).bind(crypto.randomUUID(), this.orgId, crypto.randomUUID()));
     }
 
     if (persistsPpSlide) {
@@ -455,28 +459,33 @@ export class RundownRelay extends DurableObject {
 
   private async readProPresenterStageDisplaySetting(): Promise<boolean> {
     if (!this.orgId) return false;
+    const row = await this.env.DB.prepare(
+      "SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1"
+    )
+      .bind(this.orgId, "propresenter-stage-display")
+      .first<{ value: string | null }>();
 
-    try {
-      const row = await this.env.DB.prepare(
-        "SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1"
-      )
-        .bind(this.orgId, "propresenter-stage-display")
-        .first<{ value: string | null }>();
-
-      return row?.value === "true";
-    } catch {
-      return false;
-    }
+    if (row && ![null, "true", "false"].includes(row.value)) throw new Error("Saved ProPresenter output state is invalid.");
+    return row?.value === "true";
   }
 
   private async reconcileProPresenterOutputSetting(): Promise<void> {
     const enabled = await this.readProPresenterStageDisplaySetting();
     if (enabled === this.state.ppOutputEnabled) return;
+    const previous = this.cloneState();
     this.state.ppOutputEnabled = enabled;
     this.state.ppSlide = enabled && this.state.ppPreviewSlide
       ? { ...this.state.ppPreviewSlide, updatedAt: Date.now() }
       : null;
-    await this.persistState();
+    try {
+      await this.persistAuthoritativeSnapshot("pp-slide", previous);
+      this.state.revision += 1;
+      await this.persistState();
+      this.broadcastState();
+    } catch (error) {
+      this.state = previous;
+      throw error;
+    }
   }
 
   private resolvedTarget() {
@@ -669,7 +678,7 @@ export class RundownRelay extends DurableObject {
       this.hydrationPromise = null;
       return this.targetJson({ ok: true });
     }
-    const internal = ["/internal/command", "/internal/state", "/internal/activate"].includes(url.pathname);
+    const internal = ["/internal/command", "/internal/state", "/internal/activate", "/internal/refresh-output"].includes(url.pathname);
     if (internal && (!this.env.BETTER_AUTH_SECRET
       || request.headers.get("x-showpilot-internal-secret") !== this.env.BETTER_AUTH_SECRET
       || request.method !== (url.pathname === "/internal/state" ? "GET" : "POST"))) {
@@ -682,6 +691,7 @@ export class RundownRelay extends DurableObject {
       return this.targetJson({ error: "This show's rundown has been retired" }, { status: 410 });
     }
     await this.reconcileProPresenterOutputSetting();
+    if (internal && path === "/refresh-output") return this.targetJson({ ok: true });
     const serviceDate = url.searchParams.get("serviceDate");
     const showId = url.searchParams.get("showId");
     const access = url.searchParams.get("access");
