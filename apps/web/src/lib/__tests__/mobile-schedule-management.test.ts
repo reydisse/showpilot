@@ -55,6 +55,7 @@ function fakeDatabase(input: {
     return {
       async first<T>() {
         input.calls?.push({ sql, params, operation: "first" });
+        if (sql.startsWith("UPDATE service_assignment") && sql.includes("RETURNING id")) return ((input.changes ?? 1) ? { id: params.at(-4) } : null) as T | null;
         if (sql.startsWith("SELECT id FROM organization WHERE id = ?")) return { id: "org-1" } as T;
         if (sql.startsWith("SELECT id, serviceDate, scheduledCallTime, status, updatedAt FROM rundown")) {
           return { id: "show-1", serviceDate: "2026-09-06", scheduledCallTime: null, status: "stopped", updatedAt: "show-version-1" } as T;
@@ -74,7 +75,7 @@ function fakeDatabase(input: {
       },
       async run() {
         input.calls?.push({ sql, params, operation: "run" });
-        return { success: true, meta: { changes: input.changes ?? 1 } };
+        return { success: true, meta: { changes: input.changes ?? 1 }, results: sql.startsWith("DELETE FROM service_assignment") && sql.includes("RETURNING id") && (input.changes ?? 1) ? [{ id: params[1] }] : [] };
       },
     };
   }

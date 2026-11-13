@@ -3025,6 +3025,7 @@ async function updateMobileScheduleAssignment(
     );
     return replacement;
   }
+  // RETURNING identifies the assignment itself; revision triggers increase total changes.
   const result = await db
     .prepare(
       `UPDATE service_assignment
@@ -3035,7 +3036,7 @@ async function updateMobileScheduleAssignment(
          invitedAt = CASE WHEN ? = 1 THEN NULL ELSE invitedAt END,
          assignedByUserId = CASE WHEN ? = 1 THEN ? ELSE assignedByUserId END,
          updatedAt = CURRENT_TIMESTAMP
-     WHERE id = ? AND orgId = ? AND showId = ? AND updatedAt = ?`,
+     WHERE id = ? AND orgId = ? AND showId = ? AND updatedAt = ? RETURNING id`,
     )
     .bind(
       parsed.role,
@@ -3054,8 +3055,8 @@ async function updateMobileScheduleAssignment(
       show.id,
       parsed.expectedUpdatedAt,
     )
-    .run();
-  if (!changedExactlyOneRow(result))
+    .first<{ id: string }>();
+  if (!result)
     return json(
       {
         error:
@@ -3099,10 +3100,14 @@ async function deleteMobileScheduleAssignment(
       .prepare("DELETE FROM notification WHERE orgId = ? AND source = ?")
       .bind(access.orgId, assignmentId),
     db
-      .prepare("DELETE FROM service_assignment WHERE orgId = ? AND id = ?")
+      .prepare("DELETE FROM service_assignment WHERE orgId = ? AND id = ? RETURNING id")
       .bind(access.orgId, assignmentId),
   ]);
-  return changedExactlyOneRow(result[1])
+  // Revision triggers also change rows; total changes cannot identify this delete.
+  const deletion = result[1];
+  if (!isRecord(deletion) || !Array.isArray(deletion.results))
+    throw new Error("Assignment removal could not be confirmed.");
+  return deletion.results.some(row => isRecord(row) && row.id === assignmentId)
     ? json({ ok: true })
     : json({ error: "Assignment not found." }, 404);
 }

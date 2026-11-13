@@ -1,5 +1,5 @@
 import { refreshRetainedResult } from "@/lib/retained-refresh";
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import {
   hashKey,
   useQuery,
@@ -80,11 +80,12 @@ async function execute(
   scope: Scope,
   attempt: Attempt,
   refresh: () => Promise<void>,
+  expected: Attempt | null,
 ) {
   const key = keys(scope);
-  const live = client.getQueryData<Attempt | null>(key.attempt);
-  if (live?.pending || live?.refresh === "pending") return;
-  client.setQueryData(key.attempt, { ...attempt, pending: true });
+  const live = client.getQueryData<Attempt | null>(key.attempt) ?? null;
+  if (live !== expected || live?.pending || live?.refresh === "pending") return;
+  const owner = client.setQueryData<Attempt>(key.attempt, { ...attempt, pending: true });
   const results = await Promise.all(
     attempt.commands.map(async (command, index) => {
       const previous = attempt.results[index];
@@ -119,6 +120,7 @@ async function execute(
     pending: false,
     refresh: "done",
   };
+  if (client.getQueryData(key.attempt) !== owner) return;
   client.setQueryData(key.attempt, next);
   if (results.some(Boolean)) await refreshResult(client, scope, next, refresh);
 }
@@ -131,8 +133,12 @@ export function useAssignmentWork<Draft>(
   assignmentId: string | undefined,
   refresh: () => Promise<void>,
 ) {
-  const client = useQueryClient(),
-    key = keys(scope);
+  const client = useQueryClient();
+  const key = useMemo(() => keys(scope), [scope.orgId, scope.userId, scope.editorId]);
+  const owner = useMemo(() => ({ active: false }), [key]);
+  const current = useRef(owner); current.current = owner;
+  useEffect(() => { owner.active = true; return () => { owner.active = false; }; }, [owner]);
+  const active = () => owner.active && current.current === owner;
   useQuery<Draft | null>({
     queryKey: key.draft,
     queryFn: () => initial,
@@ -196,12 +202,12 @@ export function useAssignmentWork<Draft>(
     pending,
     uncertain: !!attempt?.results.some((result) => !result),
     canRetry: !!attempt?.results.some(retryable),
-    setDraft: (update: (value: Draft | null) => Draft | null) =>
-      client.setQueryData<Draft | null>(key.draft, (value) =>
-        update(value ?? null),
-      ),
+    setDraft: (update: (value: Draft | null) => Draft | null) => {
+      if (!active() || client.getQueryData(key.attempt)) return;
+      client.setQueryData<Draft | null>(key.draft, value => update(value ?? null));
+    },
     submit: (operations: ScheduleAssignmentCommand["operation"][]) => {
-      if (client.getQueryData(key.attempt)) return;
+      if (!active() || !operations.length || client.getQueryData(key.attempt) || client.getQueryData(key.draft) !== draft) return false;
       const commands = operations.map((operation) => ({
         orgId: scope.orgId,
         userId: scope.userId,
@@ -218,19 +224,21 @@ export function useAssignmentWork<Draft>(
           refresh: "done",
         },
         refresh,
+        null,
       );
+      return true;
     },
     retry: () => {
-      if (attempt) void execute(client, scope, attempt, refresh);
+      if (active() && attempt) void execute(client, scope, attempt, refresh, attempt);
     },
     retryRefresh: () => {
-      if (attempt && !pending)
+      if (active() && attempt && !pending)
         void refreshResult(client, scope, attempt, refresh, true);
     },
     review: (next: Draft | null) => {
       const live = client.getQueryData<Attempt | null>(key.attempt);
       if (
-        !live ||
+        !active() || !live || live !== attempt ||
         live.pending ||
         live.refresh !== "done" ||
         live.results.some((result) => !result)
