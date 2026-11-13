@@ -8655,3 +8655,81 @@ Stack gate: #273 head 9e24b348 passed CI 42549381346. Clock review is draft #274
 head b7c2b25e, CI 42551059842. Its Rust job and coverage step have passed; native
 verification is still running at this recording. The automation-controls branch
 will be pushed, with a draft PR held until that exact preceding head is green.
+
+
+## Phase 2: native Timecode cue controls and guarded recovery
+
+Native Timecode now has per-cue Enable/Disable, Fire now, Retry, Fire again,
+Re-arm and Remove, plus Re-arm all cues. Fire/retry/re-fire, removal and execution
+history resets use bounded, accessible confirmation dialogs. Review includes the
+show and exact cue/history snapshot. Changing a cue, adding/removing a cue during
+a whole-timeline review, or moving/restarting the clock invalidates the applicable
+confirmation. Review errors remain visible inside the dialog. Disable is immediate
+and can cancel queued output; it cannot recall an already-sent command. Sending
+and failed statuses also retain the Disabled label where applicable.
+
+The new control-cues command atomically records actor/request receipts with the
+staged cue mutation. Recovery cannot erase a later firing, disable a subsequently
+enabled cue, delete a replacement cue or repeat a completed dispatch. Output
+requests reserve a dispatch before external I/O, outside the local commit lock;
+request acceptance remains distinct from delivered/failed cue status. Permission
+and control are rechecked before a reviewed output dispatches. A newer Stop cancels
+queued reviewed output even if automation resumes before dispatch. Fire/Retry/
+Fire again also carry the persisted automation revision, rejecting older requests
+that arrive from the network after a newer Stop and Resume. An interrupted named
+timer retry retains its delivery identity and original deadline. In-flight Disable
+preserves the live event object and its subsequent acknowledgement.
+
+Native reviews and uncertain requests survive navigation by actor/org/show, not
+application termination. Request and refresh deadlines remain 15s and 12s. Known
+results offer refresh-only recovery, with no silent repeat. The unused generic
+native command API was removed after migrating its delete/reset callers. The
+native verifier now checks the explicit controlMobileTimecodeCues integration.
+Matching backend deployment is required before distributing this native build.
+
+Verification: the initial four Worker regressions failed before implementation.
+A later focused regression also reproduced an old Fire arriving after Stop/Resume;
+it now rejects the stale automation revision. Final full suite passes 358 unit
+files / 3,043 tests plus 147 Worker files / 1,648 tests, 4,691 total. The preceding
+coverage run passes all unchanged thresholds on the final backend/shared logic:
+Timecode 93.52% statements / 93.45% branches / 92.52% functions / 95.55% lines.
+The final native-only dialog-feedback refinement has an additional passing hook
+test in the final full suite. Web typecheck 3 and production build pass, with the
+main client unchanged at 549,593 raw / 173,795 gzip bytes. Native verification
+passes iOS/Android/web exports, Expo Doctor 18/18, contracts and polling boundaries,
+with 18 existing lint warnings and no errors. Hermes bundles are 5,848,916 bytes
+on iOS and 5,848,017 on Android.
+
+The compiled Expo web rehearsal passes using disposable real authentication, D1
+and TimecodeRelay. It checks fire confirmation/cancel, stale re-arm review and
+explicit re-review, lost Disable reply followed by a later Enable, navigation and
+same-request recovery, refresh-only recovery, visible failed device delivery and
+reviewed Retry, disabled whole-timeline reset while running, a new cue invalidating
+a reset review, confirmed reset and confirmed/cancelled deletion. It checks no
+horizontal overflow at 320/768/1440px and 44px-or-larger review controls. The 320px
+and 1440px confirmation screenshots were inspected. No runtime errors. This is
+compiled Expo web verification, not a physical-device rehearsal.
+
+The first full coverage run exposed a timing assumption in the existing projector
+cockpit test: it clicked Unmute once Unblank had been called, while the control
+correctly remained disabled until acknowledgement. The test now holds that first
+acknowledgement, proves another command is blocked, then acknowledges it and waits
+for the real enabled state before sending Unmute. Projector application code was
+not changed. Early typechecks also caught an optional controller-session identity
+and an insufficient union narrowing; both were corrected without type assertions.
+
+Reproduce after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-timecode-cue-controls.mjs`.
+Logs: /tmp/showpilot-native-cue-controls-{before,worker1,worker2,worker3,worker4,late-before,unit1,mobile-tsc1,mobile-tsc2,tsc1,tsc2,tsc3,coverage1,coverage2,coverage3,full1,build1,verify1,browser1}.log.
+Screenshots: /tmp/showpilot-native-cue-controls-{320,768,1440}.png.
+
+Phase 2 remains 67/79. Native Timecode still needs the fuller editor/action catalog,
+typed action fields/pickers, complete frame-rate choices, timeline next/missed
+presentation and lyrics preview controls. Native Chat, rundown editing,
+ProPresenter recovery and the other product-wide checks remain open. No deployment,
+release, remote migration, external mail or real-org changes. Twenty necessary
+tracked Markdown files remain; no new Markdown was added.
+
+Stack gate: #275 head e24ddfac passed CI 42552555899 before opening this change's
+PR. This change is stacked on fix/native-timecode-automation-controls and remains
+a draft for owner review. Its own exact-head CI must pass before the next PR.

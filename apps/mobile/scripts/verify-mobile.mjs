@@ -113,7 +113,7 @@ const sourceContract = [
   ["src/components/device-cockpit.tsx", 'surface === "display"'],
   ["src/components/device-cockpit.tsx", 'surface === "streaming"'],
   ["src/components/device-cockpit.tsx", 'surface === "lighting"'],
-  ["src/app/timecode.tsx", "commandMobileTimecode"],
+  ["src/app/timecode.tsx", "controlMobileTimecodeCues"],
   ["src/app/cue-sheets.tsx", "writeMobileCueSheet"],
   ["src/app/asset-inventory.tsx", "createMobileAsset"],
   ["src/app/asset-inventory.tsx", "updateMobileAsset"],
