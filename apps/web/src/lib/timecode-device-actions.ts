@@ -2,7 +2,7 @@ import { readDeviceSettingsForUse } from "./device-settings.server";
 import { resolveRemoteDeviceControl } from "./mobile-device-controls";
 import type { BridgeDeviceProtocol, ModuleAction } from "./device-modules/types";
 import type { AutomationEvent } from "@/types/timecode";
-import { automationDeviceId } from "./automation-timing";
+import { automationDeviceId } from "@showpilot/shared";
 
 interface TimecodeDeviceRow {
   id: string;

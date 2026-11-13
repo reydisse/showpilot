@@ -13,7 +13,7 @@ import {
   type MediaOutputSnapshot,
 } from "./media-output";
 import type { AutomationEvent } from "@/types/timecode";
-import { compareAutomationCues } from "./automation-cues";
+import { compareAutomationCues } from "@showpilot/shared";
 
 const outputSchema = z.object({
   name: z.string(),

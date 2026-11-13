@@ -1,6 +1,5 @@
-import { cueCountdown, deviceCueSummary, webhookCueSummary, isDeviceCue } from "@/lib/automation-summary";
+import { orderedAutomationEvents, cueTimingStatus, cueCountdown, deviceCueSummary, webhookCueSummary, isDeviceCue, scheduledDispatchFrame, nextAutomationEvent } from "@showpilot/shared";
 import type { AutomationDeviceNames } from "@/lib/automation-catalog";
-import { scheduledDispatchFrame } from "@/lib/automation-timing";
 import { mediaPlaySchema, mediaStopSchema } from "@/lib/media-output";
 import {
   Clock,
@@ -21,7 +20,7 @@ import type { AutomationEvent, TimecodeState } from "@/types/timecode";
 import { framesToTimecode, timecodeToString } from "@/lib/timecode";
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { cueReviewState, cueReviewMatches, nextAutomationEvent, compareAutomationCues } from "@/lib/automation-cues";
+import { cueReviewState, cueReviewMatches } from "@/lib/automation-cues";
 
 interface AutomationTimelineProps {
   events: AutomationEvent[];
@@ -131,13 +130,9 @@ export function AutomationTimeline({
   const currentFrame = state?.totalFrames ?? 0;
   const dropFrame = state?.format.dropFrame === "df";
   const [confirmation, setConfirmation] = useState<{ kind: "delete" | "refire" | "rearm"; event: AutomationEvent } | { kind: "reset" } | null>(null);
-  const ordered = [...events].sort((a, b) => a.triggerFrame - b.triggerFrame || compareAutomationCues(a, b));
-  const missed = (event: AutomationEvent) => event.enabled && !event.fired && !event.skipped
-    && event.executionStatus !== "dispatching" && event.executionStatus !== "failed"
-    && scheduledDispatchFrame(event) + event.toleranceFrames < currentFrame;
-  const overdue = (event: AutomationEvent) => event.enabled && !event.fired && !event.skipped
-    && event.executionStatus !== "dispatching" && event.executionStatus !== "failed"
-    && scheduledDispatchFrame(event) < currentFrame && !missed(event);
+  const ordered = orderedAutomationEvents(events);
+  const missed = (event: AutomationEvent) => cueTimingStatus(event, currentFrame) === "missed";
+  const overdue = (event: AutomationEvent) => cueTimingStatus(event, currentFrame) === "overdue";
   const needsAttention = ordered.filter((event) => event.executionStatus === "failed" || missed(event));
   const next = nextAutomationEvent(events, currentFrame);
   const nextId = next?.id;

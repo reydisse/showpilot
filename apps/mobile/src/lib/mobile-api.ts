@@ -1785,9 +1785,10 @@ export async function applyMobileChecklistDraft(input: {
   return checklistApplySchema.parse(await response.json());
 }
 
-export async function getMobileDevices(orgId: string): Promise<MobileDevices> {
+export async function getMobileDevices(orgId: string, signal?: AbortSignal): Promise<MobileDevices> {
   const response = await authenticatedFetch(
     `/api/mobile/v1/devices?orgId=${encodeURIComponent(orgId)}`,
+    { signal },
   );
   return devicesSchema.parse(await response.json());
 }
