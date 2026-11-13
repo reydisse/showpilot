@@ -36,7 +36,9 @@
     "./chat-mutation-tracker": "./src/chat-mutation-tracker.ts",
     "./chat-attachment": "./src/chat-attachment.ts",
     "./chat-attachment-draft": "./src/chat-attachment-draft.ts",
-    "./chat-composer": "./src/chat-composer.ts"
+    "./chat-composer": "./src/chat-composer.ts",
+    "./workspace-change": "./src/workspace-change.ts",
+    "./workspace-editor": "./src/workspace-editor.ts"
   },
   "dependencies": {
     "zod": "4.4.3"

@@ -1,5 +1,3 @@
-import { useState, useEffect } from "react";
-import { useRouter } from "@tanstack/react-router";
 import { ResumeSetup } from "@/components/onboarding/ResumeSetup";
 import {
   WORKSPACE_TYPES,
@@ -8,62 +6,26 @@ import {
   CORE_MODULES,
   WORKSPACE_MODULES,
   isWorkspaceType,
-  type WorkspaceType,
 } from "@showpilot/shared";
 import { useWorkspace } from "./WorkspaceProvider";
-import {
-  setWorkspaceType,
-  setWorkspaceModules,
-  setWorkspaceCustom,
-} from "@/lib/workspace/profile";
+import { useWorkspaceWork } from "@/hooks/useWorkspaceWork";
+import { WorkspaceChangeNotice } from "./WorkspaceChangeNotice";
 export function WorkspaceSettings({
   orgId,
+  userId,
   canManage,
   canResumeSetup = false,
 }: {
   orgId: string;
+  userId: string;
   canManage: boolean;
   canResumeSetup?: boolean;
 }) {
-  const workspace = useWorkspace();
-  const router = useRouter();
-  const [type, setType] = useState<WorkspaceType>(workspace.type);
-  const [reset, setReset] = useState(false);
-  const [changing, setChanging] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [label, setLabel] = useState(workspace.label ?? "");
-  const [event, setEvent] = useState(workspace.terms.eventTitle);
-  const [events, setEvents] = useState(workspace.terms.eventPlural);
-  const [item, setItem] = useState(workspace.terms.item);
-  const [items, setItems] = useState(workspace.terms.itemPlural);
-  useEffect(() => {
-    setLabel(workspace.label ?? "");
-    setEvent(workspace.terms.eventTitle);
-    setEvents(workspace.terms.eventPlural);
-    setItem(workspace.terms.item);
-    setItems(workspace.terms.itemPlural);
-  }, [
-    workspace.label,
-    workspace.type,
-    workspace.terms.eventTitle,
-    workspace.terms.eventPlural,
-    workspace.terms.item,
-    workspace.terms.itemPlural,
-  ]);
-  async function save(work: () => Promise<unknown>) {
-    setBusy(true);
-    setError("");
-    try {
-      await work();
-      await router.invalidate();
-      setChanging(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save workspace");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const work = useWorkspaceWork({ orgId, userId }, useWorkspace(), canManage);
+  const workspace = work.profile;
+  const { type, reset, changing, custom } = work.draft;
+  const busy = work.locked;
+  const edit = (next: Partial<typeof work.draft>) => work.edit({ ...work.draft, ...next });
   return (
     <section className="space-y-6 text-board-text">
       <header>
@@ -74,18 +36,13 @@ export function WorkspaceSettings({
         </p>
       </header>
       {canResumeSetup && <ResumeSetup orgId={orgId} />}
-      {error && (
-        <p role="alert" className="text-red-400">
-          {error}
-        </p>
-      )}
+      {canManage && <WorkspaceChangeNotice work={work} />}
       {canManage && !changing && (
         <button
+          disabled={busy}
           className="rounded-lg border border-board-border px-4 py-3"
           onClick={() => {
-            setType(workspace.type);
-            setReset(false);
-            setChanging(true);
+            edit({ type: workspace.type, reset: false, changing: true });
           }}
         >
           Change type
@@ -96,10 +53,11 @@ export function WorkspaceSettings({
           <label className="block">
             Workspace type
             <select
-              className="ml-3 rounded-lg bg-board-card p-3"
+              className="mt-2 block w-full rounded-lg bg-board-card p-3"
+              disabled={busy}
               value={type}
               onChange={(e) => {
-                if (isWorkspaceType(e.target.value)) setType(e.target.value);
+                if (isWorkspaceType(e.target.value)) edit({ type: e.target.value });
               }}
             >
               {WORKSPACE_TYPES.map((id) => (
@@ -110,11 +68,12 @@ export function WorkspaceSettings({
             </select>
           </label>
           <p>Names change. Nothing is deleted.</p>
-          <label className="flex items-center gap-3">
+          <label className="flex min-h-11 items-center gap-3">
             <input
               type="checkbox"
+              disabled={busy}
               checked={reset}
-              onChange={(e) => setReset(e.target.checked)}
+              onChange={(e) => edit({ reset: e.target.checked })}
             />
             Also reset features to {WORKSPACE_DEFINITIONS[type].label} defaults
           </label>
@@ -122,17 +81,11 @@ export function WorkspaceSettings({
             <button
               disabled={busy}
               className="rounded-lg bg-fire-500 px-4 py-3 text-black"
-              onClick={() =>
-                void save(() =>
-                  setWorkspaceType({
-                    data: { orgId, type, resetModules: reset },
-                  }),
-                )
-              }
+              onClick={() => work.submit({ kind: "type", type, resetModules: reset })}
             >
               Save type
             </button>
-            <button disabled={busy} onClick={() => setChanging(false)}>
+            <button className="min-h-11 px-4" disabled={busy} onClick={() => edit({ changing: false })}>
               Cancel
             </button>
           </div>
@@ -154,18 +107,7 @@ export function WorkspaceSettings({
                 type="checkbox"
                 disabled={!canManage || busy || CORE_MODULES.includes(id)}
                 checked={workspace.modules.includes(id)}
-                onChange={(e) =>
-                  void save(() =>
-                    setWorkspaceModules({
-                      data: {
-                        orgId,
-                        modules: e.target.checked
-                          ? [...workspace.modules, id]
-                          : workspace.modules.filter((value) => value !== id),
-                      },
-                    }),
-                  )
-                }
+                onChange={(e) => work.submit({ kind: "module", module: id, enabled: e.target.checked })}
               />
               {WORKSPACE_MODULES[id]}
               {CORE_MODULES.includes(id) && (
@@ -180,29 +122,19 @@ export function WorkspaceSettings({
           className="space-y-3"
           onSubmit={(e) => {
             e.preventDefault();
-            void save(() =>
-              setWorkspaceCustom({
-                data: { orgId, label, terms: { event, events, item, items } },
-              }),
-            );
+            work.submit({ kind: "custom", custom });
           }}
         >
           <h2 className="font-semibold">Your names</h2>
-          {[
-            { name: "Workspace label", value: label, set: setLabel, max: 80 },
-            { name: "Event", value: event, set: setEvent, max: 24 },
-            { name: "Events", value: events, set: setEvents, max: 24 },
-            { name: "Item", value: item, set: setItem, max: 24 },
-            { name: "Items", value: items, set: setItems, max: 24 },
-          ].map((field) => (
-            <label key={field.name} className="block text-sm">
-              {field.name}
+          {(["label", "event", "events", "item", "items"] as const).map((key) => (
+            <label key={key} className="block text-sm">
+              {{ label: "Workspace label", event: "Event", events: "Events", item: "Item", items: "Items" }[key]}
               <input
-                disabled={!canManage || busy}
-                maxLength={field.max}
-                value={field.value}
-                onChange={(e) => field.set(e.target.value)}
-                className="mt-1 block w-full rounded-lg border border-board-border bg-board-card p-3"
+                disabled={busy}
+                maxLength={key === "label" ? 80 : 24}
+                value={key === "label" ? custom.label : custom.terms[key]}
+                onChange={(e) => edit({ custom: key === "label" ? { ...custom, label: e.target.value } : { ...custom, terms: { ...custom.terms, [key]: e.target.value } } })}
+                className="mt-1 block min-h-11 w-full rounded-lg border border-board-border bg-board-card p-3"
               />
             </label>
           ))}

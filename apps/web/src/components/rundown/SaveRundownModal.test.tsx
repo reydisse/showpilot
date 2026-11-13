@@ -11,7 +11,14 @@ vi.mock("@/components/workspace/WorkspaceProvider", async () => {
 const item: RundownItem = { id: "item", title: "Original", type: "segment", duration: 300000, notes: "", assignee: "", cue: "", status: "upcoming", sortOrder: 0, hardStop: false };
 const props = () => ({ orgId: "fixture-org", items: [item], initialServiceName: "Fixture show", initialStartTime: "09:00", onClose: vi.fn() });
 beforeEach(() => { vi.mocked(saveRundownTemplate).mockResolvedValue({ ok: true, id: "saved" }); });
-afterEach(() => { cleanup(); vi.resetAllMocks(); vi.useRealTimers(); });
+afterEach(async () => {
+  cleanup();
+  // Radix restores focus in a zero-delay unmount task. Finish that task while
+  // this jsdom realm still owns its Event constructor.
+  if (vi.isFakeTimers()) await vi.runOnlyPendingTimersAsync();
+  else await new Promise(resolve => setTimeout(resolve, 0));
+  vi.resetAllMocks(); vi.useRealTimers();
+});
 function submit() { fireEvent.change(screen.getByLabelText("Template Name"), { target: { value: "Sunday" } }); fireEvent.click(screen.getByRole("button", { name: "Save" })); }
 it("saves the named snapshot once and closes after acknowledgement", async () => {
   const input = props(); render(<SaveRundownModal {...input} />); submit();

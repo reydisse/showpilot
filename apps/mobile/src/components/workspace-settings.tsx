@@ -6,47 +6,32 @@ import {
   MODULE_IDS,
   CORE_MODULES,
   WORKSPACE_MODULES,
-  type WorkspaceType,
 } from "@showpilot/shared";
 import {
   useWorkspace,
-  useWorkspaceUpdate,
 } from "@/providers/workspace-provider";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
-import {
-  saveMobileWorkspaceType,
-  saveMobileWorkspaceModules,
-} from "@/lib/mobile-api";
+import { useWorkspaceWork } from "@/hooks/use-workspace-work";
+import { WorkspaceChangeNotice } from "./workspace-change-notice";
+import { runMobileOperation } from "@/lib/request-deadline";
 import { SHOWPILOT_URL } from "@/lib/env";
 import { useAppTheme } from "@/theme/tokens";
 import { AppButton } from "./app-button";
 export function WorkspaceSettings() {
-  const workspace = useWorkspace();
-  const update = useWorkspaceUpdate();
+  const profile = useWorkspace();
   const { organization, data } = useMobileBootstrap();
   const { colors } = useAppTheme();
-  const [type, setType] = useState<WorkspaceType | null>(null);
-  const [reset, setReset] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [linkError, setLinkError] = useState("");
   const canManage = Boolean(
     (data?.identity.role === "owner" || data?.identity.role === "admin") &&
     data.identity.permissions.includes("settings:organization"),
   );
-  async function save(work: () => Promise<typeof workspace>) {
-    setBusy(true);
-    setError("");
-    try {
-      update(await work());
-      setType(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not save workspace");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const work = useWorkspaceWork({ orgId: organization?.id ?? "", userId: data?.identity.userId ?? "" }, profile, canManage && !!organization);
+  const workspace = work.profile;
+  const { type, reset, changing } = work.draft;
+  const busy = work.locked;
+  const edit = (next: Partial<typeof work.draft>) => work.edit({ ...work.draft, ...next });
   if (!organization) return null;
-  const orgId = organization.id;
   return (
     <View
       style={{
@@ -63,11 +48,12 @@ export function WorkspaceSettings() {
       <Text style={{ color: colors.textMuted }}>
         {workspace.label || WORKSPACE_DEFINITIONS[workspace.type].label}
       </Text>
-      {error ? (
+      {linkError ? (
         <Text accessibilityRole="alert" style={{ color: colors.red }}>
-          {error}
+          {linkError}
         </Text>
       ) : null}
+      {canManage && <WorkspaceChangeNotice work={work} />}
       {canManage ? (
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
           {WORKSPACE_TYPES.map((id) => (
@@ -76,8 +62,7 @@ export function WorkspaceSettings() {
               accessibilityRole="button"
               disabled={busy}
               onPress={() => {
-                setType(id);
-                setReset(false);
+                edit({ type: id, reset: false, changing: true });
               }}
               style={{
                 minHeight: 44,
@@ -95,7 +80,7 @@ export function WorkspaceSettings() {
           ))}
         </View>
       ) : null}
-      {type ? (
+      {changing ? (
         <>
           <Text style={{ color: colors.text }}>
             Change to {WORKSPACE_DEFINITIONS[type].label}? Names change. Nothing
@@ -104,8 +89,9 @@ export function WorkspaceSettings() {
           <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
             <Switch
               accessibilityLabel={`Also reset features to ${WORKSPACE_DEFINITIONS[type].label} defaults`}
+              disabled={busy}
               value={reset}
-              onValueChange={setReset}
+              onValueChange={reset => edit({ reset })}
             />
             <Text style={{ color: colors.text, flex: 1 }}>
               Also reset features to {WORKSPACE_DEFINITIONS[type].label}{" "}
@@ -114,14 +100,11 @@ export function WorkspaceSettings() {
           </View>
           <AppButton
             label="Save type"
-            loading={busy}
-            onPress={() =>
-              void save(() =>
-                saveMobileWorkspaceType({ orgId, type, resetModules: reset }),
-              )
-            }
+            loading={work.attempt?.kind === "pending"}
+            disabled={busy}
+            onPress={() => work.submit({ kind: "type", type, resetModules: reset })}
           />
-          <AppButton label="Cancel" onPress={() => setType(null)} />
+          <AppButton label="Cancel" disabled={busy} onPress={() => edit({ changing: false })} />
         </>
       ) : null}
       <Text style={{ color: colors.textMuted }}>
@@ -146,27 +129,18 @@ export function WorkspaceSettings() {
             accessibilityLabel={WORKSPACE_MODULES[id]}
             disabled={!canManage || busy || CORE_MODULES.includes(id)}
             value={workspace.modules.includes(id)}
-            onValueChange={(enabled) =>
-              void save(() =>
-                saveMobileWorkspaceModules({
-                  orgId,
-                  modules: enabled
-                    ? [...workspace.modules, id]
-                    : workspace.modules.filter((value) => value !== id),
-                }),
-              )
-            }
+            onValueChange={enabled => work.submit({ kind: "module", module: id, enabled })}
           />
         </View>
       ))}
       {WORKSPACE_DEFINITIONS[workspace.type].customizable ? (
         <AppButton
           label="Edit names on the web"
-          onPress={() =>
-            void Linking.openURL(
-              `${SHOWPILOT_URL}/${organization.slug}/settings?section=workspace`,
-            )
-          }
+          onPress={() => {
+            setLinkError("");
+            void runMobileOperation(async () => { await Linking.openURL(`${SHOWPILOT_URL}/${organization.slug}/settings?section=workspace`); }, undefined, 8000)
+              .catch(() => setLinkError("Could not confirm opening Workspace settings. Try the web link again."));
+          }}
         />
       ) : null}
     </View>
