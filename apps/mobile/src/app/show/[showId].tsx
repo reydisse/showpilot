@@ -135,15 +135,21 @@ function TimerPanel({
             <ControlButton label="Next" disabled={!controlsEnabled || !currentItem} onPress={() => onCommand("timer-next")}><SkipForward size={22} color={colors.text} /></ControlButton>
           </View>
           <View style={styles.adjustRow}>
+            <View style={styles.adjustPair}>
             <MiniButton label="−30 sec" disabled={!controlsEnabled || !currentItem} onPress={() => onCommand("timer-adjust", { deltaMs: -30_000 })}><Minus size={16} color={colors.textMuted} /></MiniButton>
             <MiniButton label="+30 sec" disabled={!controlsEnabled || !currentItem} onPress={() => onCommand("timer-adjust", { deltaMs: 30_000 })}><Plus size={16} color={colors.textMuted} /></MiniButton>
+            </View>
+            <View style={styles.adjustPair}>
             <MiniButton label="Stop" disabled={!controlsEnabled || !currentItem} onPress={() => onCommand("timer-stop")}><CircleStop size={16} color={colors.red} /></MiniButton>
             <MiniButton label="Reset" disabled={!controlsEnabled} onPress={() => onCommand("reset")}><RotateCcw size={16} color={colors.textMuted} /></MiniButton>
+            </View>
           </View>
           <View style={styles.customAdjustRow}>
             <TextInput accessibilityLabel="Custom timer adjustment" keyboardType="numbers-and-punctuation" maxLength={10} onChangeText={setCustomAdjust} placeholder="1:00" placeholderTextColor={colors.textFaint} style={styles.customAdjustInput} value={customAdjust} />
+            <View style={styles.adjustPair}>
             <MiniButton label="Subtract" disabled={!controlsEnabled || !currentItem || customAdjustMs === null} onPress={() => customAdjustMs !== null && onCommand("timer-adjust", { deltaMs: -customAdjustMs })}><Minus size={16} color={colors.textMuted} /></MiniButton>
             <MiniButton label="Add" disabled={!controlsEnabled || !currentItem || customAdjustMs === null} onPress={() => customAdjustMs !== null && onCommand("timer-adjust", { deltaMs: customAdjustMs })}><Plus size={16} color={colors.textMuted} /></MiniButton>
+            </View>
           </View>
         </>
       ) : (
@@ -218,7 +224,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
     onError: (error) => Alert.alert("Stage display was not changed", error.message),
   });
   const liveReady = relay.status === "connected" && relay.hydrated && sameRoom;
-  const controlsEnabled = detail.canControl && liveReady;
+  const controlsEnabled = detail.canControl && liveReady && relay.unconfirmedCount === 0;
   const editControlsEnabled = canAuthor && liveReady;
   const liveWriteEnabled = canUseLiveRelay && liveReady;
   const client = useQueryClient();
@@ -339,7 +345,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
   }
 
   const connectionText = relay.status === "connected"
-    ? "Live sync"
+    ? liveReady ? "Live sync" : "Waiting for live state"
     : relay.status === "offline"
       ? "Paused in background"
       : "Reconnecting";
@@ -370,8 +376,8 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
             {templateDraft?.name ? <AppButton label="Resume template draft" variant="secondary" onPress={() => setTemplatesOpen(true)}/> : null}
             {detailsDraft ? <AppButton label="Resume rundown details" variant="secondary" onPress={() => setShowDetailsOpen(true)} /> : null}
             <View style={styles.connectionRow}>
-              {relay.status === "connected" ? <Wifi size={15} color={colors.green} /> : <WifiOff size={15} color={colors.amberText} />}
-              <Text style={[styles.connectionText, relay.status === "connected" && styles.connected]}>{connectionText}</Text>
+              {liveReady ? <Wifi size={15} color={colors.green} /> : <WifiOff size={15} color={colors.amberText} />}
+              <Text style={[styles.connectionText, liveReady && styles.connected]}>{connectionText}{relay.unconfirmedCount ? ` · ${relay.unconfirmedCount} changes awaiting confirmation` : ""}</Text>
               <View style={styles.permissionBadge}>
                 <Text style={styles.permissionText}>{detail.canControl ? "OPERATOR" : canAuthor ? "EDITOR" : "VIEW ONLY"}</Text>
               </View>
@@ -388,7 +394,8 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
               onCommand={(action, payload) => void command(action, payload)}
               timer={timer}
             />
-            {relay.lastError ? <Text style={styles.syncError}>{relay.lastError}</Text> : null}
+            {relay.lastError ? <Text accessibilityRole="alert" style={styles.syncError}>{relay.lastError}</Text> : null}
+            {relay.commandError ? <AppButton label="Dismiss rundown notice" variant="secondary" onPress={relay.dismissCommandError}/> : null}
             {canUseLiveRelay && detail.proPresenter.configured ? <View style={styles.ppCard}>
               <View style={styles.ppHeading}><View style={styles.ppTitleRow}><Presentation color={colors.amberText} size={17} /><Text style={styles.ppTitle}>PROPRESENTER</Text></View><Text style={[styles.ppStatus, detail.proPresenter.connected && styles.ppStatusConnected]}>{detail.proPresenter.connected ? "CONNECTED" : detail.proPresenter.bridgeOnline ? "READY" : "BRIDGE OFFLINE"}</Text></View>
               {relay.ppPreviewSlide ? <View style={styles.ppPreview}><Text numberOfLines={1} style={styles.ppPresentation}>{relay.ppPreviewSlide.presentationName || "Current slide"}</Text><Text numberOfLines={5} style={styles.ppText}>{relay.ppPreviewSlide.text || "Blank slide"}</Text>{relay.ppPreviewSlide.notes ? <Text numberOfLines={2} style={styles.ppNotes}>{relay.ppPreviewSlide.notes}</Text> : null}</View> : <Text style={styles.ppEmpty}>No active slide preview. Commands will connect through the Venue Bridge.</Text>}
@@ -537,7 +544,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   timerOvertime: { color: colors.red },
   timerMode: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "800", letterSpacing: 1.5 },
   modeRow: { width: "100%", flexDirection: "row", gap: 7 },
-  modeChoice: { flex: 1, minHeight: 38, alignItems: "center", justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised },
+  modeChoice: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised },
   modeChoiceActive: { borderColor: colors.amberStrongBorder, backgroundColor: colors.amberSoft },
   modeChoiceText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "700" },
   modeChoiceTextActive: { color: colors.amberText },
@@ -546,10 +553,11 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   controlPrimary: { backgroundColor: colors.amber, borderColor: colors.amber },
   controlLabel: { color: colors.text, fontFamily, fontSize: 11, fontWeight: "700" },
   controlLabelPrimary: { color: colors.black },
-  adjustRow: { width: "100%", flexDirection: "row", gap: 8 },
-  customAdjustRow: { width: "100%", flexDirection: "row", gap: 8 },
-  customAdjustInput: { flex: 0.8, minHeight: 40, borderRadius: radii.small, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, color: colors.text, fontFamily: "monospace", fontSize: 13, textAlign: "center", paddingHorizontal: 8 },
-  miniButton: { flex: 1, minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, borderRadius: radii.small, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised },
+  adjustRow: { width: "100%", flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  customAdjustRow: { width: "100%", flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  adjustPair: { flex: 1, minWidth: 216, flexDirection: "row", gap: 8 },
+  customAdjustInput: { flex: 1, minWidth: 100, minHeight: 44, borderRadius: radii.small, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised, color: colors.text, fontFamily: "monospace", fontSize: 13, textAlign: "center", paddingHorizontal: 8 },
+  miniButton: { flex: 1, minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, borderRadius: radii.small, borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.stageRaised },
   miniLabel: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "700" },
   observerCopy: { color: colors.textMuted, fontFamily, fontSize: 13, lineHeight: 20, textAlign: "center", marginTop: 8 },
   syncError: { color: colors.red, fontFamily, fontSize: 13, lineHeight: 19 },
