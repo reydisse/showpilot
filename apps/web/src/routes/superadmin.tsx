@@ -82,16 +82,16 @@ function StatCard({
   icon: React.ElementType;
 }) {
   return (
-    <div className="rounded-xl border border-board-border bg-board-card p-4">
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-fire-500/10 border border-fire-500/20 flex items-center justify-center">
+    <div className="min-w-0 rounded-xl border border-board-border bg-board-card p-4">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+        <div className="w-10 h-10 shrink-0 rounded-lg bg-fire-500/10 border border-fire-500/20 flex items-center justify-center">
           <Icon className="w-5 h-5 text-fire-500" />
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-2xl font-bold text-board-text tabular-nums">
             {value}
           </p>
-          <p className="text-xs text-board-muted">{label}</p>
+          <p className="break-words text-xs text-board-muted">{label}</p>
         </div>
       </div>
     </div>
@@ -240,7 +240,7 @@ function SuperAdminDashboard() {
 
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 space-y-6">
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
           <StatCard label="Waitlist" value={stats.waitlistCount} icon={ListChecks} />
           <StatCard label="Users" value={stats.userCount} icon={Users} />
           <StatCard label="Organizations" value={stats.orgCount} icon={Building2} />

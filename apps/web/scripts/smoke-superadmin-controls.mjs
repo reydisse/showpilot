@@ -85,6 +85,25 @@ await withLocalSmokeFixture(
         [1440, 1000],
       ]) {
         await page.setViewportSize({ width, height });
+        await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+        if (!audit) {
+          const statText = await page.locator("header + div > div").first().evaluate(grid => {
+            const clipped = [];
+            for (const card of grid.children) {
+              const bounds = card.getBoundingClientRect();
+              for (const text of card.querySelectorAll("p")) {
+                const range = document.createRange();
+                range.selectNodeContents(text);
+                if ([...range.getClientRects()].some(rect => rect.left < bounds.left || rect.right > bounds.right + 1 || rect.top < bounds.top || rect.bottom > bounds.bottom + 1)) {
+                  clipped.push(text.textContent);
+                }
+              }
+            }
+            return { count: grid.children.length, clipped };
+          });
+          assert.equal(statText.count, 6, "All platform totals are checked");
+          assert.deepEqual(statText.clipped, [], `Stat text stays inside its card at ${width}`);
+        }
         for (const name of [
           "Waitlist",
           "Users",
