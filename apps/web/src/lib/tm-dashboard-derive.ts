@@ -32,6 +32,7 @@ export const STALE_ACK_MS = 10 * MINUTE_MS;
 
 export interface TmIncident {
   id: string;
+  revision: number;
   category: string;
   severity: string;
   description: string;
@@ -130,6 +131,7 @@ export type FaultOwnership = "mine" | "unassigned" | "someone-else";
 
 export interface Fault {
   id: string;
+  revision: number;
   department: DepartmentKey;
   departmentLabel: string;
   severity: Severity;
@@ -219,6 +221,7 @@ export function deriveFaults(snapshot: TmSnapshot): Fault[] {
 
       return {
         id: incident.id,
+        revision: incident.revision,
         department,
         departmentLabel: DEPARTMENT_LABELS[department],
         severity: severityOf(incident.severity),

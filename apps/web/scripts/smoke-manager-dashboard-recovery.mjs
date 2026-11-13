@@ -89,7 +89,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, capturedEmai
       await fits(`${kind}-menu`,[option]);
       await page.keyboard.press("Escape");
       if(kind === "tech-manager") {
-        assert.equal(await button("Take it").isDisabled(), false);
+        await button("Take it").click({ trial: true });
         await button("Arrange widgets").click();
         assert.deepEqual(await button("Take it").evaluate(node => { node.focus(); return { inert: !!node.closest("[inert]"), disabled: node.disabled, focusBlocked: document.activeElement !== node }; }), { inert: true, disabled: true, focusBlocked: true }, "arranging blocks actual keyboard focus and incident actions");
         await fits("arrangement",[button("Done arranging"),button("Move System overview down")]);
@@ -106,7 +106,8 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, capturedEmai
         await page.reload();
         await page.waitForFunction(() => [...document.querySelectorAll("button")].some(node => node.textContent.trim() === "Arrange widgets" && Object.keys(node).some(key => key.startsWith("__reactProps$"))));
         await button("Arrange widgets").click();
-        assert.equal(await button("Move System overview up").isDisabled(), false, "keyboard reorder persisted");
+        await button("Move System overview up").click({ trial: true });
+        assert.equal(await button("Move System overview up").isDisabled(), false, "keyboard reorder persisted after the control snapshot refreshes");
         assert.equal(await button("Move Incidents up").isDisabled(), true, "drag order survives reload");
         await button("Done arranging").click();
       } else {

@@ -144,7 +144,7 @@ const faultQueueWidget: TmWidget = {
 
 function FaultRow({ fault, widget }: { fault: Fault; widget: TmWidgetModel }) {
   const unowned = fault.ownership === "unassigned" || fault.stale;
-  const busy = widget.busyId === fault.id || widget.readUnavailable;
+  const busy = widget.busyId === fault.id || widget.readUnavailable || !widget.canClaimFaults;
 
   return (
     <div

@@ -83,6 +83,7 @@ function fakeDatabase(input: {
     input.calls?.push({ sql, params });
     return {
       async first<T>() {
+        if (sql.includes("RETURNING id") && /^(UPDATE|DELETE FROM) incident\b/.test(sql)) return (input.changes === 0 ? null : { id: "incident-1" }) as T | null;
         if (sql.startsWith("SELECT id FROM organization WHERE id = ?")) return { id: "org-1" } as T;
         if (sql.startsWith("SELECT id FROM organization WHERE slug = ?")) return null;
         if (sql.startsWith("SELECT id, status, assignedTo")) {

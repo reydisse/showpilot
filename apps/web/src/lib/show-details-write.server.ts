@@ -124,7 +124,7 @@ async function writeDetails(
   command: ShowDetailsCommand,
   mode: "save" | "review",
   beforeCommit: () => Promise<void>,
-  access: Awaited<ReturnType<typeof memberPermissionGuard>>,
+  access: Pick<Awaited<ReturnType<typeof memberPermissionGuard>>, "guard" | "guardArgs">,
   fingerprint: string,
   revisionMatches: boolean,
 ): Promise<ShowDetailsResult> {
