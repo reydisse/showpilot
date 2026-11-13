@@ -1,3 +1,4 @@
+import { chatNotificationResultSchema, type ChatNotificationCommand } from "./chat-notification";
 import { lyricsControlReplySchema, type MobileLyricsControl } from "./timecode-lyrics-recovery";
 import { cueEditReplySchema, type CueEditCommand } from "./timecode-cue-edit-recovery";
 import { mobileCueControlReplySchema, type MobileCueControl } from "./timecode-cue-control-recovery";
@@ -121,9 +122,6 @@ const chatMembersSchema = z.object({
   members: z.array(chatMemberSchema),
 });
 
-const chatNotificationResultSchema = z.object({
-  notified: z.number().int().nonnegative(),
-});
 const contentSafetySchema = z.object({ blockedUserIds: z.array(z.string()) });
 const chatAttachmentSchema = z.object({
   id: z.string(),
@@ -1059,31 +1057,11 @@ export async function getMobileChatMembers(orgId: string) {
   return chatMembersSchema.parse(await response.json());
 }
 
-export async function notifyMobileChatMessage(input: {
-  orgId: string;
-  roomId: string;
-  text: string;
-  mentionedUserIds: string[];
-  messageId: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/chat/notify?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify(input) },
-  );
-  return chatNotificationResultSchema.parse(await response.json());
-}
-
-export async function notifyMobileChatReaction(input: {
-  orgId: string;
-  roomId: string;
-  messageId: string;
-  targetUserId: string;
-  emoji: string;
-}) {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/chat/reaction-notify?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify(input) },
-  );
+export async function notifyMobileChat(input: ChatNotificationCommand, signal: AbortSignal) {
+  const { userId, ...command } = input;
+  const endpoint = input.kind === "message" ? "/api/mobile/v1/chat/notify" : "/api/mobile/v1/chat/reaction-notify";
+  const response = await authenticatedFetch(`${endpoint}?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", body: JSON.stringify({ ...command, expectedUserId: userId }), signal });
   return chatNotificationResultSchema.parse(await response.json());
 }
 

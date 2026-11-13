@@ -3,6 +3,7 @@ import { notifyOperationalEvent } from "../operational-notifications.server";
 
 const mocks = vi.hoisted(() => ({
   binds: [] as unknown[][],
+  inserted: new Set<string>(),
   insertError: null as Error | null,
   deliverPushToUser: vi.fn(),
   deviceAlerts: true,
@@ -29,14 +30,16 @@ vi.mock("../db", () => ({
 vi.mock("../d1", () => ({
   getD1: () => ({
     prepare(sql: string) {
-      expect(sql).toContain("ON CONFLICT(id) DO UPDATE");
+      expect(sql).toContain("ON CONFLICT(id) DO ");
       return {
         bind(...params: unknown[]) {
           mocks.binds.push(params);
           return {
             async run() {
               if (mocks.insertError) throw mocks.insertError;
-              return { success: true };
+              const id = String(params[0]);
+              const exists = mocks.inserted.has(id); mocks.inserted.add(id);
+              return { success: true, meta: { changes: sql.includes("DO NOTHING") && exists ? 0 : 1 } };
             },
           };
         },
@@ -75,6 +78,7 @@ const event = {
 describe("operational notifications", () => {
   beforeEach(() => {
     mocks.binds.length = 0;
+    mocks.inserted.clear();
     mocks.insertError = null;
     mocks.deviceAlerts = true;
     mocks.memberError = null;
@@ -126,4 +130,22 @@ describe("operational notifications", () => {
       await expect(notifyOperationalEvent({ ...event, includeLeadership: true })).resolves.toEqual({ notified: 0 });
     },
   );
+  it("surfaces inbox failure to a notification-only caller without failing saved business actions", async () => {
+    mocks.insertError = new Error("database unavailable");
+    await expect(notifyOperationalEvent({ ...event, requireInbox: true })).rejects.toThrow("notifications");
+    await expect(notifyOperationalEvent(event)).resolves.toEqual({ notified: 0 });
+  });
+  it.each(["member", "preference", "organization"] as const)("surfaces %s preparation failure to a notification-only caller", async stage => {
+    if (stage === "member") mocks.memberError = new Error("lookup unavailable");
+    if (stage === "preference") mocks.preferenceError = new Error("lookup unavailable");
+    if (stage === "organization") mocks.organizationError = new Error("lookup unavailable");
+    await expect(notifyOperationalEvent({ ...event, requireInbox: true })).rejects.toThrow();
+  });
+  it("retries once-only inbox creation without another push or resetting the existing row", async () => {
+    await expect(notifyOperationalEvent({ ...event, once: true, requireInbox: true })).resolves.toEqual({ notified: 1 });
+    await expect(notifyOperationalEvent({ ...event, once: true, requireInbox: true })).resolves.toEqual({ notified: 0 });
+    expect(mocks.deliverPushToUser).toHaveBeenCalledTimes(1);
+    expect(mocks.binds[0][0]).toBe(mocks.binds[1][0]);
+  });
+
 });
