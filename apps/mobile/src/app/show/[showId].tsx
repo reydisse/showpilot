@@ -1,3 +1,4 @@
+import { useRundownItemEditor } from "@/hooks/use-rundown-item-editor";
 import { RundownResetConfirmation } from "@/components/rundown-reset-confirmation";
 import { useRundownChange } from "@/hooks/use-rundown-change";
 import { RundownChangeStatus } from "@/components/rundown-change-status";
@@ -180,7 +181,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
     showCall ? `${formatServiceTime(showCall, detail.timeZone)} call` : null,
     showLocation || null,
   ].filter(Boolean).join(" · ");
-  const [editor, setEditor] = useState<{ item: RundownItem | null; index: number } | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [newShow, setNewShow] = useState<ShowCreationDraft | null>(null);
   const showDrafts = useShowCreationDrafts({ orgId, userId });
   function openNewShow() {
@@ -244,10 +245,23 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
       if (signal.aborted) throw new Error("Rundown refresh cancelled.");
     },
   });
+  const itemEditor=useRundownItemEditor({orgId,userId,showId:detail.show.id,serviceDate:detail.show.serviceDate}, {
+    active:canAuthor, canSubmit:editControlsEnabled && !changes.attempt,
+    revision:relay.revision, items, send:commandMobileRundownChange,
+    refresh:async signal=>{
+      await client.invalidateQueries({queryKey:["mobile-rundown",orgId,detail.show.id,userId]}, {throwOnError:true});
+      if(signal.aborted) throw new Error("Rundown refresh cancelled.");
+    },
+  });
+  const itemDraftTitle = itemEditor.draft?.fields.title || "New item";
+  function openItem(item:RundownItem | null) {
+    itemEditor.open(item);
+    setEditorOpen(true);
+  }
   const [clearOpen, setClearOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const canReset = controlsEnabled && !changes.attempt;
-  const canRemove = editControlsEnabled && !changes.attempt;
+  const canRemove = editControlsEnabled && !changes.attempt && !itemEditor.attempt;
 
 
   useEffect(() => {
@@ -283,51 +297,11 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
     void command("timer-start", { itemId: item.id });
   }
 
-  function saveItem(item: RundownItem) {
-    if (!editControlsEnabled) return;
-    if (editor?.item) {
-      relay.sendCommand("update-item", {
-        id: editor.item.id,
-        updates: {
-          title: item.title,
-          type: item.type,
-          duration: item.duration,
-          notes: item.notes,
-          assignee: item.assignee,
-          cue: item.cue,
-          hardStop: item.hardStop,
-        },
-      });
-    } else {
-      relay.sendCommand("add-item", {
-        id: item.id,
-        title: item.title,
-        type: item.type,
-        duration: item.duration,
-        notes: item.notes,
-        assignee: item.assignee,
-        cue: item.cue,
-        status: "upcoming",
-        sortOrder: items.length,
-        hardStop: item.hardStop,
-      });
-    }
-  }
-
-  function moveItem(item: RundownItem, direction: "up" | "down") {
-    const index = items.findIndex((candidate) => candidate.id === item.id);
-    const nextIndex = direction === "up" ? index - 1 : index + 1;
-    if (!editControlsEnabled || index < 0 || nextIndex < 0 || nextIndex >= items.length) return;
-    const reordered = [...items];
-    [reordered[index], reordered[nextIndex]] = [reordered[nextIndex], reordered[index]];
-    relay.sendCommand("reorder", { order: reordered.map((candidate) => candidate.id) });
-    setEditor(null);
-  }
-
   function deleteItem(item: RundownItem, revision: number) {
     if (!canRemove || revision !== relay.revision) return;
     changes.confirm({ action: "remove-item", itemId: item.id }, revision, item.title);
-    setEditor(null);
+    itemEditor.discard();
+    setEditorOpen(false);
   }
 
   function exportRundown(format: "csv" | "pdf") {
@@ -389,6 +363,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
             {templateDeletions.length ? <AppButton label="Resume template deletion" variant="secondary" onPress={()=>setTemplatesOpen(true)}/>:null}
             {replacementDraft ? <AppButton label="Resume rundown replacement" variant="secondary" onPress={()=>setTemplatesOpen(true)}/>:null}
             {templateDraft?.name ? <AppButton label="Resume template draft" variant="secondary" onPress={() => setTemplatesOpen(true)}/> : null}
+            {itemEditor.draft ? <View style={{gap:8}}><AppButton accessibilityLabel={`Resume item draft: ${itemDraftTitle}`} label={`Resume item draft: ${itemDraftTitle.length > 80 ? itemDraftTitle.slice(0, 77) + "…" : itemDraftTitle}`} variant="secondary" onPress={()=>setEditorOpen(true)}/><Text style={styles.observerCopy}>Finish or discard this draft before editing another item.</Text></View> : null}
             {detailsDraft ? <AppButton label="Resume rundown details" variant="secondary" onPress={() => setShowDetailsOpen(true)} /> : null}
             <View style={styles.connectionRow}>
               {liveReady ? <Wifi size={15} color={colors.green} /> : <WifiOff size={15} color={colors.amberText} />}
@@ -446,7 +421,7 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
             </View> : relay.stageMessage ? <View style={[styles.activeMessage, stageMessagePriority && styles.activeMessagePriority]}><Send color={stageMessagePriority ? colors.red : colors.amberText} size={16} /><Text style={[styles.activeMessageText, stageMessagePriority && styles.activeMessagePriorityText]}>{displayStageMessage}</Text></View> : null}
             <View style={styles.sectionHeading}>
               <Text style={styles.sectionTitle}>RUNDOWN</Text>
-              <View style={styles.sectionActions}><Text style={styles.sectionCount}>{items.length} ITEMS</Text><Pressable accessibilityLabel="Export rundown" accessibilityRole="button" onPress={() => Alert.alert("Export rundown", "Choose a shareable format.", [{ text: "Cancel", style: "cancel" }, { text: "CSV", onPress: () => exportRundown("csv") }, { text: "PDF", onPress: () => exportRundown("pdf") }])} style={styles.templateButton}><Share2 color={colors.textMuted} size={16} /></Pressable>{canAuthor ? <><Pressable accessibilityLabel="Open rundown templates" accessibilityRole="button" onPress={() => setTemplatesOpen(true)} style={styles.templateButton}><Files color={colors.textMuted} size={16} /></Pressable>{items.length > 0 ? <Pressable accessibilityLabel="Clear rundown" accessibilityRole="button" disabled={!canRemove} onPress={() => setClearOpen(true)} style={[styles.templateButton, !editControlsEnabled && styles.disabled]}><Trash2 color={colors.red} size={16} /></Pressable> : null}<Pressable accessibilityLabel="Add rundown item" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setEditor({ item: null, index: items.length })} style={[styles.addItem, !editControlsEnabled && styles.disabled]}><Plus color={colors.black} size={16} /><Text style={styles.addItemText}>Add</Text></Pressable></> : null}</View>
+              <View style={styles.sectionActions}><Text style={styles.sectionCount}>{items.length} ITEMS</Text><Pressable accessibilityLabel="Export rundown" accessibilityRole="button" onPress={() => Alert.alert("Export rundown", "Choose a shareable format.", [{ text: "Cancel", style: "cancel" }, { text: "CSV", onPress: () => exportRundown("csv") }, { text: "PDF", onPress: () => exportRundown("pdf") }])} style={styles.templateButton}><Share2 color={colors.textMuted} size={16} /></Pressable>{canAuthor ? <><Pressable accessibilityLabel="Open rundown templates" accessibilityRole="button" onPress={() => setTemplatesOpen(true)} style={styles.templateButton}><Files color={colors.textMuted} size={16} /></Pressable>{items.length > 0 ? <Pressable accessibilityLabel="Clear rundown" accessibilityRole="button" disabled={!canRemove} onPress={() => setClearOpen(true)} style={[styles.templateButton, !editControlsEnabled && styles.disabled]}><Trash2 color={colors.red} size={16} /></Pressable> : null}<Pressable accessibilityLabel="Add rundown item" accessibilityRole="button" disabled={!editControlsEnabled || !!itemEditor.draft} onPress={() => openItem(null)} style={[styles.addItem, (!editControlsEnabled || !!itemEditor.draft) && styles.disabled]}><Plus color={colors.black} size={16} /><Text style={styles.addItemText}>Add</Text></Pressable></> : null}</View>
             </View>
           </View>
         )}
@@ -470,13 +445,18 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
                 </>
               )}
               </Pressable>
-              {canAuthor ? <Pressable accessibilityLabel={`Edit ${item.title}`} accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setEditor({ item, index })} style={[styles.editItem, !editControlsEnabled && styles.disabled]}><Pencil color={colors.textMuted} size={16} /></Pressable> : null}
+              {canAuthor ? <Pressable accessibilityLabel={`Edit ${item.title}`} accessibilityRole="button" disabled={!editControlsEnabled || !!itemEditor.draft} onPress={() => openItem(item)} style={[styles.editItem, (!editControlsEnabled || !!itemEditor.draft) && styles.disabled]}><Pencil color={colors.textMuted} size={16} /></Pressable> : null}
             </View>
           );
         }}
         windowSize={7}
       />
-      {editor ? <RundownItemSheet currentItem={items.find(item => item.id === editor.item?.id) ?? null} currentItemId={timer.currentItemId} revision={relay.revision} canEdit={canRemove} index={editor.index} item={editor.item} itemCount={items.length} onClose={() => setEditor(null)} onDelete={deleteItem} onMove={moveItem} onSave={saveItem} /> : null}
+      {editorOpen && itemEditor.draft ? <RundownItemSheet key={itemEditor.draft.id}
+        state={itemEditor} items={items} serviceDate={detail.show.serviceDate}
+        currentItem={items.find(item=>item.id === itemEditor.draft?.id) ?? null} currentItemId={timer.currentItemId}
+        revision={relay.revision} canEdit={editControlsEnabled && !changes.attempt}
+        index={items.findIndex(item=>item.id === itemEditor.draft?.id)} item={itemEditor.draft.base.item} itemCount={items.length}
+        onClose={()=>setEditorOpen(false)} onDelete={deleteItem}/> : null}
       {templatesOpen ? <RundownTemplateSheet
         key={`${userId}:${orgId}:${detail.show.id}`} orgId={orgId} userId={userId} showId={detail.show.id}
         copy={{ serviceName: showTitle, scheduledStartTime: serviceWallTimeInput(showStart, detail.timeZone), items }} canCapture={editControlsEnabled}

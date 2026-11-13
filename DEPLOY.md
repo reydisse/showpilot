@@ -9132,3 +9132,75 @@ Twenty necessary tracked Markdown files remain, with none added.
 Stack gate: #281 exact head 35d326e57f3332abd8e507013dd045eaa6bbc2d4 passed
 both jobs in CI 42568671152 before this draft opens. This draft's exact-head CI
 must pass before another PR opens.
+
+### Phase 2: native rundown item recovery (2026-11-09)
+
+The native item editor closed as soon as it sent a WebSocket save. Moving an
+item also closed the form and discarded unsaved fields. The before regression
+failed the close-before-confirmation assertion while the existing eleven
+confirmation checks passed.
+
+The editor now retains all fields, its new-item ID, the reviewed order and
+revision, and the original request by account, organization and show for the
+current app session. Save, Add and Move use the existing authenticated mobile
+change endpoint and RundownRelay single writer. New strict command variants
+allow only editable item fields and exact order IDs. The relay still verifies
+live session, permission and PIN, deduplicates retries and rejects stale
+revisions. No direct rundown-item writes or database migrations were added.
+Deploy the expanded API command contract before releasing this native client.
+
+Requests have a 15-second deadline, visible outcome and exact-request retry.
+A failed refresh has a separate retry that does not repeat the edit. Closing or
+navigating away preserves drafts and pending results. Moving an item retains
+unsaved text. A revision conflict requires explicit review of the current item,
+order and date before adopting a new revision; another intervening change
+invalidates that review. An unresolved save cannot be silently discarded or
+rebased. Draft discard is explicitly confirmed. Existing item-removal review,
+undo and timer authority remain unchanged. Retention is in-memory navigation
+recovery, not persistence through app termination.
+
+The sheet is bounded to 680px, type choices have 48px targets and explicit checked
+state, and its fixed header keeps request status visible. A browser regression
+found a 482-character title consumed the entire 320x480 screen; the header now
+uses two lines while the title field retains the full value. The rundown's resume
+button abbreviates its visible label and keeps the full accessible name.
+
+Verification: all three full-suite runs passed 3,258 unit + 1,695 Worker = 4,953
+tests. Focused final editor/hook checks passed 26 tests. Web typecheck and
+production build passed; main bundle remains 542,274 raw / 171,113 gzip bytes.
+Real Worker tests cover add deduplication after eviction, preserving a later
+operator edit/order on retry, stale-revision rejection, forged operational-field
+rejection and actor isolation. Hook cases cover retained fields, navigation,
+account/show separation, deadline/late response, reply identities, refresh-only
+retry, conflicts, moved drafts, removed items, offline editing and date changes.
+The first browser run passed the recovery flows before exposing the long-title
+layout failure. Final exported-app browser verification is recorded below.
+
+Phase 2 remains 67/79. These checks cover the native item editor, not the broad
+product-wide gates. Remaining native rundown work includes ProPresenter commands,
+stage messages/display controls and export/share recovery. No deployment,
+release, remote migration, external mail or real-org writes. Twenty necessary
+tracked Markdown files remain; none were added.
+Stack gate: #282 exact head 0b357d615ed97a386c4c571e9f713e6bd7f7ce31 passed
+both jobs in CI 42571440609 before this draft opens. This draft's exact-head CI
+must pass before another PR opens.
+
+Final native verification passed typecheck, lint (18 existing warnings, zero
+errors), iOS/Android/web exports, Expo Doctor 18/18, API contracts and polling
+checks. Hermes bundles: iOS 6,017,212 / Android 6,016,283 bytes. Import placement
+was corrected after the first verification to avoid adding a lint warning.
+
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-rundown-items.mjs`
+uses exported Expo web with disposable real auth, D1 and RundownRelay. It holds
+an accepted update reply until the native deadline, retries the identical
+request, fails the subsequent read and retries only that refresh. A second
+client edits while a request is held before delivery; the original edit conflicts,
+retains its fields and requires explicit current-item review. Another change
+invalidates that review. Move preserves unsaved text, confirmed discard works,
+and an Add retry produces exactly one section with zero duration. Draft fields
+survive close/reopen and navigation. 320x480, 768x1024 and 1440x1000 checks cover
+44px+ unobstructed controls, no horizontal overflow, and the complete 482-character
+title retained after closing and resuming the bounded editor. Browser2 and final browser3 exited zero; screenshots were inspected. This proves exported-web behavior, not physical iOS/Android operation.
+
+Logs: /tmp/showpilot-item-{before,unit1,unit2,worker1,mobile-tsc1,full1,full2,full3,tsc1,build1,verify1,verify2,verify3,verify4,verify5,verify6,browser1,browser2,browser3}.log.
+Screenshots: /tmp/showpilot-native-item-{uncertain,review,long-title}-{320,768,1440}.png.
