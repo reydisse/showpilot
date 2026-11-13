@@ -7875,3 +7875,68 @@ text, confirmed by a real Prisma create/read. The numeric millisecond regression
 explicitly seeds that supported representation in D1. It does not demonstrate
 that the current Prisma adapter writes numeric values. Earlier test and evidence
 wording has been corrected. No deployment or broad Phase 2 gate closure.
+
+### Phase 2 follow-up: rundown timestamp versions
+
+Seven regressions reproduced failed numeric-timestamp writes and false metadata
+conflicts. The installed Prisma adapter writes ISO text with a `+00:00` suffix;
+its value and the equivalent ISO `Z` value must match. Numeric milliseconds are
+an explicitly seeded supported storage representation, not evidence that the
+current Prisma adapter writes numbers. The earlier replacement evidence and test
+title have been corrected accordingly.
+
+The shared SQL expression handles numeric milliseconds and date text and advances
+future versions by one millisecond per write. Schedule/rundown details, ordinary
+relay item/timer and metadata writes, replacement, and inventory use it. Metadata
+commands compare instants, then bind the exact stored value in the final atomic
+WHERE guard. A concurrent Prisma edit still produces a conflict. Numeric wire
+versions remain rejected. SQLite CURRENT_TIMESTAMP text is interpreted as UTC.
+
+Focused verification passes 115 Worker tests, including 14 new timestamp cases.
+Full run 1 reached 2,791 unit passes and 1,543 Worker passes, but one moderation
+fixture login returned 429 before exercising the feature. Random IP selection
+could collide across logins. Eight remaining randomized login fixtures now use a
+shared sequential test-address allocator; the previously fixed stream fixture
+uses the same helper. Production throttling is unchanged. Full run 2 passes
+2,791 unit / 1,544 Worker tests, 4,335 total. Web typecheck 3 passes.
+
+Production build 1 passes with the unchanged main bundle, 549,593 raw / 173,783
+gzip bytes. The compiled Worker rehearsal uses isolated real auth, D1 and relay
+for numeric, Prisma-style ISO-offset and SQLite UTC rows. It passes detail saves,
+exact replay, stale-version rejection, metadata edits and timer start/stop version
+advancement. Command after web build:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-rundown-timestamp-versions.mjs`.
+Evidence: /tmp/showpilot-timestamp-{worker2,full1,full2,tsc3,build1,smoke1}.log.
+No production deployment or migration. Phase 2 remains 67/79; this is a narrow
+save-reliability correction, not completion of a product-wide gate.
+
+Timestamp follow-up after merging the replacement CI correction: full coverage
+run 3 passes 2,791 unit / 1,551 Worker tests, 4,342 total, and typecheck 4 passes.
+Relay coverage is statements 86.48%, branches 84.22%, functions 90.16%, lines
+92.01%; all three coverage groups pass unchanged thresholds. No app source
+changed during this merge, so the compiled timestamp rehearsal and build above
+still cover the final implementation. Evidence:
+/tmp/showpilot-timestamp-coverage3.log and /tmp/showpilot-timestamp-tsc4.log.
+PR #264's new CI run is 42532247791 at 00dcd104. The timestamp PR remains held
+until that run is green.
+
+
+### Phase 2 CI follow-up: isolate native PIN authority cases
+
+PR #265 run 42533504976 passed 2,791 unit tests and 1,550 Worker tests, but
+`native-rundown-details.worker.test.ts` timed out after 30 seconds in the test
+combining missing PIN, wrong PIN, valid read, valid save, and schedule denial.
+Native Rust passed in 4m36s. No next PR was opened after that failure.
+
+Split the independent authority paths into four integration cases. Each still
+uses real authentication and the production 210,000-iteration PIN verifier;
+valid read and save still traverse their actual HTTP/relay/database checks.
+The existing 30-second PIN-case deadlines remain unchanged. Rejected writes
+also assert that neither show metadata nor a receipt was written. This changes
+test organization only, not production authority or cryptographic work factors.
+
+Validation on the isolated #265 branch: full coverage run passes 2,791 unit
+and 1,554 Worker tests (4,345 total); web typecheck passes. All unchanged
+coverage floors pass: relays 86.51% statements / 84.25% branches / 90.16%
+functions / 92.01% lines. Evidence: /tmp/showpilot-pr265-coverage1.log and
+/tmp/showpilot-pr265-tsc1.log. The next PR remains held for GitHub's rerun.

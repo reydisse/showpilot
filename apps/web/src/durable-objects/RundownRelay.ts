@@ -1,3 +1,4 @@
+import { NEXT_UPDATED_AT_SQL, sameStoredTimestamp } from "@/lib/sqlite-timestamp.server";
 import { replacementRelaySchema } from "@/lib/rundown-replacement-contract";
 import { readRundownReplacement } from "@/lib/rundown-replacement-read.server";
 import { writeRundownReplacement, readCommittedReplacement, RundownReplacementError, type PendingReplacement } from "@/lib/rundown-replacement-write.server";
@@ -298,7 +299,7 @@ export class RundownRelay extends DurableObject {
   private async persistAuthoritativeSnapshot(
     action: string,
     previousState: RundownState,
-    metadataGuard?: { expectedUpdatedAt: string; fields: Record<string, unknown> },
+    metadataGuard?: { expectedUpdatedAt: string | number; fields: Record<string, unknown> },
   ): Promise<void> {
     if (!this.orgId || (!this.state.showId && !this.state.serviceDate)) return;
     const persistsFullItems = action === "activate" || action === "seed"
@@ -336,7 +337,7 @@ export class RundownRelay extends DurableObject {
       ));
       if (this.state.showId) {
         statements.push(env.DB.prepare(
-          "UPDATE rundown SET status = ?, updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ', MAX(julianday('now'), julianday(updatedAt) + 1.0 / 86400000)) WHERE id = ? AND orgId = ?",
+          `UPDATE rundown SET status = ?, updatedAt = ${NEXT_UPDATED_AT_SQL} WHERE id = ? AND orgId = ?`,
         ).bind(
           persistedRundownStatus(this.state.timer.playback),
           this.state.showId,
@@ -376,7 +377,7 @@ export class RundownRelay extends DurableObject {
           ? " AND serviceDate = ? AND updatedAt = ? AND NOT EXISTS (SELECT 1 FROM app_setting WHERE orgId = rundown.orgId AND key = 'show-deleting:' || rundown.id)"
           : "";
         statements.push(env.DB.prepare(
-          `UPDATE rundown SET ${assignments.join(", ")}, updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ', MAX(julianday('now'), julianday(updatedAt) + 1.0 / 86400000)) WHERE id = ? AND orgId = ?${guard}`,
+          `UPDATE rundown SET ${assignments.join(", ")}, updatedAt = ${NEXT_UPDATED_AT_SQL} WHERE id = ? AND orgId = ?${guard}`,
         ).bind(...values, this.state.showId, this.orgId,
           ...(metadataGuard ? [this.state.serviceDate, metadataGuard.expectedUpdatedAt] : [])));
       }
@@ -1011,7 +1012,7 @@ export class RundownRelay extends DurableObject {
     commandId?: string,
   ): Promise<boolean> {
     const previousState = this.cloneState();
-    let metadataGuard: { expectedUpdatedAt: string; fields: Record<string, unknown> } | undefined;
+    let metadataGuard: { expectedUpdatedAt: string | number; fields: Record<string, unknown> } | undefined;
 
     switch (action) {
       case "seed": {
@@ -1223,7 +1224,16 @@ export class RundownRelay extends DurableObject {
         if (expectedUpdatedAt !== undefined) {
           if (typeof expectedUpdatedAt !== "string" || expectedUpdatedAt.length > 64
             || !Number.isFinite(Date.parse(expectedUpdatedAt)) || !this.state.showId || !payload) return false;
-          metadataGuard = { expectedUpdatedAt, fields: payload };
+          const row = await this.env.DB.prepare(
+            "SELECT updatedAt FROM rundown WHERE orgId=? AND id=? AND serviceDate=?",
+          ).bind(this.orgId, this.state.showId, this.state.serviceDate ?? "")
+            .first<{ updatedAt: string | number }>();
+          if (!row || !sameStoredTimestamp(row.updatedAt, expectedUpdatedAt)) {
+            throw new RundownMetadataConflictError();
+          }
+          // Compare instants at the boundary; retain the exact stored value for
+          // the atomic WHERE guard so concurrent changes still reject the write.
+          metadataGuard = { expectedUpdatedAt: row.updatedAt, fields: payload };
         }
         const serviceName = payload?.serviceName;
         const scheduledStartTime = payload?.scheduledStartTime;

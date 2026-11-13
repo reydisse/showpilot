@@ -1,16 +1,9 @@
+import { NEXT_UPDATED_AT_SQL, sameStoredTimestamp, sqliteTimestampMillis } from "./sqlite-timestamp.server";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
 import { rundownRelayKey } from "@/lib/rundown-relay-key";
 
 import { RundownMetadataConflictError } from "./rundown-metadata-conflict";
 export { RundownMetadataConflictError } from "./rundown-metadata-conflict";
-
-function sameInstant(left: string, right: string): boolean {
-  const leftMs = Date.parse(left);
-  const rightMs = Date.parse(right);
-  return Number.isFinite(leftMs) && Number.isFinite(rightMs)
-    ? leftMs === rightMs
-    : left === right;
-}
 
 export async function updateRundownMetadataThroughRelay(input: {
   env: {
@@ -36,9 +29,9 @@ export async function updateRundownMetadataThroughRelay(input: {
       "SELECT updatedAt FROM rundown WHERE id = ? AND orgId = ? AND serviceDate = ? LIMIT 1",
     )
       .bind(input.showId, input.orgId, input.serviceDate)
-      .first<{ updatedAt: string }>();
+      .first<{ updatedAt: string | number }>();
     if (!row) throw new Error("Show not found");
-    if (!sameInstant(row.updatedAt, input.expectedUpdatedAt))
+    if (!sameStoredTimestamp(row.updatedAt, input.expectedUpdatedAt))
       throw new RundownMetadataConflictError();
     return row;
   };
@@ -48,7 +41,7 @@ export async function updateRundownMetadataThroughRelay(input: {
     const result = await input.env.DB.prepare(
       `UPDATE rundown
        SET name = ?, scheduledStartTime = ?, scheduledCallTime = ?, location = ?,
-           updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ', MAX(julianday('now'), julianday(updatedAt) + 1.0 / 86400000))
+           updatedAt = ${NEXT_UPDATED_AT_SQL}
        WHERE id = ? AND orgId = ? AND serviceDate = ? AND updatedAt = ?
          AND NOT EXISTS (SELECT 1 FROM app_setting WHERE orgId = rundown.orgId AND key = 'show-deleting:' || rundown.id)`,
     )
@@ -93,8 +86,8 @@ export async function updateRundownMetadataThroughRelay(input: {
     throw new Error("Live rundown returned an invalid revision.");
   }
 
-  // Retain the exact stored timestamp, including legacy SQLite formatting.
-  // The relay checks it again in the same statement that commits the edit.
+  // The wire contract uses an ISO instant. The relay resolves the matching raw
+  // stored value and checks it again in the statement that commits the edit.
   const row = await readExpectedVersion();
 
   const response = await relay.fetch(
@@ -108,7 +101,7 @@ export async function updateRundownMetadataThroughRelay(input: {
           id: crypto.randomUUID(),
           expectedRevision: state.revision,
           action: "update-meta",
-          payload: { ...input.payload, expectedUpdatedAt: row.updatedAt },
+          payload: { ...input.payload, expectedUpdatedAt: new Date(sqliteTimestampMillis(row.updatedAt)).toISOString() },
         }),
       },
     ),
