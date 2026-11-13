@@ -1,3 +1,5 @@
+import { chatMutationTracker, type ChatMutationTracker, type ChatMutationWork } from "@showpilot/shared/chat-mutation-tracker";
+import type { ChatMutationOperation } from "@showpilot/shared/chat-mutation";
 import { chatNotifications, type ChatNotificationWork } from "../chat-notifications";
 import type {
   ChatAdapter,
@@ -54,10 +56,13 @@ export class NativeChatAdapter implements ChatAdapter {
   private attemptedConnection = false;
   private handshakeTimer: ReturnType<typeof setTimeout> | null = null;
   private messageHistory: ChatMessage[] = [];
-  private pendingMutations = new Map<string, { payload: { type: string; messageId: string; emoji?: string }; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+  private mutations: ChatMutationTracker | null;
+  private releaseMutations: (() => void) | null = null;
+  private serverClock: { at: number; receivedAt: number } | null = null;
 
   constructor(orgId: string, private guest?: { token: string; name: string; onRevoked?: () => void }, private roomId = "production", private outboxIdentity = "unscoped", private currentUserId?: string) {
     this.orgId = orgId;
+    this.mutations = currentUserId && !guest ? chatMutationTracker({ orgId, userId: currentUserId, roomId }) : null;
     this.messageQueue = readChatOutbox(this.outboxIdentity, this.orgId, this.roomId);
   }
 
@@ -128,7 +133,8 @@ export class NativeChatAdapter implements ChatAdapter {
               this.reconnectDelay = INITIAL_RECONNECT_DELAY;
               const wasReady = this.status === "connected";
               this.setStatus("connected");
-              if (!wasReady) this.flushQueue();
+              if (typeof data.serverTime === "number" && Number.isFinite(data.serverTime)) this.serverClock = { at: data.serverTime, receivedAt: performance.now() };
+              if (!wasReady) { this.bindMutations(); this.flushQueue(); }
             } else if ((data.type === "message" || data.type === "message-edited" || data.type === "message-deleted") && data.message) {
               this.acknowledgeQueued(data.message);
               const existingIndex = this.messageHistory.findIndex((message) => message.id === data.message.id);
@@ -138,25 +144,10 @@ export class NativeChatAdapter implements ChatAdapter {
             } else if (data.type === "error" && typeof data.messageId === "string") {
               clearTimeout(this.deliveryTimers.get(data.messageId)); this.deliveryTimers.delete(data.messageId);
               this.updateQueued(data.messageId, { status: "failed", error: typeof data.error === "string" ? data.error : "Message was not accepted" });
-            } else if (data.type === "mutation-result" && data.requestId) {
-              const pending = this.pendingMutations.get(data.requestId);
-              if (pending) {
-                clearTimeout(pending.timer);
-                this.pendingMutations.delete(data.requestId);
-                if (data.ok === true) {
-                  const target = this.messageHistory.find(message => message.id === pending.payload.messageId);
-                  const emoji = pending.payload.emoji;
-                  if (pending.payload.type === "reaction" && emoji && this.currentUserId && target?.senderId && target.senderId !== this.currentUserId
-                    && target.reactions?.some(reaction => reaction.emoji === emoji && reaction.userIds.includes(this.currentUserId!))) {
-                    chatNotifications({ orgId: this.orgId, userId: this.currentUserId, roomId: this.roomId }).submit({
-                      kind: "reaction", orgId: this.orgId, userId: this.currentUserId, roomId: this.roomId,
-                      messageId: target.id, requestId: data.requestId, targetUserId: target.senderId, emoji,
-                    }, `Reaction ${emoji} to ${target.senderName}'s message`);
-                  }
-                  pending.resolve();
-                }
-                else pending.reject(new Error(data.error || "Message update failed"));
-              }
+            } else if (data.type === "mutation-result") {
+              this.mutations?.receive(data.result);
+            } else if (data.type === "mutation-error" && typeof data.requestId === "string" && typeof data.error === "string") {
+              this.mutations?.unconfirmed(data.requestId, data.error);
             } else if (data.type === "typing" && typeof data.name === "string" && typeof data.typing === "boolean") {
               this.notifyTyping({ userId: typeof data.userId === "string" ? data.userId : undefined, name: data.name, typing: data.typing });
             } else if (data.type === "read-receipt" && typeof data.userId === "string" && typeof data.readAt === "number") {
@@ -187,6 +178,7 @@ export class NativeChatAdapter implements ChatAdapter {
             this.guest.onRevoked?.();
           }
           this.ws = null;
+          this.releaseMutations?.(); this.releaseMutations = null; this.serverClock = null;
           this.clearDeliveryTimers();
           this.messageQueue = this.messageQueue.map((item) => item.status === "sending" ? { ...item, status: "waiting" } : item);
           this.persistAndNotifyOutbox();
@@ -213,22 +205,25 @@ export class NativeChatAdapter implements ChatAdapter {
     });
   }
 
-  async editMessage(messageId: string, text: string): Promise<void> {
-    if (!text.trim()) throw new Error("Message cannot be empty");
-    return this.sendMutation({ type: "edit", messageId, text: text.trim() });
+  async editMessage(messageId: string, text: string, expectedEditTime: number): Promise<void> {
+    return this.sendMutation(messageId, { kind: "edit", text: text.trim(), expectedEditTime });
   }
-
-  async deleteMessage(messageId: string): Promise<void> {
-    return this.sendMutation({ type: "delete", messageId });
+  async deleteMessage(messageId: string, expectedEditTime: number): Promise<void> {
+    return this.sendMutation(messageId, { kind: "delete", expectedEditTime });
   }
-
-  async votePoll(messageId: string, optionId: string): Promise<void> {
-    return this.sendMutation({ type: "vote", messageId, optionId });
+  async votePoll(messageId: string, optionId: string, expectedOptionId: string | null): Promise<void> {
+    return this.sendMutation(messageId, { kind: "vote", optionId, expectedOptionId });
   }
-
-  async toggleReaction(messageId: string, emoji: string): Promise<void> {
-    return this.sendMutation({ type: "reaction", messageId, emoji });
+  async setReaction(messageId: string, emoji: string, active: boolean): Promise<void> {
+    return this.sendMutation(messageId, { kind: "reaction", emoji, active });
   }
+  onMutations(callback: (work: ChatMutationWork[]) => void): () => void {
+    const tracker = this.mutations;
+    callback(tracker?.snapshot() ?? []);
+    return tracker?.subscribe(() => callback(tracker.snapshot())) ?? (() => {});
+  }
+  retryMutation(id: string) { this.mutations?.retry(id); }
+  dismissMutation(id: string) { this.mutations?.dismiss(id); }
 
   setTyping(typing: boolean): void {
     if (this.status === "connected" && this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: "typing", typing }));
@@ -277,11 +272,7 @@ export class NativeChatAdapter implements ChatAdapter {
     this.clearDeliveryTimers();
     this.messageQueue = this.messageQueue.map((item) => item.status === "sending" ? { ...item, status: "waiting" } : item);
     this.persistAndNotifyOutbox();
-    for (const pending of this.pendingMutations.values()) {
-      clearTimeout(pending.timer);
-      pending.reject(new Error("Chat disconnected before the update completed"));
-    }
-    this.pendingMutations.clear();
+    this.releaseMutations?.(); this.releaseMutations = null; this.serverClock = null;
   }
 
   async sendMessage(
@@ -383,17 +374,26 @@ export class NativeChatAdapter implements ChatAdapter {
 
   // -- Private helpers --
 
-  private sendMutation(payload: { type: "edit" | "delete" | "vote" | "reaction"; messageId: string; text?: string; optionId?: string; emoji?: string }): Promise<void> {
-    if (this.status !== "connected" || !this.ws || this.ws.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Chat has not confirmed this room. Reconnect and try again."));
-    const requestId = createBrowserRequestId();
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pendingMutations.delete(requestId);
-        reject(new Error("The message update timed out. Please try again."));
-      }, 8000);
-      this.pendingMutations.set(requestId, { payload, resolve, reject, timer });
-      this.ws!.send(JSON.stringify({ ...payload, requestId }));
-    });
+  private bindMutations() {
+    this.releaseMutations?.();
+    this.releaseMutations = this.mutations?.bind({
+      send: command => {
+        if (this.status !== "connected" || !this.ws || this.ws.readyState !== WebSocket.OPEN) throw new Error("Chat disconnected. Reconnect to recover this change.");
+        this.ws.send(JSON.stringify({ type: "mutation", command }));
+      },
+      confirmed: command => {
+        const operation = command.operation, target = this.messageHistory.find(message => message.id === command.messageId);
+        if (operation.kind === "reaction" && operation.active && target?.senderId && target.senderId !== command.userId) {
+          chatNotifications(command).submit({ kind: "reaction", orgId: command.orgId, userId: command.userId, roomId: command.roomId,
+            requestId: command.requestId, messageId: command.messageId, targetUserId: target.senderId, emoji: operation.emoji }, `Reaction ${operation.emoji} to ${target.senderName}'s message`);
+        }
+      },
+    }) ?? null;
+  }
+  private sendMutation(messageId: string, operation: ChatMutationOperation): Promise<void> {
+    if (this.status !== "connected" || !this.mutations || !this.currentUserId || !this.serverClock) return Promise.reject(new Error("Chat is not ready to change messages. Reconnect and try again."));
+    return this.mutations.start({ orgId: this.orgId, userId: this.currentUserId, roomId: this.roomId, messageId,
+      requestId: createBrowserRequestId(), expiresAt: Math.floor(this.serverClock.at + performance.now() - this.serverClock.receivedAt + 10_000), operation });
   }
 
   private setStatus(status: ConnectionStatus) {

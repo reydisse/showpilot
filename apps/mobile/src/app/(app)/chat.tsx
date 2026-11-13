@@ -1,3 +1,6 @@
+import { chatEditTime } from "@showpilot/shared/chat-mutation";
+import { ChatMutationTrackedError } from "@showpilot/shared/chat-mutation-tracker";
+import { ChatMutationStatus } from "@/components/chat-mutation-status";
 import { ChatInvitationSheet } from "@/components/chat-invitation-sheet";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isEmojiReaction } from "@showpilot/shared";
@@ -5,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import Check from "lucide-react-native/icons/check";
 import ChevronDown from "lucide-react-native/icons/chevron-down";
 import CornerUpLeft from "lucide-react-native/icons/corner-up-left";
+import Ellipsis from "lucide-react-native/icons/ellipsis";
 import Hash from "lucide-react-native/icons/hash";
 import ImageIcon from "lucide-react-native/icons/image";
 import Pencil from "lucide-react-native/icons/pencil";
@@ -102,7 +106,8 @@ interface MessageCardProps {
   onLongPress: (message: MobileChatMessage) => void;
   onOpenAttachment: (attachment: NonNullable<MobileChatMessage["attachments"]>[number]) => void;
   onToggleReaction: (message: MobileChatMessage, emoji: MobileChatReactionEmoji) => void;
-  onVote: (messageId: string, optionId: string) => void;
+  onVote: (messageId: string, optionId: string, expectedOptionId: string | null) => void;
+  mutationPending: boolean;
   avatarUrl?: string | null;
   onReply: (message: MobileChatMessage) => void;
 }
@@ -119,6 +124,7 @@ const MessageCard = memo(function MessageCard({
   onOpenAttachment,
   onToggleReaction,
   onVote,
+  mutationPending,
   avatarUrl,
   onReply,
 }: MessageCardProps) {
@@ -224,7 +230,7 @@ const MessageCard = memo(function MessageCard({
           {message.poll.options.map((option) => {
             const selected = Boolean(currentUserId && option.voterIds.includes(currentUserId));
             return (
-              <Pressable accessibilityRole="button" accessibilityState={{ selected }} key={option.id} onPress={() => onVote(message.id, option.id)} style={[styles.pollOption, selected && styles.pollOptionSelected]}>
+              <Pressable accessibilityRole="button" disabled={mutationPending} accessibilityState={{ selected, disabled: mutationPending }} key={option.id} onPress={() => onVote(message.id, option.id, message.poll?.options.find(item => currentUserId && item.voterIds.includes(currentUserId))?.id ?? null)} style={[styles.pollOption, selected && styles.pollOptionSelected]}>
                 <View style={[styles.pollCheck, selected && styles.pollCheckSelected]}>{selected ? <Check color={styles.pollCheckMark.color} size={11} strokeWidth={3} /> : null}</View>
                 <Text style={styles.pollOptionText}>{option.text}</Text>
                 <Text style={styles.pollCount}>{option.voterIds.length}</Text>
@@ -239,18 +245,21 @@ const MessageCard = memo(function MessageCard({
             {message.reactions.filter((reaction) => reaction.userIds.length > 0).map((reaction) => {
             const selected = Boolean(currentUserId && reaction.userIds.includes(currentUserId));
             return (
-              <Pressable accessibilityRole="button" accessibilityState={{ selected }} key={reaction.emoji} onPress={() => onToggleReaction(message, reaction.emoji)} style={[styles.reaction, selected && styles.reactionSelected]}>
+              <Pressable accessibilityRole="button" disabled={mutationPending} accessibilityState={{ selected, disabled: mutationPending }} key={reaction.emoji} onPress={() => onToggleReaction(message, reaction.emoji)} style={[styles.reaction, selected && styles.reactionSelected]}>
                 <Text style={styles.reactionText}>{reaction.emoji} {reaction.userIds.length}</Text>
               </Pressable>
             );
             })}
           </View>
         ) : null}
-        {showMeta ? <View style={[styles.messageMeta, own && !operational && styles.messageMetaOwn]}>
+        {showMeta || !deleted ? <View style={[styles.messageMeta, own && !operational && styles.messageMetaOwn]}>
+          {showMeta ? <>
           {message.external ? <Text style={styles.gatewayBadge}>{message.external.platform}</Text> : null}
           <Text style={styles.time}>{new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>
           {message.editedAt && !deleted ? <Text style={styles.edited}>edited</Text> : null}
           {own && seen ? <Text style={styles.seen}>Seen</Text> : null}
+          </> : null}
+          {!deleted ? <Pressable accessibilityRole="button" accessibilityLabel={`Message actions: ${readableChatText(message.text).slice(0, 80) || "attachment"}`} onPress={() => onLongPress(message)} style={styles.messageActions}><Ellipsis color={styles.time.color} size={20} /></Pressable> : null}
         </View> : null}
         {message.externalDelivery?.status === "pending" ? <Text style={styles.deliveryPending}>Sending to {message.externalDelivery.platform}…</Text> : null}
         {message.externalDelivery?.status === "failed" ? <Text style={styles.deliveryFailed}>Not delivered to {message.externalDelivery.platform}: {message.externalDelivery.error ?? "gateway unavailable"}</Text> : null}
@@ -297,6 +306,14 @@ export default function ChatScreen() {
     : "production";
   const focusedMessageId = typeof params.message === "string" ? params.message : null;
   const relay = useChatRelay(organization?.id, roomId, session?.user.id);
+  const mutationScope = JSON.stringify([session?.user.id, organization?.id, roomId]);
+  const currentMutationScope = useRef(mutationScope); currentMutationScope.current = mutationScope;
+  const [mutationError, setMutationError] = useState<{ scope: string; message: string; at: number } | null>(null);
+  const mutationFailure = useCallback((error: unknown) => {
+    if (currentMutationScope.current !== mutationScope) return;
+    setMutationError(error instanceof ChatMutationTrackedError ? null : { scope: mutationScope, message: error instanceof Error ? error.message : "Message change was not confirmed. Reconnect and retry.", at: Date.now() });
+  }, [mutationScope]);
+  const blockedMessages = useMemo(() => new Set(relay.mutations.filter(item => item.state !== "settled" || item.result.cleanup !== "complete").map(item => item.command.messageId)), [relay.mutations]);
   const bootstrap = useMobileBootstrap();
   const openingShow = bootstrap.data?.shows[0];
   const canViewRundown = bootstrap.data?.identity.permissions.some((permission) => permission === "rundown:view" || permission === "rundown:control") ?? false;
@@ -312,7 +329,7 @@ export default function ChatScreen() {
     markRead,
     messages,
     readReceipts,
-    toggleReaction: mutateReaction,
+    setReaction: mutateReaction,
     votePoll,
   } = relay;
   const membersQuery = useQuery({
@@ -447,11 +464,13 @@ export default function ChatScreen() {
     const submitted = composer.capture();
     if (editing) {
       try {
-        await relay.editMessage(editing.id, text);
-        clearComposer(submitted);
+        await relay.editMessage(editing.id, text, chatEditTime(editing));
+        composer.clear(submitted);
+        if (currentMutationScope.current !== mutationScope) return;
+        relay.setTyping(false);
         await Haptics.selectionAsync();
       } catch (error) {
-        Alert.alert("Message not edited", error instanceof Error ? error.message : "Try again.");
+        mutationFailure(error);
       }
       return;
     }
@@ -601,9 +620,9 @@ export default function ChatScreen() {
     setActionTarget(null);
     Alert.alert("Delete message?", "The message will remain in the conversation as deleted.", [
       { text: "Keep message", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: () => void deleteMessage(message.id).catch((error: Error) => Alert.alert("Message not deleted", error.message)) },
+      { text: "Delete", style: "destructive", onPress: () => void deleteMessage(message.id, chatEditTime(message)).catch(mutationFailure) },
     ]);
-  }, [deleteMessage]);
+  }, [deleteMessage, mutationFailure]);
 
   const reportMessage = useCallback((message: MobileChatMessage) => {
     if (!organization) return;
@@ -634,14 +653,16 @@ export default function ChatScreen() {
   }, [organization, safetyQuery]);
 
   const toggleReaction = useCallback(async (message: MobileChatMessage, emoji: MobileChatReactionEmoji) => {
+    // Recovery lives beside the composer. A picker must not cover the pending
+    // state or its failure, and a late result must not close a newer picker.
+    setReactionTarget(null);
+    setCustomReaction("");
     try {
-      await mutateReaction(message.id, emoji);
-      setReactionTarget(null);
-      setCustomReaction("");
+      await mutateReaction(message.id, emoji, !message.reactions?.some(reaction => reaction.emoji === emoji && session?.user.id && reaction.userIds.includes(session.user.id)));
     } catch (error) {
-      Alert.alert("Reaction not saved", error instanceof Error ? error.message : "Try again.");
+      mutationFailure(error);
     }
-  }, [mutateReaction]);
+  }, [mutateReaction, mutationFailure, session?.user.id]);
 
   const openMessageAttachment = useCallback((file: MobileChatAttachment) => {
     void openAttachment(file);
@@ -651,9 +672,9 @@ export default function ChatScreen() {
     void toggleReaction(message, emoji);
   }, [toggleReaction]);
 
-  const voteOnMessagePoll = useCallback((messageId: string, optionId: string) => {
-    void votePoll(messageId, optionId).catch((error: Error) => Alert.alert("Vote not saved", error.message));
-  }, [votePoll]);
+  const voteOnMessagePoll = useCallback((messageId: string, optionId: string, expectedOptionId: string | null) => {
+    void votePoll(messageId, optionId, expectedOptionId).catch(mutationFailure);
+  }, [votePoll, mutationFailure]);
 
   function trackScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
     if (!userHasScrolledRef.current) return;
@@ -703,12 +724,13 @@ export default function ChatScreen() {
           onReply={beginReply}
           onToggleReaction={toggleMessageReaction}
           onVote={voteOnMessagePoll}
+          mutationPending={blockedMessages.has(item.id)}
           own={item.senderId === currentUserId}
           seen={roomId.startsWith("dm:") && item.id === latestOwnMessageId && otherReadAt >= item.timestamp}
         />
       </View>
     ),
-    [attachmentHeaders, beginReply, currentUserId, displayMessages, latestOwnMessageId, memberImageById, openMessageActions, openMessageAttachment, otherReadAt, roomId, toggleMessageReaction, voteOnMessagePoll],
+    [attachmentHeaders, beginReply, currentUserId, displayMessages, latestOwnMessageId, memberImageById, openMessageActions, openMessageAttachment, otherReadAt, roomId, toggleMessageReaction, voteOnMessagePoll, blockedMessages],
   );
 
   if (organizationPending) return <LoadingView label="Opening chat…" />;
@@ -764,11 +786,13 @@ export default function ChatScreen() {
           {showLatestButton ? <Pressable accessibilityRole="button" accessibilityLabel="Jump to latest messages" onPress={scrollToLatest} style={({ pressed }) => [styles.latestButton, pressed && styles.pressed]}><ChevronDown color={colors.text} size={15} /><Text style={styles.latestButtonText}>Latest</Text></Pressable> : null}
         </View>
         {relay.typingUsers.filter((user) => user.userId !== currentUserId).length ? <Text style={styles.typing}>{relay.typingUsers.filter((user) => user.userId !== currentUserId).map((user) => user.name).join(", ")} typing…</Text> : null}
+        <ChatMutationStatus items={relay.mutations} connected={relay.status === "connected"} retry={relay.retryMutation} dismiss={relay.dismissMutation} />
+        {mutationError?.scope === mutationScope ? <View><Text accessibilityRole="alert" style={styles.error}>{mutationError.message}</Text><Text style={styles.error}>Updated {new Date(mutationError.at).toLocaleTimeString()}</Text></View> : null}
         {replyingTo || editing ? (
           <View style={styles.composerContext}>
             {editing ? <Pencil color={colors.amberText} size={15} /> : <CornerUpLeft color={colors.amberText} size={15} />}
             <View style={styles.composerContextCopy}><Text style={styles.composerContextTitle}>{editing ? "Editing message" : `Replying to ${replyingTo?.senderName}`}</Text><Text numberOfLines={1} style={styles.composerContextText}>{readableChatText((editing ?? replyingTo)?.text ?? "")}</Text></View>
-            <Pressable accessibilityLabel="Cancel message action" onPress={() => { setEditing(null); setReplyingTo(null); if (editing) setText(""); }}><X color={colors.textMuted} size={18} /></Pressable>
+            <Pressable accessibilityRole="button" style={styles.composerToolButton} accessibilityLabel="Cancel message action" onPress={() => { setEditing(null); setReplyingTo(null); if (editing) setText(""); }}><X color={colors.textMuted} size={18} /></Pressable>
           </View>
         ) : null}
         {attachment ? <View style={styles.pendingAttachment}><ImageIcon color={colors.amberText} size={17} /><Text numberOfLines={1} style={styles.pendingAttachmentName}>{attachment.name}</Text><Pressable accessibilityLabel="Remove attachment" onPress={() => setAttachment(null)}><X color={colors.textMuted} size={17} /></Pressable></View> : null}
@@ -777,7 +801,7 @@ export default function ChatScreen() {
           {!editing ? <Pressable accessibilityRole="button" accessibilityLabel="Open message tools" onPress={() => setToolsOpen(true)} style={styles.composerToolButton}>{uploading ? <ActivityIndicator color={colors.textMuted} size="small" /> : <Paperclip color={colors.textMuted} size={20} />}</Pressable> : null}
           {messageType !== "text" && !editing ? <View style={[styles.composerTypeBadge, messageType === "alert" && styles.composerTypeBadgeAlert]}><Text style={[styles.composerTypeBadgeText, messageType === "alert" && styles.composerTypeBadgeTextAlert]}>{messageType}</Text></View> : null}
           <TextInput accessibilityLabel={`Message ${roomTitle}`} multiline maxLength={4000} value={text} onChangeText={updateText} placeholder={relay.status !== "connected" ? "Message will send when reconnected…" : `Message ${roomTitle}…`} placeholderTextColor={colors.textFaint} style={styles.input} />
-          <Pressable accessibilityRole="button" accessibilityLabel={editing ? "Save edited message" : "Send message"} accessibilityState={{ disabled: !text.trim() && !attachment }} disabled={!text.trim() && !attachment} onPress={() => void submit()} style={({ pressed }) => [styles.send, !text.trim() && !attachment && styles.disabled, pressed && styles.pressed]}><Send color={colors.black} size={19} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={editing ? "Save edited message" : "Send message"} accessibilityState={{ disabled: (!text.trim() && !attachment) || Boolean(editing && blockedMessages.has(editing.id)) }} disabled={(!text.trim() && !attachment) || Boolean(editing && blockedMessages.has(editing.id))} onPress={() => void submit()} style={({ pressed }) => [styles.send, !text.trim() && !attachment && styles.disabled, pressed && styles.pressed]}><Send color={colors.black} size={19} /></Pressable>
         </View>
       </Page>
 
@@ -853,15 +877,15 @@ export default function ChatScreen() {
         <Pressable onPress={() => setActionTarget(null)} style={styles.modalBackdropCenter}>
           <Pressable onPress={() => undefined} style={styles.actionSheet}>
             <Text style={styles.reactionPickerTitle}>Message actions</Text>
-            <Pressable onPress={() => actionTarget && beginReply(actionTarget)} style={styles.actionButton}><CornerUpLeft color={colors.textMuted} size={17} /><Text style={styles.actionText}>Reply</Text></Pressable>
-            <Pressable onPress={() => { setReactionTarget(actionTarget); setActionTarget(null); }} style={styles.actionButton}><Text style={styles.actionEmoji}>👍</Text><Text style={styles.actionText}>Add reaction</Text></Pressable>
+            <Pressable accessibilityRole="button" onPress={() => actionTarget && beginReply(actionTarget)} style={styles.actionButton}><CornerUpLeft color={colors.textMuted} size={17} /><Text style={styles.actionText}>Reply</Text></Pressable>
+            <Pressable accessibilityRole="button" disabled={Boolean(actionTarget && blockedMessages.has(actionTarget.id))} onPress={() => { setReactionTarget(actionTarget); setActionTarget(null); }} style={styles.actionButton}><Text style={styles.actionEmoji}>👍</Text><Text style={styles.actionText}>Add reaction</Text></Pressable>
             {actionTarget?.senderId && actionTarget.senderId !== currentUserId ? <>
               <Pressable onPress={() => actionTarget && reportMessage(actionTarget)} style={styles.actionButton}><Text style={styles.actionEmoji}>⚑</Text><Text style={styles.actionText}>Report message</Text></Pressable>
               {!actionTarget.external ? <Pressable onPress={() => actionTarget && confirmBlock(actionTarget)} style={styles.actionButton}><Text style={styles.actionEmoji}>🚫</Text><Text style={[styles.actionText, styles.actionDanger]}>Block {actionTarget.senderName}</Text></Pressable> : null}
             </> : null}
             {actionTarget?.senderId === currentUserId ? <>
-              <Pressable onPress={() => { if (actionTarget) { setReplyingTo(null); setEditing(actionTarget); setText(actionTarget.text); } setActionTarget(null); }} style={styles.actionButton}><Pencil color={colors.textMuted} size={17} /><Text style={styles.actionText}>Edit message</Text></Pressable>
-              <Pressable onPress={() => { if (actionTarget) confirmDelete(actionTarget); }} style={styles.actionButton}><Trash2 color={colors.red} size={17} /><Text style={[styles.actionText, styles.actionDanger]}>Delete message</Text></Pressable>
+              <Pressable accessibilityRole="button" disabled={Boolean(actionTarget && blockedMessages.has(actionTarget.id))} onPress={() => { if (actionTarget) { setReplyingTo(null); setEditing(actionTarget); setText(actionTarget.text); } setActionTarget(null); }} style={styles.actionButton}><Pencil color={colors.textMuted} size={17} /><Text style={styles.actionText}>Edit message</Text></Pressable>
+              <Pressable accessibilityRole="button" disabled={Boolean(actionTarget && blockedMessages.has(actionTarget.id))} onPress={() => { if (actionTarget) confirmDelete(actionTarget); }} style={styles.actionButton}><Trash2 color={colors.red} size={17} /><Text style={[styles.actionText, styles.actionDanger]}>Delete message</Text></Pressable>
             </> : null}
           </Pressable>
         </Pressable>
@@ -871,10 +895,10 @@ export default function ChatScreen() {
         <Pressable onPress={() => setReactionTarget(null)} style={styles.modalBackdropCenter}>
           <Pressable onPress={() => undefined} style={styles.reactionPicker}>
             <Text style={styles.reactionPickerTitle}>React to message</Text>
-            <ScrollView contentContainerStyle={styles.reactionPickerRow}>{mobileChatReactionEmojis.map((emoji) => <Pressable accessibilityLabel={`React ${emoji}`} key={emoji} onPress={() => reactionTarget && void toggleReaction(reactionTarget, emoji)} style={styles.reactionPickerChoice}><Text style={styles.reactionPickerEmoji}>{emoji}</Text></Pressable>)}</ScrollView>
+            <ScrollView contentContainerStyle={styles.reactionPickerRow}>{mobileChatReactionEmojis.map((emoji) => <Pressable accessibilityRole="button" accessibilityLabel={`React ${emoji}`} disabled={Boolean(reactionTarget && blockedMessages.has(reactionTarget.id))} key={emoji} onPress={() => reactionTarget && void toggleReaction(reactionTarget, emoji)} style={styles.reactionPickerChoice}><Text style={styles.reactionPickerEmoji}>{emoji}</Text></Pressable>)}</ScrollView>
             <View style={styles.customReactionRow}>
               <TextInput accessibilityLabel="Type or paste any emoji" maxLength={32} onChangeText={setCustomReaction} placeholder="Any emoji" placeholderTextColor={colors.textFaint} style={styles.customReactionInput} value={customReaction} />
-              <Pressable accessibilityRole="button" accessibilityState={{ disabled: !isEmojiReaction(customReaction) }} disabled={!isEmojiReaction(customReaction)} onPress={() => reactionTarget && void toggleReaction(reactionTarget, customReaction)} style={[styles.customReactionButton, !isEmojiReaction(customReaction) && styles.disabled]}><Text style={styles.customReactionButtonText}>Add</Text></Pressable>
+              <Pressable accessibilityRole="button" accessibilityState={{ disabled: !isEmojiReaction(customReaction) || Boolean(reactionTarget && blockedMessages.has(reactionTarget.id)) }} disabled={!isEmojiReaction(customReaction) || Boolean(reactionTarget && blockedMessages.has(reactionTarget.id))} onPress={() => reactionTarget && void toggleReaction(reactionTarget, customReaction)} style={[styles.customReactionButton, !isEmojiReaction(customReaction) && styles.disabled]}><Text style={styles.customReactionButtonText}>Add</Text></Pressable>
             </View>
           </Pressable>
         </Pressable>
@@ -907,7 +931,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   connection: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
   connected: { color: colors.green },
   shareButton: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 19, backgroundColor: colors.panelStrong },
-  error: { color: colors.red, fontFamily, fontSize: 11 },
+  error: { color: colors.red, fontFamily, fontSize: 12, lineHeight: 18, paddingHorizontal: 12 },
   liveStatus: { minHeight: 34, flexDirection: "row", alignItems: "center", gap: 7, borderBottomWidth: 1, borderBottomColor: colors.borderSoft, paddingHorizontal: 4 },
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.green },
   liveLabel: { color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "900", letterSpacing: 0.8 },
@@ -953,6 +977,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   messageKindLabelOwn: { color: colors.black },
   messageMeta: { minHeight: 14, flexDirection: "row", alignItems: "center", gap: 5, marginHorizontal: 9 },
   messageMetaOwn: { justifyContent: "flex-end" },
+  messageActions: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   gatewayBadge: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "800", textTransform: "capitalize" },
   time: { color: colors.textFaint, fontFamily, fontSize: 11 },
   messageText: { color: colors.text, fontFamily, fontSize: 14, lineHeight: 20 },
@@ -980,7 +1005,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   attachmentMetaOwn: { color: colors.textMuted },
   poll: { minWidth: 220, gap: 7, borderRadius: 12, backgroundColor: colors.stage, padding: 8 },
   pollQuestion: { color: colors.text, fontFamily, fontSize: 13, fontWeight: "800" },
-  pollOption: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10 },
+  pollOption: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10 },
   pollOptionSelected: { borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
   pollCheck: { width: 17, height: 17, alignItems: "center", justifyContent: "center", borderRadius: 9, borderWidth: 1, borderColor: colors.border },
   pollCheckSelected: { borderColor: colors.amber, backgroundColor: colors.amber },
@@ -988,7 +1013,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   pollOptionText: { flex: 1, color: colors.text, fontFamily, fontSize: 11 },
   pollCount: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "800" },
   reactions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 5 },
-  reaction: { minHeight: 27, justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 8 },
+  reaction: { minHeight: 44, minWidth: 44, justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 8 },
   reactionSelected: { borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
   reactionText: { color: colors.text, fontFamily, fontSize: 11 },
   deliveryPending: { maxWidth: 260, color: colors.textMuted, fontFamily, fontSize: 11 },

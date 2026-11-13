@@ -1,4 +1,5 @@
 import type { ChatNotificationWork } from "../chat-notifications";
+import type { ChatMutationWork } from "@showpilot/shared/chat-mutation-tracker";
 /**
  * Chat Adapter Interface
  *
@@ -98,15 +99,18 @@ export interface ChatAdapter {
   ): Promise<void>;
 
   /** Edit one of the current user's native messages. */
-  editMessage?(messageId: string, text: string): Promise<void>;
+  editMessage?(messageId: string, text: string, expectedEditTime: number): Promise<void>;
 
   /** Soft-delete one of the current user's native messages. */
-  deleteMessage?(messageId: string): Promise<void>;
-  votePoll?(messageId: string, optionId: string): Promise<void>;
-  toggleReaction?(messageId: string, emoji: string): Promise<void>;
+  deleteMessage?(messageId: string, expectedEditTime: number): Promise<void>;
+  votePoll?(messageId: string, optionId: string, expectedOptionId: string | null): Promise<void>;
+  setReaction?(messageId: string, emoji: string, active: boolean): Promise<void>;
   loadOlder?(limit?: number): Promise<{ messages: ChatMessage[]; nextCursor: { timestamp: number; id: string } | null }>;
   onNotifications?(callback: (work: ChatNotificationWork[]) => void): () => void;
   retryNotifications?(requestId: string): void;
+  onMutations?(callback: (work: ChatMutationWork[]) => void): () => void;
+  retryMutation?(requestId: string): void;
+  dismissMutation?(requestId: string): void;
   onOutboxChange?(callback: (messages: ChatMessage[]) => void): () => void;
   retryOutbox?(messageId: string): void;
   cancelOutbox?(messageId: string): void;

@@ -234,7 +234,7 @@ describe("ChatPanel conversation flow", () => {
     expect(screen.getByTestId("chat-scroll-region").className).toContain("overflow-x-hidden");
     expect(screen.getByText(longMessage.text).className).toContain("[overflow-wrap:anywhere]");
     expect(screen.getByRole("button", { name: "Reply to Alex" }).parentElement?.className).not.toContain("left-full");
-    expect(screen.getByRole("button", { name: "Reply to Alex" }).parentElement?.className).toContain("[@media(hover:hover)]:absolute");
+    expect(screen.getByRole("button", { name: "Reply to Alex" }).parentElement?.className).not.toContain("opacity-0");
   });
 
   it("keeps late-loading content at the latest message until the reader scrolls up", async () => {
@@ -336,4 +336,47 @@ it("defers composer height writes outside ResizeObserver and cancels them on unm
     expect(frames.size).toBeGreaterThan(0);
     view.unmount(); expect(frames.size).toBe(0);
   } finally { vi.unstubAllGlobals(); }
+});
+
+it("keeps uncertain edits visible and blocks conflicting row actions until recovery", () => {
+  const command = { orgId: "org", userId: "me", roomId: "production", messageId: "reply", requestId: crypto.randomUUID(), expiresAt: Date.now() + 10000,
+    operation: { kind: "edit" as const, text: "My captured draft", expectedEditTime: 2 } };
+  const retry = vi.fn(), dismiss = vi.fn();
+  render(<ChatPanel messages={[messages[1]]} connectionStatus="connected" unreadCount={0} currentUserId="me" onSendMessage={vi.fn()} onEditMessage={vi.fn()} onDeleteMessage={vi.fn()} onSetReaction={vi.fn()}
+    mutations={[{ command, state: "unknown", error: "Change not confirmed", at: 1000 }]} onRetryMutation={retry} onDismissMutation={dismiss} />);
+  const status = screen.getByRole("region", { name: "Message changes" });
+  expect(status.textContent).toContain("My captured draft"); expect(status.textContent).toContain("Change not confirmed");
+  expect(screen.getByRole("button", { name: "Edit message" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "Delete message" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "Choose reaction" })).toHaveProperty("disabled", true);
+  expect(within(status).queryByRole("button", { name: "Dismiss result" })).toBeNull();
+  fireEvent.click(within(status).getByRole("button", { name: "Recover original change" }));
+  expect(retry).toHaveBeenCalledWith(command.requestId); expect(dismiss).not.toHaveBeenCalled();
+});
+
+it("offers cleanup recovery for an applied delete and dismissal only after cleanup completes", () => {
+  const command = { orgId: "org", userId: "me", roomId: "production", messageId: "reply", requestId: crypto.randomUUID(), expiresAt: Date.now() + 10000,
+    operation: { kind: "delete" as const, expectedEditTime: 2 } };
+  const result = { command, outcome: "applied" as const, at: 2000, cleanup: "failed" as const };
+  const retry = vi.fn(), dismiss = vi.fn();
+  const base = { messages: [], connectionStatus: "connected" as const, unreadCount: 0, onSendMessage: vi.fn(), onRetryMutation: retry, onDismissMutation: dismiss };
+  const view = render(<ChatPanel {...base} mutations={[{ command, state: "settled", result, at: 2000 }]} />);
+  expect(screen.getByRole("alert").textContent).toContain("Message deleted");
+  expect(screen.queryByRole("button", { name: "Dismiss result" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Retry attachment cleanup" })); expect(retry).toHaveBeenCalledWith(command.requestId);
+  view.rerender(<ChatPanel {...base} mutations={[{ command, state: "settled", result: { ...result, cleanup: "complete" }, at: 2001 }]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss result" })); expect(dismiss).toHaveBeenCalledWith(command.requestId);
+});
+
+it("submits the captured edit version even when a newer message arrives while typing", async () => {
+  const edit = vi.fn().mockRejectedValue(new Error("The message changed. Review it again."));
+  const base = { connectionStatus: "connected" as const, currentUserId: "me", unreadCount: 0, onSendMessage: vi.fn(), onEditMessage: edit };
+  const view = render(<ChatPanel {...base} messages={[messages[1]]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Edit message" }));
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "My unfinished edit" } });
+  view.rerender(<ChatPanel {...base} messages={[{ ...messages[1], text: "A newer edit", editedAt: 99 }]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Save message" }));
+  await waitFor(() => expect(edit).toHaveBeenCalledWith("reply", "My unfinished edit", 2));
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Review it again"));
+  expect(screen.getByRole("textbox")).toHaveProperty("value", "My unfinished edit");
 });

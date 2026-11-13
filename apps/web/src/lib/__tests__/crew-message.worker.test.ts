@@ -17,7 +17,7 @@ async function post(stub: DurableObjectStub<ChatRelay>, delivery: CrewMessageDel
 afterEach(abortAllDurableObjects);
 const zero = { hours: 0, minutes: 0, seconds: 0, frames: 0 };
 const cue = { id: "crew", action: "crew-message", label: "Camera standby", triggerTimecode: zero, payload: { message: "Standby cameras\nCamera 2 next" } };
-type Message = { id: string; text: string; roomId: string; senderId: string; senderName: string; type: string; deletedAt?: number; externalDelivery?: { platform: string; status: string; error?: string } };
+type Message = { id: string; timestamp: number; text: string; roomId: string; senderId: string; senderName: string; type: string; deletedAt?: number; externalDelivery?: { platform: string; status: string; error?: string } };
 
 async function fixture() {
   const test = await timecodeFixture();
@@ -163,7 +163,12 @@ it("keeps a deleted message deleted when its delivery is retried", async () => {
   const socket = response.webSocket;
   if (!socket) throw new Error("Missing chat socket");
   socket.accept();
-  socket.send(JSON.stringify({ type: "delete", messageId: sent.messageId, requestId: "delete-fixture" }));
+  const original = (await test.history()).messages[0];
+  socket.send(JSON.stringify({ type: "mutation", command: {
+    orgId: test.orgId, userId: test.authority.userId, roomId: "production", messageId: sent.messageId,
+    requestId: crypto.randomUUID(), expiresAt: Date.now() + 10000,
+    operation: { kind: "delete", expectedEditTime: original.timestamp },
+  } }));
   await expect.poll(async () => (await test.history()).messages[0].deletedAt).toBeTypeOf("number");
   await evictDurableObject(test.chat);
   await post(test.chat, { ...delivery, deadline: Date.now() + 10000 });

@@ -11,6 +11,8 @@ export const OPERATIONAL_ERRORS = {
   rundown_persistence: { source: "RundownRelay", message: "The rundown change could not be saved." },
   chat_gateway_operation: { source: "ChatRelay", message: "An external chat operation failed." },
   chat_gateway_sync: { source: "ChatRelay", message: "External chat synchronization failed." },
+  chat_attachment_cleanup: { source: "ChatRelay", message: "Deleted chat attachment cleanup was not confirmed." },
+  chat_mutation: { source: "ChatRelay", message: "A chat message change could not be confirmed." },
 } as const;
 export type OperationalErrorCode = keyof typeof OPERATIONAL_ERRORS;
 export const errorNameSchema = z.enum(["Error", "TypeError", "SyntaxError", "RangeError", "ReferenceError", "URIError", "AggregateError", "AbortError", "Unknown"]);
