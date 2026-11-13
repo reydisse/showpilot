@@ -33,6 +33,14 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, capturedEmai
         await new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)));
         await Promise.all(document.getAnimations().filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished.catch(() => {})));
       });
+      const title = page.getByRole("heading", { name: "Assignment keyboard fixture", exact: true });
+      const titleLayout = await title.evaluate(node => {
+        const panel = node.closest("section");
+        const style = getComputedStyle(panel);
+        const available = panel.getBoundingClientRect().width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+        return { width: node.parentElement.parentElement.getBoundingClientRect().width, minimum: Math.min(288, available) };
+      });
+      if (!audit) assert.ok(titleLayout.width >= titleLayout.minimum - 1, `Show title squeezed at ${width}: ${JSON.stringify(titleLayout)}`);
       const report = await page.evaluate(() => {
         const visible = node => node.getBoundingClientRect().width > 0;
         const ids = ["assignment-accept", "assignment-decline", "assignment-other", "roster-empty-department", "roster-padded-department"];

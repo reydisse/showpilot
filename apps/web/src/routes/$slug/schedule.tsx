@@ -408,7 +408,7 @@ function SchedulePage() {
             <>
               <section className="border-b border-board-border bg-board-card px-4 py-5 md:px-6">
                 <div className="flex flex-wrap items-start gap-4">
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-[1_1_18rem]">
                     <button
                       disabled={!data.canManage}
                       onClick={() => setServiceOpen(true)}
