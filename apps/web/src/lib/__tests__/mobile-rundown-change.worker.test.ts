@@ -38,6 +38,7 @@ async function fixture() {
   const state = async () =>
     (await stub.fetch(`https://rundown.test/state?${query}`)).json<{
       revision: number;
+      stageMessage: string;
       items: Array<{
         id: string;
         title: string;
@@ -461,4 +462,45 @@ it("native editing rejects forged operational fields and changed actor before mu
     /account changed/,
   );
   expect((await f.state()).items).toEqual(before.items);
+});
+
+it("stage-send retry after eviction preserves a later operator message", async () => {
+  const f = await fixture();
+  const request: RundownChangeCommand = {
+    ...f.scope,
+    requestId: crypto.randomUUID(),
+    expectedRevision: (await f.state()).revision,
+    action: "stage-message",
+    message: "!!PRIORITY!!Stand by",
+  };
+  expect(await f.send(request)).toMatchObject({ outcome: "applied" });
+  expect((await f.state()).stageMessage).toBe(request.message);
+  await f.command("stage-message", { message: "Later operator" });
+  const before = await f.state();
+  await evictDurableObject(f.stub);
+  expect(await f.send(request)).toMatchObject({ outcome: "applied" });
+  expect((await f.state()).stageMessage).toBe("Later operator");
+  expect((await f.state()).revision).toBe(before.revision);
+  expect(
+    await f.send({ ...request, requestId: crypto.randomUUID() }),
+  ).toMatchObject({ outcome: "conflict" });
+});
+it("stage-clear retries cannot clear a later message and stale confirmations conflict", async () => {
+  const f = await fixture();
+  await f.command("stage-message", { message: "Review me" });
+  const request: RundownChangeCommand = {
+    ...f.scope,
+    requestId: crypto.randomUUID(),
+    expectedRevision: (await f.state()).revision,
+    action: "stage-clear",
+  };
+  expect(await f.send(request)).toMatchObject({ outcome: "applied" });
+  expect((await f.state()).stageMessage).toBe("");
+  await f.command("stage-message", { message: "Keep this message" });
+  await evictDurableObject(f.stub);
+  expect(await f.send(request)).toMatchObject({ outcome: "applied" });
+  expect((await f.state()).stageMessage).toBe("Keep this message");
+  expect(
+    await f.send({ ...request, requestId: crypto.randomUUID() }),
+  ).toMatchObject({ outcome: "conflict" });
 });

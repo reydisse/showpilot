@@ -43,6 +43,13 @@ export const rundownChangeCommandSchema = z.discriminatedUnion("action", [
   scope.extend({ action: z.literal("reset") }).strict(),
   scope
     .extend({
+      action: z.literal("stage-message"),
+      message: z.string().trim().min(1).max(2000),
+    })
+    .strict(),
+  scope.extend({ action: z.literal("stage-clear") }).strict(),
+  scope
+    .extend({
       action: z.literal("add-item"),
       itemId: z.string().min(1).max(128),
       fields: rundownItemFieldsSchema,
