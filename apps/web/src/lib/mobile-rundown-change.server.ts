@@ -48,7 +48,7 @@ export async function applyMobileRundownChange(
     orgId: command.orgId,
     showId: command.showId,
     serviceDate: command.serviceDate,
-    access: "edit",
+    access: command.action === "reset" ? "control" : "edit",
     authUserId: actor.userId,
     authSessionId: actor.sessionId,
   });
@@ -84,7 +84,7 @@ export async function applyMobileRundownChange(
     await response.body?.cancel();
     throw new Error(
       response.status === 401 || response.status === 403
-        ? "Your rundown editing access changed. Restore access before retrying this action."
+        ? "Your rundown access changed. Restore access before retrying this action."
         : "The rundown action could not be confirmed. Retry the original request.",
     );
   }

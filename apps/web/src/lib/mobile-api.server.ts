@@ -1434,8 +1434,9 @@ async function changeMobileRundown(
   url: URL,
   showId: string,
   env: MobileApiEnvironment,
+  mode: "edit" | "reset",
 ) {
-  const access = await authorize(request, url, env.DB, ["rundown:edit"]);
+  const access = await authorize(request, url, env.DB, [mode === "reset" ? "rundown:control" : "rundown:edit"]);
   if (access instanceof Response) return access;
   const { rundownChangeCommandSchema } =
     await import("../../../mobile/src/lib/rundown-change-recovery");
@@ -1446,6 +1447,8 @@ async function changeMobileRundown(
       400,
     );
   const command = parsed.data;
+  if ((mode === "reset") !== (command.action === "reset"))
+    return json({ error: "Use the original rundown action endpoint." }, 400);
   if (
     command.orgId !== access.orgId ||
     command.userId !== access.identity.userId ||
@@ -1486,7 +1489,7 @@ async function changeMobileRundown(
     return json(
       {
         error:
-          "The rundown action could not be confirmed. Check your editing access and retry the original request.",
+          "The rundown action could not be confirmed. Check your rundown access and retry the original request.",
       },
       503,
     );
@@ -7745,10 +7748,10 @@ export async function handleMobileApi(
     const showId=decodePathId(replacementMatch[1]);
     return showId ? recoverMobileRundownReplacement(request,url,showId,env,replacementMatch[2] === "command" ? "save" : replacementMatch[2] === "review" ? "review" : "read") : json({error:"Not found."},404);
   }
-  const rundownChangeMatch=url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)\/change$/);
+  const rundownChangeMatch=url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)\/(change|reset)$/);
   if(rundownChangeMatch && request.method === "POST"){
     const showId=decodePathId(rundownChangeMatch[1]);
-    return showId ? changeMobileRundown(request,url,showId,env) : json({error:"Not found."},404);
+    return showId ? changeMobileRundown(request,url,showId,env,rundownChangeMatch[2] === "reset" ? "reset" : "edit") : json({error:"Not found."},404);
   }
   const rundownDetailsMatch = url.pathname.match(/^\/api\/mobile\/v1\/rundowns\/([^/]+)\/details(?:\/(command|review))?$/);
   if (rundownDetailsMatch && ((request.method === "GET" && !rundownDetailsMatch[2]) || (request.method === "POST" && rundownDetailsMatch[2]))) {

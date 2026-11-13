@@ -38,16 +38,29 @@ async function fixture() {
   const state = async () =>
     (await stub.fetch(`https://rundown.test/state?${query}`)).json<{
       revision: number;
-      items: Array<{ id: string; status: string }>;
-      timer: { playback: string; currentItemId: string | null };
+      items: Array<{
+        id: string;
+        title: string;
+        status: string;
+        actualStart: string | null;
+        actualEnd: string | null;
+      }>;
+      timer: {
+        playback: string;
+        currentItemId: string | null;
+        elapsed: number;
+      };
     }>();
   async function command(action: string, payload: unknown = {}) {
     const commandQuery = new URLSearchParams(query);
     if (action.startsWith("timer-")) commandQuery.set("access", "control");
-    const response = await stub.fetch(`https://rundown.test/command?${commandQuery}`, {
-      method: "POST",
-      body: JSON.stringify({ id: crypto.randomUUID(), action, payload }),
-    });
+    const response = await stub.fetch(
+      `https://rundown.test/command?${commandQuery}`,
+      {
+        method: "POST",
+        body: JSON.stringify({ id: crypto.randomUUID(), action, payload }),
+      },
+    );
     expect(response.status).toBe(200);
     await response.text();
   }
@@ -263,4 +276,101 @@ it("does not cross actor, organization or show-date boundaries", async () => {
     { outcome: "conflict" },
   );
   expect((await f.state()).items).toHaveLength(2);
+});
+
+it("reset clears actual timing without deleting items or changing the show", async () => {
+  const f = await fixture();
+  await f.command("timer-start", { itemId: "welcome" });
+  await f.command("timer-next");
+  await f.command("timer-pause");
+  const before = await f.state();
+  expect(before.items[0].actualStart).toBeTruthy();
+  expect(before.items[0].actualEnd).toBeTruthy();
+  const request: RundownChangeCommand = {
+    ...f.scope,
+    requestId: crypto.randomUUID(),
+    expectedRevision: before.revision,
+    action: "reset",
+  };
+  expect(await f.send(request)).toMatchObject({ outcome: "applied" });
+  const after = await f.state();
+  expect(after.items.map(({ id, title }) => ({ id, title }))).toEqual(
+    before.items.map(({ id, title }) => ({ id, title })),
+  );
+  expect(
+    after.items.every(
+      (item) =>
+        item.status === "upcoming" &&
+        item.actualStart === null &&
+        item.actualEnd === null,
+    ),
+  ).toBe(true);
+  expect(after.timer).toMatchObject({
+    playback: "stop",
+    currentItemId: null,
+    elapsed: 0,
+  });
+  expect(
+    await env.DB.prepare("SELECT name FROM rundown WHERE orgId=? AND id=?")
+      .bind(f.scope.orgId, f.scope.showId)
+      .first(),
+  ).toMatchObject({ name: "Native removal show" });
+});
+it("reset rejects playing state and a stale reviewed revision", async () => {
+  const f = await fixture();
+  await f.command("timer-start", { itemId: "welcome" });
+  const before = await f.state();
+  const request: RundownChangeCommand = {
+    ...f.scope,
+    requestId: crypto.randomUUID(),
+    expectedRevision: before.revision,
+    action: "reset",
+  };
+  expect(await f.send(request)).toMatchObject({ outcome: "unavailable" });
+  expect((await f.state()).items).toEqual(before.items);
+  await f.command("timer-pause");
+  expect(
+    await f.send({ ...request, requestId: crypto.randomUUID() }),
+  ).toMatchObject({ outcome: "conflict" });
+  expect((await f.state()).timer.playback).toBe("pause");
+});
+it("replaying a reset after eviction preserves the timing of a later run", async () => {
+  const f = await fixture();
+  await f.command("timer-start", { itemId: "welcome" });
+  await f.command("timer-pause");
+  const request: RundownChangeCommand = {
+    ...f.scope,
+    requestId: crypto.randomUUID(),
+    expectedRevision: (await f.state()).revision,
+    action: "reset",
+  };
+  await f.send(request);
+  await f.command("timer-start", { itemId: "next" });
+  await f.command("timer-pause");
+  const later = await f.state();
+  await evictDurableObject(f.stub);
+  expect(await f.send(request)).toMatchObject({ outcome: "applied" });
+  const replayed = await f.state();
+  expect(replayed.items).toEqual(later.items);
+  expect(replayed.timer).toMatchObject({
+    playback: "pause",
+    currentItemId: "next",
+  });
+  expect(replayed.revision).toBe(later.revision);
+});
+it("reset preserves production-manager control access without granting item editing", async () => {
+  const f = await fixture();
+  await env.DB.prepare(
+    "UPDATE member SET role='pm' WHERE organizationId=? AND userId=?",
+  )
+    .bind(f.scope.orgId, f.scope.userId)
+    .run();
+  const request: RundownChangeCommand = {
+    ...f.scope,
+    requestId: crypto.randomUUID(),
+    expectedRevision: (await f.state()).revision,
+    action: "reset",
+  };
+  expect(await f.send(request)).toMatchObject({ outcome: "applied" });
+  await expect(f.send(await f.removal())).rejects.toThrow(/access changed/);
 });
