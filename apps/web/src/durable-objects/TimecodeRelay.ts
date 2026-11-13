@@ -1,3 +1,4 @@
+import { scopedTokenDigest } from "@/lib/scoped-token-store.server";
 import { RelaySequenceStore } from "@/lib/relay-sequence.server";
 import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh } from "@/lib/socket-read-authority.server";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
@@ -59,7 +60,7 @@ interface Env {
   BETTER_AUTH_SECRET?: string;
 }
 
-const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
+const SUPPORTED_ACTIONS = new Set<string>([
   "lower-third-show",
   "lower-third-clear",
   "rundown-advance",
@@ -94,6 +95,34 @@ const SUPPORTED_ACTIONS = new Set<AutomationEvent["action"]>([
   "pp-trigger-clear",
   "custom-webhook",
 ]);
+
+const cueCreationSchema = z.object({
+  id: z.string().min(1).max(128),
+  label: z.string().max(200),
+  action: z.custom<AutomationEvent["action"]>(value => typeof value === "string" && SUPPORTED_ACTIONS.has(value)),
+  triggerTimecode: automationTimecodeSchema,
+  payload: z.record(z.string(), z.unknown()),
+  enabled: z.boolean().default(true),
+  toleranceFrames: z.number().int().min(0).max(MAX_TIMECODE_TOLERANCE_FRAMES).default(DEFAULT_TIMECODE_TOLERANCE_FRAMES),
+  leadMs: z.number().int().min(0).max(MAX_AUTOMATION_LEAD_MS).default(0),
+  targetDeviceId: z.string().max(200).optional(),
+  targetActionId: z.string().max(200).optional(),
+  rundownItemId: z.string().max(200).optional(),
+  category: z.string().max(200).optional(),
+  sourceKey: z.string().max(500).optional(),
+});
+type CueCreationOutcome = "applied" | "removed" | "conflict" | "rejected";
+interface CueCreationReceipt {
+  orgId: string;
+  userId: string;
+  requestId: string;
+  outcome: CueCreationOutcome;
+  message?: string;
+}
+interface CueCreationRecord {
+  fingerprint: string;
+  receipt: CueCreationReceipt;
+}
 
 // Server-owned acknowledgement and retry fields cannot be patched by clients.
 const toleranceFramesSchema = z.number().int().min(0).max(MAX_TIMECODE_TOLERANCE_FRAMES);
@@ -667,12 +696,17 @@ export class TimecodeRelay extends DurableObject {
       if (["claim-control", "release-control", "bridge-disconnected"].includes(body.data.action)) {
         return this.targetJson({ error: "This command requires its dedicated connection." }, { status: 400 });
       }
-      try { await this.handleCommand(body.data.action, body.data.payload, owner.attachment.sessionId); }
-      catch (error) {
+      try {
+        const receipt = await this.handleCommand(body.data.action, body.data.payload, owner.attachment.sessionId);
+        if (receipt) {
+          const status = receipt.outcome === "conflict" ? 409 : receipt.outcome === "rejected" ? 400 : 200;
+          return this.targetJson({ ok: status === 200, ...receipt, ...(receipt.message ? { error: receipt.message } : {}) }, { status });
+        }
+        return this.targetJson({ ok: true });
+      } catch (error) {
         if (error instanceof TimecodeCommandRejection) return this.targetJson({ ok: false, error: error.message }, { status: 400 });
         throw error;
       }
-      return this.targetJson({ ok: true });
     }
 
     return new Response("Not found", { status: 404 });
@@ -694,7 +728,10 @@ export class TimecodeRelay extends DurableObject {
     }
     try {
       const msg = JSON.parse(data as string) as TimecodeWsMessage;
-      if (msg.type === "sync") { this.hydrate(ws); return; }
+      if (msg.type === "sync") {
+        if (msg.syncId !== undefined && (typeof msg.syncId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(msg.syncId))) return;
+        this.hydrate(ws, msg.syncId); return;
+      }
       if (msg.type === "command") {
         const attachment = ws.deserializeAttachment?.() as TimecodeSocketAttachment | null;
         if (!attachment?.canWrite) { ws.close(4403, "Timecode write access required"); return; }
@@ -715,12 +752,17 @@ export class TimecodeRelay extends DurableObject {
         if (ws.readyState !== WebSocket.OPEN) return;
         try {
           if (this.authorizeControl(ws, command.data.action)) {
-            await this.handleCommand(command.data.action, command.data.payload, attachment.sessionId);
+            const receipt = await this.handleCommand(command.data.action, command.data.payload, attachment.sessionId);
+            if (receipt && (receipt.outcome === "conflict" || receipt.outcome === "rejected" || receipt.outcome === "removed"))
+              throw new TimecodeCommandRejection(receipt.message ?? "This cue was saved earlier and has since been removed. Review the current timeline.");
           }
         }
         catch (error) {
           if (!(error instanceof TimecodeCommandRejection)) throw error;
           ws.send(JSON.stringify({ type: "command-rejected", action: msg.action, error: error.message, ...this.resolvedTarget() } satisfies TimecodeWsMessage));
+          // Reject first: the web editor otherwise treats an existing ID in the
+          // canonical echo as acknowledgement of the conflicting save.
+          if (command.data.action === "add-event") this.broadcastEvents();
         }
       }
     } catch {
@@ -815,12 +857,89 @@ export class TimecodeRelay extends DurableObject {
     finally { this.timingLoad = null; }
   }
 
+  private async createCue(payload: Record<string, unknown> | undefined, sessionId: string | undefined): Promise<CueCreationReceipt> {
+    if (!payload) throw new TimecodeCommandRejection("Review the cue before saving it.");
+    const id = payload.id ?? crypto.randomUUID();
+    if (typeof id !== "string" || !id || id.length > 128)
+      throw new TimecodeCommandRejection("The cue identity is invalid. Keep the draft and create a new request.");
+    // Keep only definition fields in the intent. Server-owned execution fields
+    // supplied by older clients never participate in creation or its receipt.
+    const input = Object.fromEntries(Object.keys(cueCreationSchema.shape).map(key => [key, key === "id" ? id : payload[key]]));
+    const parsed = cueCreationSchema.safeParse(input);
+    const intent = parsed.success ? parsed.data : input;
+    const fingerprint = await scopedTokenDigest(JSON.stringify({ intent, expectedFormat: payload.expectedFormat, expectedServiceDate: payload.expectedServiceDate }));
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const owner = this.controlOwner();
+      const userId = owner?.attachment.authClaim?.userId;
+      if (this.retired || !this.target || !userId || owner.attachment.sessionId !== sessionId)
+        throw new TimecodeCommandRejection("Timecode control changed. Claim control and review the draft before saving.");
+      const target = this.target;
+      const identity = { orgId: target.orgId, userId, requestId: id };
+      const key = `cue-create:${id}`;
+      const prior = await this.ctx.storage.get<CueCreationRecord>(key);
+      if (prior) {
+        if (prior.receipt.userId !== userId || prior.fingerprint !== fingerprint)
+          return { ...identity, outcome: "conflict", message: "This cue identity belongs to a different save. Keep the draft and review it as a new request." };
+        const receipt = prior.receipt.outcome === "applied" && !this.events.some(event => event.id === id)
+          ? { ...prior.receipt, outcome: "removed" as const, message: "The cue was saved earlier and has since been removed. It has not been recreated." }
+          : prior.receipt;
+        if (receipt.outcome === "applied") this.broadcastEvents();
+        return receipt;
+      }
+      const reject = async (outcome: "conflict" | "rejected", message: string) => {
+        const receipt = { ...identity, outcome, message };
+        await this.ctx.storage.put(key, { fingerprint, receipt } satisfies CueCreationRecord);
+        return receipt;
+      };
+      if (!parsed.success) return reject("rejected", "Review the cue label, timecode, action details, tolerance and lead before saving.");
+      const definition = parsed.data;
+      const existing = this.events.find(event => event.id === id);
+      if (existing) {
+        const original = cueCreationSchema.safeParse(existing);
+        if (!original.success || JSON.stringify(original.data) !== JSON.stringify(definition))
+          return reject("conflict", "This cue already exists with different details. Keep your draft and review the current timeline.");
+        const receipt: CueCreationReceipt = { ...identity, outcome: "applied" };
+        await this.ctx.storage.put(key, { fingerprint, receipt } satisfies CueCreationRecord);
+        this.broadcastEvents();
+        return receipt;
+      }
+      if (payload.expectedServiceDate !== undefined && payload.expectedServiceDate !== this.target.serviceDate)
+        return reject("conflict", "The show was rescheduled. Review its current date before saving the cue.");
+      if (payload.expectedFormat !== undefined && (!isValidTimecodeFormat(payload.expectedFormat) || !sameTimecodeFormat(payload.expectedFormat, this.state.format)))
+        return reject("conflict", "The timeline frame rate changed. Review the cue time before saving it as a new request.");
+      if (!isValidTimecode(definition.triggerTimecode, this.state.format))
+        return reject("rejected", "The cue time is not valid at the current frame rate.");
+      const event: AutomationEvent = { ...definition, editRevision: crypto.randomUUID(), fired: false,
+        executionStatus: "scheduled", executionAttempts: 0, triggerFrame: timecodeToFrames(definition.triggerTimecode, this.state.format) };
+      const problem = automationPayloadProblem(event);
+      if (problem) return reject("rejected", problem);
+      this.applyEventTiming(event);
+      const events = [...this.events, event].sort((a, b) => a.triggerFrame - b.triggerFrame);
+      const receipt: CueCreationReceipt = { ...identity, outcome: "applied" };
+      // Commit the cue and its immutable receipt together. A later delete or
+      // group replacement cannot make an old creation request insert it again.
+      await this.ctx.storage.transaction(async storage => {
+        await storage.put({
+          timecode: { state: this.state, events, deviceTimings: this.deviceTimings, target } satisfies TimecodeSnapshot,
+          clock: this.clockSnapshot(),
+          [key]: { fingerprint, receipt } satisfies CueCreationRecord,
+        });
+      });
+      this.events = events;
+      this.hasSnapshot = true;
+      this.lastPersistedAt = Date.now();
+      await this.scheduleAlarm();
+      this.broadcastEvents();
+      return receipt;
+    });
+  }
+
   private async handleCommand(
     action: TimecodeCommand,
     payload?: Record<string, unknown>,
     sessionId?: string,
     feedReceivedAt = Date.now(),
-  ): Promise<void> {
+  ): Promise<CueCreationReceipt | void> {
     switch (action) {
       case "save-controller": {
         const parsed = midiControllerSchema.safeParse(payload?.config);
@@ -1070,49 +1189,8 @@ export class TimecodeRelay extends DurableObject {
         break;
       }
 
-      case "add-event": {
-        if (!payload) break;
-        const event = payload as unknown as AutomationEvent;
-        if (
-          !SUPPORTED_ACTIONS.has(event.action) ||
-          !event.triggerTimecode ||
-          !isValidTimecode(event.triggerTimecode, this.state.format) ||
-          typeof event.label !== "string" || event.label.length > 200 ||
-          !event.payload || typeof event.payload !== "object"
-        ) break;
-        const problem = automationPayloadProblem(event);
-        if (problem) throw new TimecodeCommandRejection(problem);
-        event.id = event.id || crypto.randomUUID();
-        if (this.events.some((existing) => existing.id === event.id)) {
-          // A save retry may follow a lost echo. Return the canonical timeline.
-          this.broadcastEvents();
-          break;
-        }
-        event.editRevision = crypto.randomUUID();
-        event.enabled = event.enabled !== false;
-        delete event.skipped;
-        event.fired = false;
-        event.executionAttempts = 0;
-        delete event.executionId;
-        delete event.executionStartedAt;
-        delete event.executionDurationMs;
-        delete event.executionRetryable;
-        event.executionStatus = "scheduled";
-        delete event.executionError;
-        delete event.executedAt;
-        event.toleranceFrames = parseTolerance(event.toleranceFrames);
-        event.leadMs = parseLeadMs(event.leadMs);
-        event.triggerFrame = timecodeToFrames(
-          event.triggerTimecode,
-          this.state.format
-        );
-        this.events.push(event);
-        this.applyEventTiming(event);
-        this.events.sort((a, b) => a.triggerFrame - b.triggerFrame);
-        await this.persist();
-        this.broadcastEvents();
-        break;
-      }
+      case "add-event":
+        return await this.createCue(payload, sessionId);
 
       case "replace-event-group": {
         if (payload?.requireStopped === true && this.state.running) break;
@@ -1837,11 +1915,11 @@ export class TimecodeRelay extends DurableObject {
 
   // ─── Broadcasting ───────────────────────────────────────
 
-  private hydrate(ws: WebSocket): void {
+  private hydrate(ws: WebSocket, syncId?: string): void {
     const attachment = ws.deserializeAttachment() as { canWrite?: boolean } | null;
     this.send(ws, attachment?.canWrite
-      ? { type: "hydrate", state: this.getOperatorState(), events: this.events, control: this.controlStatus(ws), controller: this.controller }
-      : { type: "hydrate", state: this.getDisplayState() }, this.revisions.current());
+      ? { type: "hydrate", ...(syncId ? { syncId } : {}), state: this.getOperatorState(), events: this.events, control: this.controlStatus(ws), controller: this.controller }
+      : { type: "hydrate", ...(syncId ? { syncId } : {}), state: this.getDisplayState() }, this.revisions.current());
   }
 
   private broadcastState(): void {

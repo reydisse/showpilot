@@ -8414,3 +8414,102 @@ Stack gate: Reset #269 at 126e3e65 passed run 42541348414. Connection recovery
 #270 at 9d41c2d8 passed run 42542523164. Draft heartbeat #271 is open at ab5c6f09,
 based on fix/native-live-connection-recovery; run 42543651519 is pending. Its
 Rust job passed. Timecode's PR remains held until that head is green.
+
+
+## Phase 2 follow-up: retain native Timecode cue saves (2026-11-08)
+
+The compiled native baseline committed a cue, lost its reply and then created a
+second cue when the operator retried Add. Seven initial Worker regressions also
+failed: creation had no durable receipt, a retry after deletion recreated the
+cue, and invalid time could silently return success.
+
+Native Timecode now retains its draft and immutable creation request by account,
+organization and show in the existing Query cache. A 15-second save deadline
+exposes Retry original cue save; navigation retains both draft and request.
+Fields remain locked until an authoritative result and timeline refresh arrive.
+Retry sends the same identity and intent. A failed refresh has a separate retry
+that never creates a cue. Removed, conflicted and rejected results retain the
+draft for explicit review; New cue is explicit after a confirmed result.
+Drafts survive screen navigation in the running app, not application termination.
+A changed frame rate requires review. Native and web now share the existing
+SMPTE label validator, including drop-frame exclusions; conversion math is
+unchanged.
+
+TimecodeRelay commits a cue and its creation receipt in one storage transaction.
+Receipts survive eviction, later definition edits, format changes and cue removal.
+Same-ID concurrent saves create once. A later retry cannot resurrect a removed
+cue or apply an originally rejected request after its precondition changes back.
+Current session, membership and control checks precede receipt lookup. The
+receipt rejects different intent under an existing ID. A WebSocket rejection
+precedes its canonical timeline echo so the web editor cannot interpret that
+echo as a successful conflicting save. Existing payload-validation fixtures now
+use distinct IDs for distinct invalid requests; their 400 assertions remain.
+
+Explicit and periodic syncs carry a bounded optional identity. Native save
+refreshes require their own matching snapshot; delayed older responses cannot
+confirm or rewind them. Legacy syncs without an identity remain supported by
+the backend. Deploy the matching backend before distributing this native build.
+
+Verification: 46 native hook tests and 12 creation Worker tests pass as part of
+full suite 2: 352 unit files / 2,900 tests and 144 Worker files / 1,601 tests,
+4,501 total. Web typecheck 2 and production build 1 pass. Main client is
+549,593 raw / 173,795 gzip bytes within unchanged limits. Native verify 1 passes
+iOS, Android and web exports, Expo Doctor 18/18, contracts and polling boundaries.
+Hermes bundles are 5,784,539 bytes on iOS and 5,783,660 on Android. Lint retains
+18 existing warnings with no errors.
+
+Compiled Expo web rehearsal 2 passes with real disposable authentication, D1 and
+TimecodeRelay: lost replies, leaving/returning to the show, an isolated second
+show draft, same-request retry, a missing refresh response followed by refresh
+only, and removal before retry without recreation. No runtime/proxy errors.
+The saved-state recovery layout has no horizontal overflow at 320/768/1440px;
+New cue is at least 44px. Narrow and wide screenshots were inspected. Rehearsal 1
+passed the behavior assertions but treated an intentional navigation cancellation
+of the proxy socket handshake as an error. The proxy now ignores only that
+specific intentional cancellation; all other errors still fail the rehearsal.
+This is Expo web evidence, not a physical-device test.
+
+Reproduce after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-timecode-cue-recovery.mjs`.
+Evidence: /tmp/showpilot-native-timecode-cue-{before,worker-before,worker1,worker2,unit1,mobile-tsc1,tsc1,tsc2,full1,full2,build1,verify1,browser1,browser2}.log.
+Screenshots: /tmp/showpilot-native-timecode-cue-saved-{320,768,1440}.png.
+Full suite 1 identified the missing conflict echo and fixtures that reused an ID
+for different intents; full suite 2 verifies the correction without relaxing
+assertions, deadlines, auth or bundle budgets.
+
+Phase 2 remains 67/79. The broader Timecode editor, typed action fields,
+seek/reformat confirmations, kill/retry controls and accessible confirmation
+sheets remain open, along with native Chat, rundown editing and ProPresenter
+recovery. No deployment, release, migration, external mail or real-org write.
+No new Markdown file; twenty necessary tracked Markdown files remain.
+
+Stack gate: heartbeat #271 at ab5c6f09 passed run 42543651519. Draft native
+Timecode #272 at daa76f2d passed run 42545523831 (web and native Rust). This
+follow-up branches from fix/native-timecode-authority and is held for owner merge.
+
+
+### PR #273 coverage-gate correction (2026-11-08)
+
+Run 42547373079 at 1068e94b passed all tests but failed the Timecode coverage
+thresholds: branches 89.56% versus 90%, lines 94.91% versus 95%. The shared
+SMPTE validator had moved outside the coverage inventory. Coverage now follows
+shared Timecode source too, using absolute instrumentation paths and the same
+inventory in both pools. No threshold changed. An instrumentation probe confirms
+that the actual shared validator appears in the report with executed counters.
+
+Added seven real Worker cases for identical/conflicting cues from older timelines,
+removal after legacy adoption, rate-specific invalid labels, missing payloads and
+unusable identities. The malformed-request cases exposed unhandled immediate
+promise rejections despite the HTTP 400; awaiting createCue inside the command
+handler fixes that propagation. All 19 creation Worker tests now pass without
+those unhandled errors.
+
+Full coverage run 2 passes 2,900 unit and 1,608 Worker tests (4,508 total).
+Web typecheck 3 and build 2 pass; the client bundle remains within unchanged budgets.
+Timecode: statements 92.27%, branches 90.30%, functions 91.66%, lines 95.11%.
+Relays: 86.73%, 84.61%, 90.34%, 92.18%; devices: 64.55%, 49.88%, 62.90%, 67.19%,
+in that metric order. Coverage run 1 correctly rejected the missing shared file;
+the absolute-path probe and run 2 verify instrumentation and the gate itself.
+Logs: /tmp/showpilot-native-timecode-cue-{worker3,worker4,worker5,coverage1,coverage-probe,coverage2,tsc3,build2}.log.
+The next native clock-review work is retained on fix/native-timecode-clock-review
+and has no PR; the next PR remains gated on #273's corrected head passing CI.

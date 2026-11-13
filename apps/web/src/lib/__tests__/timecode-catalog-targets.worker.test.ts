@@ -76,7 +76,7 @@ it("validates jump details on every timeline write and honors disable, retry and
   await test.command("add-event", { ...cue, enabled: false });
   await test.command("fire-event", { id: cue.id }, 400);
   for (const itemId of [null, "", " ", "x".repeat(201)]) {
-    await test.command("add-event", { ...cue, id: "invalid", payload: { itemId } }, 400);
+    await test.command("add-event", { ...cue, id: crypto.randomUUID(), payload: { itemId } }, 400);
     await test.command("update-event", { id: cue.id, updates: { payload: { itemId } } }, 400);
     await test.command("replace-event-group", { sourceKey: "jump", events: [{ ...cue, payload: { itemId } }] }, 400);
   }

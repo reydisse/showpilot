@@ -81,9 +81,14 @@ describe("automation acknowledgement", () => {
       };
       socket.addEventListener("message", handler);
     });
+    const received: string[] = [];
+    socket.addEventListener("message", message => received.push(JSON.parse(String(message.data)).type));
+    const rejection = next("command-rejected");
     const echo = next("events-update");
     socket.send(JSON.stringify({ type: "command", action: "add-event", payload: { ...event, label: "Retry must not replace existing event" } }));
+    expect(await rejection).toMatchObject({ action: "add-event", error: expect.stringContaining("different save") });
     expect(await echo).toMatchObject({ events: [{ id: "retry-save", label: "Original" }] });
+    expect(received.indexOf("command-rejected")).toBeLessThan(received.indexOf("events-update"));
     expect(await test.events()).toHaveLength(1);
     socket.close();
   });

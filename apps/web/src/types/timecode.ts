@@ -215,9 +215,9 @@ export interface TimecodeSettings {
 export type TimecodeControlStatus = "available" | "yours" | "other";
 
 export type TimecodeWsMessage = (
-  | { type: "sync"; lastSeenSequence: number | null }
-  | { type: "hydrate"; state: TimecodeState; events: AutomationEvent[]; control?: TimecodeControlStatus; controller?: MidiControllerSnapshot }
-  | { type: "hydrate"; state: TimecodeDisplayState }
+  | { type: "sync"; lastSeenSequence: number | null; syncId?: string }
+  | { type: "hydrate"; syncId?: string; state: TimecodeState; events: AutomationEvent[]; control?: TimecodeControlStatus; controller?: MidiControllerSnapshot }
+  | { type: "hydrate"; syncId?: string; state: TimecodeDisplayState }
   | { type: "tc-update"; state: TimecodeState | TimecodeDisplayState }
   | { type: "event-fired"; event: AutomationEvent; firedAt: number }
   | { type: "events-update"; events: AutomationEvent[] }
