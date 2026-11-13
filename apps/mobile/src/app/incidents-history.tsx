@@ -12,6 +12,7 @@ import { ActivityIndicator, FlatList, Modal, Pressable, ScrollView, StyleSheet, 
 import { AppButton } from "@/components/app-button";
 import { LoadingView } from "@/components/loading-view";
 import { Page } from "@/components/page";
+import { isServiceDate } from "@/lib/service-time";
 import { authClient } from "@/lib/auth-client";
 import { getMobileIncidentHistory, type MobileIncidentHistoryFilters } from "@/lib/mobile-api";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
@@ -31,12 +32,15 @@ export default function IncidentHistoryScreen() {
   const { colors } = useAppTheme();
   const styles = useStyles();
   const { data: organization, isPending: organizationPending } = authClient.useActiveOrganization();
+  const [filterError, setFilterError] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [draft, setDraft] = useState<MobileIncidentHistoryFilters>(initialFilters);
   const [applied, setApplied] = useState<MobileIncidentHistoryFilters>(initialFilters);
   const query = useQuery({
     queryKey: ["mobile-incident-history", organization?.id, applied],
-    queryFn: () => getMobileIncidentHistory(organization!.id, applied),
+    queryFn: ({ signal }) => getMobileIncidentHistory(organization!.id, applied, signal),
+    retry: false,
+    networkMode: "always",
     enabled: Boolean(organization?.id),
   });
 
@@ -51,6 +55,15 @@ export default function IncidentHistoryScreen() {
     + (applied.sort === "newest" ? 0 : 1);
 
   function applyFilters() {
+    if ((draft.from && !isServiceDate(draft.from)) || (draft.to && !isServiceDate(draft.to))) {
+      setFilterError("Enter real dates in YYYY-MM-DD format.");
+      return;
+    }
+    if (draft.from && draft.to && draft.from > draft.to) {
+      setFilterError("From date must be on or before To date.");
+      return;
+    }
+    setFilterError(null);
     setApplied({ ...draft, page: 1 });
     setFiltersOpen(false);
   }
@@ -80,15 +93,15 @@ export default function IncidentHistoryScreen() {
         keyExtractor={(incident) => incident.id}
         ListHeaderComponent={(
           <View style={styles.header}>
-            <View style={styles.resultSummary}>
-              <Text style={styles.resultValue}>{query.data?.total ?? 0}</Text>
-              <Text style={styles.resultText}>matching incidents</Text>
-            </View>
-            {query.isPending ? <ActivityIndicator color={colors.amber} size="large" /> : null}
-            {query.error ? <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
+            {query.data ? <View style={styles.resultSummary}>
+              <Text style={styles.resultValue}>{query.data.total}</Text>
+              <Text style={styles.resultText}>matching incidents{query.isError ? " · Last loaded results" : ""}</Text>
+            </View> : null}
+            {query.isFetching ? <View accessibilityLiveRegion="polite"><ActivityIndicator color={colors.amber} size="large" /><Text style={styles.resultText}>{query.data ? "Refreshing history…" : "Loading history…"}</Text></View> : null}
+            {query.error ? <View><Text accessibilityRole="alert" style={styles.error}>History could not be loaded. {query.error.message}</Text><AppButton label="Retry history" disabled={query.isFetching} onPress={() => void query.refetch()} /></View> : null}
           </View>
         )}
-        ListEmptyComponent={query.data && !query.isPending ? <Text style={styles.empty}>No incidents match these filters.</Text> : null}
+        ListEmptyComponent={query.data && !query.isError && !query.isFetching ? <Text style={styles.empty}>No incidents match these filters.</Text> : null}
         ListFooterComponent={query.data && query.data.total > 0 ? (
           <View style={styles.pagination}>
             <Pressable accessibilityLabel="Previous history page" accessibilityRole="button" disabled={applied.page <= 1} onPress={() => setPage(applied.page - 1)} style={styles.pageButton}><ChevronLeft color={colors.text} size={18} /></Pressable>
@@ -117,7 +130,7 @@ export default function IncidentHistoryScreen() {
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <View style={styles.modalHeading}><Text style={styles.modalTitle}>Filter history</Text><Text style={styles.modalSubtitle}>Search all incident records, not only the recent list.</Text></View>
-              <Pressable accessibilityLabel="Close history filters" onPress={() => setFiltersOpen(false)} style={styles.iconButton}><X color={colors.textMuted} size={19} /></Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close history filters" onPress={() => setFiltersOpen(false)} style={styles.iconButton}><X color={colors.textMuted} size={19} /></Pressable>
             </View>
             <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
               <Text style={styles.label}>SEARCH</Text>
@@ -126,7 +139,7 @@ export default function IncidentHistoryScreen() {
               <ChoiceField label="SEVERITY" options={severities} value={draft.severity} onChange={(severity) => setDraft((current) => ({ ...current, severity }))} />
               <ChoiceField label="SORT" options={sorts} value={draft.sort} onChange={(sort) => setDraft((current) => ({ ...current, sort }))} />
               <Text style={styles.label}>CATEGORY</Text>
-              <View style={styles.choices}>
+              <View accessibilityRole="radiogroup" accessibilityLabel="Category" style={styles.choices}>
                 <Pressable accessibilityRole="radio" accessibilityState={{ checked: !draft.category }} onPress={() => setDraft((current) => ({ ...current, category: undefined }))} style={[styles.choice, !draft.category && styles.choiceActive]}><Text style={[styles.choiceText, !draft.category && styles.choiceTextActive]}>all</Text></Pressable>
                 {(query.data?.categories ?? []).map((category) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: draft.category === category }} key={category} onPress={() => setDraft((current) => ({ ...current, category }))} style={[styles.choice, draft.category === category && styles.choiceActive]}><Text style={[styles.choiceText, draft.category === category && styles.choiceTextActive]}>{category}</Text></Pressable>)}
               </View>
@@ -136,8 +149,9 @@ export default function IncidentHistoryScreen() {
                 <View style={styles.dateField}><Text style={styles.label}>FROM DATE</Text><TextInput accessibilityLabel="History from date" autoCapitalize="none" maxLength={10} onChangeText={(value) => setDraft((current) => ({ ...current, from: value }))} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textFaint} style={styles.input} value={draft.from ?? ""} /></View>
                 <View style={styles.dateField}><Text style={styles.label}>TO DATE</Text><TextInput accessibilityLabel="History to date" autoCapitalize="none" maxLength={10} onChangeText={(value) => setDraft((current) => ({ ...current, to: value }))} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textFaint} style={styles.input} value={draft.to ?? ""} /></View>
               </View>
+              {filterError ? <Text accessibilityRole="alert" style={styles.error}>{filterError}</Text> : null}
               <View style={styles.formActions}>
-                <AppButton label="Reset" variant="secondary" onPress={() => setDraft(initialFilters)} />
+                <AppButton label="Reset" variant="secondary" onPress={() => { setDraft(initialFilters); setFilterError(null); }} />
                 <View style={styles.applyButton}><AppButton label="Apply filters" onPress={applyFilters} /></View>
               </View>
             </ScrollView>
@@ -150,48 +164,48 @@ export default function IncidentHistoryScreen() {
 
 function ChoiceField<T extends string>({ label, options, value, onChange }: { label: string; options: readonly T[]; value: T; onChange: (value: T) => void }) {
   const styles = useStyles();
-  return <View style={styles.field}><Text style={styles.label}>{label}</Text><View accessibilityRole="radiogroup" style={styles.choices}>{options.map((option) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: option === value }} key={option} onPress={() => onChange(option)} style={[styles.choice, option === value && styles.choiceActive]}><Text style={[styles.choiceText, option === value && styles.choiceTextActive]}>{option}</Text></Pressable>)}</View></View>;
+  return <View style={styles.field}><Text style={styles.label}>{label}</Text><View accessibilityRole="radiogroup" accessibilityLabel={label} style={styles.choices}>{options.map((option) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: option === value }} key={option} onPress={() => onChange(option)} style={[styles.choice, option === value && styles.choiceActive]}><Text style={[styles.choiceText, option === value && styles.choiceTextActive]}>{option}</Text></Pressable>)}</View></View>;
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
-  filterButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: colors.amber },
+  filterButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: colors.amber },
   filterBadge: { position: "absolute", right: -3, top: -3, minWidth: 18, height: 18, alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: colors.red },
-  filterBadgeText: { color: colors.white, fontFamily, fontSize: 11, fontWeight: "900" },
+  filterBadgeText: { color: colors.white, fontFamily, fontSize: 12, fontWeight: "900" },
   list: { gap: 10, paddingBottom: spacing.large },
   header: { gap: spacing.medium, marginBottom: 4 },
   resultSummary: { flexDirection: "row", alignItems: "baseline", gap: 7 },
   resultValue: { color: colors.text, fontFamily, fontSize: 23, fontWeight: "900" },
-  resultText: { color: colors.textMuted, fontFamily, fontSize: 12 },
+  resultText: { flexShrink: 1, color: colors.textMuted, fontFamily, fontSize: 12 },
   card: { gap: 8, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: spacing.medium },
   cardHigh: { borderColor: colors.redBorder },
-  cardHeader: { flexDirection: "row", alignItems: "center", gap: 7 },
-  category: { color: colors.text, fontFamily, fontSize: 11, fontWeight: "900", textTransform: "uppercase" },
-  severity: { overflow: "hidden", borderRadius: radii.pill, backgroundColor: colors.amberSoft, color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", textTransform: "uppercase", paddingHorizontal: 7, paddingVertical: 3 },
-  date: { marginLeft: "auto", color: colors.textFaint, fontFamily, fontSize: 11 },
+  cardHeader: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 7 },
+  category: { flexShrink: 1, color: colors.text, fontFamily, fontSize: 12, fontWeight: "900", textTransform: "uppercase" },
+  severity: { overflow: "hidden", borderRadius: radii.pill, backgroundColor: colors.amberSoft, color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "900", textTransform: "uppercase", paddingHorizontal: 7, paddingVertical: 3 },
+  date: { marginLeft: "auto", color: colors.textFaint, fontFamily, fontSize: 12 },
   description: { color: colors.text, fontFamily, fontSize: 13, lineHeight: 20 },
-  meta: { color: colors.textMuted, fontFamily, fontSize: 11, lineHeight: 14, textTransform: "capitalize" },
+  meta: { color: colors.textMuted, fontFamily, fontSize: 12, lineHeight: 14, textTransform: "capitalize" },
   error: { color: colors.red, fontFamily, fontSize: 13 },
   empty: { color: colors.textMuted, fontFamily, fontSize: 13, textAlign: "center", paddingVertical: spacing.large },
   pagination: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 15, marginTop: spacing.small },
   pageButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 11, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
-  pageText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "700" },
+  pageText: { color: colors.textMuted, fontFamily, fontSize: 12, fontWeight: "700" },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: colors.overlay, paddingTop: spacing.xlarge },
   modalCard: { maxHeight: "92%", gap: spacing.medium, borderTopLeftRadius: radii.large, borderTopRightRadius: radii.large, borderWidth: 1, borderBottomWidth: 0, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: spacing.medium, paddingBottom: spacing.xlarge },
   modalHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   modalHeading: { flex: 1, gap: 4 },
   modalTitle: { color: colors.text, fontFamily, fontSize: 18, fontWeight: "900" },
   modalSubtitle: { color: colors.textMuted, fontFamily, fontSize: 12, lineHeight: 17 },
-  iconButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: colors.panel },
+  iconButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: colors.panel },
   form: { gap: spacing.medium, paddingBottom: spacing.small },
   field: { gap: 8 },
-  label: { color: colors.textFaint, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.1 },
+  label: { color: colors.textFaint, fontFamily, fontSize: 12, fontWeight: "900", letterSpacing: 1.1 },
   choices: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
-  choice: { minHeight: 42, alignItems: "center", justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 12, paddingVertical: 8 },
+  choice: { minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 12, paddingVertical: 8 },
   choiceActive: { borderColor: colors.amber, backgroundColor: colors.amberSoft },
-  choiceText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
+  choiceText: { color: colors.textMuted, fontFamily, fontSize: 12, fontWeight: "800", textTransform: "uppercase" },
   choiceTextActive: { color: colors.amberText },
   searchBox: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 8, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 11 },
-  searchInput: { flex: 1, color: colors.text, fontFamily, fontSize: 12 },
+  searchInput: { flex: 1, minHeight: 44, color: colors.text, fontFamily, fontSize: 12 },
   input: { minHeight: 48, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, color: colors.text, fontFamily, fontSize: 12, paddingHorizontal: 11 },
   dateFields: { flexDirection: "row", gap: 9 },
   dateField: { flex: 1, gap: 8 },
