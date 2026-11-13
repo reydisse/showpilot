@@ -298,4 +298,17 @@ describe("mobile chat collaboration", () => {
     expect(mocks.notify.mock.calls[0][0]).toMatchObject({ once: true, dedupeKey: "chat-message:saved-message:mention" });
   });
 
+  it("returns the signed-in identity and original request for recoverable crew links", async () => {
+    const requestId = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
+    const response = await request(fakeDatabase(), "/api/mobile/v1/chat/passes/crew?orgId=org-1", { hours: 4, requestId, expectedUserId: "operator-1" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ orgId: "org-1", userId: "operator-1", requestId, scope: "crew-chat", notifications: { status: "not-needed" } });
+  });
+  it.each(["crew", "planning"])("rejects a %s link queued under a different account before creating it", async kind => {
+    const calls: QueryCall[] = [];
+    const response = await request(fakeDatabase({ calls }), `/api/mobile/v1/chat/passes/${kind}?orgId=org-1`, { hours: 4, requestId: "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb", expectedUserId: "previous-operator", targetUserIds: ["operator-2"] });
+    expect(response.status).toBe(409);
+    expect(calls.some(call => call.sql.startsWith("INSERT INTO chat_pass_creation_receipt"))).toBe(false);
+  });
+
 });

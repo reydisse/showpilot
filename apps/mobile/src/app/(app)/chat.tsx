@@ -1,3 +1,4 @@
+import { ChatInvitationSheet } from "@/components/chat-invitation-sheet";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isEmojiReaction } from "@showpilot/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -31,7 +32,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -54,8 +54,6 @@ import { getNativeCookieHeader } from "@/lib/auth-transport";
 import { mobileChatReactionEmojis, type MobileChatReactionEmoji } from "@/lib/chat-history";
 import { SHOWPILOT_URL } from "@/lib/env";
 import {
-  createMobileCrewChatPass,
-  createMobilePlanningChatPass,
   blockMobileUser,
   downloadMobileChatAttachment,
   getMobileChatMembers,
@@ -318,9 +316,9 @@ export default function ChatScreen() {
     votePoll,
   } = relay;
   const membersQuery = useQuery({
-    queryKey: ["mobile-chat-members", organization?.id],
-    queryFn: () => getMobileChatMembers(organization!.id),
-    enabled: Boolean(organization?.id),
+    queryKey: ["mobile-chat-members", session?.user.id, organization?.id],
+    queryFn: () => getMobileChatMembers(organization!.id, session!.user.id),
+    enabled: Boolean(organization?.id && session?.user.id),
     staleTime: 60_000,
   });
   const safetyQuery = useQuery({
@@ -344,9 +342,6 @@ export default function ChatScreen() {
   const [roomPickerOpen, setRoomPickerOpen] = useState(false);
   const [roomSearch, setRoomSearch] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
-  const [shareHours, setShareHours] = useState(4);
-  const [selectedShareMemberIds, setSelectedShareMemberIds] = useState<string[]>([]);
-  const [sharing, setSharing] = useState(false);
   const [attachmentHeaders, setAttachmentHeaders] = useState<Record<string, string>>({});
   const [actionTarget, setActionTarget] = useState<MobileChatMessage | null>(null);
   const [reactionTarget, setReactionTarget] = useState<MobileChatMessage | null>(null);
@@ -377,7 +372,7 @@ export default function ChatScreen() {
     () => new Map(members.map((member) => [member.userId, member.image])),
     [members],
   );
-  const currentUserId = membersQuery.data?.currentUserId ?? session?.user.id;
+  const currentUserId = session?.user.id;
   const otherDmUserId = roomId.startsWith("dm:") ? roomParts.slice(1).find((userId) => userId !== currentUserId) : null;
   const dmMember = members.find((member) => member.userId === otherDmUserId);
   const roomTitle = roomId === "production" ? "Production Chat" : roomId === "planning" ? "Planning Room" : dmMember?.name ?? "Direct message";
@@ -591,26 +586,6 @@ export default function ChatScreen() {
     updateText(`${text.slice(0, atIndex)}@${member.name} `);
   }
 
-  async function createAndShareInvite() {
-    if (!organization || (roomId === "planning" && selectedShareMemberIds.length === 0)) return;
-    setSharing(true);
-    try {
-      const pass = roomId === "planning"
-        ? await createMobilePlanningChatPass({ orgId: organization.id, hours: shareHours, targetUserIds: selectedShareMemberIds })
-        : await createMobileCrewChatPass({ orgId: organization.id, hours: shareHours });
-      setShareOpen(false);
-      await Share.share({
-        title: roomId === "planning" ? "ShowPilot Planning Room" : "ShowPilot Production Chat",
-        message: `${roomId === "planning" ? "Join the ShowPilot Planning Room" : "Join the ShowPilot production crew chat"}: ${pass.joinUrl}`,
-        url: pass.joinUrl,
-      });
-    } catch (error) {
-      Alert.alert("Invite not created", error instanceof Error ? error.message : "Try again.");
-    } finally {
-      setSharing(false);
-    }
-  }
-
   const openMessageActions = useCallback((message: MobileChatMessage) => {
     if (message.deletedAt) return;
     setActionTarget(message);
@@ -747,8 +722,9 @@ export default function ChatScreen() {
               <View style={styles.roomCopy}><Text style={styles.roomTitle}>{roomTitle}</Text><Text numberOfLines={1} style={[styles.roomSubtitle, relay.status === "connected" && styles.connected]}>{relay.status === "connected" ? `● Connected${gatewayLabel ? ` · ${gatewayLabel}` : ""}` : relay.status}</Text></View>
               <ChevronDown color={colors.textMuted} size={17} />
             </Pressable>
-            {membersQuery.data?.canInvite && !roomId.startsWith("dm:") ? <Pressable accessibilityRole="button" accessibilityLabel={roomId === "planning" ? "Share Planning Room" : "Invite guest crew"} onPress={() => { setSelectedShareMemberIds([]); setShareOpen(true); }} style={styles.shareButton}><Share2 color={colors.textMuted} size={18} /></Pressable> : null}
+            {membersQuery.data?.canInvite && !roomId.startsWith("dm:") ? <Pressable accessibilityRole="button" accessibilityLabel={roomId === "planning" ? "Share Planning Room" : "Invite guest crew"} onPress={() => setShareOpen(true)} style={styles.shareButton}><Share2 color={colors.textMuted} size={18} /></Pressable> : null}
         </View>
+        {membersQuery.error ? <View><Text accessibilityRole="alert" style={styles.error}>{membersQuery.error.message}</Text><AppButton label="Retry chat members" variant="secondary" disabled={membersQuery.isFetching} onPress={() => void membersQuery.refetch()} /></View> : null}
         {relay.lastError ? <Text accessibilityRole="alert" style={styles.error}>{relay.lastError}</Text> : null}
         {relay.status !== "connected" || relay.lastError ? <AppButton label="Retry chat connection" variant="secondary" onPress={relay.retryConnection} /> : null}
         {relay.gatewayStatus.status === "error" ? <Text style={styles.error}>External chat sync: {relay.gatewayStatus.error ?? "connection failed"}</Text> : null}
@@ -871,26 +847,7 @@ export default function ChatScreen() {
         </Pressable>
       </Modal>
 
-      <Modal animationType="slide" onRequestClose={() => setShareOpen(false)} transparent visible={shareOpen}>
-        <Pressable onPress={() => setShareOpen(false)} style={styles.modalBackdrop}>
-          <Pressable onPress={() => undefined} style={styles.sheet}>
-            <View style={styles.sheetHeader}><View><Text style={styles.sheetEyebrow}>{roomId === "planning" ? "TARGETED ACCESS" : "GUEST ACCESS"}</Text><Text style={styles.sheetTitle}>{roomId === "planning" ? "Share Planning Room" : "Invite guest crew"}</Text></View><Pressable accessibilityLabel="Close invite" onPress={() => setShareOpen(false)}><X color={colors.textMuted} size={22} /></Pressable></View>
-            <Text style={styles.shareDescription}>{roomId === "planning" ? "Only selected signed-in members can use this expiring link." : "Anyone with this expiring link can join Production Chat as a guest."}</Text>
-            <Text style={styles.sheetLabel}>LINK EXPIRES IN</Text>
-            <View style={styles.hourChoices}>{[1, 4, 8, 12, 24].map((hours) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: shareHours === hours }} key={hours} onPress={() => setShareHours(hours)} style={[styles.hourChoice, shareHours === hours && styles.typeChoiceActive]}><Text style={[styles.hourChoiceText, shareHours === hours && styles.typeChoiceTextActive]}>{hours}h</Text></Pressable>)}</View>
-            {roomId === "planning" ? <>
-              <Text style={styles.sheetLabel}>SELECT MEMBERS</Text>
-              <ScrollView contentContainerStyle={styles.shareMembers}>
-                {members.filter((member) => member.userId !== currentUserId).map((member) => {
-                  const selected = selectedShareMemberIds.includes(member.userId);
-                  return <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: selected }} key={member.userId} onPress={() => setSelectedShareMemberIds((current) => selected ? current.filter((userId) => userId !== member.userId) : [...current, member.userId])} style={[styles.roomChoice, selected && styles.roomChoiceActive]}><View style={[styles.shareCheck, selected && styles.shareCheckSelected]}>{selected ? <Check color={colors.black} size={12} strokeWidth={3} /> : null}</View><View style={styles.roomChoiceCopy}><Text style={styles.roomChoiceName}>{member.name}</Text><Text style={styles.roomChoiceDetail}>{member.role}</Text></View></Pressable>;
-                })}
-              </ScrollView>
-            </> : null}
-            <Pressable accessibilityLabel="Create and share chat invitation" accessibilityRole="button" accessibilityState={{ busy: sharing, disabled: sharing || (roomId === "planning" && selectedShareMemberIds.length === 0) }} disabled={sharing || (roomId === "planning" && selectedShareMemberIds.length === 0)} onPress={() => void createAndShareInvite()} style={[styles.pollSend, (sharing || (roomId === "planning" && selectedShareMemberIds.length === 0)) && styles.disabled]}>{sharing ? <ActivityIndicator color={colors.black} /> : <Text style={styles.pollSendText}>Create and share link</Text>}</Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      {shareOpen && organization && currentUserId ? <ChatInvitationSheet key={`${currentUserId}:${organization.id}:${roomId}`} orgId={organization.id} userId={currentUserId} scope={roomId === "planning" ? "planning-chat" : "crew-chat"} members={members} membersLoading={membersQuery.isPending} membersError={membersQuery.error?.message ?? null} retryMembers={() => void membersQuery.refetch()} onClose={() => setShareOpen(false)} /> : null}
 
       <Modal animationType="fade" onRequestClose={() => setActionTarget(null)} transparent visible={Boolean(actionTarget)}>
         <Pressable onPress={() => setActionTarget(null)} style={styles.modalBackdropCenter}>
@@ -1087,13 +1044,6 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   roomChoiceName: { color: colors.text, fontFamily, fontSize: 12, fontWeight: "800" },
   roomChoiceDetail: { color: colors.textMuted, fontFamily, fontSize: 11, textTransform: "capitalize" },
   memberList: { gap: 6, paddingBottom: 12 },
-  shareDescription: { color: colors.textMuted, fontFamily, fontSize: 11, lineHeight: 17 },
-  hourChoices: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
-  hourChoice: { minWidth: 46, minHeight: 36, alignItems: "center", justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border },
-  hourChoiceText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "800" },
-  shareMembers: { maxHeight: 260, gap: 6 },
-  shareCheck: { width: 20, height: 20, alignItems: "center", justifyContent: "center", borderRadius: 6, borderWidth: 1, borderColor: colors.border },
-  shareCheckSelected: { borderColor: colors.amber, backgroundColor: colors.amber },
   avatar: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 17, backgroundColor: colors.amberSoft },
   avatarText: { color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "900" },
   reactionPicker: { width: "100%", maxWidth: 360, gap: 14, borderRadius: radii.large, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.stageRaised, padding: spacing.large },
