@@ -54,6 +54,10 @@ export function RundownItemSheet({
   index,
   item,
   itemCount,
+  currentItem,
+  currentItemId,
+  revision,
+  canEdit,
   onClose,
   onDelete,
   onMove,
@@ -62,8 +66,12 @@ export function RundownItemSheet({
   index: number;
   item: RundownItem | null;
   itemCount: number;
+  currentItem: RundownItem | null;
+  currentItemId: string | null;
+  revision: number;
+  canEdit: boolean;
   onClose: () => void;
-  onDelete: (item: RundownItem) => void;
+  onDelete: (item: RundownItem, revision: number) => void;
   onMove: (item: RundownItem, direction: "up" | "down") => void;
   onSave: (item: RundownItem) => void;
 }) {
@@ -77,6 +85,10 @@ export function RundownItemSheet({
   const [cue, setCue] = useState(item?.cue ?? "");
   const [notes, setNotes] = useState(item?.notes ?? "");
   const [hardStop, setHardStop] = useState(item?.hardStop ?? false);
+  const [removal, setRemoval] = useState<{ item: RundownItem; revision: number; active: boolean } | null>(null);
+  function reviewRemoval() {
+    if (canEdit && currentItem) setRemoval({ item: currentItem, revision, active: currentItem.id === currentItemId });
+  }
   const durationMs = parseRundownDuration(duration);
   const valid = title.trim().length > 0 && durationMs !== null;
 
@@ -112,11 +124,26 @@ export function RundownItemSheet({
             <Switch accessibilityLabel="Hard stop" onValueChange={setHardStop} thumbColor={hardStop ? colors.amber : colors.textMuted} trackColor={{ false: colors.border, true: colors.amberSoft }} value={hardStop} />
           </View>
           {item ? <View style={styles.itemActions}>
-            <Pressable accessibilityLabel="Move rundown item up" accessibilityRole="button" disabled={index <= 0} onPress={() => onMove(item, "up")} style={[styles.itemAction, index <= 0 && styles.disabled]}><ArrowUp color={colors.textMuted} size={18} /><Text style={styles.itemActionText}>Move up</Text></Pressable>
-            <Pressable accessibilityLabel="Move rundown item down" accessibilityRole="button" disabled={index >= itemCount - 1} onPress={() => onMove(item, "down")} style={[styles.itemAction, index >= itemCount - 1 && styles.disabled]}><ArrowDown color={colors.textMuted} size={18} /><Text style={styles.itemActionText}>Move down</Text></Pressable>
-            <Pressable accessibilityLabel="Delete rundown item" accessibilityRole="button" onPress={() => onDelete(item)} style={[styles.itemAction, styles.deleteAction]}><Trash2 color={colors.red} size={18} /><Text style={[styles.itemActionText, styles.deleteText]}>Delete</Text></Pressable>
+            <Pressable accessibilityLabel="Move rundown item up" accessibilityRole="button" disabled={!canEdit || Boolean(removal) || index <= 0} onPress={() => onMove(item, "up")} style={[styles.itemAction, (!canEdit || Boolean(removal) || index <= 0) && styles.disabled]}><ArrowUp color={colors.textMuted} size={18} /><Text style={styles.itemActionText}>Move up</Text></Pressable>
+            <Pressable accessibilityLabel="Move rundown item down" accessibilityRole="button" disabled={!canEdit || Boolean(removal) || index >= itemCount - 1} onPress={() => onMove(item, "down")} style={[styles.itemAction, (!canEdit || Boolean(removal) || index >= itemCount - 1) && styles.disabled]}><ArrowDown color={colors.textMuted} size={18} /><Text style={styles.itemActionText}>Move down</Text></Pressable>
+            <Pressable accessibilityLabel="Delete rundown item" accessibilityRole="button" disabled={!canEdit || !currentItem} onPress={reviewRemoval} style={[styles.itemAction, styles.deleteAction, (!canEdit || !currentItem) && styles.disabled]}><Trash2 color={colors.red} size={18} /><Text style={[styles.itemActionText, styles.deleteText]}>Delete</Text></Pressable>
           </View> : null}
-          <AppButton disabled={!valid} label={item ? "Save item" : "Add item"} onPress={() => {
+          {removal ? <View style={styles.group}>
+            <Text style={styles.switchTitle}>Remove “{removal.item.title}” from this show?</Text>
+            <Text style={styles.switchHint}>{removal.active ? "This is the current item. Removing it stops its timer for all operators. Undo restores the item but does not restart it." : "This removes only this item for all operators. Undo is available briefly after removal."}</Text>
+            {!currentItem ? <Text accessibilityRole="alert" style={styles.deleteText}>This item is no longer in the rundown.</Text> : revision !== removal.revision ? <>
+              <Text accessibilityRole="alert" style={styles.deleteText}>The rundown changed. Review the current item before removing it.</Text>
+              <AppButton label="Review current item" variant="secondary" disabled={!canEdit} onPress={reviewRemoval}/>
+            </> : null}
+            {!canEdit ? <Text accessibilityRole="alert" style={styles.deleteText}>Reconnect with editing access before removing an item.</Text> : null}
+            <AppButton label="Keep item" variant="secondary" onPress={() => setRemoval(null)}/>
+            <AppButton label="Confirm item removal" variant="danger" disabled={!canEdit || !currentItem || revision !== removal.revision} onPress={() => {
+              if (!canEdit || !currentItem || revision !== removal.revision) return;
+              onDelete(removal.item, removal.revision);
+              setRemoval(null);
+            }}/>
+          </View> : null}
+          <AppButton disabled={!valid || !canEdit || Boolean(removal)} label={item ? "Save item" : "Add item"} onPress={() => {
             if (durationMs === null) return;
             onSave({
               ...(item ?? {}),

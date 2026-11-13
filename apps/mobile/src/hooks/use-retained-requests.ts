@@ -46,6 +46,7 @@ export function useRetainedRequests<
     retryable: (result: Result) => boolean;
     dismissible: (result: Result) => boolean;
     failureMessage: string;
+    refreshFailureMessage?: string;
     refresh: (signal: AbortSignal) => Promise<void>;
   },
 ) {
@@ -128,7 +129,7 @@ export function useRetainedRequests<
         ...attempt,
         refresh: active() ? "failed" : "idle",
         message: active()
-          ? message(error, "Schedule could not refresh.")
+          ? message(error, options.refreshFailureMessage ?? "Schedule could not refresh.")
           : undefined,
       });
     } finally {
