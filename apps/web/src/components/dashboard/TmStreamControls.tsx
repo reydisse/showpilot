@@ -119,15 +119,15 @@ function StreamControls({
         }}
         title={
           stopping
-            ? "Stop these destinations?"
+            ? "Disconnect these destinations?"
             : "Go live to these destinations?"
         }
         description={
           review
-            ? `${stopping ? "Stop streaming to" : `Send ${review.inputName} to`}: ${review.command.targets.map((target) => review.names[target.id]).join(", ")}. ${stopping ? "This also replaces unfinished Go Live requests for these destinations." : "Viewers on these destinations may see and hear this input."}`
+            ? `${stopping ? "Disconnect" : `Send ${review.inputName} to`}: ${review.command.targets.map((target) => review.names[target.id]).join(", ")}. ${stopping ? "This also replaces unfinished Go Live requests for these destinations." : "Viewers on these destinations may see and hear this input."}`
             : ""
         }
-        confirmLabel={stopping ? "Stop destinations" : "Go live now"}
+        confirmLabel={stopping ? "Disconnect destinations" : "Go live now"}
         confirmDisabled={stopping ? stopDisabled : liveDisabled}
         onConfirm={() => {
           if (review && !(stopping ? stopDisabled : liveDisabled))
@@ -270,7 +270,7 @@ function StreamControls({
             onClick={() => request("stream-stop")}
             className="min-h-11 rounded-lg border border-red-500/40 px-4 text-sm text-red-300 focus-visible:outline-2 disabled:opacity-50"
           >
-            Stop stream
+            Disconnect destinations
           </button>
         </div>
         <div aria-live="polite" className="space-y-2 text-sm text-board-text">
@@ -278,7 +278,7 @@ function StreamControls({
             <p>
               Sending{" "}
               {latest?.review?.command.action === "stream-stop"
-                ? "Stop"
+                ? "Disconnect"
                 : "Go Live"}{" "}
               request…
             </p>
@@ -294,7 +294,7 @@ function StreamControls({
             <>
               <p>
                 {latest.result.results.every((result) => result.success)
-                  ? `${latest.review?.command.action === "stream-stop" ? "Stop" : "Go Live"} request confirmed. Check current output status above.`
+                  ? `${latest.review?.command.action === "stream-stop" ? "Disconnect" : "Go Live"} request confirmed. Check current output status above.`
                   : "Some destinations were not confirmed."}
               </p>
               {latest.result.results
@@ -328,7 +328,7 @@ function StreamControls({
               </button>
               {control.unfinished.command.action === "stream-live" ? (
                 <p className="text-board-muted">
-                  Retry this request to recover its result, or Stop these
+                  Retry this request to recover its result, or disconnect these
                   destinations before reviewing a new Go Live request.
                 </p>
               ) : null}

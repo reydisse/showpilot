@@ -44,7 +44,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
     const value = label => evaluate(`([...document.querySelectorAll('label')].find(n=>n.textContent.trim()===${JSON.stringify(label)}))?.control.value`);
     await page("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
     await page("Page.navigate", { url: `${origin}/${orgId}/team` });
-    await check("!!document.querySelector('[role=tablist]')", "Team rendered"); await ready(); await tab("Crew");
+    await check("!!document.querySelector('[role=tablist]')", "Team rendered"); await ready(); await tab("Crew roster");
     for (const [width,height] of [[320,780],[768,1024],[1440,1000]]) {
       await page("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
       await check(width < 1024 ? "!!document.querySelector('button[aria-label=\"Open menu\"]')&&!document.querySelector('aside[aria-hidden=\"false\"]')" : "!document.querySelector('button[aria-label=\"Open menu\"]')", `responsive navigation ${width}`);
@@ -56,7 +56,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
       await key("Tab", "Tab", 9); await check("!!document.activeElement.closest('[role=dialog]')", "editor focus trap");
       await key("Escape", "Escape", 27); await ready();
       await check("document.activeElement?.textContent.trim()==='Add crew member'", "editor returns focus");
-      await tab("Members"); await tab("Crew"); await click("Resume draft"); await form();
+      await tab("Workspace members"); await tab("Crew roster"); await click("Resume draft"); await form();
       assert.equal(await value("Full Name"), "Retained fixture crew");
       await click("Close editor"); await ready();
       if(width!==1440) { await click("Discard draft"); await click("Discard draft"); await ready(); }
@@ -64,7 +64,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
     await click("Songs"); await check("document.body.innerText.includes('Leave Team?')", "crew draft blocks navigation"); await click("Stay"); await ready();
     await click("Resume draft"); await form(); await hold("addCrewMember"); await click("Add crew member");
     await check("window.teamReplies.some(r=>r.kind==='addCrewMember'&&r.status===200)", "crew insert committed with lost reply");
-    await tab("Members"); await retry("addCrewMember"); await tab("Crew");
+    await tab("Workspace members"); await retry("addCrewMember"); await tab("Crew roster");
     await check("document.body.innerText.includes('Retained fixture crew')&&!document.body.innerText.includes('Crew draft:')", "creation confirmed once");
     await hold("updateCrewMember"); await click("Edit Retained fixture crew"); await form(); await fill("Full Name", "First fixture edit"); await click("Save crew member");
     await check("window.teamReplies.some(r=>r.kind==='updateCrewMember'&&r.status===200)", "edit committed with lost reply");

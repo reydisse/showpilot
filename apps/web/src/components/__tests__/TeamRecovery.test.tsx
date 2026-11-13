@@ -150,7 +150,7 @@ it("keeps the exact failed role command available after switching tabs", async (
     expectedRevision: 3,
     requestId: expect.any(String),
   });
-  fireEvent.click(screen.getByRole("tab", { name: /Reports/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Content reports/ }));
   expect(
     screen
       .getByRole("button", { name: "Mark resolved" })
@@ -237,7 +237,7 @@ it("requires invitation cancellation confirmation and recovers a failed cancella
 it("confirms moderation and retains its decision for Retry", async () => {
   api.close.mockRejectedValueOnce(new Error("Decision not confirmed"));
   await open();
-  fireEvent.click(screen.getByRole("tab", { name: /Reports/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Content reports/ }));
   fireEvent.click(screen.getByRole("button", { name: "Mark resolved" }));
   expect(api.close).not.toHaveBeenCalled();
   expect(screen.getByRole("dialog").textContent).toContain("Casey Crew");
@@ -281,8 +281,8 @@ it("bounds a hanging write and retains a failed team read without showing an emp
 
 it("supports arrow, Home and End navigation with one focusable selected tab", async () => {
   await open();
-  const members = screen.getByRole("tab", { name: /Members/ }),
-    reports = screen.getByRole("tab", { name: /Reports/ });
+  const members = screen.getByRole("tab", { name: /Workspace members/ }),
+    reports = screen.getByRole("tab", { name: /Content reports/ });
   members.focus();
   fireEvent.keyDown(members, { key: "ArrowRight" });
   expect(document.activeElement).toBe(reports);
@@ -313,12 +313,12 @@ it("retains an invitation draft and exact creation retry across form close and t
   await act(async () => {});
   const original = api.invite.mock.calls[0][0].data;
   expect(original).toMatchObject({ email: "new@example.test", requestId: expect.any(String) });
-  fireEvent.click(screen.getByRole("tab", { name: /Reports/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Content reports/ }));
   expect(screen.getByRole("alert", { name: "Team change" }).textContent).toContain("Creation reply lost");
   fireEvent.click(screen.getByRole("button", { name: "Retry change" }));
   await act(async () => {});
   expect(api.invite.mock.calls[1][0].data).toEqual(original);
-  fireEvent.click(screen.getByRole("tab", { name: /Members/ }));
+  fireEvent.click(screen.getByRole("tab", { name: /Workspace members/ }));
   expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Member email" }).value).toBe("");
 });
 it("retries only the list after invitation creation was acknowledged", async () => {

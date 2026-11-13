@@ -100,14 +100,14 @@ function SignalNode({ ok, eyebrow, label, detail }: {
 
 const faultQueueWidget: TmWidget = {
   id: "faults",
-  title: "Faults",
+  title: "Incidents",
   phases: "all",
   region: "main",
   render: (widget) => {
     const { model } = widget;
     if (model.faults.length === 0) {
       return (
-        <WidgetCard title="Faults">
+        <WidgetCard title="Incidents">
           <WidgetEmpty>
             {workspaceCopy(
               "Nothing open. Anything logged during the service lands here.",
@@ -120,7 +120,7 @@ const faultQueueWidget: TmWidget = {
     return (
       <div>
         <div className="flex items-baseline gap-2 mb-2 px-1">
-          <h2 className="text-xs font-semibold text-board-text">Faults</h2>
+          <h2 className="text-xs font-semibold text-board-text">Incidents</h2>
           <span className="text-[11px] text-board-muted">
             {model.openCount} open
             {model.unownedCount > 0 && (
@@ -192,7 +192,7 @@ function FaultRow({ fault, widget }: { fault: Fault; widget: TmWidgetModel }) {
           Resolve
         </button>
         {fault.ownership !== "unassigned" && (widget.canAssignPeople || fault.ownership === "mine") && (
-          <button onClick={() => widget.onRelease(fault.id)} disabled={busy} title="Return fault to the unassigned queue" className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg text-board-muted hover:text-board-text disabled:opacity-50"><UserMinus className="w-3 h-3" />Release</button>
+          <button onClick={() => widget.onRelease(fault.id)} disabled={busy} title="Return incident to the unassigned queue" className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg text-board-muted hover:text-board-text disabled:opacity-50"><UserMinus className="w-3 h-3" />Release</button>
         )}
         {widget.canAssignPeople ? (
           <>
@@ -491,7 +491,7 @@ const allClearWidget: TmWidget = {
       <p className="text-xs text-board-muted flex items-center gap-2">
         <AlertTriangle className="w-3.5 h-3.5 text-green-400" aria-hidden="true" />
         {workspaceCopy(
-          "\n        No open faults. Anything logged during the service appears here.\n      ",
+          "\n        No open incidents. Anything logged during the service appears here.\n      ",
           workspaceTerms,
         )}
       </p>

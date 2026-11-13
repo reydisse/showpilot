@@ -225,7 +225,7 @@ await withLocalSmokeFixture(
         );
         assert.equal(
           await evaluate(
-            `[...${root}.querySelectorAll('button')].find(n=>n.textContent==='Stop stream').disabled`,
+            `[...${root}.querySelectorAll('button')].find(n=>n.textContent==='Disconnect destinations').disabled`,
           ),
           false,
         );
@@ -248,7 +248,7 @@ await withLocalSmokeFixture(
             ).length >= 3,
           "slow provider create started",
         );
-        await confirm("Stop stream", "Stop destinations");
+        await confirm("Disconnect destinations", "Disconnect destinations");
         await check(
           `${root}?.innerText.includes('Retry streaming command')`,
           "unfinished Stop shown",
@@ -260,7 +260,7 @@ await withLocalSmokeFixture(
         await configureStreamOutputs("success");
         await click("Retry streaming command");
         await check(
-          `${root}?.innerText.includes('Stop request confirmed.')`,
+          `${root}?.innerText.includes('Disconnect request confirmed.')`,
           "Stop recovers pending creation",
         );
         assert.equal(

@@ -42,7 +42,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
     };
     await page("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
     await page("Page.navigate", { url: `${origin}/${orgId}/team` });
-    await check("!!document.querySelector('[role=tablist]')", "Team rendered"); await ready(); await tab("Access");
+    await check("!!document.querySelector('[role=tablist]')", "Team rendered"); await ready(); await tab("Access grants");
     await click("Grant access"); await fill("Capability", "rundown-operator"); await fill("Reason", "Browser recovery fixture");
     for (const [width,height] of [[320,780],[768,1024],[1440,1000]]) {
       await page("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
@@ -52,13 +52,13 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
     }
     await click("Close grant form");
     await check("document.activeElement?.textContent.trim()==='Resume access draft'", "draft close restores focus");
-    await tab("Members"); await tab("Access"); await click("Resume access draft");
+    await tab("Workspace members"); await tab("Access grants"); await click("Resume access draft");
     assert.equal(await evaluate("document.querySelector('[role=tabpanel]:not([hidden]) input[maxlength]')?.value"),"Browser recovery fixture");
     await click("Songs"); await check("document.body.innerText.includes('Leave Team?')", "access draft blocks navigation"); await click("Stay"); await ready();
     await hold("grantMemberAccess"); await click("Grant access");
     await check("window.teamReplies.some(r=>r.kind==='grantMemberAccess'&&r.status===200)", "grant committed with reply withheld");
     const revokeStatus = await evaluate(`(async()=>{const list=await fetch('/api/mobile/v1/team/access?orgId=${orgId}').then(r=>r.json());const grant=list.grants.find(g=>g.capability==='rundown-operator');return (await fetch('/api/mobile/v1/team/access/grants/'+grant.id+'/revoke?orgId=${orgId}',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:crypto.randomUUID()})})).status;})()`);
-    assert.equal(revokeStatus,200); await tab("Members"); await retry("grantMemberAccess"); await tab("Access");
+    assert.equal(revokeStatus,200); await tab("Workspace members"); await retry("grantMemberAccess"); await tab("Access grants");
     await check("document.body.innerText.includes('no longer active')&&document.body.innerText.includes('No custom access is active')", "old retry cannot recreate revoked access");
     await evaluate("window.teamReplies.forEach(r=>r.release())"); await ready();
     await click("Grant access"); await fill("Capability", "rundown-operator"); await fill("Reason", "Confirmed grant");

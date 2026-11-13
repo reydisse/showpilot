@@ -317,10 +317,10 @@ function TechManagerPage() {
             </span>
             <div>
               <h1 className="text-[15px] leading-none font-semibold text-board-text font-[family-name:var(--font-display)]">
-                Technical Control
+                Tech Manager
               </h1>
-              <p className="text-[10px] text-board-muted mt-1">
-                Signal, systems & response
+              <p className="text-xs text-board-muted mt-1">
+                Technical readiness: incidents, equipment and live systems
               </p>
             </div>
           </div>
@@ -378,10 +378,10 @@ function TechManagerPage() {
               >
                 {model.openCount}
               </p>
-              <p className="text-[10px] text-board-muted mt-1">
+              <p className="text-xs text-board-muted mt-1">
                 {model.unownedCount > 0
                   ? `${model.unownedCount} unowned`
-                  : "open faults"}
+                  : "open incidents"}
               </p>
             </div>
             {model.prep.length > 0 && (
@@ -389,7 +389,7 @@ function TechManagerPage() {
                 <p className="text-[22px] font-semibold tabular-nums text-yellow-400">
                   {model.prep.length}
                 </p>
-                <p className="text-[10px] text-board-muted mt-1">
+                <p className="text-xs text-board-muted mt-1">
                   to fix first
                 </p>
               </div>
@@ -477,7 +477,7 @@ function HealthOverview({ model }: { model: TmWidgetModel["model"] }) {
   const metrics = [
     { label: "System state", value: overall, icon: ShieldCheck, tone },
     {
-      label: "Critical faults",
+      label: "Critical incidents",
       value: String(critical),
       icon: AlertTriangle,
       tone: critical ? "text-red-400" : "text-board-text",
@@ -769,7 +769,8 @@ function FaultToolbar({
         <input
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Search faults"
+          aria-label="Search incidents"
+          placeholder="Search incidents"
           className="w-full md:w-44 bg-transparent text-xs text-board-text placeholder:text-board-muted outline-none"
         />
       </label>

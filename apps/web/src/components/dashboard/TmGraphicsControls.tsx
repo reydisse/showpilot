@@ -66,9 +66,9 @@ function GraphicsControls({
         onOpenChange={(open) => {
           if (!open) setReview(null);
         }}
-        title="Clear graphics from outputs?"
-        confirmLabel="Clear graphics now"
-        description={`Remove on-air graphics and lower thirds from connected ShowPilot outputs${review ? `: ${[...review.program.map((graphic) => graphic.title), ...review.lowerThirds, ...(review.programUnknown ? ["unrecognized saved output"] : [])].join(", ")}` : ""}. Saved graphics and scenes remain available.`}
+        title="Clear all graphics?"
+        confirmLabel="Clear all graphics"
+        description={`Clear Program graphics and live lower thirds from connected ShowPilot outputs${review ? `: ${[...review.program.map((graphic) => graphic.title), ...review.lowerThirds, ...(review.programUnknown ? ["unrecognized saved output"] : [])].join(", ")}` : ""}. Saved graphics and scenes remain available.`}
         confirmDisabled={disabled}
         onConfirm={() => {
           if (review && state && !disabled)
@@ -174,7 +174,7 @@ function GraphicsControls({
           onClick={() => setReview(state ?? null)}
           className="min-h-11 rounded-lg border border-red-500/40 px-4 text-red-300 focus-visible:outline-2 disabled:opacity-50"
         >
-          Clear graphics
+          Clear all graphics
         </button>
         <div aria-live="polite" className="space-y-2">
           {control.pending ? (
