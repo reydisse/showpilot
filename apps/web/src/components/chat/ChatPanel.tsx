@@ -1,3 +1,4 @@
+import type { ChatNotificationWork } from "@/lib/chat-notifications";
 import { connectionLabel } from "@/lib/connection-state";
 import { useState, useRef, useEffect, useMemo, useCallback, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 import { isEmojiReaction, QUICK_REACTION_EMOJIS } from "@showpilot/shared";
@@ -343,7 +344,7 @@ function ChatMessageRow({
           {isSeen ? <span className="font-medium text-sky-300/75">· Seen</span> : null}
         </div>
         <ExternalDeliveryStatus delivery={message.externalDelivery} alignRight={isOwn} />
-        {message.delivery ? <div className={cn("mt-1 flex items-center gap-2 px-2 text-[9px]", isOwn && "justify-end", message.delivery === "failed" ? "text-red-300" : "text-board-muted")}><span>{message.delivery === "waiting" ? "Waiting for connection" : message.delivery === "sending" ? "Sending…" : message.deliveryError ?? "Not sent"}</span>{message.delivery === "failed" && onRetryQueued ? <button type="button" onClick={() => onRetryQueued(message.id)} className="font-semibold text-fire-300 hover:underline">Retry</button> : null}{onCancelQueued ? <button type="button" onClick={() => onCancelQueued(message.id)} className="hover:text-board-text hover:underline">Cancel</button> : null}</div> : null}
+        {message.delivery ? <div role={message.delivery === "failed" ? "alert" : "status"} className={cn("mt-1 flex flex-wrap items-center gap-2 px-2 text-xs", isOwn && "justify-end", message.delivery === "failed" ? "text-red-300" : "text-board-muted")}><span>{message.delivery === "waiting" ? "Waiting for connection" : message.delivery === "sending" ? "Sending…" : message.deliveryError ?? "Not sent"}</span>{message.delivery === "failed" && onRetryQueued ? <button type="button" onClick={() => onRetryQueued(message.id)} className="min-h-11 rounded-lg border border-board-border px-3 font-semibold text-fire-300 hover:underline">Retry send</button> : null}{onCancelQueued ? <button type="button" onClick={() => onCancelQueued(message.id)} className="min-h-11 rounded-lg border border-board-border px-3 hover:text-board-text hover:underline">Remove local copy</button> : null}</div> : null}
         {!message.deletedAt && !message.delivery && <div className={cn(
           "z-10 mt-1 flex max-w-full shrink-0 self-start rounded-md border border-board-border bg-board-card text-board-muted opacity-100 shadow-sm transition [@media(hover:hover)]:absolute [@media(hover:hover)]:bottom-5 [@media(hover:hover)]:mt-0 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:focus-within:opacity-100 [@media(hover:hover)]:group-hover:opacity-100",
           isOwn ? "self-end [@media(hover:hover)]:right-1" : "[@media(hover:hover)]:right-1",
@@ -393,7 +394,7 @@ interface ChatPanelProps {
   messages: ChatMessage[];
   connectionStatus: ConnectionStatus;
   unreadCount: number;
-  onSendMessage: (text: string, type: MessageType, options?: ChatMessageOptions) => void;
+  onSendMessage: (text: string, type: MessageType, options?: ChatMessageOptions) => void | Promise<void>;
   onUploadAttachment?: (file: File) => Promise<ChatAttachment>;
   onDiscardAttachment?: (attachment: ChatAttachment) => Promise<void>;
   onEditMessage?: (messageId: string, text: string) => Promise<void>;
@@ -424,6 +425,8 @@ interface ChatPanelProps {
   loadingOlderMessages?: boolean;
   olderMessagesError?: string | null;
   onLoadOlderMessages?: () => Promise<void>;
+  notifications?: ChatNotificationWork[];
+  onRetryNotifications?: (requestId: string) => void;
   onRetryQueuedMessage?: (messageId: string) => void;
   onCancelQueuedMessage?: (messageId: string) => void;
 }
@@ -463,6 +466,8 @@ export function ChatPanel({
   loadingOlderMessages = false,
   olderMessagesError,
   onLoadOlderMessages,
+  notifications = [],
+  onRetryNotifications,
   onRetryQueuedMessage,
   onCancelQueuedMessage,
 }: ChatPanelProps) {
@@ -676,8 +681,9 @@ export function ChatPanel({
     });
   };
 
-  const handleSend = () => {
-    if (uploadingCount > 0) return;
+  const sendingMessage = useRef(false);
+  const handleSend = async () => {
+    if (uploadingCount > 0 || sendingMessage.current) return;
     if (!inputText.trim() && pendingAttachments.length === 0) return;
     onTypingChange?.(false);
     if (editingMessage) {
@@ -693,26 +699,36 @@ export function ChatPanel({
       return;
     }
     const replyTarget = replyingTo;
-    onSendMessage(inputText.trim(), messageType, {
-      replyTo: replyTarget ? { messageId: replyTarget.id, senderName: replyTarget.senderName, text: replyTarget.text } : undefined,
-      attachments: pendingAttachments.length ? pendingAttachments : undefined,
-      mentionedUserIds: mentionedUserIds(inputText, mentionMembers),
-    });
-    setInputText("");
-    setReplyingTo(null);
-    pendingAttachmentsRef.current = [];
-    setPendingAttachments([]);
-    setMessageType("text");
-
-    // Re-focus textarea
-    textareaRef.current?.focus();
+    const submittedText = inputText;
+    sendingMessage.current = true;
+    try {
+      await onSendMessage(inputText.trim(), messageType, {
+        replyTo: replyTarget ? { messageId: replyTarget.id, senderName: replyTarget.senderName, text: replyTarget.text } : undefined,
+        attachments: pendingAttachments.length ? pendingAttachments : undefined,
+        mentionedUserIds: mentionedUserIds(inputText, mentionMembers),
+      });
+      setInputText(current => current === submittedText ? "" : current);
+      setReplyingTo(null);
+      pendingAttachmentsRef.current = [];
+      setPendingAttachments([]);
+      setMessageType("text");
+      setMessageActionError(null);
+      textareaRef.current?.focus();
+    } catch (error) {
+      setMessageActionError(error instanceof Error ? error.message : "Message could not be queued. Retry sending your draft.");
+    } finally { sendingMessage.current = false; }
   };
 
-  const sendPoll = () => {
-    const options = pollOptions.map((text) => text.trim()).filter(Boolean);
-    if (!pollQuestion.trim() || options.length < 2) return;
-    onSendMessage("", "text", { poll: { question: pollQuestion.trim(), options: options.map((text) => ({ id: "", text, voterIds: [] })) } });
-    setPollOpen(false); setPollQuestion(""); setPollOptions(["", ""]);
+  const sendPoll = async () => {
+    const options = pollOptions.map(text => text.trim()).filter(Boolean);
+    if (sendingMessage.current || !pollQuestion.trim() || options.length < 2) return;
+    sendingMessage.current = true;
+    try {
+      await onSendMessage("", "text", { poll: { question: pollQuestion.trim(), options: options.map(text => ({ id: "", text, voterIds: [] })) } });
+      setPollOpen(false); setPollQuestion(""); setPollOptions(["", ""]); setMessageActionError(null);
+    } catch (error) {
+      setMessageActionError(error instanceof Error ? error.message : "Poll could not be queued. Retry sending the poll.");
+    } finally { sendingMessage.current = false; }
   };
 
   useEffect(() => {
@@ -738,6 +754,10 @@ export function ChatPanel({
     setPendingAttachments([]);
     setInputText(message.text);
     textareaRef.current?.focus();
+  };
+
+  const removeQueuedMessage = async (id: string) => {
+    if (await confirm({ title: "Remove this queued copy?", description: "This removes the local copy only. If the server already accepted the message, it may still appear in the conversation.", confirmLabel: "Remove local copy", variant: "warning" })) onCancelQueuedMessage?.(id);
   };
 
   const deleteMessage = async (message: ChatMessage) => {
@@ -973,7 +993,7 @@ export function ChatPanel({
                   <span className="h-px flex-1 bg-board-border/70" />
                 </div>
               )}
-              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={beginReply} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} onToggleReaction={onToggleReaction} onOpenImage={setOpenImage} onRetryQueued={onRetryQueuedMessage} onCancelQueued={onCancelQueuedMessage} />
+              <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={beginReply} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} onVotePoll={onVotePoll} onToggleReaction={onToggleReaction} onOpenImage={setOpenImage} onRetryQueued={onRetryQueuedMessage} onCancelQueued={onCancelQueuedMessage ? id => void removeQueuedMessage(id) : undefined} />
             </div>
           );
           })}
@@ -999,6 +1019,15 @@ export function ChatPanel({
           </button>
         </div>
       )}
+
+      {notifications.length > 0 && <section aria-label="Crew notification delivery" className="max-h-48 shrink-0 overflow-x-hidden overflow-y-auto border-t border-board-border">
+          {notifications.map(item => <div key={item.command.requestId} role={item.status === "failed" ? "alert" : "status"} className="space-y-2 border-b border-board-border px-4 py-3 text-sm text-amber-200">
+            <p className="break-words">{item.command.kind === "message" ? "Message delivered." : "Reaction saved."} {item.status === "pending" ? "Sending crew notifications…" : "Crew notifications were not confirmed. Retry notifications without repeating the chat action."}</p>
+            <p className="break-words text-xs text-board-muted">{item.label.slice(0, 120)}</p>
+            <time dateTime={new Date(item.at).toISOString()}>{new Date(item.at).toLocaleTimeString()}</time>
+            {item.status === "failed" && onRetryNotifications && <button type="button" className="ml-2 min-h-11 rounded-lg border border-board-border px-3" onClick={() => onRetryNotifications(item.command.requestId)}>Retry notifications</button>}
+          </div>)}
+      </section>}
 
       {/* Input area */}
       <div className="min-w-0 shrink-0 border-t border-board-border bg-board-bg/40 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3">
@@ -1072,7 +1101,7 @@ export function ChatPanel({
             onClick={handleSend}
             disabled={(!inputText.trim() && pendingAttachments.length === 0) || uploadingCount > 0}
             className={cn(
-              "mb-0.5 shrink-0 rounded-lg p-2.5 shadow-sm transition-all touch-manipulation",
+              "mb-0.5 min-h-11 min-w-11 shrink-0 rounded-lg p-2.5 shadow-sm transition-all touch-manipulation",
               (inputText.trim() || pendingAttachments.length > 0) && uploadingCount === 0
                 ? "bg-fire-500 text-black hover:bg-fire-400"
                 : "bg-board-border text-board-muted cursor-not-allowed",
@@ -1083,7 +1112,7 @@ export function ChatPanel({
           </button>
           </div>
         </div>
-        {(uploadError || messageActionError) && <p className="mt-1.5 px-1 text-[10px] text-red-400">{uploadError || messageActionError}</p>}
+        {(uploadError || messageActionError) && <p role="alert" className="mt-1.5 px-1 text-sm text-red-400">{uploadError || messageActionError}</p>}
       </div>
       {openImage ? (
         <div className="fixed inset-0 z-[100] flex flex-col bg-black/95" role="dialog" aria-modal="true" aria-label={openImage.name}>

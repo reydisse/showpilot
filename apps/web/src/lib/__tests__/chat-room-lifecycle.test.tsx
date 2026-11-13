@@ -2,6 +2,8 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useChat } from "@/hooks/useChat";
 import type { ChatMessage } from "@/lib/adapters/chat-adapter";
+const oldNotifications = vi.hoisted(() => ({ message: vi.fn(), reaction: vi.fn() }));
+vi.mock("@/lib/chat-collaboration", () => ({ notifyChatMessage: oldNotifications.message, notifyChatReaction: oldNotifications.reaction }));
 
 class Socket {
   static OPEN = 1;
@@ -175,4 +177,14 @@ it("discards history on reconnect when a clear happened while the socket was off
   const {result}=mount();
   act(()=>Socket.instances[0].receive({type:"hydrate",historyClearVersion:1,messages:[message("after-offline-clear",300)],readReceipts:{}}));
   expect(result.current.messages.map(m=>m.id)).toEqual(["after-offline-clear"]);
+});
+
+it("does not notify the crew before the relay has accepted the queued message", async () => {
+  oldNotifications.message.mockClear();
+  const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+  const { result } = mount();
+  await act(async () => { result.current.sendMessage("Wait for the room"); });
+  expect(result.current.messages.some(value => value.text === "Wait for the room" && value.delivery === "sending")).toBe(true);
+  expect(oldNotifications.message).not.toHaveBeenCalled();
+  expect(fetcher).not.toHaveBeenCalled();
 });

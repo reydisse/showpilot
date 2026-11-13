@@ -3,10 +3,6 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { ChatPanel } from "../ChatPanel";
 import type { ChatMessage } from "@/lib/adapters/chat-adapter";
 
-vi.mock("@/components/ui/confirm-dialog", () => ({
-  useConfirmDialog: () => ({ confirm: vi.fn(), ConfirmDialogEl: null }),
-}));
-
 let triggerResize = () => {};
 
 beforeAll(() => {
@@ -43,6 +39,50 @@ const messages: ChatMessage[] = [
 ];
 
 describe("ChatPanel conversation flow", () => {
+  it("preserves a rejected message draft and shows the enqueue error", async () => {
+    const onSendMessage = vi.fn().mockRejectedValue(new Error("Outgoing queue is full"));
+    render(<ChatPanel messages={[]} connectionStatus="connected" unreadCount={0} onSendMessage={onSendMessage} />);
+    const textbox = screen.getByRole("textbox");
+    fireEvent.change(textbox, { target: { value: "Keep this draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Outgoing queue is full"));
+    expect(textbox).toHaveProperty("value", "Keep this draft");
+    onSendMessage.mockResolvedValue(undefined);
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(textbox).toHaveProperty("value", ""));
+    expect(onSendMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains the poll question and options when enqueue fails", async () => {
+    const onSendMessage = vi.fn().mockRejectedValue(new Error("Chat is not ready"));
+    render(<ChatPanel messages={[]} connectionStatus="connected" unreadCount={0} onSendMessage={onSendMessage} onVotePoll={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Create poll" }));
+    fireEvent.change(screen.getByPlaceholderText("Ask a question"), { target: { value: "Ready?" } });
+    fireEvent.change(screen.getByPlaceholderText("Option 1"), { target: { value: "Yes" } });
+    fireEvent.change(screen.getByPlaceholderText("Option 2"), { target: { value: "Wait" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send poll" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Chat is not ready"));
+    expect(screen.getByPlaceholderText("Ask a question")).toHaveProperty("value", "Ready?");
+    expect(screen.getByPlaceholderText("Option 1")).toHaveProperty("value", "Yes");
+    expect(screen.getByPlaceholderText("Option 2")).toHaveProperty("value", "Wait");
+  });
+
+  it("retries failed crew notifications without sending the message again", () => {
+    const onSendMessage = vi.fn();
+    const onRetryNotifications = vi.fn();
+    render(<ChatPanel messages={[]} connectionStatus="connected" unreadCount={0} onSendMessage={onSendMessage} onRetryNotifications={onRetryNotifications} notifications={[{
+      command: { kind: "message", orgId: "org", userId: "me", roomId: "production", messageId: "sent", requestId: "notification", text: "Stand by", mentionedUserIds: [] },
+      label: "Stand by", at: 1234, status: "failed",
+    }]} />);
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("Message delivered.");
+    expect(alert.textContent).toContain("Stand by");
+    expect(alert.querySelector("time")?.dateTime).toBe(new Date(1234).toISOString());
+    fireEvent.click(within(alert).getByRole("button", { name: "Retry notifications" }));
+    expect(onRetryNotifications).toHaveBeenCalledExactlyOnceWith("notification");
+    expect(onSendMessage).not.toHaveBeenCalled();
+  });
+
   it("keeps unknown rooms out of the empty state and exposes a timestamped reconnect action", () => {
     const reconnect = vi.fn();
     const props = { messages: [], unreadCount: 0, onSendMessage: vi.fn(), hydrated: false, onReconnect: reconnect };
@@ -81,10 +121,18 @@ describe("ChatPanel conversation flow", () => {
     render(<ChatPanel messages={[pending]} connectionStatus="disconnected" unreadCount={0} currentUserId="me" onSendMessage={vi.fn()} hasOlderMessages onLoadOlderMessages={onLoadOlderMessages} onRetryQueuedMessage={onRetryQueuedMessage} onCancelQueuedMessage={onCancelQueuedMessage} />);
     fireEvent.click(screen.getByRole("button", { name: "Load older messages" }));
     await waitFor(() => expect(onLoadOlderMessages).toHaveBeenCalledOnce());
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry send" }));
     expect(onRetryQueuedMessage).toHaveBeenCalledWith("pending");
-    expect(onCancelQueuedMessage).toHaveBeenCalledWith("pending");
+    fireEvent.click(screen.getByRole("button", { name: "Remove local copy" }));
+    let dialog = screen.getByRole("dialog", { name: "Remove this queued copy?" });
+    expect(onCancelQueuedMessage).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(onCancelQueuedMessage).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Remove local copy" }));
+    dialog = screen.getByRole("dialog", { name: "Remove this queued copy?" });
+    expect(dialog.textContent).toContain("it may still appear in the conversation");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove local copy" }));
+    await waitFor(() => expect(onCancelQueuedMessage).toHaveBeenCalledExactlyOnceWith("pending"));
   });
 
   it("keeps the caption and attachment together when Enter is pressed during upload", async () => {
@@ -105,7 +153,7 @@ describe("ChatPanel conversation flow", () => {
     await act(async () => { completeUpload(attachment); });
     fireEvent.keyDown(textbox, { key: "Enter" });
     expect(onSendMessage).toHaveBeenCalledExactlyOnceWith("Read these notes", "text", expect.objectContaining({ attachments: [attachment] }));
-    expect(textbox).toHaveProperty("value", "");
+    await waitFor(() => expect(textbox).toHaveProperty("value", ""));
   });
 
   it("removes an abandoned upload from server storage when the user discards it", async () => {
