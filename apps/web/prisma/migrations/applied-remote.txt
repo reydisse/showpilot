@@ -97,3 +97,4 @@
 0090_template_save_recovery.sql
 0091_rundown_replacement_recovery.sql
 0092_workspace_change_recovery.sql
+0093_graphic_control_recovery.sql
