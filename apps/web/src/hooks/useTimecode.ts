@@ -19,7 +19,7 @@ import type { cueReviewState } from "@/lib/automation-cues";
 import { emptyMidiController, type MidiControllerConfig, type MidiControllerSnapshot } from "@/lib/midi-controller";
 import { RelaySequenceTracker } from "@showpilot/shared";
 import { useLyricsCommands } from "@/hooks/useLyricsCommands";
-import type { LyricsOperation } from "@/lib/lyrics-control";
+import type { LyricsOperation } from "@showpilot/shared";
 import { automationEditReview, automationChangesMatch, type AutomationEventChanges } from "@/lib/automation-edit";
 import type { ConnectionStatus } from "@/lib/connection-state";
 

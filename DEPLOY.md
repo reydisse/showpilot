@@ -8866,3 +8866,71 @@ real-org changes. Twenty necessary tracked Markdown files remain; none added.
 Stack gate: #277 exact head 737fd18a673eb4f0eb9ba8490c7234bf188adb86 passed CI
 42559076471 before opening this change's draft PR. Its own exact-head CI must pass
 before another PR is opened.
+
+## 2026-11-08 — Native lyrics preview, reviewed controls and safe recovery
+
+Branch: fix/native-timecode-lyrics-preview, stacked on fix/native-timecode-timeline.
+Native Timecode no longer truncates the preview to four nonempty lines. It keeps
+every line and blank line, uses the same measured font-fit search as confidence,
+and grows vertically at a 12px floor when dense lyrics cannot fit. The fixed
+transport remains reachable. Previous, Next and Clear now show inline reviews,
+pending states, errors and recovery. Stale song/section/revision/generation
+reviews cannot change output. The review identifies the selected show and song.
+
+The relay atomically stores the output and an actor-scoped request receipt.
+Recovering a lost reply returns that receipt without advancing twice or clearing
+a later song. Song lookup and fresh permission checks have a shared five-second
+deadline outside the local commit, allowing Stop and newer lyrics to interrupt.
+The commit checks current ownership, show/date and lyrics again. Rejections do
+not reset the Durable Object input gate. Existing web controls remain supported.
+Native requests retain their original identities across navigation, bound sends
+to 15 seconds and refreshes to 12 seconds, and offer refresh-only recovery after
+the result is known. Clear recovery remains available with no lyrics on output.
+
+The confidence browser rehearsal also exposed a real settings bug. Adding an
+optional upcoming-text color changed object property order; the acknowledged
+layout was normalized by its schema, so raw JSON comparison incorrectly kept the
+editor dirty and hid success. Draft comparisons and writes now use the same
+schema order. A regression failed before the fix and passes afterward; newer
+edits made during a save remain unsaved until separately applied.
+
+Final full suite: 363 unit files / 3,157 tests and 150 Worker files / 1,690 tests,
+4,847 total. Web typecheck and production build pass. Main client is 542,274 raw /
+171,102 gzip bytes under unchanged limits. The preceding coverage run passes all
+4,846 then-current tests and unchanged thresholds: Timecode 93.77% statements,
+93.75% branches, 92.66% functions, 95.59% lines; relays 87.35/85.47/91.20/92.44;
+devices 64.55/49.88/62.90/67.19. The final extra test covers the color-save bug.
+Native verification passes TypeScript, lint (18 existing warnings, zero errors),
+iOS/Android/web exports, Expo Doctor 18/18, API contracts and polling checks.
+Hermes bundles: 5,960,185 bytes iOS and 5,959,345 bytes Android.
+
+The compiled native web rehearsal uses disposable real authentication, D1 and
+TimecodeRelay. It verifies seven lines including a blank line, fifty-line growth,
+320/768/1440px layouts, 44px controls, cancelled/confirmed Next/Previous/Clear,
+stale review, a lost Next reply recovered after show navigation, preservation of
+newer output, known Clear with refresh timeout/retry, and first-section errors.
+Next replaces lyrics directly without a lyrics-clear message or preview unmount.
+The built web lyrics rehearsal also passes with a stable confidence DOM node.
+The confidence renderer/editor rehearsal passes at 320, 390, 768, 1280, 1920,
+2560 and 3440px, including stable upcoming font size, scripture reference
+separation, simulated output control and the confirmed color save. Screenshots
+were inspected. Expo web and simulated native output are not physical-device
+verification.
+
+Reproduce after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-timecode-lyrics.mjs`;
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-lyrics-steps.mjs`;
+`node apps/web/scripts/smoke-confidence.mjs`.
+Logs: /tmp/showpilot-native-lyrics-{full1,full2,coverage1,tsc2,tsc3,build1,build2,verify1,browser1,web-browser,confidence-browser,confidence-browser2,color-before}.log.
+Screenshots: /tmp/showpilot-native-lyrics-{320,768,1440}.png and
+/tmp/showpilot-confidence-controls.png. The first confidence rehearsal failed on
+the real color-save bug described above; the unchanged rehearsal passes now.
+
+Phase 2 remains 67/79. Broad product-wide requirements stay open. The next
+identified gap is native Chat: socket opening/history hydration and older-history
+fetches lack deadlines, and unacknowledged sends have no visible recovery.
+No deployment, release, remote migration, real-org write or external mail.
+Twenty necessary tracked Markdown files remain; none added.
+Stack gate: #278 exact head 65b555e751d709a15bdf99afd416e265033874f6 passed CI
+42561112839 before opening this draft. Its own exact-head CI must pass before
+another PR opens.

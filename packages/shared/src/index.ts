@@ -24,3 +24,5 @@ export { normalizeActionParams, findAndNormalizeAction, type AutomationActionPar
 export { isSafeAutomationWebhookUrl } from "./automation-webhook-url";
 export * from "./automation-timeline";
 export * from "./automation-summary";
+export * from "./timecode-lyrics-control";
+export * from "./text-fit";

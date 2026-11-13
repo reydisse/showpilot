@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { ArrowLeft, ArrowRight, Eraser } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { LyricsOperation } from "@/lib/lyrics-control";
+import type { LyricsOperation } from "@showpilot/shared";
 
 export function lyricsShortcut(event: KeyboardEvent): "next" | "previous" | null {
   if (event.defaultPrevented || event.repeat || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return null;
