@@ -1,4 +1,4 @@
-import type { RelaySequence } from "./relay-sequence";
+import type { RelaySequence } from "@showpilot/shared";
 
 /** SQLite-backed room counter. Synchronous writes participate in the DO output
  * gate, so messages cannot escape before their revision has been committed.

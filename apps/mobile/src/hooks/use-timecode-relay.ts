@@ -1,3 +1,4 @@
+import { RelaySequenceTracker } from "@showpilot/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { createAuthenticatedWebSocket } from "@/lib/auth-transport";
@@ -8,7 +9,8 @@ import {
   parseMobileTimecodeState,
   type MobileTimecodeEvent,
   type MobileTimecodeState,
-} from "@/lib/mobile-api";
+  type MobileTimecodeTarget,
+} from "@/lib/timecode-contract";
 
 type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "offline";
 type TimecodeFormat = MobileTimecodeState["format"];
@@ -45,197 +47,267 @@ function framesToTimecode(totalFrames: number, format: TimecodeFormat) {
   };
 }
 
-function relayUrl(orgId: string) {
+function relayUrl(orgId: string, showId: string) {
   const url = new URL(SHOWPILOT_URL);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = `/api/timecode/${encodeURIComponent(orgId)}/ws`;
+  url.searchParams.set("showId", showId);
   return url.toString();
 }
+
+type Control = "available" | "yours" | "other";
+type Pending = "start" | "stop" | "claim-control" | "release-control" | null;
+function isControl(value: unknown): value is Control {
+  return value === "available" || value === "yours" || value === "other";
+}
+type Actions = {
+  start(): void;
+  stop(): void;
+  claim(): void;
+  release(): void;
+  retry(): void;
+  refresh(): void;
+};
 
 export function useTimecodeRelay(
   orgId: string | undefined,
   seed: { state: MobileTimecodeState; events: MobileTimecodeEvent[] } | undefined,
+  { showId, serviceDate }: MobileTimecodeTarget,
 ) {
-  const [state, setState] = useState<MobileTimecodeState | null>(seed?.state ?? null);
-  const [events, setEvents] = useState<MobileTimecodeEvent[]>(seed?.events ?? []);
+  const [state, setState] = useState<MobileTimecodeState | null>(null);
+  const [events, setEvents] = useState<MobileTimecodeEvent[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
+  const [control, setControl] = useState<Control | null>(null);
   const [isMaster, setIsMaster] = useState(false);
-  const [starting, setStarting] = useState(false);
-  const [lastError, setLastError] = useState<string | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
-  const stateRef = useRef<MobileTimecodeState | null>(seed?.state ?? null);
-  const generatorRef = useRef<{ startAt: number; startFrames: number; format: TimecodeFormat } | null>(null);
-  const feedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [pending, setPending] = useState<Pending>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [commandError, setCommandError] = useState<string | null>(null);
+  const actions = useRef<Actions | null>(null);
+  const seedRef = useRef(seed);
+  seedRef.current = seed;
 
   useEffect(() => {
-    if (!seed) return;
-    stateRef.current = seed.state;
-    setState(seed.state);
-    setEvents(seed.events);
-  }, [seed]);
-
-  const sendCommand = useCallback((action: string, payload?: Record<string, unknown>) => {
-    const socket = socketRef.current;
-    if (socket?.readyState !== WebSocket.OPEN) return false;
-    socket.send(JSON.stringify({ type: "command", action, payload }));
-    return true;
-  }, []);
-
-  const stopFeed = useCallback(() => {
-    if (feedTimerRef.current) clearInterval(feedTimerRef.current);
-    feedTimerRef.current = null;
-    generatorRef.current = null;
-  }, []);
-
-  const feed = useCallback(() => {
-    const generator = generatorRef.current;
-    if (!generator || generator.startAt === 0) return;
-    const elapsedSeconds = (Date.now() - generator.startAt) / 1_000;
-    const totalFrames = generator.startFrames + Math.floor(elapsedSeconds * generator.format.frameRate);
-    sendCommand("feed-tc", {
-      timecode: framesToTimecode(totalFrames, generator.format),
-      totalFrames,
-      format: generator.format,
-    });
-  }, [sendCommand]);
-
-  const startFreerun = useCallback(() => {
-    const current = stateRef.current;
-    if (!current) {
-      setLastError("Live timecode state is not ready yet.");
-      return;
-    }
-    if (generatorRef.current) return;
-    if (!sendCommand("start")) {
-      setLastError("The live relay is reconnecting. Try again when it is connected.");
-      return;
-    }
-    generatorRef.current = { startAt: 0, startFrames: current.totalFrames, format: current.format };
-    setStarting(true);
-    setLastError(null);
-  }, [sendCommand]);
-
-  const stopFreerun = useCallback(() => {
-    stopFeed();
-    sendCommand("stop");
-    setIsMaster(false);
-    setStarting(false);
-  }, [sendCommand, stopFeed]);
-
-  useEffect(() => {
-    if (!orgId) {
-      setStatus("offline");
-      return;
-    }
+    setState(null); setEvents([]); setControl(null);
+    setPending(null); setIsMaster(false); setCommandError(null);
+    if (!orgId) { setStatus("offline"); return; }
     let disposed = false;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let generation = 0;
     let attempts = 0;
+    let socket: WebSocket | null = null;
+    let ready = false;
+    let owner: Control | null = null;
+    let current: MobileTimecodeState | null = null;
+    let operation: Pending = null;
+    let granted = false;
+    let startReview: Pick<MobileTimecodeState, "totalFrames" | "format"> | null = null;
+    let generator: { startAt: number; startFrames: number; format: TimecodeFormat } | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let handshakeTimer: ReturnType<typeof setTimeout> | undefined;
+    let operationTimer: ReturnType<typeof setTimeout> | undefined;
+    let syncTimer: ReturnType<typeof setTimeout> | undefined;
+    let syncDeadline: ReturnType<typeof setTimeout> | undefined;
+    let feedTimer: ReturnType<typeof setInterval> | undefined;
+    let authentication: AbortController | null = null;
+    const sequence = new RelaySequenceTracker();
+    const matches = (value: MobileTimecodeTarget) => value.showId === showId && value.serviceDate === serviceDate;
+    // HTTP data is only a last-known initial fallback. Later polls cannot rewind
+    // an authoritative socket or replace a live timeline with an older read.
+    const initial = seedRef.current;
+    if (initial && matches(initial.state)) { current = initial.state; setState(current); setEvents(initial.events); }
 
-    const scheduleReconnect = () => {
-      if (disposed || reconnectTimer || AppState.currentState !== "active") return;
-      setStatus("reconnecting");
-      reconnectTimer = setTimeout(() => {
-        reconnectTimer = null;
-        void connect();
-      }, Math.min(1_000 * 2 ** attempts++, 15_000));
+    const finishOperation = () => {
+      clearTimeout(operationTimer); operationTimer = undefined;
+      operation = null; setPending(null);
     };
-
-    const connect = async () => {
-      if (disposed || AppState.currentState !== "active") return;
-      setStatus(attempts ? "reconnecting" : "connecting");
-      let socket: WebSocket;
-      try {
-        socket = await createAuthenticatedWebSocket(relayUrl(orgId));
-      } catch (error) {
-        setLastError(error instanceof Error ? error.message : "Live relay authentication failed.");
-        scheduleReconnect();
-        return;
+    const stopFeed = () => {
+      clearInterval(feedTimer); feedTimer = undefined;
+      generator = null; granted = false; startReview = null; setIsMaster(false);
+    };
+    const retire = (message?: string, reconnect = true) => {
+      generation++;
+      authentication?.abort(); authentication = null;
+      ready = false; owner = null; setControl(null); sequence.disconnect();
+      if (operation || generator) setCommandError("The clock connection was interrupted. Review the current show state before acting again. Commands are not replayed.");
+      stopFeed(); finishOperation();
+      clearTimeout(handshakeTimer); clearTimeout(syncTimer); clearTimeout(syncDeadline);
+      handshakeTimer = syncTimer = syncDeadline = undefined;
+      const previous = socket; socket = null;
+      previous?.close();
+      if (message) setConnectionError(message);
+      if (disposed) return;
+      setStatus(AppState.currentState === "active" ? "reconnecting" : "offline");
+      if (reconnect && AppState.currentState === "active" && !reconnectTimer) {
+        reconnectTimer = setTimeout(() => { reconnectTimer = undefined; void connect(); }, Math.min(1_000 * 2 ** attempts++, 15_000));
       }
-      if (disposed) {
-        socket.close();
-        return;
+    };
+    const send = (action: string, payload?: Record<string, unknown>) => {
+      if (!ready || socket?.readyState !== WebSocket.OPEN) {
+        setCommandError("Timecode is not connected. The command was not sent."); return false;
       }
-      socketRef.current = socket;
-      socket.onopen = () => {
-        if (socketRef.current !== socket) return;
-        attempts = 0;
-        setStatus("connected");
-        setLastError(null);
-        if (generatorRef.current) {
-          generatorRef.current.startAt = 0;
-          setStarting(true);
-          sendCommand("start");
+      if (owner === "other") { setCommandError("Another operator controls timecode. Ask them to release control first."); return false; }
+      try { socket.send(JSON.stringify({ type: "command", action, payload })); return true; }
+      catch { retire("The timecode command could not be sent. Reconnect and review the current state."); return false; }
+    };
+    const begin = (action: Exclude<Pending, null>, payload?: Record<string, unknown>) => {
+      if (operation) return;
+      operation = action; setPending(action); setCommandError(null);
+      if (!send(action, payload)) { finishOperation(); return; }
+      operationTimer = setTimeout(() => {
+        retire();
+        setCommandError("The timecode command was not confirmed. It may have completed. Review the refreshed show before trying again.");
+      }, 8_000);
+    };
+    const feed = () => {
+      if (!generator || !granted || !ready) return;
+      const totalFrames = generator.startFrames + Math.floor((Date.now() - generator.startAt) / 1_000 * generator.format.frameRate);
+      send("feed-tc", { timecode: framesToTimecode(totalFrames, generator.format), totalFrames, format: generator.format });
+    };
+    const confirmClock = () => {
+      if (!current) return;
+      if (operation === "start" && granted && current.running) {
+        if (!startReview || current.totalFrames !== startReview.totalFrames || current.format.frameRate !== startReview.format.frameRate || current.format.dropFrame !== startReview.format.dropFrame) {
+          send("stop"); retire();
+          setCommandError("The relay did not confirm the reviewed start position. This generator was not started.");
+          return;
         }
-      };
-      socket.onmessage = (event) => {
-        if (typeof event.data !== "string") return;
+        generator = { startAt: Date.now(), startFrames: current.totalFrames, format: current.format };
+        finishOperation(); setIsMaster(true); feed();
+        if (generator) feedTimer = setInterval(feed, FEED_INTERVAL_MS);
+      } else if (operation === "stop" && !current.running) {
+        stopFeed(); finishOperation();
+      } else if (generator && !current.running) {
+        stopFeed();
+      }
+    };
+    const requestSync = () => {
+      if (!socket || socket.readyState !== WebSocket.OPEN || syncDeadline) return;
+      clearTimeout(syncTimer);
+      syncDeadline = setTimeout(() => retire("The timecode connection stopped responding. Showing last known state."), 8_000);
+      try { socket.send(JSON.stringify({ type: "sync", lastSeenSequence: sequence.lastSeenSequence })); }
+      catch { retire("Timecode could not refresh its current state."); }
+    };
+    const connect = async () => {
+      if (disposed || AppState.currentState !== "active" || socket || authentication) return;
+      const attempt = ++generation;
+      const active = () => !disposed && attempt === generation;
+      setStatus(attempts ? "reconnecting" : "connecting");
+      authentication = new AbortController();
+      handshakeTimer = setTimeout(() => { if (active()) retire("The timecode connection timed out. Retry to load the current show."); }, 12_000);
+      let ws: WebSocket;
+      try { ws = await createAuthenticatedWebSocket(relayUrl(orgId, showId), undefined, authentication.signal); }
+      catch (error) {
+        if (active()) retire(error instanceof Error ? error.message : "Timecode authentication failed.");
+        return;
+      }
+      if (!active()) { ws.close(); return; }
+      authentication = null; socket = ws;
+      ws.onopen = () => { /* Connected requires the server's full snapshot. */ };
+      ws.onmessage = event => {
+        if (!active() || socket !== ws || typeof event.data !== "string") return;
         try {
           const message: unknown = JSON.parse(event.data);
-          if (!isRecord(message) || typeof message.type !== "string") return;
+          if (!isRecord(message) || typeof message.type !== "string") throw new Error("Invalid update");
+          if (message.showId !== showId || message.serviceDate !== serviceDate) throw new Error("Wrong show");
+          const isControlMessage = ["master-status", "control-status", "command-rejected"].includes(message.type);
+          if (message.type !== "hydrate" && !isControlMessage) {
+            const decision = sequence.delta(message);
+            if (decision === "refresh") {
+              // Losing any timeline update also invalidates permission to feed.
+              retire("A timecode update was missed. Reconnecting to confirm the current show."); return;
+            }
+            if (decision !== "apply") return;
+          }
           if (message.type === "hydrate" || message.type === "tc-update") {
             const next = parseMobileTimecodeState(message.state);
-            if (!next) throw new Error("Invalid timecode state");
-            stateRef.current = next;
-            setState(next);
-          }
-          if (message.type === "hydrate" || message.type === "events-update") {
-            const nextEvents = parseMobileTimecodeEvents(message.events);
-            if (!nextEvents) throw new Error("Invalid timecode events");
-            setEvents(nextEvents);
-          }
-          if (message.type === "event-fired") {
-            const firedEvent = parseMobileTimecodeEvent(message.event);
-            if (!firedEvent) throw new Error("Invalid fired event");
-            const eventId = firedEvent.id;
-            setEvents((current) => current.map((item) => item.id === eventId ? { ...item, fired: true } : item));
-          }
-          if (message.type === "master-status" && typeof message.granted === "boolean") {
-            setIsMaster(message.granted);
-            const generator = generatorRef.current;
-            if (message.granted && generator) {
-              generator.startAt = Date.now();
-              setStarting(false);
-              sendCommand("set-source", { source: "internal-freerun" });
-              if (feedTimerRef.current) clearInterval(feedTimerRef.current);
-              feed();
-              feedTimerRef.current = setInterval(feed, FEED_INTERVAL_MS);
-            } else if (!message.granted && generator) {
-              stopFeed();
-              setStarting(false);
-              setLastError("Another operator owns the timecode generator.");
+            if (!next || !matches(next)) throw new Error("Invalid timecode state");
+            if (message.type === "hydrate") {
+              const nextEvents = parseMobileTimecodeEvents(message.events);
+              if (!nextEvents || !isControl(message.control)) throw new Error("Invalid timecode snapshot");
+              sequence.snapshot(message); owner = message.control; setControl(owner); setEvents(nextEvents);
+              if (owner === "other") { stopFeed(); finishOperation(); }
+              clearTimeout(handshakeTimer); clearTimeout(syncDeadline); clearTimeout(syncTimer);
+              handshakeTimer = syncDeadline = undefined;
+              ready = true; attempts = 0; setStatus("connected"); setConnectionError(null);
+              syncTimer = setTimeout(requestSync, 20_000);
             }
+            current = next; setState(next); confirmClock();
+          } else if (message.type === "events-update") {
+            const next = parseMobileTimecodeEvents(message.events);
+            if (!next) throw new Error("Invalid events");
+            setEvents(next);
+          } else if (message.type === "event-fired") {
+            const next = parseMobileTimecodeEvent(message.event);
+            if (!next) throw new Error("Invalid event");
+            setEvents(previous => previous.map(item => item.id === next.id ? next : item));
+          } else if (message.type === "lyrics-update" || message.type === "lyrics-clear") {
+            const next = parseMobileTimecodeState({ ...current, lyrics: message.type === "lyrics-clear" ? null : message.lyrics });
+            if (!next) throw new Error("Invalid lyrics");
+            current = next; setState(next);
+          } else if (message.type === "control-status") {
+            if (!isControl(message.control)) throw new Error("Invalid control status");
+            owner = message.control; setControl(owner);
+            if (operation === "claim-control" && owner === "yours" || operation === "release-control" && owner === "available") finishOperation();
+            if (owner === "other") {
+              if (generator || operation) setCommandError("Another operator now controls timecode. This device's clock was stopped.");
+              stopFeed(); finishOperation();
+            }
+          } else if (message.type === "master-status") {
+            if (typeof message.granted !== "boolean") throw new Error("Invalid master status");
+            if (message.granted && operation === "start") { granted = true; confirmClock(); }
+            else if (!message.granted) {
+              stopFeed();
+              if (operation === "start") { finishOperation(); setCommandError("Another source owns the timecode generator. This clock was not started."); }
+            }
+          } else if (message.type === "command-rejected") {
+            if (typeof message.error !== "string") throw new Error("Invalid rejection");
+            setCommandError(message.error);
+            if (["start", "feed-tc", "set-source", "stop"].includes(String(message.action))) stopFeed();
+            if (message.action === operation) finishOperation();
           }
-        } catch {
-          setLastError("ShowPilot received an unreadable timecode update.");
-        }
+        } catch { retire("ShowPilot received an unreadable timecode update. Reconnecting to confirm the show state."); }
       };
-      socket.onerror = () => setLastError("The live timecode connection was interrupted.");
-      socket.onclose = () => {
-        if (socketRef.current !== socket) return;
-        socketRef.current = null;
-        setIsMaster(false);
-        scheduleReconnect();
-      };
+      ws.onerror = () => { if (active()) retire("The timecode connection was interrupted. Showing last known state."); };
+      ws.onclose = () => { if (active()) retire("Timecode disconnected. Showing last known state."); };
     };
-
-    const subscription = AppState.addEventListener("change", (next) => {
+    const retry = () => {
+      retire(undefined, false); clearTimeout(reconnectTimer); reconnectTimer = undefined;
+      void connect();
+    };
+    actions.current = {
+      start: () => {
+        if (owner === "other") { setCommandError("Another operator controls timecode. Ask them to release control first."); return; }
+        if (!current || !ready) { setCommandError("Live timecode state is not ready. Start was not sent."); return; }
+        if (generator || operation) return;
+        if (current.running) { setCommandError("The clock is already running. Stop the current source first."); return; }
+        startReview = { totalFrames: current.totalFrames, format: current.format };
+        begin("start", { startPosition: { expectedShowId: showId, expectedFormat: current.format, expectedFrame: current.totalFrames, timecode: current.timecode, confirmed: true } });
+      },
+      stop: () => { if (operation === "start") finishOperation(); stopFeed(); begin("stop"); },
+      claim: () => begin("claim-control"),
+      release: () => {
+        if (generator || operation) { setCommandError("Stop the local clock before releasing control."); return; }
+        begin("release-control");
+      },
+      retry, refresh: requestSync,
+    };
+    const subscription = AppState.addEventListener("change", next => {
       if (next === "active") void connect();
-      else {
-        setStatus("offline");
-        socketRef.current?.close();
-      }
+      else { retire(undefined, false); clearTimeout(reconnectTimer); reconnectTimer = undefined; }
     });
     void connect();
     return () => {
-      disposed = true;
-      subscription.remove();
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      stopFeed();
-      const socket = socketRef.current;
-      socketRef.current = null;
-      socket?.close();
+      disposed = true; actions.current = null; subscription.remove();
+      clearTimeout(reconnectTimer); retire(undefined, false);
     };
-  }, [feed, orgId, sendCommand, stopFeed]);
+  }, [orgId, showId, serviceDate]);
 
-  return { state, events, status, isMaster, starting, lastError, startFreerun, stopFreerun };
+  const startFreerun = useCallback(() => actions.current?.start(), []);
+  const stopFreerun = useCallback(() => actions.current?.stop(), []);
+  const claimControl = useCallback(() => actions.current?.claim(), []);
+  const releaseControl = useCallback(() => actions.current?.release(), []);
+  const retryConnection = useCallback(() => actions.current?.retry(), []);
+  const refresh = useCallback(() => actions.current?.refresh(), []);
+  const dismissCommandError = useCallback(() => setCommandError(null), []);
+  return { state, events, status, control, isMaster, pending, starting: pending === "start", stopping: pending === "stop",
+    lastError: commandError ?? connectionError, commandError, startFreerun, stopFreerun, claimControl, releaseControl, retryConnection, refresh, dismissCommandError };
 }

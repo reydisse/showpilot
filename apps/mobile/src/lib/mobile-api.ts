@@ -1,3 +1,4 @@
+import { timecodeShowsSchema, timecodeStateSchema, timecodeEventSchema, type MobileTimecodeState, type MobileTimecodeEvent, type MobileTimecodeTarget } from "./timecode-contract";
 import { rundownChangeReplySchema, type RundownChangeCommand } from "./rundown-change-recovery";
 import { templateDeleteReplySchema, type TemplateDeleteCommand } from "./template-delete-recovery";
 import { replacementReadSchema,replacementReplySchema,type ReplacementSource,type ReplacementCommand } from "./rundown-replacement-recovery";
@@ -887,78 +888,6 @@ const audioSchema = z.object({
   assignments: z.array(audioAssignmentSchema),
 });
 
-const timecodeValueSchema = z.object({
-  hours: z.number(),
-  minutes: z.number(),
-  seconds: z.number(),
-  frames: z.number(),
-});
-const timecodeStateSchema = z.object({
-  timecode: timecodeValueSchema,
-  display: z.string(),
-  source: z.enum([
-    "internal-freerun",
-    "internal-rundown",
-    "mtc",
-    "ltc-bridge",
-    "network",
-  ]),
-  format: z.object({
-    frameRate: z.union([
-      z.literal(24),
-      z.literal(25),
-      z.literal(29.97),
-      z.literal(30),
-    ]),
-    dropFrame: z.enum(["df", "ndf"]),
-  }),
-  running: z.boolean(),
-  serverTime: z.number(),
-  totalFrames: z.number(),
-  lyrics: z
-    .object({
-      songId: z.string(),
-      songTitle: z.string(),
-      sectionId: z.string(),
-      sectionLabel: z.string(),
-      lyrics: z.string(),
-      nextLabel: z.string(),
-      updatedAt: z.number(),
-    })
-    .nullable()
-    .default(null),
-});
-const timecodeEventSchema = z.object({
-  id: z.string(),
-  label: z.string(),
-  triggerTimecode: timecodeValueSchema,
-  triggerFrame: z.number(),
-  action: z.enum([
-    "lower-third-show",
-    "lower-third-clear",
-    "rundown-advance",
-    "rundown-start-item",
-    "rundown-previous",
-    "rundown-pause",
-    "rundown-resume",
-    "rundown-stop",
-    "rundown-adjust",
-    "stage-message",
-    "stage-clear",
-    "device-action",
-    "lighting-scene",
-    "lyrics-goto",
-    "lyrics-clear",
-    "pp-trigger-slide",
-    "pp-trigger-next",
-    "pp-trigger-clear",
-    "custom-webhook",
-  ]),
-  payload: z.record(z.string(), z.unknown()),
-  fired: z.boolean(),
-  toleranceFrames: z.number().optional(),
-});
-
 export type MobileSchedule = z.infer<typeof scheduleSchema>;
 export type MobileIncident = z.infer<typeof incidentSchema>;
 export type MobileIncidents = z.infer<typeof incidentsSchema>;
@@ -1005,30 +934,6 @@ export type MobileDashboard = z.infer<typeof dashboardSchema>;
 export type MobileReports = z.infer<typeof reportsSchema>;
 export type MobileAudio = z.infer<typeof audioSchema>;
 export type MobileAudioAssignment = z.infer<typeof audioAssignmentSchema>;
-export type MobileTimecodeState = z.infer<typeof timecodeStateSchema>;
-export type MobileTimecodeEvent = z.infer<typeof timecodeEventSchema>;
-
-export function parseMobileTimecodeState(
-  value: unknown,
-): MobileTimecodeState | null {
-  const result = timecodeStateSchema.safeParse(value);
-  return result.success ? result.data : null;
-}
-
-export function parseMobileTimecodeEvents(
-  value: unknown,
-): MobileTimecodeEvent[] | null {
-  const result = z.array(timecodeEventSchema).safeParse(value);
-  return result.success ? result.data : null;
-}
-
-export function parseMobileTimecodeEvent(
-  value: unknown,
-): MobileTimecodeEvent | null {
-  const result = timecodeEventSchema.safeParse(value);
-  return result.success ? result.data : null;
-}
-
 export class MobileApiError extends Error {
   constructor(
     message: string,
@@ -1120,10 +1025,10 @@ export async function uploadMobileAvatar(uri: string) {
 export async function getMobileBootstrap(
   orgId: string,
 ): Promise<MobileBootstrap> {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/bootstrap?orgId=${encodeURIComponent(orgId)}`,
-  );
-  return bootstrapSchema.parse(await response.json());
+  return withMobileRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/bootstrap?orgId=${encodeURIComponent(orgId)}`, { signal });
+    return bootstrapSchema.parse(await response.json());
+  });
 }
 
 const notificationPageSchema = z.object({
@@ -2273,21 +2178,32 @@ export async function removeMobileAudioAssignment(input: {
   return okSchema.parse(await response.json());
 }
 
-export async function getMobileTimecode(
-  orgId: string,
-): Promise<{ state: MobileTimecodeState; events: MobileTimecodeEvent[] }> {
-  const root = `/api/timecode/${encodeURIComponent(orgId)}`;
-  const [stateResponse, eventsResponse] = await Promise.all([
-    authenticatedFetch(`${root}/state`),
-    authenticatedFetch(`${root}/events`),
-  ]);
-  return {
-    state: timecodeStateSchema.parse(await stateResponse.json()),
-    events: z.array(timecodeEventSchema).parse(await eventsResponse.json()),
-  };
+export async function getMobileTimecodeShows(orgId: string) {
+  return withMobileRequestDeadline(async signal => {
+    const response = await authenticatedFetch(`/api/mobile/v1/timecode/shows?orgId=${encodeURIComponent(orgId)}`, { signal });
+    return timecodeShowsSchema.parse(await response.json());
+  });
 }
 
-export async function commandMobileTimecode(input: {
+export async function getMobileTimecode(
+  orgId: string,
+  target: MobileTimecodeTarget,
+): Promise<{ state: MobileTimecodeState; events: MobileTimecodeEvent[] }> {
+  return withMobileRequestDeadline(async signal => {
+    const root = `/api/timecode/${encodeURIComponent(orgId)}`;
+    const scope = `showId=${encodeURIComponent(target.showId)}`;
+    const [stateResponse, eventsResponse] = await Promise.all([
+      authenticatedFetch(`${root}/state?${scope}`, { signal }),
+      authenticatedFetch(`${root}/events?${scope}`, { signal }),
+    ]);
+    const state = timecodeStateSchema.parse(await stateResponse.json());
+    if (state.showId !== target.showId || state.serviceDate !== target.serviceDate)
+      throw new Error("The selected show changed. Choose the show again.");
+    return { state, events: z.array(timecodeEventSchema).parse(await eventsResponse.json()) };
+  });
+}
+
+export async function commandMobileTimecode(input: MobileTimecodeTarget & {
   orgId: string;
   action:
     | "start"
@@ -2303,14 +2219,16 @@ export async function commandMobileTimecode(input: {
     | "clear-lyrics";
   payload?: Record<string, unknown>;
 }) {
-  const response = await authenticatedFetch(
-    `/api/timecode/${encodeURIComponent(input.orgId)}/command`,
-    {
-      method: "POST",
-      body: JSON.stringify({ action: input.action, payload: input.payload }),
-    },
-  );
-  return okSchema.parse(await response.json());
+  return withMobileRequestDeadline(async signal => {
+    const response = await authenticatedFetch(
+      `/api/timecode/${encodeURIComponent(input.orgId)}/command?showId=${encodeURIComponent(input.showId)}`,
+      { method: "POST", signal, body: JSON.stringify({ action: input.action, payload: input.payload }) },
+    );
+    const receipt = okSchema.extend({ showId: z.string(), serviceDate: z.string() }).parse(await response.json());
+    if (receipt.showId !== input.showId || receipt.serviceDate !== input.serviceDate)
+      throw new Error("The command result belongs to a different show. Review the selected show's state.");
+    return receipt;
+  });
 }
 
 export async function markNotificationRead(

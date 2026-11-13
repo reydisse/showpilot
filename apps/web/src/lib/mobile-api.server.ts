@@ -1,3 +1,4 @@
+import { listTimecodeShows } from "./timecode-shows.server";
 import { idSchema } from "./validation";
 import { removeSavedRundown } from "./saved-rundown-delete.server";
 import { createSavedRundown } from "./saved-rundown-create.server";
@@ -598,6 +599,12 @@ function parseTimer(value: string | null | undefined): MobileTimerState {
   } catch {
     return fallback();
   }
+}
+
+async function timecodeShows(request: Request, url: URL, db: MobileApiDatabase): Promise<Response> {
+  const access = await authorize(request, url, db, ["timecode:access"]);
+  if (access instanceof Response) return access;
+  return json({ shows: await listTimecodeShows(db, access.orgId) });
 }
 
 async function bootstrap(
@@ -7278,6 +7285,8 @@ export async function handleMobileApi(
     request.method === "POST"
   )
     return saveMobileWorkspace(request, url, env.DB);
+  if (url.pathname === "/api/mobile/v1/timecode/shows" && request.method === "GET")
+    return timecodeShows(request, url, env.DB);
   if (url.pathname === "/api/mobile/v1/bootstrap" && request.method === "GET")
     return bootstrap(request, url, env.DB);
   if (["/api/mobile/v1/shows/create", "/api/mobile/v1/shows/review-creation"].includes(url.pathname) && request.method === "POST")
