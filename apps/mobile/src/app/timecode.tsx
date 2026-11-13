@@ -1,4 +1,6 @@
-import { parseTimecodeString, workspaceCopy } from "@showpilot/shared";
+import { TimecodeClockConfirmation } from "@/components/timecode-clock-confirmation";
+import { useTimecodeClockEdit } from "@/hooks/use-timecode-clock-edit";
+import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -11,7 +13,7 @@ import { Page } from "@/components/page";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
 import { useTimecodeCueSave } from "@/hooks/use-timecode-cue-save";
 import { useTimecodeRelay } from "@/hooks/use-timecode-relay";
-import { commandMobileTimecode, createMobileTimecodeCue, getMobileTimecode, getMobileTimecodeShows } from "@/lib/mobile-api";
+import { commandMobileTimecode, createMobileTimecodeCue, editMobileTimecodeClock, getMobileTimecode, getMobileTimecodeShows } from "@/lib/mobile-api";
 import { timecodeEventStatus, type MobileTimecodeShow } from "@/lib/timecode-contract";
 import { createThemedStyles, fontFamily } from "@/theme/tokens";
 
@@ -70,7 +72,6 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
     queryFn: () => getMobileTimecode(orgId, target),
     retry: false,
   });
-  const [timecode, setTimecode] = useState("00:00:00:00");
   const [error, setError] = useState("");
   const relay = useTimecodeRelay(orgId, query.data, target);
   const command = useMutation({
@@ -84,8 +85,12 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
   const data = relay.state ? { state: relay.state, events: relay.events } : query.data;
 
   const canControl = relay.status === "connected" && relay.control === "yours" && !relay.pending && !command.isPending;
+  const clockEdit = useTimecodeClockEdit({ orgId, userId: actorId, ...target }, {
+    active: true, canSend: canControl, state: data?.state, send: editMobileTimecodeClock,
+    refresh: async signal => { if (!await relay.refresh() || signal.aborted) throw new Error("The current clock could not refresh. Retry its refresh."); },
+  });
   const cueSave = useTimecodeCueSave({ orgId, userId: actorId, ...target }, {
-    active: true, canSend: canControl, format: data?.state.format, send: createMobileTimecodeCue,
+    active: true, canSend: canControl && !clockEdit.locked, format: data?.state.format, send: createMobileTimecodeCue,
     refresh: async signal => {
       if (!await relay.refresh() || signal.aborted) throw new Error("The timeline refresh was not confirmed. Retry to load its current state.");
     },
@@ -93,23 +98,19 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
   const draft = cueSave.draft;
   const save = cueSave.attempt;
   const formatChanged = Boolean(draft.format && data && (draft.format.frameRate !== data.state.format.frameRate || draft.format.dropFrame !== data.state.format.dropFrame));
-  const canEdit = canControl && !cueSave.locked;
+  const canEdit = canControl && !cueSave.locked && !clockEdit.locked;
 
   const run = (action: Parameters<typeof commandMobileTimecode>[0]["action"], payload?: Record<string, unknown>) => {
     if (!canEdit) { setError("Claim control on a connected show before editing timecode."); return; }
     command.mutate({ orgId, ...target, action, payload });
   };
-  const setManualTimecode = () => {
-    const parsed = data ? parseTimecodeString(timecode.trim(), data.state.format) : null;
-    if (!parsed || (data && parsed.frames >= Math.round(data.state.format.frameRate))) {
-      setError("Enter a valid SMPTE timecode for the selected frame rate.");
-      return;
-    }
-    run("set-timecode", { timecode: parsed });
-  };
+
 
   return (
     <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="SMPTE RELAY" title="Timecode" onRefresh={relay.refresh}>
+      {clockEdit.draft.review ? <TimecodeClockConfirmation review={clockEdit.draft.review} showName={show.name}
+        changed={clockEdit.reviewChanged} active={clockEdit.canReview && !cueSave.locked} onCancel={clockEdit.cancel}
+        onReview={clockEdit.reviewCurrent} onConfirm={clockEdit.confirm} /> : null}
       <OperationsPanel title={show.name} detail={show.serviceDate}>
         <AppButton label="Change show" variant="secondary" disabled={relay.isMaster || Boolean(relay.pending) || command.isPending} onPress={onChangeShow} />
       </OperationsPanel>
@@ -125,21 +126,32 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
         <Text accessibilityLabel={`Timecode ${data?.state.display ?? "unavailable"}`} style={styles.clock}>{data?.state.display ?? "--:--:--:--"}</Text>
         <Text style={styles.clockMeta}>{data?.state.source.replaceAll("-", " ")} · {data?.state.format.frameRate} fps {data?.state.format.dropFrame.toUpperCase()} · {relay.status !== "connected" ? "last known" : data?.state.signal?.status === "timecode-lost" || data?.state.signal?.status === "timecode-stalled" ? data.state.signal.status.replaceAll("-", " ") : data?.state.running ? "running" : "stopped"} · {relay.status}{relay.isMaster ? " · this device is master" : ""}</Text>
       </View>
+      {data?.state.automationHold ? <OperationsError message={`Automation paused for review after the clock jumped from ${data.state.automationHold.from} to ${data.state.automationHold.to}.`} /> : null}
+      {data?.state.incomingFormat ? <OperationsError message={`Input format needs review: ${data.state.incomingFormat.format.frameRate} fps ${data.state.incomingFormat.format.dropFrame.toUpperCase()}.`} /> : null}
+      {clockEdit.error ? <OperationsError message={clockEdit.error} /> : null}
+      {clockEdit.attempt ? <OperationsPanel title="Clock change" detail={clockEdit.attempt.label}>
+        <Text accessibilityRole="alert" style={styles.saveText}>{clockEdit.attempt.kind === "pending" ? "Confirming the clock change…" : clockEdit.attempt.kind === "failed" ? clockEdit.attempt.message
+          : clockEdit.attempt.result.outcome === "applied" ? "Clock change confirmed. Later clock changes are preserved." : clockEdit.attempt.result.message ?? "The clock change was not applied."}</Text>
+        {clockEdit.attempt.kind === "failed" ? <AppButton label="Retry original clock change" disabled={!canControl} onPress={clockEdit.retry} /> : null}
+        {clockEdit.attempt.kind === "confirmed" && clockEdit.attempt.refresh === "pending" ? <Text style={styles.saveText}>Refreshing current clock…</Text> : null}
+        {clockEdit.attempt.kind === "confirmed" && (clockEdit.attempt.refresh === "failed" || clockEdit.attempt.refresh === "idle") ? <><OperationsError message={clockEdit.attempt.message ?? "Refresh the current clock before continuing."} /><AppButton label="Retry clock refresh" disabled={relay.status !== "connected"} onPress={clockEdit.refresh} /></> : null}
+        {clockEdit.attempt.kind === "confirmed" && clockEdit.attempt.refresh === "done" ? <AppButton label="Continue with current clock" variant="secondary" onPress={clockEdit.finish} /> : null}
+      </OperationsPanel> : null}
       <OperationsPanel title="Transport" detail="Control the shared relay used by web, desktop, overlays, and automation.">
         <View style={styles.buttonRow}>
           <View style={styles.button}><AppButton label="Start freerun" loading={relay.starting} disabled={!canEdit || relay.isMaster || data?.state.running} onPress={relay.startFreerun} /></View>
           <View style={styles.button}><AppButton label="Stop" variant="secondary" loading={relay.stopping} disabled={relay.status !== "connected" || relay.control !== "yours" || command.isPending} onPress={relay.stopFreerun} /></View>
         </View>
-        <AppField label="Set timecode" value={timecode} onChangeText={setTimecode} autoCapitalize="characters" placeholder="00:00:00:00" />
-        <AppButton label="Set relay time" variant="secondary" disabled={!canEdit || data?.state.running} onPress={setManualTimecode} />
+        <AppField label="Set timecode" value={clockEdit.draft.timecode} editable={!clockEdit.locked} onChangeText={clockEdit.update} autoCapitalize="characters" placeholder="00:00:00:00" />
+        <AppButton label="Set relay time" variant="secondary" disabled={!canEdit || data?.state.running} onPress={() => clockEdit.prepare("seek")} />
       </OperationsPanel>
       {data?.state.lyrics ? (
         <OperationsPanel title={data.state.lyrics.songTitle} detail={data.state.lyrics.sectionLabel}><View style={styles.lyricsPreview}><Text style={styles.lyricsText}>{data.state.lyrics.lyrics.split(/\r?\n/).filter(Boolean).slice(0, 4).join("\n")}</Text><Text style={styles.lyricsNext}>{data.state.lyrics.nextLabel ? `NEXT · ${data.state.lyrics.nextLabel}` : "END OF SONG"}</Text></View></OperationsPanel>
       ) : null}
       <OperationsPanel title="Source and format" detail="This device can generate internal freerun. MTC, LTC, rundown, and network sources remain visible here when supplied by the desktop or bridge.">
         <View style={styles.buttonRow}>
-          {[24, 25, 29.97, 30].map((frameRate) => (
-            <View key={frameRate} style={styles.button}><AppButton label={`${frameRate}`} disabled={!canEdit || data?.state.running} variant={data?.state.format.frameRate === frameRate ? "primary" : "secondary"} onPress={() => run("set-format", { format: { frameRate, dropFrame: frameRate === 29.97 ? "df" : "ndf" } })} /></View>
+          {([24, 25, 29.97, 30] as const).map((frameRate) => (
+            <View key={frameRate} style={styles.button}><AppButton label={`${frameRate}`} disabled={!canEdit || data?.state.running} variant={data?.state.format.frameRate === frameRate ? "primary" : "secondary"} onPress={() => clockEdit.prepare("reformat", { frameRate, dropFrame: frameRate === 29.97 ? "df" : "ndf" })} /></View>
           ))}
         </View>
       </OperationsPanel>
