@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, nativeCueEditor = false, reportRecovery = false, personalAssignments = false, scheduleRoster = false, calendarNavigation = false, notificationInbox = false, desktopNotificationRecovery = false, notificationTimezoneRecovery = false, accountProfileRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, chatDeliveryNotifications = false, invitationResponses = false, teamRecovery = false, streamOutputs = false, timestampVersions = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, nativeCueEditor = false, reportRecovery = false, personalAssignments = false, scheduleRoster = false, calendarNavigation = false, notificationInbox = false, desktopNotificationRecovery = false, notificationTimezoneRecovery = false, accountProfileRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, managerReadiness = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, chatDeliveryNotifications = false, invitationResponses = false, teamRecovery = false, streamOutputs = false, timestampVersions = false } = {}) {
   if (streamOutputs) {
     assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Stream status requires the isolated outbound handler");
     assert.equal(captureEmail, false, "Use separate fixtures for email and Stream status");
@@ -233,6 +233,15 @@ export async function withLocalSmokeFixture(check, { secondShow = false, nativeC
   ` : ""}
   ${reportRecovery ? Array.from({length:11},(_,i)=>`INSERT INTO rundown(id,orgId,serviceDate,name) VALUES ('report-fixture-${i}','display-smoke','${date}','Report fixture ${i} ${i===0?'LongShowTitle'.repeat(20):''}');`).join('\n') : ''}
   ${secondShow ? `INSERT INTO rundown (id,orgId,serviceDate,name) VALUES ('smoke-second-show','display-smoke','${date}','Evening test show');` : ""}
+  ${managerReadiness ? `
+    UPDATE rundown SET scheduledCallTime=datetime('now','-5 minutes'),scheduledStartTime=datetime('now','+30 minutes') WHERE id='smoke-show';
+    INSERT INTO rundown(id,orgId,serviceDate,name) VALUES('readiness-prior','display-smoke','2000-01-01','Prior readiness fixture');
+    INSERT INTO checklist_template(id,orgId,label,category,sortOrder) VALUES('readiness-check','display-smoke','Verify signal cable','audio',0);
+    INSERT INTO incident(id,orgId,showId,serviceDate,category,severity,description,reportedBy,status) VALUES('readiness-resolved','display-smoke','smoke-show','${date}','audio','high','Resolved readiness fixture','Reporter','resolved');
+    ${Array.from({length:30},(_,index)=>`INSERT INTO incident(id,orgId,serviceDate,category,severity,description,reportedBy,timestamp) VALUES('readiness-${index}','display-smoke','2000-01-01','${index===0?'audio':'video'}','${index===0?'critical':'low'}','${index===0?'Older critical readiness fixture':'Recent minor readiness fixture '+index}','Reporter','${index===0?'2000-01-01':'2026-01-01'}');`).join("\n")}
+    INSERT INTO live_input(id,orgId,name,cfInputId,status) VALUES('readiness-input','display-smoke','Readiness encoder','readiness-provider-input','connected');
+    INSERT INTO stream_destination(id,orgId,name,platform,rtmpUrl,streamKey,enabled,cfOutputId,liveInputId) VALUES('readiness-destination','display-smoke','Readiness destination','custom','rtmp://fixture.invalid/live','fixture-key',1,'stored-output-link','readiness-input');
+  ` : ""}
   INSERT INTO app_setting (id,orgId,key,value) VALUES ('smoke-message','display-smoke','rundown-message:smoke-show','Fixture private stage message'), ('smoke-active','display-smoke','active-graphics','["smoke-graphic"]'), ('smoke-show-setting','display-smoke','active-show-id','smoke-show');
   INSERT INTO graphic_template (id,orgId,name,title,subtitle,updatedAt) VALUES ('smoke-graphic','display-smoke','Fixture','Fixture overlay title','Fixture subtitle',CURRENT_TIMESTAMP);
   `;
@@ -328,6 +337,18 @@ INSERT INTO device(id,orgId,name,category,adapterType,settings,enabled,createdAt
       await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state,
         "--command", "INSERT INTO notification(id,orgId,userId,type,severity,title,message,target,source,actionUrl,category,deviceAlertEnabled,dismissed,createdAt) VALUES('inbox-later','display-smoke','smoke-operator','fixture','info','Arrived after mark-all','Keep this alert unread.','','fixture','schedule','system',0,0,'2026-11-08T00:00:00.000Z')");
     };
+    const configureReadinessPhase = async phase => {
+      assert.ok(managerReadiness && ["prep", "call"].includes(phase), "Only readiness fixtures can alter this disposable call time");
+      await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state, "--command",
+        phase === "prep" ? "UPDATE rundown SET scheduledCallTime=datetime('now','+15 minutes') WHERE orgId='display-smoke' AND id='smoke-show'"
+          : "UPDATE rundown SET scheduledCallTime=datetime('now','-5 minutes') WHERE orgId='display-smoke' AND id='smoke-show'");
+    };
+    const configureReadinessSummary = async broken => {
+      assert.ok(managerReadiness, "Only readiness fixtures can alter this disposable summary");
+      await wrangler("d1", "execute", "showpilot-db", "--local", "--config", configPath, "--persist-to", state, "--command", broken
+        ? "INSERT INTO app_setting(id,orgId,key,value) VALUES('readiness-corrupt','display-smoke','rundown-items:readiness-prior','broken') ON CONFLICT(orgId,key) DO UPDATE SET value='broken'"
+        : "DELETE FROM app_setting WHERE orgId='display-smoke' AND key='rundown-items:readiness-prior'");
+    };
     const configureEmail = async mode => {
       assert.ok(captureEmail && ["success", "fail", "lose-reply", "partial-schedule"].includes(mode));
       await writeFile(join(directory, "email-mode"), mode);
@@ -348,7 +369,7 @@ INSERT INTO device(id,orgId,name,category,adapterType,settings,enabled,createdAt
       assert.ok(captureEmail);
       return (await readFile(join(directory, "emails.jsonl"), "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
     };
-    await check({ readDeliveredChatNotification, insertInboxArrival, configureStreamOutputs, streamOutputRequests, streamOutputSnapshot, removeInvitationMembership, restoreChatNotifications, configureEmail, capturedEmails, origin, orgId, date, browser, pass, crewChatPass, planningChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, resetTokens: passwordReset ? resetTokens : undefined, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
+    await check({ configureReadinessPhase, configureReadinessSummary, readDeliveredChatNotification, insertInboxArrival, configureStreamOutputs, streamOutputRequests, streamOutputSnapshot, removeInvitationMembership, restoreChatNotifications, configureEmail, capturedEmails, origin, orgId, date, browser, pass, crewChatPass, planningChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, resetTokens: passwordReset ? resetTokens : undefined, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
   } catch (error) {
     // Configuration contains only disposable fixture secrets; redact them anyway.
     console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]").replaceAll(companionSecret, "[fixture secret]").replaceAll(encryptionSecret, "[fixture secret]"));

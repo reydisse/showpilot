@@ -58,6 +58,7 @@ function snapshot(items: RundownItem[]): PmSnapshot {
     upcoming: [],
     assignments: [],
     openItems: [],
+    openItemsTruncated: false,
     recent: [],
     onFloor: [],
     onFloorTotal: 0,

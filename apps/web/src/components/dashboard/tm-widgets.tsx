@@ -44,7 +44,7 @@ export type TmWidget = WidgetDefinition<TmWidgetModel>;
 
 const signalPathWidget: TmWidget = {
   id: "signal-path",
-  title: "Signal path",
+  title: "Stream setup",
   phases: "all",
   region: "banner",
   // Null status means this org has never configured streaming. Not a
@@ -64,8 +64,8 @@ const signalPathWidget: TmWidget = {
       >
         <div className="flex items-center gap-3 px-4 py-3 border-b border-board-border">
           <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${path.status === "fail" ? "bg-red-500/15 text-red-400" : path.status === "warn" ? "bg-yellow-400/15 text-yellow-400" : "bg-green-500/15 text-green-400"}`}><Radio className="w-4 h-4" /></span>
-          <div><h2 className="text-xs font-semibold text-board-text">Signal path</h2><p className="text-xs text-board-muted mt-0.5">{path.detail || "End-to-end delivery status"}</p></div>
-          <HealthChip className="ml-auto" status={path.status ?? "ok"} label={path.status === "ok" ? "healthy" : path.status === "warn" ? "degraded" : "attention"} />
+          <div><h2 className="text-xs font-semibold text-board-text">Stream setup</h2><p className="text-xs text-board-muted mt-0.5">{path.detail || "Saved inputs and destination selections"}</p></div>
+          <HealthChip className="ml-auto" status={path.status ?? "ok"} label={path.status === "ok" ? "configured" : path.status === "warn" ? "review setup" : "setup needed"} />
         </div>
         <div className="flex items-stretch gap-2 p-3 overflow-x-auto">
           {path.inputs.map((input, index) => (
@@ -106,12 +106,21 @@ const faultQueueWidget: TmWidget = {
   region: "main",
   render: (widget) => {
     const { model } = widget;
+    const listLimit = model.incidentsTruncated ? (
+      <p className="text-xs text-board-muted mb-2">
+        Showing the 25 highest-priority incidents. Filters and ownership counts apply to those shown.{" "}
+        <Link to={`/${widget.slug}/production/incidents` as never} className="min-h-11 inline-flex items-center underline">
+          Review the full incident log
+        </Link>
+      </p>
+    ) : null;
     if (model.faults.length === 0) {
       return (
         <WidgetCard title="Incidents">
+          {listLimit}
           <WidgetEmpty>
             {workspaceCopy(
-              "Nothing open. Anything logged during the service lands here.",
+              model.openCount > 0 ? "No incidents match this view. Change the filter or search." : "Nothing open. Anything logged during the service lands here.",
               widget.terms,
             )}
           </WidgetEmpty>
@@ -123,13 +132,14 @@ const faultQueueWidget: TmWidget = {
         <div className="flex items-baseline gap-2 mb-2 px-1">
           <h2 className="text-xs font-semibold text-board-text">Incidents</h2>
           <span className="text-xs text-board-muted">
-            {model.openCount} open
+            {model.openCount}{model.incidentsTruncated ? "+" : ""} open
             {model.unownedCount > 0 && (
               <span className="text-red-400"> · {model.unownedCount} unowned</span>
             )}
             {model.mineCount > 0 && <span> · {model.mineCount} mine</span>}
           </span>
         </div>
+        {listLimit}
         <ul className="space-y-2">
           {model.faults.map((fault) => (
             <li key={fault.id}>
@@ -477,18 +487,16 @@ function initials(name: string | null): string {
 
 const allClearWidget: TmWidget = {
   id: "all-clear",
-  title: "All clear",
+  title: "Recorded checks clear",
   phases: ["call", "live"],
   region: "main",
   // The one exception to "never report a healthy count". Mid-service,
   // an empty page is ambiguous — it could mean nothing is wrong or it
   // could mean the page is broken. Say which.
   isRelevant: ({ model }) =>
-    model.faults.length === 0 &&
-    model.equipmentFaults.length === 0 &&
-    model.prep.length === 0,
+    model.readiness === "ok",
   render: ({ terms: workspaceTerms }) => (
-    <WidgetCard title="All clear">
+    <WidgetCard title="Recorded checks clear">
       <p className="text-xs text-board-muted flex items-center gap-2">
         <AlertTriangle className="w-3.5 h-3.5 text-green-400" aria-hidden="true" />
         {workspaceCopy(

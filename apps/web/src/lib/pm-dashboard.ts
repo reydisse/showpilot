@@ -21,7 +21,7 @@ import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-a
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { getTodayDateString } from "@/lib/utils";
 import { readPhaseSettings } from "@/lib/service-phase";
-import { getRundownStateForOrg } from "@/lib/rundown";
+import { getRundownStateForOrg, normalizeLegacyRundownItems } from "@/lib/rundown";
 import {
   derivePmDashboard,
   type PmDashboardModel,
@@ -34,8 +34,7 @@ import {
   type SnapshotRecentService,
   type SnapshotUpcomingService,
 } from "@/lib/pm-dashboard-derive";
-import { isHeaderItem } from "@/types/rundown";
-import type { RundownItem, RundownState } from "@/types/rundown";
+import type { RundownState } from "@/types/rundown";
 import { partitionShowsAround, resolveRundownOpeningShow } from "@/lib/rundown-opening";
 
 const RUNDOWN_ITEMS_PREFIX = "rundown-items:";
@@ -64,51 +63,13 @@ interface RundownDateRow {
   createdAt: Date;
 }
 
-/**
- * Rundown rows carry the scheduled start time. The delegate is accessed
- * defensively for the same reason `rundown.ts` does it — older generated
- * clients in some environments predate the model.
- */
+/** Database errors propagate to the dashboard's retained-state retry boundary. */
 async function loadRundownRows(orgId: string): Promise<RundownDateRow[]> {
-  const prisma = getPrisma() as unknown as {
-    rundown?: {
-      findMany(args: {
-        where: { orgId: string };
-        select: {
-          id: true;
-          serviceDate: true;
-          scheduledStartTime: true;
-          scheduledCallTime: true;
-          status: true;
-          name: true;
-          createdAt: true;
-        };
-        orderBy: Array<Record<string, string>>;
-      }): Promise<RundownDateRow[]>;
-    };
-  };
-  if (!prisma.rundown) return [];
-  try {
-    return await prisma.rundown.findMany({
-      where: { orgId },
-      select: {
-        id: true,
-        serviceDate: true,
-        scheduledStartTime: true,
-        scheduledCallTime: true,
-        status: true,
-        name: true,
-        createdAt: true,
-      },
-      orderBy: [
-        { serviceDate: "asc" },
-        { scheduledStartTime: "asc" },
-        { createdAt: "asc" },
-      ],
-    });
-  } catch {
-    return [];
-  }
+  return getPrisma().rundown.findMany({
+    where: { orgId },
+    select: { id: true, serviceDate: true, scheduledStartTime: true, scheduledCallTime: true, status: true, name: true, createdAt: true },
+    orderBy: [{ serviceDate: "asc" }, { scheduledStartTime: "asc" }, { createdAt: "asc" }],
+  });
 }
 
 interface AssignmentRow {
@@ -211,30 +172,12 @@ async function loadOpenItems(
   serviceDate: string,
   previousShowIds: string[],
 ): Promise<OpenIncidentRow[]> {
-  const prisma = getPrisma();
-  try {
-    return (await prisma.incident.findMany({
-      where: {
-        orgId,
-        ...(previousShowIds.length > 0
-          ? { showId: { in: previousShowIds } }
-          : { serviceDate: { lt: serviceDate } }),
-        status: "open",
-      } as never,
-      orderBy: { timestamp: "desc" },
-      take: OPEN_ITEM_LIMIT,
-      select: {
-        id: true,
-        serviceDate: true,
-        category: true,
-        severity: true,
-        description: true,
-      },
-    })) as OpenIncidentRow[];
-  } catch {
-    // Pre-0012 database: the status column does not exist yet.
-    return [];
-  }
+  const previous = previousShowIds.length ? `showId IN (${previousShowIds.map(() => "?").join(",")}) OR ` : "";
+  const { results } = await getD1().prepare(`SELECT id,serviceDate,category,severity,description FROM incident
+    WHERE orgId=? AND (${previous}(showId IS NULL AND serviceDate<?)) AND status='open'
+    ORDER BY CASE lower(severity) WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC, timestamp DESC LIMIT ?`)
+    .bind(orgId, ...previousShowIds, serviceDate, OPEN_ITEM_LIMIT + 1).all<OpenIncidentRow>();
+  return results;
 }
 
 /** Item counts per service date, read straight from the stored JSON. */
@@ -254,11 +197,10 @@ const EMPTY_SUMMARY: ItemSummary = {
 
 function summarizeItems(raw: string): ItemSummary {
   try {
-    const parsed = JSON.parse(raw) as RundownItem[];
-    if (!Array.isArray(parsed)) return EMPTY_SUMMARY;
+    const parsed = z.array(z.record(z.string(), z.unknown())).parse(JSON.parse(raw));
     // Section bands have no duration and no owner on purpose; counting
     // them would report a planned service as full of holes.
-    const items = parsed.filter((i) => !isHeaderItem(i));
+    const items = normalizeLegacyRundownItems(parsed).filter((i) => i.type !== "header");
     return {
       itemCount: items.length,
       missingDuration: items.filter((i) => !i.duration || i.duration <= 0)
@@ -272,7 +214,7 @@ function summarizeItems(raw: string): ItemSummary {
       ),
     };
   } catch {
-    return EMPTY_SUMMARY;
+    throw new Error("Saved rundown items could not be read. Open the rundown to review them, then retry the dashboard.");
   }
 }
 
@@ -439,7 +381,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         select: { templateId: true, checked: true },
       }),
       prisma.incident.findMany({
-        where: { orgId, ...(showId ? { showId } : { serviceDate }) },
+        where: { orgId, ...(showId ? { OR: [{ showId }, { showId: null, serviceDate }] } : { serviceDate }) },
         orderBy: { timestamp: "desc" },
         select: {
           id: true,
@@ -613,6 +555,7 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         severity: i.severity,
         description: i.description,
         reportedBy: i.reportedBy,
+        status: i.status,
       })),
       equipment: equipment.map((e) => ({
         id: e.id,
@@ -656,7 +599,8 @@ export const getPmDashboard = createServerFn({ method: "GET" })
         responseNote: a.responseNote,
         respondedAt: a.respondedAt?.toISOString() ?? null,
       })),
-      openItems: openItems.map<SnapshotOpenItem>((i) => ({
+      openItemsTruncated: openItems.length > OPEN_ITEM_LIMIT,
+      openItems: openItems.slice(0, OPEN_ITEM_LIMIT).map<SnapshotOpenItem>((i) => ({
         id: i.id,
         serviceDate: i.serviceDate,
         category: i.category,
