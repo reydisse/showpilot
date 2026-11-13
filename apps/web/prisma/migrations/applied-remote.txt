@@ -98,3 +98,4 @@
 0091_rundown_replacement_recovery.sql
 0092_workspace_change_recovery.sql
 0093_graphic_control_recovery.sql
+0094_destination_control_recovery.sql
