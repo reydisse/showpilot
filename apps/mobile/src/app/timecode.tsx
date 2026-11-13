@@ -1,3 +1,4 @@
+import { useTimecodeAutomationGate } from "@/hooks/use-timecode-automation-gate";
 import { TimecodeClockConfirmation } from "@/components/timecode-clock-confirmation";
 import { useTimecodeClockEdit } from "@/hooks/use-timecode-clock-edit";
 import { workspaceCopy } from "@showpilot/shared";
@@ -13,7 +14,7 @@ import { Page } from "@/components/page";
 import { useMobileBootstrap } from "@/hooks/use-mobile-bootstrap";
 import { useTimecodeCueSave } from "@/hooks/use-timecode-cue-save";
 import { useTimecodeRelay } from "@/hooks/use-timecode-relay";
-import { commandMobileTimecode, createMobileTimecodeCue, editMobileTimecodeClock, getMobileTimecode, getMobileTimecodeShows } from "@/lib/mobile-api";
+import { commandMobileTimecode, createMobileTimecodeCue, editMobileTimecodeClock, editMobileTimecodeAutomation, getMobileTimecode, getMobileTimecodeShows } from "@/lib/mobile-api";
 import { timecodeEventStatus, type MobileTimecodeShow } from "@/lib/timecode-contract";
 import { createThemedStyles, fontFamily } from "@/theme/tokens";
 
@@ -98,7 +99,12 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
   const draft = cueSave.draft;
   const save = cueSave.attempt;
   const formatChanged = Boolean(draft.format && data && (draft.format.frameRate !== data.state.format.frameRate || draft.format.dropFrame !== data.state.format.dropFrame));
-  const canEdit = canControl && !cueSave.locked && !clockEdit.locked;
+  const gate = useTimecodeAutomationGate({ orgId, userId: actorId, ...target }, {
+    active: true, canSend: relay.status === "connected" && relay.control === "yours",
+    canResume: canControl && !cueSave.locked && !clockEdit.locked, state: data?.state, send: editMobileTimecodeAutomation,
+    refresh: async signal => { if (!await relay.refresh() || signal.aborted) throw new Error("The current automation state could not refresh. Retry its refresh."); },
+  });
+  const canEdit = canControl && !cueSave.locked && !clockEdit.locked && !gate.locked;
 
   const run = (action: Parameters<typeof commandMobileTimecode>[0]["action"], payload?: Record<string, unknown>) => {
     if (!canEdit) { setError("Claim control on a connected show before editing timecode."); return; }
@@ -126,6 +132,33 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
         <Text accessibilityLabel={`Timecode ${data?.state.display ?? "unavailable"}`} style={styles.clock}>{data?.state.display ?? "--:--:--:--"}</Text>
         <Text style={styles.clockMeta}>{data?.state.source.replaceAll("-", " ")} · {data?.state.format.frameRate} fps {data?.state.format.dropFrame.toUpperCase()} · {relay.status !== "connected" ? "last known" : data?.state.signal?.status === "timecode-lost" || data?.state.signal?.status === "timecode-stalled" ? data.state.signal.status.replaceAll("-", " ") : data?.state.running ? "running" : "stopped"} · {relay.status}{relay.isMaster ? " · this device is master" : ""}</Text>
       </View>
+      <OperationsPanel title="Automation safety" detail={relay.status !== "connected" ? "Last known automation state. Reconnect to control this show."
+        : !data?.state.triggersEnabled ? "Automation stopped. Manual and automatic cues are blocked."
+        : data.state.automaticCuesEnabled ? "Automation enabled. Upcoming cues can fire." : "Automatic cues paused. Manual cue firing remains available."}>
+        <AppButton label="Stop automation" variant="danger" loading={gate.stopping} disabled={relay.status !== "connected" || relay.control !== "yours" || gate.stopping} onPress={gate.stop} />
+        <Text style={styles.saveText}>Stops new cue dispatches. The clock and existing output continue; commands already sent cannot be recalled.</Text>
+        {gate.error ? <OperationsError message={gate.error} /> : null}
+        {!data?.state.triggersEnabled ? <AppButton label="Review resume automation" variant="secondary" disabled={!canEdit || !data?.state.automationRevision} onPress={() => gate.prepare("resume")} />
+          : data.state.automaticCuesEnabled === false ? <AppButton label="Review automatic cues" variant="secondary" disabled={!canEdit || !data.state.automationRevision} onPress={() => gate.prepare("resume-automatic")} /> : null}
+        {gate.review ? <View style={styles.saveNotice}>
+          <Text accessibilityRole="header" style={styles.saveText}>{gate.review.command.operation === "resume" ? "Resume automation?" : "Resume automatic cues?"}</Text>
+          <Text style={styles.saveText}>Show: {show.name}. {gate.review.reason} Cues resume from the current clock position. Crossed cues are not replayed and fired cues remain fired.</Text>
+          {gate.review.command.operation === "resume" && data?.state.automaticCuesEnabled === false ? <Text style={styles.saveText}>Automatic cues remain paused until you resume them separately.</Text> : null}
+          {gate.changed ? <><OperationsError message="Automation changed after review. Review its current state before confirming." /><AppButton label="Review current automation" variant="secondary" disabled={!gate.canReview} onPress={gate.reviewCurrent} /></> : null}
+          {!gate.canReview ? <OperationsError message="Connect, claim control and resolve pending changes before confirming." /> : null}
+          <AppButton label="Keep automation paused" variant="secondary" onPress={gate.cancel} />
+          <AppButton label="Confirm resume" disabled={!gate.canReview || gate.changed} onPress={gate.confirm} />
+        </View> : null}
+        {Object.entries(gate.work).map(([id, attempt]) => <View key={id} style={styles.saveNotice}>
+          <Text accessibilityRole="header" style={styles.saveText}>{attempt.label}</Text>
+          <Text accessibilityRole="alert" style={styles.saveText}>{attempt.kind === "pending" ? "Waiting for the relay to confirm…" : attempt.kind === "failed" ? attempt.message
+            : attempt.result.outcome === "applied" ? "Automation change confirmed. Later changes are preserved." : attempt.result.message ?? "The automation change was not applied."}</Text>
+          {attempt.kind === "failed" ? <AppButton label={`Retry original ${attempt.label.toLowerCase()}`} disabled={relay.status !== "connected" || relay.control !== "yours"} onPress={() => gate.retry(id)} /> : null}
+          {attempt.kind === "confirmed" && attempt.refresh === "pending" ? <Text style={styles.saveText}>Refreshing current automation…</Text> : null}
+          {attempt.kind === "confirmed" && (attempt.refresh === "failed" || attempt.refresh === "idle") ? <><OperationsError message={attempt.message ?? "Refresh the current automation state."} /><AppButton label="Retry automation refresh" disabled={relay.status !== "connected"} onPress={() => gate.refresh(id)} /></> : null}
+          {attempt.kind === "confirmed" && attempt.refresh === "done" ? <AppButton label="Continue with current automation" variant="secondary" onPress={() => gate.finish(id)} /> : null}
+        </View>)}
+      </OperationsPanel>
       {data?.state.automationHold ? <OperationsError message={`Automation paused for review after the clock jumped from ${data.state.automationHold.from} to ${data.state.automationHold.to}.`} /> : null}
       {data?.state.incomingFormat ? <OperationsError message={`Input format needs review: ${data.state.incomingFormat.format.frameRate} fps ${data.state.incomingFormat.format.dropFrame.toUpperCase()}.`} /> : null}
       {clockEdit.error ? <OperationsError message={clockEdit.error} /> : null}
@@ -184,7 +217,7 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
           ))}
         </View>
         <AppField label="Action details (JSON)" value={draft.payload} editable={!cueSave.locked} onChangeText={payload => cueSave.update({ payload })} multiline placeholder={draft.action === "stage-message" ? '{"message":"Stand by"}' : draft.action === "rundown-adjust" ? '{"deltaMs":30000}' : "{}"} />
-        <AppButton label="Add automation event" disabled={!canControl || cueSave.locked || formatChanged} onPress={cueSave.save} />
+        <AppButton label="Add automation event" disabled={!canControl || cueSave.locked || gate.locked || formatChanged} onPress={cueSave.save} />
         {data?.events.length ? (
           data.events.map((event) => (
           <OperationsRow key={event.id} title={event.label} detail={`${event.triggerTimecode.hours.toString().padStart(2, "0")}:${event.triggerTimecode.minutes.toString().padStart(2, "0")}:${event.triggerTimecode.seconds.toString().padStart(2, "0")}:${event.triggerTimecode.frames.toString().padStart(2, "0")} · ${event.action}${event.executionError ? ` · ${event.executionError}` : ""}`} status={timecodeEventStatus(event)} onPress={canEdit ? () => Alert.alert("Remove automation event?", `Remove “${event.label}” from the shared timecode relay?`, [{ text: "Cancel", style: "cancel" }, { text: "Remove", style: "destructive", onPress: () => run("remove-event", { id: event.id }) }]) : undefined} />
