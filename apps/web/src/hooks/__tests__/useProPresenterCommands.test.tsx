@@ -7,10 +7,9 @@ import type {
   ProPresenterCommand,
   ProPresenterReply,
 } from "@showpilot/shared/propresenter-command";
-const mocks = vi.hoisted(() => ({ slide: vi.fn(), output: vi.fn() }));
+const mocks = vi.hoisted(() => ({ slide: vi.fn() }));
 vi.mock("@/lib/rundown", () => ({
   sendProPresenterCommand: mocks.slide,
-  setProPresenterStageDisplay: mocks.output,
 }));
 const options = {
   orgId: "org",
@@ -19,7 +18,6 @@ const options = {
   scope: "org:show:target",
   canControlSlides: true,
   canCheckSlides: true,
-  canChangeOutput: true,
 };
 function reply(
   data: ProPresenterCommand & { mode?: string },
@@ -44,7 +42,6 @@ beforeEach(() => {
   mocks.slide.mockImplementation(async ({ data }) =>
     reply(data, data.mode === "prepare" ? "prepared" : "confirmed"),
   );
-  mocks.output.mockResolvedValue({ ok: true });
 });
 afterEach(() => {
   cleanup();
@@ -63,11 +60,9 @@ it("prepares then executes the same request and prevents overlapping actions", a
   act(() => {
     first = f.result.current.run({ kind: "slide", command: "next" });
     void f.result.current.run({ kind: "slide", command: "next" });
-    void f.result.current.run({ kind: "output", enabled: true });
   });
   await act(async () => {});
   expect(mocks.slide).toHaveBeenCalledOnce();
-  expect(mocks.output).not.toHaveBeenCalled();
   expect(f.result.current.pending).toEqual({ kind: "slide", command: "next" });
   const original = mocks.slide.mock.calls[0][0].data;
   expect(original).toMatchObject({
@@ -256,33 +251,11 @@ it.each(["orgId", "userId"])(
     expect(f.result.current.failure).not.toBeNull();
   },
 );
-it("preserves a lost kiosk response through navigation without toggling again", async () => {
-  mocks.output.mockRejectedValueOnce(new TypeError("Private transport detail"));
-  const f = setup();
-  await act(async () =>
-    f.result.current.run({ kind: "output", enabled: true }),
-  );
-  expect(f.result.current.failure?.message).toContain(
-    "Kiosk output change was not confirmed",
-  );
-  expect(f.result.current.failure?.message).not.toContain("Private transport");
-  f.unmount();
-  const g = setup(f.client);
-  expect(g.result.current.blocked).toBe(true);
-  act(() => g.result.current.acknowledgeReview());
-  expect(mocks.output).toHaveBeenCalledOnce();
-  await act(async () =>
-    g.result.current.run({ kind: "output", enabled: false }),
-  );
-  expect(g.result.current.notice).toBe("Kiosk output change confirmed.");
-});
 it("does not send when live access is unavailable", async () => {
   const f = setup();
-  f.rerender({ ...options, canControlSlides: false, canChangeOutput: false });
+  f.rerender({ ...options, canControlSlides: false });
   await act(async () => {
     await f.result.current.run({ kind: "slide", command: "next" });
-    await f.result.current.run({ kind: "output", enabled: true });
   });
   expect(mocks.slide).not.toHaveBeenCalled();
-  expect(mocks.output).not.toHaveBeenCalled();
 });

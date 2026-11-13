@@ -1,3 +1,4 @@
+import { ProPresenterOutputControl } from "@/components/rundown/ProPresenterOutputControl";
 import { NotificationPreferences } from "@/components/settings/NotificationPreferences";
 import { TimezoneSetting } from "@/components/settings/TimezoneSetting";
 import { SettingsTeamInvitations } from "@/components/admin/SettingsTeamInvitations";
@@ -907,6 +908,7 @@ function TeamSection({ members, orgId, onInvitationDirty }: SectionProps & { onI
 // ─── INTEGRATIONS ───────────────────────────────────────────
 
 function IntegrationsSection({ orgId, getSetting, editSetting, saveSetting, saveCredential }: SectionProps) {
+  const { user } = Route.useRouteContext();
   const chatAdapter = getSetting("chat-adapter", "native");
   const rundownAdapter = getSetting("rundown-adapter", "native");
 
@@ -1268,14 +1270,9 @@ function IntegrationsSection({ orgId, getSetting, editSetting, saveSetting, save
                 <p className="text-[10px] font-medium text-board-muted/60 uppercase tracking-widest mb-2">Stage Display</p>
                 <p className="text-xs text-board-muted/50 mb-2">
                   Stream live lyrics and scripture from ProPresenter to stage kiosk displays.
-                  Enable in the rundown page when ready to stream during a service.
+                  Show or hide the shared output here or from Rundown.
                 </p>
-                <SettingToggle
-                  settingKey="propresenter-stage-display"
-                  label="Enable PP slide streaming to stage display"
-                  getSetting={getSetting}
-                  saveSetting={saveSetting}
-                />
+                <ProPresenterOutputControl orgId={orgId} userId={user.id} surface="settings" enabled />
                 <div className="mt-3">
                   <FieldGroup label="Default lyrics output" description="Used when loading a song cue map into Timecode.">
                     <SettingSelect
