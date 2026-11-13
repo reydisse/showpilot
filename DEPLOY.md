@@ -8934,3 +8934,74 @@ Twenty necessary tracked Markdown files remain; none added.
 Stack gate: #278 exact head 65b555e751d709a15bdf99afd416e265033874f6 passed CI
 42561112839 before opening this draft. Its own exact-head CI must pass before
 another PR opens.
+
+## 2026-11-09 — Native Chat connection, history and delivery recovery
+
+Branch: fix/native-chat-recovery, stacked on fix/native-timecode-lyrics-preview.
+Native Chat previously declared itself connected before its history arrived,
+allowed socket opening and history fetches to stall indefinitely, and removed
+sent messages from an invisible queue before acknowledgement. Room changes
+silently discarded queued messages. The new transport tests reproduced ten
+failures before implementation.
+
+A mounted actor/org/room now owns its socket, authentication cancellation and
+connection generation. Authentication retains the existing ten-second bound;
+a separate ten-second opening/hydration deadline closes a stalled socket. Only
+valid hydration declares the room connected and enables queued sends and message
+mutations. Disconnect and background transitions cancel pending work; late
+callbacks cannot populate another room or actor. Connection errors persist with
+Retry, cached messages remain visible, and unavailable history never appears as
+an empty room. Older-history loading bounds credentials, HTTP and body parsing
+together to ten seconds and exposes a separate error/Retry. New hydration,
+including history clear, cancels older requests and prevents stale restoration.
+
+The actor/org/room query cache retains queued, sending, uncertain and rejected
+messages during app-session navigation. A twelve-second acknowledgement deadline
+makes uncertain delivery visible. Retry uses the original immutable message ID
+and frame, including attachments, replies and polls; the existing relay dedupes
+that ID. Rehydrated acknowledgements reconcile delivery without a resend. Only
+never-sent queued messages flush automatically; uncertain messages require an
+explicit retry. Removing an entry requires confirmation and never deletes the
+server message. This is session-memory retention, not persistence across an app
+restart. Send, room selection, history and recovery controls meet 44px minimums.
+
+Final full suite passes 364 unit files / 3,182 tests plus 150 Worker files / 1,690
+tests, 4,872 total. This includes 25 new transport cases and the two existing
+history-clear regressions migrated to the shared native hook harness. The first
+full run exposed stale mocks in those two existing tests; their original
+clear/reconnect/late-page assertions remain. Web typecheck and production build
+pass; the main client remains 542,274 raw / 171,102 gzip bytes. Final native
+verification passes TypeScript, lint (18 existing warnings, zero errors), all
+three exports, Expo Doctor 18/18, contracts and polling checks. Final Hermes
+bundles: 5,972,034 bytes iOS / 5,971,238 bytes Android. Limits are unchanged.
+
+The compiled Expo web rehearsal uses disposable real authentication, D1 and
+ChatRelay. It withholds history, verifies queued-not-sent UI and the handshake
+deadline, restores the connection, drops an actual message acknowledgement,
+changes rooms, and retries the original ID. Two sends leave exactly one stored
+message. It also checks confirmed local removal, history timeout/retry and
+320/768/1440px layouts, including 320x568 and reachable 44px controls. Synthetic
+history rows expose pagination; HTTP history requests still reach the real
+fixture Worker. Screenshots were inspected. This is not physical-device proof.
+
+Reproduce after web build and native export:
+`SHOWPILOT_SMOKE_RUNTIME=miniflare node apps/web/scripts/smoke-native-chat-recovery.mjs`.
+The final browser4 run exits zero. Earlier runs exposed fixture teardown and
+fault-timing issues: a delayed HTTP request outlived the server, fault release
+preceded hydration and legitimately reconciled the message before Retry, and
+waiting for all routes before closing Chrome hung on open connections. The
+harness now keeps a network guard, closes Chrome and sockets, drains only HTTP
+work, then stops the fixture. The hung browser3 fixture processes were stopped
+and their temporary data removed before the final rerun. No app assertion was
+weakened to resolve these harness issues.
+Logs: /tmp/showpilot-native-chat-{before,unit1,unit2,unit3,unit4,full1,full2,full3,mobile-tsc1,tsc1,tsc2,build1,verify1,verify2,browser1,browser2,browser3,browser4}.log.
+Screenshots: /tmp/showpilot-native-chat-{short,320,768,1440}.png.
+
+Phase 2 remains 67/79; the broad product-wide gates remain open. Native Chat
+composer drafts still need room/actor isolation and its notification calls still
+swallow failures; those are the next Chat follow-ups. No deployment, release,
+remote migration, external mail or real-org data changes. Twenty necessary
+tracked Markdown files remain; none added.
+Stack gate: #279 exact head 04257b835a1ed772716afad45c0025dfad5955e6 passed both
+jobs in CI 42563967696 before opening this draft. This draft's exact-head CI must
+pass before another PR opens.
