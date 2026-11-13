@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { seedRelayMember } from "@/test/relay-fixtures";
 import type { DestinationControlCommand, DestinationControlOperation } from "@showpilot/shared/destination-control";
 const auth = vi.hoisted(() => ({ userId: "", sessionId: "" }));
-vi.mock("../auth", () => ({ getAuth: () => ({ api: { getSession: async () => ({ user: { id: auth.userId }, session: { id: auth.sessionId } }) } }) }));
+vi.mock("../auth", () => ({ getAuth: () => ({ api: { getSession: async () => ({ user: { id: auth.userId, name: "Fixture operator", email: "operator@example.test" }, session: { id: auth.sessionId } }) } }) }));
 vi.mock("@tanstack/react-start/server", () => ({ getRequestHeaders: () => new Headers() }));
 vi.mock("@tanstack/react-start", () => {
   const builder = () => {
@@ -144,4 +144,44 @@ it("rejects wrong accounts, foreign workspaces and expired sessions", async () =
   await expect(f.send({ ...remove, orgId: "other" })).rejects.toThrow("permission changed");
   await env.DB.prepare("UPDATE session SET expiresAt='2000-01-01' WHERE id=?").bind(f.sessionId).run();
   await expect(f.send(remove)).rejects.toThrow("permission changed");
+});
+
+it("legacy native saves acknowledge their receipt with destination revision triggers enabled", async () => {
+  const f = await fixture(), before = (await f.read()).destinations[0];
+  const key = await env.DB.prepare("SELECT streamKey FROM stream_destination WHERE orgId=? AND id=?").bind(f.orgId, f.id).first("streamKey");
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const response = await handleMobileApi(new Request(`https://app.showpilot.tech/api/mobile/v1/streaming/destinations/${f.id}?orgId=${f.orgId}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...fields, name: "Legacy saved name", streamKey: "", requestId: crypto.randomUUID() }) }), { DB: env.DB });
+  expect(response?.status).toBe(200);
+  expect(await response?.json()).toMatchObject({ ok: true, id: f.id });
+  const after = (await f.read()).destinations[0];
+  expect(after.name).toBe("Legacy saved name"); expect(after.revision).toBeGreaterThan(before.revision);
+  expect(await env.DB.prepare("SELECT streamKey FROM stream_destination WHERE orgId=? AND id=?").bind(f.orgId, f.id).first("streamKey")).toBe(key);
+});
+
+it("legacy native selection, disable and deletion acknowledge correctly without provider activity", async () => {
+  const f = await fixture(), network = vi.spyOn(globalThis, "fetch");
+  const { handleMobileApi } = await import("../mobile-api.server");
+  for (const enabled of [true, false]) {
+    const response = await handleMobileApi(new Request(`https://app.showpilot.tech/api/mobile/v1/streaming/destinations/${f.id}?orgId=${f.orgId}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "toggle", enabled, requestId: crypto.randomUUID() }) }), { DB: env.DB });
+    expect(response?.status).toBe(200); expect(await response?.json()).toMatchObject({ ok: true });
+    expect((await f.read()).destinations[0]).toMatchObject({ selected: enabled, status: "none" });
+  }
+  const requestId = crypto.randomUUID();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await handleMobileApi(new Request(`https://app.showpilot.tech/api/mobile/v1/streaming/destinations/${f.id}?orgId=${f.orgId}`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remove", requestId }) }), { DB: env.DB });
+    expect(response?.status).toBe(200); expect(await response?.json()).toMatchObject({ ok: true });
+  }
+  expect((await f.read()).destinations).toEqual([]); expect(network).not.toHaveBeenCalled();
+});
+
+it("legacy native edits reject a foreign destination without changing it", async () => {
+  const foreign = await fixture(), f = await fixture();
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const response = await handleMobileApi(new Request(`https://app.showpilot.tech/api/mobile/v1/streaming/destinations/${foreign.id}?orgId=${f.orgId}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...fields, name: "Must not change", streamKey: "", requestId: crypto.randomUUID() }) }), { DB: env.DB });
+  expect(response?.status).toBe(404);
+  expect(await env.DB.prepare("SELECT name FROM stream_destination WHERE orgId=? AND id=?").bind(foreign.orgId, foreign.id).first("name")).toBe("Fixture");
 });
