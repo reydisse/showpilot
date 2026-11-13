@@ -1,3 +1,4 @@
+import { templateDeleteReplySchema, type TemplateDeleteCommand } from "./template-delete-recovery";
 import { replacementReadSchema,replacementReplySchema,type ReplacementSource,type ReplacementCommand } from "./rundown-replacement-recovery";
 import { templateSaveReplySchema, type TemplateSaveCommand } from "./template-save-recovery";
 import { rundownDetailsReadSchema, rundownDetailsReplySchema, type RundownDetailsScope, type RundownDetailsCommand } from "./rundown-details-recovery";
@@ -1323,16 +1324,12 @@ export async function commandMobileRundownReplacement(input:ReplacementCommand,r
   return replacementReplySchema.parse(await response.json());
 }
 
-export async function deleteMobileRundownTemplate(input: {
-  orgId: string;
-  showId: string;
-  templateId: string;
-}) {
+export async function deleteMobileRundownTemplate(input: TemplateDeleteCommand, signal: AbortSignal) {
   const response = await authenticatedFetch(
     `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/templates/${encodeURIComponent(input.templateId)}/remove?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify({}) },
+    { method: "POST", signal, body: JSON.stringify({ userId: input.userId, requestId: input.requestId }) },
   );
-  return z.object({ ok: z.literal(true) }).parse(await response.json());
+  return templateDeleteReplySchema.parse(await response.json());
 }
 
 export async function readMobileRundownDetails(input: RundownDetailsScope, signal: AbortSignal) {

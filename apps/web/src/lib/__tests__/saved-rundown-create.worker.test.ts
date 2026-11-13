@@ -4,8 +4,8 @@ import { expect, it } from "vitest";
 import { seedRelayMember } from "@/test/relay-fixtures";
 import { createSavedRundown } from "../saved-rundown-create.server";
 async function fixture() {
-  const { orgId } = await seedRelayMember(`template-${crypto.randomUUID()}`);
-  return { orgId, content: { id: crypto.randomUUID(), name: "Sunday", serviceName: "Service", scheduledStartTime: "09:00", items: [] } };
+  const actor = await seedRelayMember(`template-${crypto.randomUUID()}`);
+  return { ...actor, actor: { ...actor, pin: null }, content: { id: crypto.randomUUID(), name: "Sunday", serviceName: "Service", scheduledStartTime: "09:00", items: [] } };
 }
 const rows = async (orgId: string) => (await env.DB.prepare("SELECT key,value FROM app_setting WHERE orgId=? AND key LIKE 'rundown-%' ORDER BY key").bind(orgId).all<{ key: string; value: string }>()).results;
 it("creates exactly one immutable template and receipt across concurrent and lost-response retries", async () => {
@@ -56,33 +56,33 @@ it("cannot take over a legacy template whose ID happens to collide", async () =>
 });
 
 it("atomically fences deletion of a legacy template and rolls back if deleting fails", async () => {
-  const { orgId, content } = await fixture();
+  const { orgId, content, actor } = await fixture();
   await env.DB.prepare("INSERT INTO app_setting(id,orgId,key,value) VALUES (?,?,?,?)").bind(crypto.randomUUID(), orgId, `rundown-saved:${content.id}`, JSON.stringify(content)).run();
   const before = await rows(orgId);
   await env.DB.exec("CREATE TRIGGER fail_template_delete BEFORE DELETE ON app_setting WHEN OLD.key LIKE 'rundown-saved:%' BEGIN SELECT RAISE(ABORT, 'fixture delete failure'); END");
-  try { await expect(removeSavedRundown(env.DB, orgId, content.id)).rejects.toThrow("fixture delete failure"); }
+  try { await expect(removeSavedRundown(env.DB, orgId, content.id, actor)).rejects.toThrow("fixture delete failure"); }
   finally { await env.DB.exec("DROP TRIGGER fail_template_delete"); }
   expect(await rows(orgId)).toEqual(before);
-  await removeSavedRundown(env.DB, orgId, content.id);
+  await removeSavedRundown(env.DB, orgId, content.id, actor);
   await expect(createSavedRundown(env.DB, orgId, content)).resolves.toEqual({ ok: false, reason: "removed" });
 });
 it("a delete delivered before the save fences every later retry, in that organization only", async () => {
   const f = await fixture(), other = await fixture();
-  await removeSavedRundown(env.DB, f.orgId, f.content.id);
+  await removeSavedRundown(env.DB, f.orgId, f.content.id, f.actor);
   await expect(createSavedRundown(env.DB, f.orgId, f.content)).resolves.toEqual({ ok: false, reason: "removed" });
   await expect(createSavedRundown(env.DB, other.orgId, f.content)).resolves.toEqual({ ok: true, id: f.content.id });
   expect(await rows(f.orgId)).toEqual([{ key: `rundown-template-save:${f.content.id}`, value: "removed" }]);
-  await removeSavedRundown(env.DB, f.orgId, f.content.id);
+  await removeSavedRundown(env.DB, f.orgId, f.content.id, f.actor);
   expect(await rows(f.orgId)).toHaveLength(1);
   expect(await rows(other.orgId)).toHaveLength(2);
 });
 it("save and delete races finish deleted and never rewrite an accepted receipt", async () => {
   const f = await fixture();
-  await Promise.all([createSavedRundown(env.DB, f.orgId, f.content), removeSavedRundown(env.DB, f.orgId, f.content.id)]);
+  await Promise.all([createSavedRundown(env.DB, f.orgId, f.content), removeSavedRundown(env.DB, f.orgId, f.content.id, f.actor)]);
   const before = await rows(f.orgId);
   expect(before).toHaveLength(1);
   expect(before[0].key).toBe(`rundown-template-save:${f.content.id}`);
   await expect(createSavedRundown(env.DB, f.orgId, f.content)).resolves.toEqual({ ok: false, reason: "removed" });
-  await removeSavedRundown(env.DB, f.orgId, f.content.id);
+  await removeSavedRundown(env.DB, f.orgId, f.content.id, f.actor);
   expect(await rows(f.orgId)).toEqual(before);
 });
