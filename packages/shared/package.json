@@ -38,7 +38,8 @@
     "./chat-attachment-draft": "./src/chat-attachment-draft.ts",
     "./chat-composer": "./src/chat-composer.ts",
     "./workspace-change": "./src/workspace-change.ts",
-    "./workspace-editor": "./src/workspace-editor.ts"
+    "./workspace-editor": "./src/workspace-editor.ts",
+    "./graphic-control": "./src/graphic-control.ts"
   },
   "dependencies": {
     "zod": "4.4.3"

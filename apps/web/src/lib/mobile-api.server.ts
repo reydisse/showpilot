@@ -6704,11 +6704,11 @@ async function writeMobileGraphic(
   if (graphicId) {
     const result = await db
       .prepare(
-        "UPDATE graphic_template SET name = ?, title = ?, subtitle = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ?",
+        "UPDATE graphic_template SET name = ?, title = ?, subtitle = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ? RETURNING id",
       )
       .bind(name, title, subtitle, graphicId, access.orgId)
-      .run();
-    return changedExactlyOneRow(result)
+      .first<{ id: string }>();
+    return result
       ? json({ ok: true })
       : json({ error: "Graphic not found." }, 404);
   }
@@ -7292,6 +7292,21 @@ export async function handleMobileApi(
   if (!url.pathname.startsWith("/api/mobile/v1/")) return null;
   if (contentLengthExceeds(request, 3_250_000)) {
     return json({ error: "Request payload is too large." }, 413);
+  }
+  if ((url.pathname === "/api/mobile/v1/graphics/control" && ["GET", "POST"].includes(request.method)) ||
+      (url.pathname === "/api/mobile/v1/graphics/review" && request.method === "POST")) {
+    const { graphicControlScopeSchema, graphicControlCommandSchema } = await import("@showpilot/shared/graphic-control");
+    const { readGraphicControl, writeGraphicControl, GraphicControlAccessError } = await import("./graphic-control.server");
+    const read = request.method === "GET";
+    const parsed = read ? graphicControlScopeSchema.safeParse({ orgId: url.searchParams.get("orgId"), userId: url.searchParams.get("userId") })
+      : graphicControlCommandSchema.safeParse(await readJson(request));
+    if (!parsed.success) return json({ error: "Check the graphics change and account." }, 400);
+    try {
+      if (read) return json(await readGraphicControl(request.headers, parsed.data));
+      return json(await writeGraphicControl(request.headers, graphicControlCommandSchema.parse(parsed.data), url.pathname.endsWith("/review") ? "review" : "save"));
+    } catch (error) {
+      return json({ error: error instanceof GraphicControlAccessError ? error.message : "Graphics change was not confirmed. Retry or review the original request." }, error instanceof GraphicControlAccessError ? 403 : 503);
+    }
   }
   if ((url.pathname === "/api/mobile/v1/workspace/change" && ["GET", "POST"].includes(request.method)) ||
       (url.pathname === "/api/mobile/v1/workspace/review-change" && request.method === "POST")) {
