@@ -1,3 +1,5 @@
+import { ChatAttachmentDraft } from "@showpilot/shared/chat-attachment-draft";
+import type { ChatAttachment } from "@showpilot/shared/chat-attachment";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { ChatPanel } from "../ChatPanel";
@@ -137,10 +139,10 @@ describe("ChatPanel conversation flow", () => {
 
   it("keeps the caption and attachment together when Enter is pressed during upload", async () => {
     const onSendMessage = vi.fn();
-    const attachment = { id: "pending-file", name: "notes.txt", url: "/api/chat-file/org/pending-file/notes.txt", mimeType: "text/plain", size: 5 };
+    const attachment = { id: "00000000-0000-4000-8000-000000000001", name: "notes.txt", url: "/api/chat-file/org/00000000-0000-4000-8000-000000000001/notes.txt", mimeType: "text/plain", size: 5 };
     let completeUpload: (value: typeof attachment) => void = () => {};
     const onUploadAttachment = vi.fn(() => new Promise<typeof attachment>((resolve) => { completeUpload = resolve; }));
-    const { container } = render(<ChatPanel messages={[]} connectionStatus="connected" unreadCount={0} onSendMessage={onSendMessage} onUploadAttachment={onUploadAttachment} />);
+    const { container } = render(<ChatPanel messages={[]} connectionStatus="connected" unreadCount={0} onSendMessage={onSendMessage} attachmentDraft={attachmentFixture(attachment, onUploadAttachment)} />);
     const input = container.querySelector('input[type="file"]');
     if (!input) throw new Error("Missing upload input");
     fireEvent.change(input, { target: { files: [new File(["notes"], "notes.txt", { type: "text/plain" })] } });
@@ -150,6 +152,7 @@ describe("ChatPanel conversation flow", () => {
     fireEvent.keyDown(textbox, { key: "Enter" });
     expect(onSendMessage).not.toHaveBeenCalled();
     expect(textbox).toHaveProperty("value", "Read these notes");
+    await waitFor(() => expect(onUploadAttachment).toHaveBeenCalled());
     await act(async () => { completeUpload(attachment); });
     fireEvent.keyDown(textbox, { key: "Enter" });
     expect(onSendMessage).toHaveBeenCalledExactlyOnceWith("Read these notes", "text", expect.objectContaining({ attachments: [attachment] }));
@@ -157,20 +160,19 @@ describe("ChatPanel conversation flow", () => {
   });
 
   it("removes an abandoned upload from server storage when the user discards it", async () => {
-    const attachment = { id: "draft-file", name: "draft.txt", url: "/api/chat-file/org/draft-file/draft.txt", mimeType: "text/plain", size: 5 };
+    const attachment = { id: "00000000-0000-4000-8000-000000000002", name: "draft.txt", url: "/api/chat-file/org/00000000-0000-4000-8000-000000000002/draft.txt", mimeType: "text/plain", size: 5 };
     const onDiscardAttachment = vi.fn().mockResolvedValue(undefined);
     const { container } = render(<ChatPanel
       messages={[]}
       connectionStatus="connected"
       unreadCount={0}
       onSendMessage={vi.fn()}
-      onUploadAttachment={vi.fn().mockResolvedValue(attachment)}
-      onDiscardAttachment={onDiscardAttachment}
+      attachmentDraft={attachmentFixture(attachment, undefined, onDiscardAttachment)}
     />);
     const input = container.querySelector('input[type="file"]');
     if (!input) throw new Error("Missing upload input");
     fireEvent.change(input, { target: { files: [new File(["draft"], "draft.txt", { type: "text/plain" })] } });
-    await screen.findByRole("button", { name: "Remove draft.txt" });
+    await screen.findByText(/Ready to send/);
     fireEvent.click(screen.getByRole("button", { name: "Remove draft.txt" }));
     await waitFor(() => expect(onDiscardAttachment).toHaveBeenCalledWith(attachment));
   });
@@ -380,3 +382,44 @@ it("submits the captured edit version even when a newer message arrives while ty
   await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Review it again"));
   expect(screen.getByRole("textbox")).toHaveProperty("value", "My unfinished edit");
 });
+
+it("keeps a failed attachment removal recoverable without sending that attachment", async () => {
+  const attachment = { id: "00000000-0000-4000-8000-000000000003", name: "notes.txt", url: "/api/chat-file/org/00000000-0000-4000-8000-000000000003/notes.txt", mimeType: "text/plain", size: 5 };
+  const remove = vi.fn().mockRejectedValue(new Error("Storage unavailable"));
+  const send = vi.fn().mockResolvedValue(undefined);
+  const { container } = render(<ChatPanel messages={[]} connectionStatus="connected" unreadCount={0} onSendMessage={send}
+    attachmentDraft={attachmentFixture(attachment, undefined, remove)} />);
+  const input = container.querySelector('input[type="file"]'); if (!input) throw new Error("Missing upload input");
+  fireEvent.change(input, { target: { files: [new File(["notes"], "notes.txt", { type: "text/plain" })] } });
+  await screen.findByText(/Ready to send/);
+  fireEvent.click(screen.getByRole("button", { name: "Remove notes.txt" }));
+  await waitFor(() => expect(remove).toHaveBeenCalledWith(attachment));
+  const retry = await screen.findByRole("button", { name: "Retry removing notes.txt" });
+  expect(screen.getByRole("alert").textContent).toContain("Storage unavailable");
+  remove.mockResolvedValue(undefined); fireEvent.click(retry);
+  await waitFor(() => expect(remove).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Retry removing notes.txt" })).toBeNull());
+});
+
+it("does not silently delete an unsent attachment when navigating away", async () => {
+  const attachment = { id: "00000000-0000-4000-8000-000000000004", name: "draft.txt", url: "/api/chat-file/org/00000000-0000-4000-8000-000000000004/draft.txt", mimeType: "text/plain", size: 5 };
+  const discard = vi.fn().mockResolvedValue(undefined);
+  const draft = attachmentFixture(attachment, undefined, discard);
+  const view = render(<ChatPanel messages={[]} connectionStatus="connected" unreadCount={0} onSendMessage={vi.fn()}
+    attachmentDraft={draft} />);
+  const input = view.container.querySelector('input[type="file"]'); if (!input) throw new Error("Missing upload input");
+  fireEvent.change(input, { target: { files: [new File(["draft"], "draft.txt", { type: "text/plain" })] } });
+  await screen.findByText(/Ready to send/);
+  view.unmount();
+  expect(discard).not.toHaveBeenCalled();
+  render(<ChatPanel messages={[]} connectionStatus="connected" unreadCount={0} onSendMessage={vi.fn()} attachmentDraft={draft} />);
+  expect(screen.getByRole("button", { name: "Remove draft.txt" })).toBeTruthy();
+  expect(screen.getByText(/Ready to send/)).toBeTruthy();
+});
+
+function attachmentFixture(attachment: ChatAttachment, upload: () => Promise<ChatAttachment> = async () => attachment, cancel: (file: ChatAttachment) => Promise<void> = async () => {}) {
+  return new ChatAttachmentDraft<File, File>({ orgId: "org", capacity: 6, newId: () => attachment.id,
+    prepare: async file => ({ spec: { uploadId: attachment.id, name: attachment.name, mimeType: attachment.mimeType, size: attachment.size, sha256: "a".repeat(64) }, body: file }),
+    upload, cancel: () => cancel(attachment),
+  });
+}

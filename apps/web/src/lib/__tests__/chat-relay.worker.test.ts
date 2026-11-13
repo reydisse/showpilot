@@ -1,3 +1,5 @@
+import { chatUploadAttachment } from "@showpilot/shared/chat-attachment";
+import { storeChatAttachment, chatUploadFileKey, chatFileIsDeleted } from "../chat-attachment-storage.server";
 import { chatMutationResultSchema, type ChatMutationOperation } from "@showpilot/shared/chat-mutation";
 import { seedRelayMember } from "@/test/relay-fixtures";
 import { env } from "cloudflare:workers";
@@ -341,7 +343,8 @@ describe("ChatRelay threads", () => {
       if (!original) throw new Error("Missing stored attachment message");
       socket.send(JSON.stringify(makeMutationFrame(orgId, messageId, { kind: "delete", expectedEditTime: original.timestamp })));
       await expect(result).resolves.toMatchObject({ result: { outcome: "applied", cleanup: "complete" } });
-      expect(Boolean(await env.STORAGE.head(key))).toBe(index === 0);
+      const object = await env.STORAGE.head(key);
+      expect(Boolean(object && !chatFileIsDeleted(object))).toBe(index === 0);
     }
     socket.close();
   });
@@ -354,12 +357,12 @@ describe("ChatRelay threads", () => {
     const messageId = crypto.randomUUID(), sent = nextFrame(socket, "message");
     socket.send(JSON.stringify({ type: "message", text: "Notes", clientMessageId: messageId, attachments: [attachment] }));
     const original = (await sent).message as { timestamp: number };
-    const remove = vi.spyOn(Object.getPrototypeOf(env.STORAGE), "delete").mockRejectedValueOnce(new Error("R2 unavailable"));
+    const remove = vi.spyOn(Object.getPrototypeOf(env.STORAGE), "put").mockRejectedValueOnce(new Error("R2 unavailable"));
     const frame = makeMutationFrame(orgId, messageId, { kind: "delete", expectedEditTime: original.timestamp });
     const failed = nextFrame(socket, "mutation-result"); socket.send(JSON.stringify(frame));
     const first = chatMutationResultSchema.parse((await failed).result);
     expect(first).toMatchObject({ outcome: "applied", cleanup: "failed" });
-    expect(remove).toHaveBeenCalledWith(key);
+    expect(remove).toHaveBeenCalledWith(key, null, expect.any(Object));
     expect(await (await stub.fetch(url("/history"))).json()).toMatchObject({ messages: [{ id: messageId, deletedAt: first.at, text: "" }] });
     expect(await env.STORAGE.head(key)).not.toBeNull();
     const blocked = nextFrame(socket, "error");
@@ -368,7 +371,7 @@ describe("ChatRelay threads", () => {
     remove.mockRestore();
     const recovered = nextFrame(socket, "mutation-result"); socket.send(JSON.stringify(frame));
     expect(chatMutationResultSchema.parse((await recovered).result)).toMatchObject({ outcome: "applied", cleanup: "complete", at: first.at });
-    expect(await env.STORAGE.head(key)).toBeNull();
+    expect(await env.STORAGE.head(key)).toMatchObject({ size: 0, customMetadata: { kind: "chat-file-deleted" } });
     socket.close();
   });
 
@@ -400,6 +403,88 @@ describe("ChatRelay threads", () => {
     await expect(rejected).resolves.toMatchObject({ messageId: newMessageId, error: expect.stringContaining("attached file was deleted") });
     const history = await (await stub.fetch(url("/history"))).json<{ messages: Array<{ id: string }> }>();
     expect(history.messages.map(message => message.id)).not.toContain(newMessageId);
+    socket.close();
+  });
+
+  it("atomically reserves a discarded draft against later message attachment", async () => {
+    const orgId = "discard-reservation-org", key = `orgs/${orgId}/chat/draft/notes.txt`;
+    const attachment = { id: "draft", name: "notes.txt", url: `/api/chat-file/${orgId}/draft/notes.txt`, mimeType: "text/plain", size: 5 };
+    await env.STORAGE.put(key, "notes", { customMetadata: { uploadedBy: "user-1", roomId: "production" } });
+    const { socket, stub } = await openChat(orgId);
+    const url = `https://chat.test/internal/discard-attachment?orgId=${orgId}&room=production`;
+    const request = () => new Request(url, { method: "POST", headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET }, body: JSON.stringify({ ownerId: "user-1", url: attachment.url }) });
+    for (let attempt = 0; attempt < 2; attempt++) expect((await stub.fetch(request())).status).toBe(204);
+    expect(await env.STORAGE.head(key)).toMatchObject({ size: 0, customMetadata: { kind: "chat-file-deleted" } });
+    const rejected = nextFrame(socket, "error");
+    socket.send(JSON.stringify({ type: "message", text: "Cannot attach a removed draft", clientMessageId: crypto.randomUUID(), attachments: [attachment] }));
+    await expect(rejected).resolves.toMatchObject({ error: expect.stringContaining("attached file was deleted") });
+    const state = await stub.fetch(`https://chat.test/internal/attachment-state?orgId=${orgId}&url=${encodeURIComponent(attachment.url)}`, { headers: { "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } });
+    expect(await state.json()).toEqual({ deleted: true });
+    socket.close();
+  });
+
+  it.each([false, true])("cancels an unreferenced upload before/after storage (stored: %s)", async stored => {
+    const orgId = `cancel-upload-${stored}`;
+    const owner = { orgId, roomId: "production", ownerId: "user-1" };
+    const bytes = new TextEncoder().encode("notes").buffer;
+    const sha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(value => value.toString(16).padStart(2, "0")).join("");
+    const spec = { uploadId: crypto.randomUUID(), name: "notes.txt", mimeType: "text/plain", size: bytes.byteLength, sha256 };
+    const { socket, stub } = await openChat(orgId);
+    if (stored) await storeChatAttachment(env.STORAGE, owner, spec, bytes);
+    const cancel = (ownerId = "user-1") => stub.fetch(`https://chat.test/internal/cancel-upload?orgId=${orgId}`, { method: "POST",
+      headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET }, body: JSON.stringify({ ownerId, spec }) });
+    expect((await cancel()).status).toBe(204);
+    expect((await cancel()).status).toBe(204);
+    expect((await cancel("other-member")).status).toBe(409);
+    await expect(storeChatAttachment(env.STORAGE, owner, spec, bytes)).rejects.toThrow("attachment was removed");
+    expect((await env.STORAGE.head(chatUploadFileKey(orgId, spec)))?.size).toBe(0);
+    const rejected = nextFrame(socket, "error");
+    socket.send(JSON.stringify({ type: "message", text: "Too late", clientMessageId: crypto.randomUUID(), attachments: [chatUploadAttachment(orgId, spec)] }));
+    await expect(rejected).resolves.toMatchObject({ type: "error" });
+    socket.close();
+  });
+
+  it("refuses cancellation of an upload attached to a committed message", async () => {
+    const orgId = "cancel-referenced-upload";
+    const bytes = new TextEncoder().encode("notes").buffer;
+    const sha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(value => value.toString(16).padStart(2, "0")).join("");
+    const spec = { uploadId: crypto.randomUUID(), name: "notes.txt", mimeType: "text/plain", size: bytes.byteLength, sha256 };
+    const attachment = await storeChatAttachment(env.STORAGE, { orgId, roomId: "production", ownerId: "user-1" }, spec, bytes);
+    const { socket, stub } = await openChat(orgId);
+    const sent = nextFrame(socket, "message");
+    socket.send(JSON.stringify({ type: "message", text: "Keep the file", clientMessageId: crypto.randomUUID(), attachments: [attachment] }));
+    await sent;
+    const response = await stub.fetch(`https://chat.test/internal/cancel-upload?orgId=${orgId}`, { method: "POST",
+      headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET }, body: JSON.stringify({ ownerId: "user-1", spec }) });
+    expect(response.status).toBe(409);
+    expect(await (await env.STORAGE.get(chatUploadFileKey(orgId, spec)))?.text()).toBe("notes");
+    socket.close();
+  });
+
+  it("keeps a file referenced by a message committed while discard reads storage", async () => {
+    const orgId = "discard-new-reference-org", key = `orgs/${orgId}/chat/draft/notes.txt`;
+    const attachment = { id: "draft", name: "notes.txt", url: `/api/chat-file/${orgId}/draft/notes.txt`, mimeType: "text/plain", size: 5 };
+    await env.STORAGE.put(key, "notes", { customMetadata: { uploadedBy: "user-1", roomId: "production" } });
+    const { socket, stub, url } = await openChat(orgId);
+    const received = nextFrame(socket, "message");
+    const status = await runInDurableObject(stub, async (instance, ctx) => {
+      const object = await env.STORAGE.head(key);
+      let release = () => {}, started = () => {};
+      const waiting = new Promise<void>(resolve => { started = resolve; });
+      const held = new Promise<R2Object | null>(resolve => { release = () => resolve(object); });
+      const head = vi.spyOn(Object.getPrototypeOf(env.STORAGE), "head").mockImplementationOnce(() => { started(); return held; });
+      const discarding = instance.fetch(new Request(`https://chat.test/internal/discard-attachment?orgId=${orgId}`, { method: "POST",
+        headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET }, body: JSON.stringify({ ownerId: "user-1", url: attachment.url }) }));
+      try {
+        await waiting;
+        await instance.webSocketMessage(ctx.getWebSockets()[0], JSON.stringify({ type: "message", text: "Now referenced", clientMessageId: crypto.randomUUID(), attachments: [attachment] }));
+      } finally { release(); }
+      try { return (await discarding).status; } finally { head.mockRestore(); }
+    });
+    expect(status).toBe(409);
+    await expect(received).resolves.toMatchObject({ message: { attachments: [{ url: attachment.url }] } });
+    expect(await (await env.STORAGE.get(key))?.text()).toBe("notes");
+    expect(await (await stub.fetch(url("/history"))).json()).toMatchObject({ messages: [{ text: "Now referenced" }] });
     socket.close();
   });
 

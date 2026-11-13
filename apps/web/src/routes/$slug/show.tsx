@@ -261,8 +261,7 @@ function ChatPanel({
   const {
     messages,
     sendMessage,
-    uploadAttachment,
-    discardAttachment,
+    attachmentDraft,
     votePoll,
     setReaction,
     connectionStatus,
@@ -309,8 +308,7 @@ function ChatPanel({
         connectionStatus={connectionStatus}
         unreadCount={0}
         onSendMessage={sendMessage}
-        onUploadAttachment={uploadAttachment}
-        onDiscardAttachment={discardAttachment}
+        attachmentDraft={attachmentDraft}
         gatewayStatus={gatewayStatus}
         hydrated={hydrated} connectionUpdatedAt={connectionUpdatedAt} onReconnect={retryConnection}
         onReadThrough={markRead}

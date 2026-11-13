@@ -140,14 +140,33 @@ describe("chat gateway authority boundary", () => {
     mocks.session.mockResolvedValue({ session: { id: "fixture-session", expiresAt: new Date("2099-01-01") }, user: { id: "member-1", name: "Authenticated Member" } });
     mocks.access.mockResolvedValue({ role: "member", permissions: ["chat:access"] });
     mocks.storageGet.mockResolvedValue({ customMetadata: { uploadedBy: "member-1", roomId: "production" } });
-    mocks.relay.mockResolvedValue(Response.json({ referenced: false }));
+    mocks.relay.mockResolvedValue(new Response(null, { status: 204 }));
 
     const response = await server.fetch(new Request("https://chat.test/api/chat-file/org/file-1/notes.txt", {
       method: "DELETE",
     }), testEnv, {});
 
     expect(response.status).toBe(204);
-    expect(mocks.storageDelete).toHaveBeenCalledWith("orgs/org/chat/file-1/notes.txt");
+    expect(mocks.storageDelete).not.toHaveBeenCalled();
+    const [target, options] = mocks.relay.mock.calls[0];
+    expect(new URL(target).pathname).toBe("/internal/discard-attachment");
+    expect(JSON.parse(options.body)).toEqual({ url: "/api/chat-file/org/file-1/notes.txt", ownerId: "member-1" });
+    expect(options.headers["x-showpilot-internal-secret"]).toBe(testEnv.BETTER_AUTH_SECRET);
+  });
+
+  it("does not serve bytes after the room reserved deletion but storage cleanup is still pending", async () => {
+    mocks.session.mockResolvedValue({ session: { id: "fixture-session", expiresAt: new Date("2099-01-01") }, user: { id: "member-1", name: "Member" } });
+    mocks.access.mockResolvedValue({ role: "member", permissions: ["chat:access"] });
+    mocks.storageGet.mockResolvedValue({ customMetadata: { uploadedBy: "member-1", roomId: "production" } });
+    mocks.relay.mockResolvedValue(Response.json({ deleted: true }));
+    const response = await server.fetch(new Request("https://chat.test/api/chat-file/org/draft/notes.txt"), testEnv, {});
+    expect(response.status).toBe(404);
+    expect(new URL(mocks.relay.mock.calls[0][0]).pathname).toBe("/internal/attachment-state");
+  });
+
+  it("does not expose upload reservation objects as chat attachments", async () => {
+    const response = await server.fetch(new Request("https://chat.test/api/chat-file/org/_uploads/claim"), testEnv, {});
+    expect(response.status).toBe(404); expect(mocks.storageGet).not.toHaveBeenCalled();
   });
 
   it("refuses to remove another member's attachment", async () => {
@@ -163,4 +182,37 @@ describe("chat gateway authority boundary", () => {
     expect(mocks.relay).not.toHaveBeenCalled();
     expect(mocks.storageDelete).not.toHaveBeenCalled();
   });
+  it("routes cancellation with the authenticated actor and validated room, even before a file exists", async () => {
+    mocks.session.mockResolvedValue({ session: { id: "fixture-session", expiresAt: new Date("2099-01-01") }, user: { id: "member-1", name: "Member" } });
+    mocks.access.mockResolvedValue({ role: "member", permissions: ["chat:access"] });
+    mocks.relay.mockResolvedValue(new Response(null, { status: 204 }));
+    const spec = { uploadId: crypto.randomUUID(), name: "notes.txt", mimeType: "text/plain", size: 5, sha256: "a".repeat(64) };
+    const response = await server.fetch(new Request("https://chat.test/api/chat/org/cancel-upload?room=planning&expectedUserId=member-1", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(spec),
+    }), testEnv, {});
+    expect(response.status).toBe(204);
+    const [target, options] = mocks.relay.mock.calls[0];
+    expect(new URL(target).pathname).toBe("/internal/cancel-upload");
+    expect(new URL(target).searchParams.get("room")).toBe("planning");
+    expect(JSON.parse(options.body)).toEqual({ spec, ownerId: "member-1" });
+    expect(mocks.storageGet).not.toHaveBeenCalled();
+  });
+
+  it.each(["member-2", ""])("refuses cancellation without the original account identity (%s)", async expectedUserId => {
+    mocks.session.mockResolvedValue({ session: { id: "fixture-session", expiresAt: new Date("2099-01-01") }, user: { id: "member-1", name: "Member" } });
+    mocks.access.mockResolvedValue({ role: "member", permissions: ["chat:access"] });
+    const response = await server.fetch(new Request(`https://chat.test/api/chat/org/cancel-upload?expectedUserId=${expectedUserId}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    }), testEnv, {});
+    expect(response.status).toBe(409); expect(mocks.relay).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when chat authority is not configured", async () => {
+    mocks.session.mockResolvedValue({ session: { id: "fixture-session", expiresAt: new Date("2099-01-01") }, user: { id: "member-1", name: "Member" } });
+    mocks.access.mockResolvedValue({ role: "member", permissions: ["chat:access"] });
+    mocks.storageGet.mockResolvedValue({ customMetadata: { uploadedBy: "member-1", roomId: "production" } });
+    const response = await server.fetch(new Request("https://chat.test/api/chat-file/org/file-1/notes.txt", { method: "DELETE" }), { ...testEnv, BETTER_AUTH_SECRET: undefined }, {});
+    expect(response.status).toBe(503); expect(mocks.relay).not.toHaveBeenCalled();
+  });
+
 });

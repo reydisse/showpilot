@@ -4,11 +4,10 @@ import type { MobileChatMessage } from "../lib/chat-history";
 export type ChatComposerDraft = {
   text: string; messageType: "text" | "cue" | "alert";
   replyingTo: MobileChatMessage | null; editing: MobileChatMessage | null;
-  attachment: NonNullable<MobileChatMessage["attachments"]>[number] | null;
   pollQuestion: string; pollOptions: string[];
 };
 function blank(): ChatComposerDraft {
-  return { text: "", messageType: "text", replyingTo: null, editing: null, attachment: null, pollQuestion: "", pollOptions: ["", ""] };
+  return { text: "", messageType: "text", replyingTo: null, editing: null, pollQuestion: "", pollOptions: ["", ""] };
 }
 /** Drafts belong to a conversation and actor, never to whichever room renders next. */
 export function useChatComposer(userId: string | undefined, orgId: string | undefined, roomId: string) {
@@ -40,7 +39,6 @@ export function useChatComposer(userId: string | undefined, orgId: string | unde
     setMessageType: useCallback((value: ChatComposerDraft["messageType"]) => update("messageType", value), [update]),
     setReplyingTo: useCallback((value: MobileChatMessage | null) => update("replyingTo", value), [update]),
     setEditing: useCallback((value: MobileChatMessage | null) => update("editing", value), [update]),
-    setAttachment: useCallback((value: ChatComposerDraft["attachment"]) => update("attachment", value), [update]),
     setPollQuestion: useCallback((value: string) => update("pollQuestion", value), [update]),
     setPollOptions: useCallback((value: string[] | ((previous: string[]) => string[])) => update("pollOptions", value), [update]),
   };
