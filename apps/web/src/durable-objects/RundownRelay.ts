@@ -860,8 +860,14 @@ export class RundownRelay extends DurableObject {
     try {
       const raw: unknown = JSON.parse(data as string);
       if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return;
-      if ((raw as Record<string, unknown>).type === "ping") {
-        socketReadLeaseAllows(ws, Boolean(attachment?.writeAccess || attachment?.canObserve));
+      if ("type" in raw && raw.type === "ping") {
+        if (!displaySocketMayReceive(ws)
+          || !socketReadLeaseAllows(ws, Boolean(attachment?.writeAccess || attachment?.canObserve))) return;
+        // Legacy pings remain one-way. A bounded nonce opts into liveness replies.
+        // Only identity/revision is returned, never full operator or display state.
+        if ("id" in raw && typeof raw.id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(raw.id)) {
+          ws.send(JSON.stringify({ type: "pong", id: raw.id, ...this.resolvedTarget(), revision: this.state.revision }));
+        }
         return;
       }
       if ((raw as Record<string, unknown>).type === "command") {

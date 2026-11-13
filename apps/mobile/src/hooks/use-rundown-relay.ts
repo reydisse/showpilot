@@ -40,6 +40,8 @@ interface RelayState {
 
 const TRANSPORT_MAX_AGE_MS = 5_000;
 const CONNECTION_TIMEOUT_MS = 12_000;
+const HEARTBEAT_INTERVAL_MS = 20_000;
+const HEARTBEAT_TIMEOUT_MS = 8_000;
 function isTransport(action: string) { return action.startsWith("timer-") && action !== "timer-mode"; }
 function expired(command: QueuedCommand) { return isTransport(command.action) && Date.now() - command.queuedAt >= TRANSPORT_MAX_AGE_MS; }
 
@@ -163,6 +165,8 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
     let handshakeTimer: ReturnType<typeof setTimeout> | null = null;
     let authentication: AbortController | null = null;
     let generation = 0;
+    let heartbeat: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
+    let hydratedRevision = 0;
 
     hydratedRef.current = false;
     revisionRef.current = 0;
@@ -187,6 +191,8 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
     function clearKeepalive() {
       if (keepaliveTimer) clearInterval(keepaliveTimer);
       keepaliveTimer = null;
+      if (heartbeat) clearTimeout(heartbeat.timer);
+      heartbeat = null;
     }
 
     function scheduleReconnect() {
@@ -295,6 +301,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
           ? normalizePPSlide(value.ppPreviewSlide)
           : current.ppPreviewSlide,
       }));
+      hydratedRevision = value.revision;
       clearHandshake();
       attempts = 0;
       hydratedRef.current = true;
@@ -340,10 +347,15 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
         if (disposed || socketRef.current !== socket) return;
         clearKeepalive();
         keepaliveTimer = setInterval(() => {
-          if (socket.readyState !== WebSocket.OPEN) return;
-          try { socket.send(JSON.stringify({ type: "ping" })); }
+          if (socket.readyState !== WebSocket.OPEN || !hydratedRef.current || heartbeat) return;
+          const id = commandId();
+          heartbeat = { id, timer: setTimeout(() => {
+            if (socketRef.current !== socket || heartbeat?.id !== id) return;
+            retireConnection("The live connection stopped responding. Reconnecting with the last known state.");
+          }, HEARTBEAT_TIMEOUT_MS) };
+          try { socket.send(JSON.stringify({ type: "ping", id })); }
           catch { retireConnection("The live connection was interrupted. Reconnecting…"); }
-        }, 20_000);
+        }, HEARTBEAT_INTERVAL_MS);
       };
 
       socket.onmessage = (event) => {
@@ -351,6 +363,21 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
         try {
           const message = JSON.parse(event.data) as unknown;
           if (!isRecord(message)) return;
+          if (message.type === "pong") {
+            if (!heartbeat || message.id !== heartbeat.id) return;
+            if (message.showId !== showId || message.serviceDate !== serviceDate
+              || typeof message.revision !== "number" || !Number.isSafeInteger(message.revision) || message.revision < 0) {
+              retireConnection("The live connection returned an invalid heartbeat. Reconnecting for current state.");
+              return;
+            }
+            if (message.revision > hydratedRevision) {
+              retireConnection("A live update was missed. Reconnecting for current state.");
+              return;
+            }
+            clearTimeout(heartbeat.timer);
+            heartbeat = null;
+            return;
+          }
           if (message.type === "hydrate" || message.type === "state") {
             applyState(message.state);
             return;
