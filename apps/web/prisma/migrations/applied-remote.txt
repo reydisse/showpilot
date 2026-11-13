@@ -96,3 +96,4 @@
 0089_crew_request_review.sql
 0090_template_save_recovery.sql
 0091_rundown_replacement_recovery.sql
+0092_workspace_change_recovery.sql
