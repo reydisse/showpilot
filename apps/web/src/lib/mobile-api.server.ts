@@ -835,66 +835,28 @@ async function rundown(
 }
 
 async function controlMobileProPresenter(
-  request: Request,
-  url: URL,
-  showId: string,
-  env: MobileApiEnvironment,
+  request: Request, url: URL, showId: string, env: MobileApiEnvironment,
+  mode: "prepare" | "execute" | "check",
 ): Promise<Response> {
   const access = await authorize(request, url, env.DB, ["rundown:control"]);
   if (access instanceof Response) return access;
-  const show = await env.DB.prepare(
-    "SELECT id FROM rundown WHERE id = ? AND orgId = ? LIMIT 1",
-  )
-    .bind(showId, access.orgId)
-    .first<{ id: string }>();
-  if (!show) return json({ error: "Show not found." }, 404);
-  const body = await readJson(request);
-  const command = body?.command;
-  if (command !== "next" && command !== "previous" && command !== "clear") {
-    return json({ error: "Choose a valid ProPresenter command." }, 400);
+  const { proPresenterCommandSchema } = await import("../../../mobile/src/lib/propresenter-command");
+  const parsed = proPresenterCommandSchema.safeParse(await readJson(request));
+  if (!parsed.success) return json({ error: "Update the app and review the original slide command." }, 400);
+  const command = parsed.data;
+  if (command.orgId !== access.orgId || command.userId !== access.identity.userId || command.showId !== showId)
+    return json({ error: "Your account or show changed. Return to the original slide command." }, 403);
+  const session = await getAuth().api.getSession({ headers: request.headers, query: { disableCookieCache: true } });
+  if (!session || session.user.id !== command.userId) return json({ error: "Sign in again before controlling slides." }, 401);
+  if (!env.BRIDGE_RELAY) return json({ error: "Slide control is unavailable." }, 503);
+  try {
+    return json(await env.BRIDGE_RELAY.get(env.BRIDGE_RELAY.idFromName(command.orgId)).recoverProPresenterCommand(command, {
+      orgId: command.orgId, userId: command.userId, sessionId: session.session.id,
+      rundownPin: getPresentedRundownPin(request, command.orgId),
+    }, mode));
+  } catch {
+    return json({ error: "The slide command could not be confirmed. Check your access and the original command status before sending another." }, 503);
   }
-  const settings = await readProPresenterSettings(env.DB, access.orgId, env.CREDENTIAL_ENCRYPTION_KEYS);
-  if (!settings.host)
-    return json(
-      { error: "Configure ProPresenter in ShowPilot settings first." },
-      409,
-    );
-  if (!settings.cuesEnabled)
-    return json(
-      { error: "Enable ProPresenter cue control in ShowPilot settings first." },
-      409,
-    );
-  const bridge = await mobileBridgeStatus(env, access.orgId);
-  if (!bridge.bridgeOnline)
-    return json({ error: "Venue Bridge is offline." }, 503);
-
-  const configuredTarget = `propresenter:${settings.host}:${settings.stagePort}`;
-  const target =
-    bridge.connectedTargets.find(
-      (candidate) => candidate === configuredTarget,
-    ) ?? configuredTarget;
-  if (!bridge.connectedTargets.includes(target)) {
-    const connection = await bridgeDispatch(env, access.orgId, {
-      type: "connect-device",
-      protocol: "propresenter",
-      target,
-      settings: {
-        host: settings.host,
-        port: settings.stagePort,
-        apiPort: settings.apiPort,
-        password: settings.password,
-      },
-    }, access.identity.userId);
-    if (!connection.success) return json(connection, 502);
-  }
-  const result = await bridgeDispatch(env, access.orgId, {
-    type: "command",
-    id: `mobile-pp-${crypto.randomUUID()}`,
-    protocol: "propresenter",
-    target,
-    command,
-  }, access.identity.userId);
-  return json(result, result.success ? 200 : 502);
 }
 
 async function updateMobileProPresenterStageDisplay(
@@ -7832,12 +7794,12 @@ export async function handleMobileApi(
       : json({ error: "Not found." }, 404);
   }
   const rundownProPresenterMatch = url.pathname.match(
-    /^\/api\/mobile\/v1\/rundowns\/([^/]+)\/propresenter$/,
+    /^\/api\/mobile\/v1\/rundowns\/([^/]+)\/propresenter(?:\/(prepare|execute|check))?$/,
   );
   if (rundownProPresenterMatch && request.method === "POST") {
     const showId = decodePathId(rundownProPresenterMatch[1]);
     return showId
-      ? controlMobileProPresenter(request, url, showId, env)
+      ? controlMobileProPresenter(request, url, showId, env, rundownProPresenterMatch[2] === "prepare" ? "prepare" : rundownProPresenterMatch[2] === "check" ? "check" : "execute")
       : json({ error: "Not found." }, 404);
   }
   const rundownProPresenterStageDisplayMatch = url.pathname.match(

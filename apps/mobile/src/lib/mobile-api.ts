@@ -1,3 +1,4 @@
+import { proPresenterReplySchema, type ProPresenterCommand } from "./propresenter-command";
 import { chatInviteReplySchema, type ChatInviteCommand } from "./chat-pass-recovery";
 import { chatNotificationResultSchema, type ChatNotificationCommand } from "./chat-notification";
 import { lyricsControlReplySchema, type MobileLyricsControl } from "./timecode-lyrics-recovery";
@@ -1207,18 +1208,12 @@ export async function commandMobileRundownDetails(input: RundownDetailsCommand, 
   return rundownDetailsReplySchema.parse(await response.json());
 }
 
-export async function controlMobileProPresenter(input: {
-  orgId: string;
-  showId: string;
-  command: "next" | "previous" | "clear";
-}) {
+export async function controlMobileProPresenter(input: ProPresenterCommand, mode: "prepare" | "execute" | "check", signal: AbortSignal) {
   const response = await authenticatedFetch(
-    `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/propresenter?orgId=${encodeURIComponent(input.orgId)}`,
-    { method: "POST", body: JSON.stringify({ command: input.command }) },
+    `/api/mobile/v1/rundowns/${encodeURIComponent(input.showId)}/propresenter/${mode}?orgId=${encodeURIComponent(input.orgId)}`,
+    { method: "POST", signal, body: JSON.stringify(input) },
   );
-  return z
-    .object({ success: z.literal(true), response: z.string().optional() })
-    .parse(await response.json());
+  return proPresenterReplySchema.parse(await response.json());
 }
 
 export async function updateMobileProPresenterStageDisplay(input: {
