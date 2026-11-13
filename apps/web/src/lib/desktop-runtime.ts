@@ -1,3 +1,4 @@
+import { desktopRead } from "./desktop-operations";
 import {
   isPermissionGranted as isNativeNotificationPermissionGranted,
   onAction as onNativeNotificationAction,
@@ -156,18 +157,21 @@ export async function focusDesktopMainWindow(): Promise<void> {
   await core.invoke("focus_main_window");
 }
 
+async function closeDesktopUpdate(update: { close(): Promise<void> }) {
+  try { await desktopRead(() => update.close(), 5000, "Closing update metadata timed out."); }
+  catch (error) { console.warn("Could not release Desktop update metadata", error); }
+}
+
 export async function checkDesktopUpdate(): Promise<DesktopUpdateInfo | null> {
   if (!isDesktopRuntime()) return null;
-  const { check } = await import("@tauri-apps/plugin-updater");
-  const update = await check({ timeout: 30_000 });
-  if (!update) return null;
-  const info = {
-    version: update.version,
-    notes: update.body ?? null,
-    date: update.date ?? null,
-  };
-  await update.close();
-  return info;
+  return desktopRead(async () => {
+    const { check } = await import("@tauri-apps/plugin-updater");
+    const update = await check({ timeout: 30_000 });
+    if (!update) return null;
+    const info = { version: update.version, notes: update.body ?? null, date: update.date ?? null };
+    await closeDesktopUpdate(update);
+    return info;
+  }, 35000, "The update check did not reply. Check your connection and retry.");
 }
 
 export async function installDesktopUpdate(): Promise<(DesktopUpdateInfo & { restartRequired: boolean }) | null> {
@@ -182,12 +186,12 @@ export async function installDesktopUpdate(): Promise<(DesktopUpdateInfo & { res
     date: update.date ?? null,
   };
   try {
-    await update.downloadAndInstall();
+    await update.downloadAndInstall(undefined, { timeout: 120_000 });
   } finally {
-    await update.close();
+    await closeDesktopUpdate(update);
   }
   try {
-    await core.invoke("restart_desktop");
+    await desktopRead(() => core.invoke("restart_desktop"), 12000, "Desktop has not confirmed restarting.");
     return { ...info, restartRequired: false };
   } catch {
     // Older shells deny this custom command even after the updater plugin has
