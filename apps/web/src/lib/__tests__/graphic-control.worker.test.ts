@@ -3,7 +3,21 @@ import { expect, it, vi } from "vitest";
 import { seedRelayMember } from "@/test/relay-fixtures";
 import type { GraphicControlCommand, GraphicControlOperation } from "@showpilot/shared/graphic-control";
 const auth = vi.hoisted(() => ({ userId: "", sessionId: "" }));
-vi.mock("../auth", () => ({ getAuth: () => ({ api: { getSession: async () => ({ user: { id: auth.userId }, session: { id: auth.sessionId } }) } }) }));
+vi.mock("../auth", () => ({ getAuth: () => ({ api: { getSession: async () => ({ user: { id: auth.userId, name: "Fixture operator", email: "operator@example.test" }, session: { id: auth.sessionId } }) } }) }));
+vi.mock("@tanstack/react-start/server", () => ({ getRequestHeaders: () => new Headers() }));
+vi.mock("@tanstack/react-start", () => {
+  const builder = () => {
+    let validate = (value: unknown) => value;
+    const chain = {
+      middleware: () => chain,
+      inputValidator: (fn: typeof validate) => { validate = fn; return chain; },
+      handler: (fn: (input: { data: unknown }) => unknown) => async (input: { data: unknown }) => fn({ data: validate(input.data) }),
+      server: () => chain,
+    };
+    return chain;
+  };
+  return { createServerFn: builder, createMiddleware: builder, createServerOnlyFn: <T>(fn: T): T => fn };
+});
 import { readGraphicControl, writeGraphicControl } from "../graphic-control.server";
 const headers = new Headers();
 async function fixture() {
@@ -137,4 +151,29 @@ it("reads legacy single-graphic publication and migrates it without losing other
   expect((await f.read()).activeIds).toEqual([f.ids[1]]);
   expect((await f.send(await f.output("show"))).snapshot.activeIds).toEqual([f.ids[1], f.ids[0]]);
   expect(await env.DB.prepare("SELECT * FROM app_setting WHERE orgId=? AND key='active-graphic'").bind(f.orgId).first()).toBeNull();
+});
+
+it("legacy native edits report the actual graphic change with revision triggers enabled", async () => {
+  const f = await fixture();
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const response = await handleMobileApi(new Request(
+    `https://app.showpilot.tech/api/mobile/v1/graphics/${f.ids[0]}?orgId=${f.orgId}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Legacy name", title: "Legacy title", subtitle: "Kept" }) },
+  ), { DB: env.DB });
+  expect(await env.DB.prepare("SELECT title,style FROM graphic_template WHERE orgId=? AND id=?").bind(f.orgId, f.ids[0]).first()).toEqual({ title: "Legacy title", style: '{"fontSize":72}' });
+  expect((await f.read()).templates.find(g => g.id === f.ids[0])?.revision).toBe(2);
+  expect(response?.status).toBe(200);
+  expect(await response?.json()).toEqual({ ok: true });
+});
+
+it.each(["missing", "foreign"])("legacy native edits reject a %s graphic without changing other organizations", async kind => {
+  const foreign = await fixture(), f = await fixture();
+  const { handleMobileApi } = await import("../mobile-api.server");
+  const id = kind === "foreign" ? foreign.ids[0] : crypto.randomUUID();
+  const response = await handleMobileApi(new Request(
+    `https://app.showpilot.tech/api/mobile/v1/graphics/${id}?orgId=${f.orgId}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "No", title: "Must not write", subtitle: "" }) },
+  ), { DB: env.DB });
+  expect(response?.status).toBe(404);
+  expect(await env.DB.prepare("SELECT title FROM graphic_template WHERE orgId=? AND id=?").bind(foreign.orgId, foreign.ids[0]).first()).toEqual({ title: "Title" });
 });

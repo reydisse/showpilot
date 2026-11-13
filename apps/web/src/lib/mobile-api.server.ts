@@ -6704,11 +6704,11 @@ async function writeMobileGraphic(
   if (graphicId) {
     const result = await db
       .prepare(
-        "UPDATE graphic_template SET name = ?, title = ?, subtitle = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ?",
+        "UPDATE graphic_template SET name = ?, title = ?, subtitle = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ? AND orgId = ? RETURNING id",
       )
       .bind(name, title, subtitle, graphicId, access.orgId)
-      .run();
-    return changedExactlyOneRow(result)
+      .first<{ id: string }>();
+    return result
       ? json({ ok: true })
       : json({ error: "Graphic not found." }, 404);
   }

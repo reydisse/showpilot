@@ -156,8 +156,21 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, capturedEmai
     await page.getByText("Delete this graphic?", { exact: true }).waitFor();
     await button("Keep current graphics").click(); assert.equal((await current()).templates.length, 1);
     await widths("editor", ["Save graphic", "Discard draft", "Delete template"]);
+    // Existing installed clients still use this endpoint. Trigger writes must
+    // not turn a successful legacy edit into a false 404 acknowledgement.
+    const legacyBefore = (await current()).templates.find(g => g.id === "smoke-graphic");
+    const oldLibrary = await (await request(`/api/mobile/v1/graphics?orgId=${encodeURIComponent(orgId)}`)).json();
+    const legacyReply = await (await request(`/api/mobile/v1/graphics/smoke-graphic?orgId=${encodeURIComponent(orgId)}`,
+      { name: "Fixture", title: "Legacy client saved title", subtitle: legacyBefore.subtitle })).json();
+    assert.equal(legacyReply.ok, true);
+    const legacyAfter = (await current()).templates.find(g => g.id === "smoke-graphic");
+    assert.equal(legacyAfter.title, "Legacy client saved title");
+    assert.ok(legacyAfter.revision > legacyBefore.revision);
+    const newLibrary = await (await request(`/api/mobile/v1/graphics?orgId=${encodeURIComponent(orgId)}`)).json();
+    assert.equal(newLibrary.templates[0].style, oldLibrary.templates[0].style);
+    assert.deepEqual(newLibrary.activeIds, oldLibrary.activeIds);
     assert.deepEqual(errors, []); assert.equal((await capturedEmails()).length, 0);
-    console.log(JSON.stringify({ passed: true, boundedRead: true, confirmationBeforeWrite: true, retainedDraft: true, exactRetry: true, newerEditsPreserved: true, delayedRequestCancelled: true, viewports: [320, 768, 1440], emails: 0, errors }));
+    console.log(JSON.stringify({ passed: true, boundedRead: true, confirmationBeforeWrite: true, retainedDraft: true, exactRetry: true, newerEditsPreserved: true, delayedRequestCancelled: true, legacyEditAcknowledged: true, legacyStyleAndOutputPreserved: true, viewports: [320, 768, 1440], emails: 0, errors }));
   } catch (error) {
     console.log(JSON.stringify({ writes, errors, body: (await page.locator("body").innerText()).slice(-5000) }));
     throw error;
