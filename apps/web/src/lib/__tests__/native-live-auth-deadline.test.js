@@ -1,8 +1,16 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import ts from "typescript";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import * as deadline from "../../../../mobile/src/lib/request-deadline.ts";
+
+// Use the signal implementation RN actually installs, rather than Node's newer
+// AbortSignal API. Otherwise a native-only missing method passes this suite.
+const mobileRequire = createRequire(resolve(process.cwd(), "../mobile/package.json"));
+const nativeRequire = createRequire(mobileRequire.resolve("react-native/package.json"));
+const { AbortController: NativeAbortController, AbortSignal: NativeAbortSignal } =
+  nativeRequire("abort-controller/dist/abort-controller");
 
 const platform = { OS: "ios" };
 const cookie = vi.fn();
@@ -37,6 +45,8 @@ new Function("require", "exports", code)((name) => {
 const { createAuthenticatedWebSocket, getAuthenticatedFetchCredentials } = exported;
 beforeEach(() => {
   vi.useFakeTimers();
+  vi.stubGlobal("AbortController", NativeAbortController);
+  vi.stubGlobal("AbortSignal", NativeAbortSignal);
   vi.stubGlobal("WebSocket", Socket);
   platform.OS = "ios";
   opened.length = 0;
@@ -76,8 +86,8 @@ it("treats an already empty native store as successful cleanup", async () => {
   await createAuthenticatedWebSocket("wss://native.test", "org");
   expect(sentCookies).toEqual(["session=fixture"]);
 });
-it("does not connect without the native cookie isolation API", async () => {
-  nativeNetworking.mockReturnValueOnce(null);
+it.each([["module", null], ["method", {}]])("does not connect without the native cookie isolation %s", async (_, networking) => {
+  nativeNetworking.mockReturnValueOnce(networking);
   await expect(createAuthenticatedWebSocket("wss://native.test", "org")).rejects.toThrow(/cookie isolation is unavailable/);
   expect(opened).toEqual([]);
 });
@@ -114,6 +124,7 @@ it("cancels a pending credential read on navigation before it can open a socket"
   finish("late-secret");
   await vi.advanceTimersByTimeAsync(1);
   expect(opened).toEqual([]);
+  expect(clearCookies).not.toHaveBeenCalled();
 });
 it("does not read credentials or open a socket for an already cancelled request", async () => {
   const controller = new AbortController();
