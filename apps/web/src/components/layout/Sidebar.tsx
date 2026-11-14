@@ -267,7 +267,7 @@ function QuickActions({ collapsed }: { collapsed: boolean }) {
     "flex min-h-11 min-w-11 items-center justify-center rounded-lg text-board-muted outline-none hover:bg-board-border/50 hover:text-board-text focus-visible:ring-2 focus-visible:ring-fire-500";
   return (
     <div
-      className={`flex items-center justify-start gap-1 ${collapsed ? "flex-col" : "-ml-2.5"}`}
+      className={`flex shrink-0 items-center ${collapsed ? "flex-col gap-1" : "gap-0"}`}
     >
       <button
         onClick={toggleTheme}
@@ -496,26 +496,26 @@ function SidebarContent({
     <>
       {/* Backdrop */}
       <div
-        className={`py-5 flex items-center overflow-hidden ${
-          collapsed ? "flex-col gap-2 px-2" : "flex-wrap gap-3 px-4"
+        className={`flex items-center overflow-hidden py-3 ${
+          collapsed ? "flex-col gap-2 px-2" : "justify-between gap-1 px-1.5"
         }`}
         style={{ borderLeft: `3px solid ${roleColour}` }}
       >
-        <img
-          src="/showpilot-logo.svg"
-          alt="ShowPilot"
-          width={24}
-          height={24}
-          className="shrink-0"
-        />
-        {!collapsed && (
-          <span className="text-base font-semibold text-fire-500 whitespace-nowrap tracking-tight">
-            ShowPilot
-          </span>
-        )}
-        <div className={collapsed ? "mt-1" : "w-full"}>
-          <QuickActions collapsed={collapsed} />
+        <div className="flex min-w-0 items-center gap-1">
+          <img
+            src="/showpilot-logo.svg"
+            alt={collapsed ? "ShowPilot" : ""}
+            width={collapsed ? 24 : 20}
+            height={collapsed ? 24 : 20}
+            className="shrink-0"
+          />
+          {!collapsed && (
+            <span className="text-sm font-semibold text-fire-500 whitespace-nowrap tracking-tight">
+              ShowPilot
+            </span>
+          )}
         </div>
+        <QuickActions collapsed={collapsed} />
       </div>
 
       {/* Org Switcher */}
