@@ -13,7 +13,7 @@ import { createEmailVerificationToken } from "better-auth/api";
 
 const run = promisify(execFile);
 const web = resolve(import.meta.dirname, "..");
-export async function withLocalSmokeFixture(check, { secondShow = false, nativeCueEditor = false, reportRecovery = false, personalAssignments = false, scheduleRoster = false, calendarNavigation = false, notificationInbox = false, desktopNotificationRecovery = false, notificationTimezoneRecovery = false, accountProfileRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, managerReadiness = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, chatDeliveryNotifications = false, invitationResponses = false, teamRecovery = false, streamOutputs = false, timestampVersions = false } = {}) {
+export async function withLocalSmokeFixture(check, { secondShow = false, nativeCueEditor = false, reportRecovery = false, personalAssignments = false, scheduleRoster = false, calendarNavigation = false, notificationInbox = false, desktopNotificationRecovery = false, notificationTimezoneRecovery = false, accountProfileRecovery = false, secondOperator = false, secondOperatorMember = false, dateOnlyIncident = false, managerReadiness = false, superadmin = false, publicCheckInMembers = false, crewStatusMembers = false, navigationDiscovery = false, hiddenNavigation = false, unverifiedOperator = false, passwordReset = false, captureEmail = false, organizationCreationFailures = false, setupTeam = false, setupSeed = false, setupChoices = false, paidPlan = false, settingsBilling = false, damagedGraphicScenes = false, chatNotificationFailure = false, chatDeliveryNotifications = false, invitationResponses = false, teamRecovery = false, streamOutputs = false, timestampVersions = false } = {}) {
   if (streamOutputs) {
     assert.equal(process.env.SHOWPILOT_SMOKE_RUNTIME, "miniflare", "Stream status requires the isolated outbound handler");
     assert.equal(captureEmail, false, "Use separate fixtures for email and Stream status");
@@ -26,6 +26,13 @@ export async function withLocalSmokeFixture(check, { secondShow = false, nativeC
   const companionSecret = randomUUID();
   const encryptionSecret = JSON.stringify({ active: "fixture", keys: { fixture: randomBytes(32).toString("base64") } });
   const orgId = "display-smoke";
+  // Match the existing guard only inside disposable D1; outbound mail must be captured.
+  if (superadmin) assert.equal(captureEmail, true, "Super Admin fixtures require local mail capture");
+  const operatorEmail = superadmin
+    ? (await readFile(join(web, "src/lib/superadmin.ts"), "utf8")).match(/export const SUPER_ADMIN_EMAIL = "([^"]+)"/)?.[1]
+    : "operator@display-smoke.invalid";
+  assert.ok(operatorEmail);
+
   const resetTokens = Object.fromEntries(["valid", "expired", "lost"].map(name => [name, randomBytes(12).toString("hex")]));
   const date = new Date().toLocaleDateString("en-CA");
   let worker;
@@ -154,9 +161,15 @@ export async function withLocalSmokeFixture(check, { secondShow = false, nativeC
   ${navigationDiscovery ? `INSERT INTO app_setting(id,orgId,key,value) VALUES ('fixture-nav-type','display-smoke','workspace-type','church'),('fixture-nav-modules','display-smoke','workspace-modules','["show","rundown","team","schedule","board","chat","production","timecode","streaming","lower_thirds","dashboards"]');` : ""}
   ${dateOnlyIncident ? "INSERT INTO incident(id,orgId,category,severity,description,reportedBy,serviceDate) VALUES ('smoke-date-incident','display-smoke','audio','high','Date-only fixture incident','Mobile fixture','2000-01-01');" : ""}
   ${paidPlan ? "UPDATE organization SET plan = 'pro' WHERE id = 'display-smoke';" : ""}
-  INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-operator','Fixture operator','operator@display-smoke.invalid',1,CURRENT_TIMESTAMP);
+  INSERT INTO user (id,name,email,emailVerified,updatedAt) VALUES ('smoke-operator','Fixture operator','${operatorEmail.replaceAll("'", "''")}',1,CURRENT_TIMESTAMP);
   INSERT INTO account (id,accountId,providerId,userId,password,issuer,updatedAt) VALUES ('smoke-account','smoke-operator','credential','smoke-operator','${passwordHash}','local:credential',CURRENT_TIMESTAMP);
   INSERT INTO member (id,organizationId,userId,role,createdAt) VALUES ('smoke-member','display-smoke','smoke-operator','owner',CURRENT_TIMESTAMP);
+  ${superadmin ? `
+    INSERT INTO platform_setting(id,key,value) VALUES ('fixture-launch','publicLaunchDate','2099-01-01T00:00:00.000Z');
+    INSERT INTO waitlist_signup(id,email,name,role,orgName) VALUES ('fixture-waitlist','waiting@display-smoke.invalid','Waiting fixture operator','Production Manager','Long fixture production organization for mobile layout checks');
+    UPDATE organization SET name='Long fixture organization for narrow screens',betaTester=1 WHERE id='display-smoke';
+    INSERT INTO invitation(id,organizationId,email,role,status,expiresAt,inviterId,createdAt) VALUES('fixture-admin-invite','display-smoke','pending@display-smoke.invalid','member','pending','2099-01-01T00:00:00.000Z','smoke-operator',CURRENT_TIMESTAMP);
+  ` : ""}
   ${settingsBilling ? [
     ["trial", "free", "2099-01-01T00:00:00.000Z", 0, 0, null],
     ["starter", "starter", null, 0, 0, "active"],
@@ -284,7 +297,7 @@ INSERT INTO device(id,orgId,name,category,adapterType,settings,enabled,createdAt
     await startServer();
     // Seed live relay state through the real authenticated operator API. D1 alone
     // is not the active relay, and a display must never initialize an operator room.
-    const login = await fetch(`${origin}/api/auth/sign-in/email`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify({ email: "operator@display-smoke.invalid", password }) });
+    const login = await fetch(`${origin}/api/auth/sign-in/email`, { method: "POST", headers: { "Content-Type": "application/json", Origin: origin }, body: JSON.stringify({ email: operatorEmail, password }) });
     assert.equal(login.status, 200, "Fixture operator login");
     const cookie = login.headers.getSetCookie().map((value) => value.split(";")[0]).join("; ");
     assert.ok(cookie);
@@ -369,7 +382,7 @@ INSERT INTO device(id,orgId,name,category,adapterType,settings,enabled,createdAt
       assert.ok(captureEmail);
       return (await readFile(join(directory, "emails.jsonl"), "utf8")).split("\n").filter(Boolean).map(line => JSON.parse(line));
     };
-    await check({ configureReadinessPhase, configureReadinessSummary, readDeliveredChatNotification, insertInboxArrival, configureStreamOutputs, streamOutputRequests, streamOutputSnapshot, removeInvitationMembership, restoreChatNotifications, configureEmail, capturedEmails, origin, orgId, date, browser, pass, crewChatPass, planningChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, resetTokens: passwordReset ? resetTokens : undefined, operatorCookie: cookie, operatorEmail: "operator@display-smoke.invalid", operatorPassword: password });
+    await check({ configureReadinessPhase, configureReadinessSummary, readDeliveredChatNotification, insertInboxArrival, configureStreamOutputs, streamOutputRequests, streamOutputSnapshot, removeInvitationMembership, restoreChatNotifications, configureEmail, capturedEmails, origin, orgId, date, browser, pass, crewChatPass, planningChatPass, stopServer, startServer, serverState: () => ({ exitCode: worker?.exitCode ?? null, signalCode: worker?.signalCode ?? null }), queryFixture, revokeFixtureOperator, repairGraphicSceneFixtures, unverifiedOperatorLink, resetTokens: passwordReset ? resetTokens : undefined, operatorCookie: cookie, operatorEmail, operatorPassword: password });
   } catch (error) {
     // Configuration contains only disposable fixture secrets; redact them anyway.
     console.error(workerLog.replaceAll(secret, "[fixture secret]").replaceAll(authSecret, "[fixture secret]").replaceAll(companionSecret, "[fixture secret]").replaceAll(encryptionSecret, "[fixture secret]"));

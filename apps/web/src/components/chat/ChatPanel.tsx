@@ -1120,9 +1120,9 @@ export function ChatPanel({
       {openImage ? (
         <div className="fixed inset-0 z-[100] flex flex-col bg-black/95" role="dialog" aria-modal="true" aria-label={openImage.name}>
           <div className="flex h-14 shrink-0 items-center gap-3 border-b border-white/10 px-3">
-            <button type="button" onClick={() => setOpenImage(null)} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20" aria-label="Close image"><X className="h-5 w-5" /></button>
+            <button type="button" onClick={() => setOpenImage(null)} className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20" aria-label="Close image"><X className="h-5 w-5" /></button>
             <span className="min-w-0 flex-1 truncate text-center text-xs font-medium text-white/85">{openImage.name}</span>
-            <a href={openImage.url} download={openImage.name} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20" aria-label="Download image"><Download className="h-4 w-4" /></a>
+            <a href={openImage.url} download={openImage.name} className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20" aria-label="Download image"><Download className="h-4 w-4" /></a>
           </div>
           <button type="button" onClick={() => setOpenImage(null)} className="min-h-0 flex-1 cursor-zoom-out p-3" aria-label="Close image preview">
             <img src={openImage.url} alt={openImage.name} className="h-full w-full object-contain" />
