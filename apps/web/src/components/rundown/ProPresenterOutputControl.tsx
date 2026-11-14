@@ -102,7 +102,7 @@ function ScopedOutputControl(props: Props) {
       )}
       {attempt?.kind === "pending" && (
         <p role="status" className="text-sm text-board-muted">
-          Waiting for output confirmation…
+          Updating output…
         </p>
       )}
       {attempt?.kind === "unknown" && (

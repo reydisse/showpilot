@@ -131,26 +131,65 @@ function TimecodePage() {
         </div>
       </div>
 
-      <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
-        <Button type="button" variant="outline" disabled={!connected || state?.running || generatorPending !== null} onClick={() => setSongLoaderOpen(true)} className="min-h-11 text-xs"><Music2 />Load song cues</Button>
-        <TimecodeShowPicker />
+      <div className="mx-auto w-full max-w-[1440px] space-y-4 p-4 sm:p-6">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <TimecodeShowPicker />
+        <Button type="button" variant="outline" disabled={!connected || state?.running || generatorPending !== null} onClick={() => setSongLoaderOpen(true)} aria-label="Load song cues" title="Load song cues" className="min-h-11 min-w-11 text-xs"><Music2 /><span className="hidden sm:inline">Load song cues</span></Button>
+        </div>
         <TimecodeControlNotice />
         {!connected && <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">
-          <p>{timecode.connectionStatus === "disabled" ? "Select a show to connect timecode." : timecode.connectionStatus === "error" ? "Timecode connection is unavailable." : state ? "Reconnecting, showing last known timecode state." : timecode.connectionStatus === "reconnecting" ? "Reconnecting to timecode." : "Connecting to timecode…"} Controls will be available after the show state is confirmed.</p>
+          <p>{timecode.connectionStatus === "disabled" ? "Select a show to connect." : timecode.connectionStatus === "error" ? "Timecode connection is unavailable." : state ? "Reconnecting, showing last known timecode state." : timecode.connectionStatus === "reconnecting" ? "Reconnecting to timecode." : "Connecting to timecode…"}</p>
           {lastError && <Button type="button" variant="outline" className="min-h-11" onClick={retryConnection}>Reconnect timecode</Button>}
         </div>}
         {lastError && <p role="alert" data-timecode-error className="rounded-xl border border-red-500/40 p-4 text-sm text-red-300">
           Last error: {lastError} {lastErrorAt !== null && <time dateTime={new Date(lastErrorAt).toISOString()}>{new Date(lastErrorAt).toLocaleTimeString()}</time>}
         </p>}
-        <TimecodeAutomationControl state={state} connected={connected} canControl={control !== "other"} onSetEnabled={setTriggersEnabled} onResumeAutomaticCues={resumeAutomaticCues} />
-        <NamedTimers sample={state?.namedTimers ?? null} connected={connected} outputTarget={timecode.showId ? { orgSlug: slug, showId: timecode.showId } : undefined} />
-        <MediaOutputPanel orgSlug={slug} showId={timecode.showId} connectionStatus={timecode.connectionStatus} outputs={state?.mediaOutputs ?? []} />
-        {/* Large TC display */}
-        <div className="rounded-xl border border-board-border bg-board-card p-4 sm:p-8">
+        <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
+          <div className="min-w-0 space-y-4">
+        <div className="rounded-md border border-board-border bg-board-card p-4 sm:p-6">
           <TimecodeDisplay state={state} connectionStatus={timecode.connectionStatus} size="large" />
         </div>
 
-        {/* Large TC display */}
+        <TimecodeAutomationControl state={state} connected={connected} canControl={control !== "other"} onSetEnabled={setTriggersEnabled} onResumeAutomaticCues={resumeAutomaticCues} />
+        {state ? <AutomationTimelinePanel key={`timeline:${orgId}`} orgId={orgId}
+          events={events}
+          state={state}
+          onRemoveEvent={removeEvent}
+          onResetEvents={resetEvents}
+          onRetryEvent={retryEvent}
+          onFireEvent={fireEvent}
+          onFireNext={fireNext}
+          onSkipEvent={skipEvent}
+          onRearmEvent={rearmEvent}
+          onSetEventEnabled={setEventEnabled}
+          onEditEvent={event => { if (state && timecode.showId) setEditing({ event: structuredClone(event), format: { ...state.format }, showId: timecode.showId, generation: 0 }); }}
+          connected={connected && control !== "other"}
+        /> : <p role="status" className="text-sm text-board-muted">Loading timeline…</p>}
+
+        {events.length === 0 && !demoLoaded && !state?.running && connected && (
+          <section className="rounded-xl border border-board-border p-4 text-sm text-board-muted">
+            <p>Try a sample automation timeline in this empty workspace.</p>
+            <button type="button" disabled={demoPending} onClick={() => { void loadDemo(); }} className="mt-3 flex min-h-11 items-center gap-2 rounded-lg border border-board-border px-3 text-board-text"><FileDown className="h-4 w-4" />Load Demo Show</button>
+          </section>
+        )}
+        {/* Add event */}
+        <details className="rounded-md border border-board-border bg-board-card">
+          <summary className="flex min-h-11 cursor-pointer items-center px-4 py-3 text-sm font-semibold text-board-text focus-visible:outline-2 focus-visible:outline-fire-500">Add automation cue</summary>
+          <div className="border-t border-board-border p-4">
+        <AutomationEventEditor
+          key={`${orgId}:${timecode.showId}`}
+          orgId={orgId}
+          loadTargets={loadTargets}
+          timerNames={[...new Set([...events.filter(event => event.action === "timer-start").flatMap(event => typeof event.payload.name === "string" ? [event.payload.name] : []), ...(state?.namedTimers?.timers.map(timer => timer.name) ?? [])])]}
+          onAdd={addEvent}
+          connected={connected && control !== "other"}
+          format={state?.format ?? { frameRate: 30, dropFrame: "ndf" }}
+        />
+          </div>
+        </details>
+
+          </div>
+          <aside aria-label="Timecode setup and outputs" className="min-w-0 space-y-4">
         <TimecodeSourceSelector
           key={`source:${timecode.showId}`}
           isMaster={isMaster}
@@ -166,40 +205,11 @@ function TimecodePage() {
           onSetFormat={setFormat}
         />
 
-        {/* Large TC display */}
         <MidiControllerPanel key={timecode.showId} timecode={timecode} />
-        {state ? <AutomationTimelinePanel key={`timeline:${orgId}`} orgId={orgId}
-          events={events}
-          state={state}
-          onRemoveEvent={removeEvent}
-          onResetEvents={resetEvents}
-          onRetryEvent={retryEvent}
-          onFireEvent={fireEvent}
-          onFireNext={fireNext}
-          onSkipEvent={skipEvent}
-          onRearmEvent={rearmEvent}
-          onSetEventEnabled={setEventEnabled}
-          onEditEvent={event => { if (state && timecode.showId) setEditing({ event: structuredClone(event), format: { ...state.format }, showId: timecode.showId, generation: 0 }); }}
-          connected={connected && control !== "other"}
-        /> : <p role="status" className="text-sm text-board-muted">The timeline will appear after the show state is confirmed.</p>}
-
-        {events.length === 0 && !demoLoaded && !state?.running && connected && (
-          <section className="rounded-xl border border-board-border p-4 text-sm text-board-muted">
-            <p>Try a sample automation timeline in this empty workspace.</p>
-            <button type="button" disabled={demoPending} onClick={() => { void loadDemo(); }} className="mt-3 flex min-h-11 items-center gap-2 rounded-lg border border-board-border px-3 text-board-text"><FileDown className="h-4 w-4" />Load Demo Show</button>
-          </section>
-        )}
-        {/* Add event */}
-        <AutomationEventEditor
-          key={`${orgId}:${timecode.showId}`}
-          orgId={orgId}
-          loadTargets={loadTargets}
-          timerNames={[...new Set([...events.filter(event => event.action === "timer-start").flatMap(event => typeof event.payload.name === "string" ? [event.payload.name] : []), ...(state?.namedTimers?.timers.map(timer => timer.name) ?? [])])]}
-          onAdd={addEvent}
-          connected={connected && control !== "other"}
-          format={state?.format ?? { frameRate: 30, dropFrame: "ndf" }}
-        />
-
+        <NamedTimers sample={state?.namedTimers ?? null} connected={connected} outputTarget={timecode.showId ? { orgSlug: slug, showId: timecode.showId } : undefined} />
+        <MediaOutputPanel orgSlug={slug} showId={timecode.showId} connectionStatus={timecode.connectionStatus} outputs={state?.mediaOutputs ?? []} />
+          </aside>
+        </div>
         {state?.lyrics ? (
           <section aria-label="Live lyrics" className="overflow-hidden rounded-xl border border-board-border bg-black">
             <div className="border-b border-white/10 px-4 py-3"><h2 className="text-sm font-semibold text-white">{state.lyrics.songTitle}</h2><p className="text-xs uppercase tracking-wider text-amber-400">{state.lyrics.sectionLabel}</p></div>

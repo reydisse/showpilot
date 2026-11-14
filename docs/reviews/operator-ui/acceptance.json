@@ -1,0 +1,101 @@
+{
+  "base": "69b0dc5efd544d2639c0df53d12df27401e861f5",
+  "beforeSource": "cbb4d2cf; target page layouts unchanged by header-only PR348",
+  "fixture": "Disposable local Demo with real Worker/auth; no real org content changes",
+  "tests": {
+    "unit": 3523,
+    "worker": 1877,
+    "typescript": "pass",
+    "webBuild": "pass",
+    "clientEntryGzipBytes": 171262,
+    "clientEntryBudgetBytes": 175000
+  },
+  "wideAudit": {
+    "surfaces": 21,
+    "widths": [
+      320,
+      1100
+    ],
+    "checks": 42,
+    "documentOverflowFailures": 0
+  },
+  "finalScreens": {
+    "pages": [
+      "chat",
+      "checkin",
+      "dashboard/tech-manager",
+      "production/cue-sheets",
+      "rundown",
+      "timecode"
+    ],
+    "widths": [
+      320,
+      768,
+      1100,
+      1440,
+      1920,
+      2560,
+      3440
+    ],
+    "checks": 42,
+    "documentOverflowFailures": 0
+  },
+  "techRefresh": {
+    "beforePositions": [
+      206,
+      242,
+      206
+    ],
+    "afterPositions": [
+      206
+    ],
+    "samples": 322,
+    "durationMs": 64200,
+    "refreshSamples": 1
+  },
+  "interactions": {
+    "localDemoOnly": true,
+    "rosterOneClick": true,
+    "memberIdAfterRosterWrite": true,
+    "cueVisibilityToggle": true,
+    "chatReaction": {
+      "border": "0px",
+      "height": 44,
+      "pressed": "true",
+      "recoveryVisible": false,
+      "width": 44
+    },
+    "signOut": {
+      "clicks": 1,
+      "latencyMs": 652,
+      "path": "/login",
+      "loginForm": true
+    },
+    "liveDemoAuth": {
+      "head": "69b0dc5efd544d2639c0df53d12df27401e861f5",
+      "deploy": 43640057021,
+      "login": 200,
+      "organization": 200
+    },
+    "realOrgContentWrites": false
+  },
+  "nativeLocalScreen": "Real shipped HTML/CSS/JS in Chromium with explicit mock IPC for disabled engine, not an installed native-binary acceptance claim",
+  "images": {
+    "timecode-before.png": "wide-ui-before-timecode.png",
+    "timecode-after.png": "wide-ui-final-timecode-1440.png",
+    "checkin-before.png": "wide-ui-before-checkin.png",
+    "checkin-after.png": "wide-ui-final-checkin-1440.png",
+    "cue-sheets-before.png": "wide-ui-before-cue-sheets.png",
+    "cue-sheets-after.png": "wide-ui-final-cue-sheets-1440.png",
+    "chat-before.png": "wide-ui-before-chat-reaction.png",
+    "chat-after.png": "wide-ui-after-chat-reaction.png",
+    "tech-manager-before.png": "wide-ui-before-tech-manager-refresh.png",
+    "tech-manager-after.png": "wide-ui-final-tech-manager-1440.png",
+    "local-off-before.png": "wide-ui-before-local-off.png",
+    "local-off-after.png": "wide-ui-after-local-off.png",
+    "timecode-mobile.png": "wide-ui-final-timecode-320.png",
+    "checkin-mobile.png": "wide-ui-final-checkin-320.png",
+    "tech-manager-mobile.png": "wide-ui-final-tech-manager-320.png"
+  },
+  "remoteMigrationsApplied": 0
+}

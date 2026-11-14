@@ -140,7 +140,7 @@ export function ChatShareDialog({ orgId, scope, members, open, onOpenChange, rev
       </>}
       {validation && <p role="alert" className="text-sm text-red-300">{validation}</p>}
       {result.status === "failed" && <div role="alert" className="space-y-1 text-sm text-red-300"><p>{result.message}</p><p className="text-xs">Last attempt: {new Date(result.at).toLocaleTimeString()}</p></div>}
-      {saving && <p role="status" className="text-sm">Confirming link and notifications…</p>}
+      {saving && <p role="status" className="text-sm">Creating chat link…</p>}
       {pass && <>
         <p role="status" className="font-medium">{planning ? "Planning link is ready" : "Crew pass is ready"}</p>
         {qrFits ? <div className="mx-auto rounded-xl bg-white p-3"><QRCodeSVG role="img" aria-label="Chat join QR code" value={link} size={190} level="M" /></div>

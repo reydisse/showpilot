@@ -226,7 +226,7 @@ export function ManagerReportNotes({
           )}
           {write.state.status === "saving" && (
             <p role="status" className="text-sm">
-              Confirming note save…
+              Saving note…
             </p>
           )}
           {write.state.status === "failed" && (

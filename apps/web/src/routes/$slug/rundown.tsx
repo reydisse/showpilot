@@ -2115,7 +2115,7 @@ function RundownPage() {
                   )}
                   {ppCommands.previousContext && <p role="status" className="my-2 text-sm text-board-muted">This action started before the show or ProPresenter settings changed. Its result belongs to that earlier action.</p>}
                   {ppCommands.notice && <p role="status" aria-live="polite" className="my-2 text-sm text-green-400">{ppCommands.notice}</p>}
-                  {ppCommands.pending && <p role="status" aria-live="polite" className="my-2 text-sm text-board-muted">{ppCommands.checking ? "Checking the original command status…" : "Waiting for ProPresenter confirmation…"}</p>}
+                  {ppCommands.pending && <p role="status" aria-live="polite" className="my-2 text-sm text-board-muted">{ppCommands.checking ? "Checking the original command status…" : "Sending to ProPresenter…"}</p>}
 
                   {ppEnabled && (
                     <>

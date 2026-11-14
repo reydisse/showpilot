@@ -54,6 +54,8 @@ it("updates port discovery on hotplug and rescan while preserving the selected d
   vi.stubGlobal("navigator", { requestMIDIAccess: request });
   const test = props();
   const view = render(<TimecodeSourceSelector {...test} mtcSupported />);
+  expect(request).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Connect MIDI input" }));
   await act(async () => {});
   fireEvent.change(screen.getByLabelText("MIDI timecode input"), { target: { value: input.id } });
   act(() => access.disconnect(input));
@@ -75,6 +77,8 @@ it("shows permission failure with a working retry and cancels a late permission 
   const request = vi.fn().mockRejectedValueOnce(new Error("MIDI permission denied")).mockResolvedValue(access);
   vi.stubGlobal("navigator", { requestMIDIAccess: request });
   const view = render(<TimecodeSourceSelector {...props()} mtcSupported />);
+  expect(request).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Connect MIDI input" }));
   await act(async () => {});
   expect(screen.getByRole("alert").textContent).toContain("MIDI permission denied");
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Refresh" })));
@@ -84,6 +88,7 @@ it("shows permission failure with a working retry and cancels a late permission 
   let permit: ((value: MidiAccessFixture) => void) | undefined;
   request.mockImplementationOnce(() => new Promise(resolve => { permit = resolve; }));
   const pending = render(<TimecodeSourceSelector {...props()} mtcSupported />);
+  fireEvent.click(screen.getByRole("button", { name: "Connect MIDI input" }));
   pending.unmount();
   await act(async () => { permit?.(access); });
   expect(vi.getTimerCount()).toBe(0);

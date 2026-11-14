@@ -272,7 +272,7 @@ function GraphicsPage() {
         <LibraryMutationNotice mutation={mutation} onConfirmed={() => { refreshLibrary(); output.retry(); }} />
         <ReadFailureNotice error={output.readFailure} refreshing={output.refreshing} retry={output.retry} label="Refresh graphics output" />
         {output.failure && <div role="alert" aria-label="Graphics change confirmation" className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{output.failure.message} <time dateTime={new Date(output.failure.occurredAt).toISOString()}>{new Date(output.failure.occurredAt).toLocaleTimeString()}</time></div>}
-        {!output.fresh && <p role="status" aria-live="polite" className="text-sm text-amber-200">{output.pending ? "Waiting for graphics output confirmation…" : "Refreshing graphics output. Showing the last confirmed state."}</p>}
+        {!output.fresh && <p role="status" aria-live="polite" className="text-sm text-amber-200">{output.pending ? "Updating graphics output…" : "Refreshing graphics output. Showing the last confirmed state."}</p>}
         {/* ProPresenter slide import */}
         {canConfigureGraphics && (
           <section className="rounded-xl border border-board-border bg-board-card/60 p-4">

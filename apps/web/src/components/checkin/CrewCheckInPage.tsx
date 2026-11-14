@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { Link, useBlocker } from "@tanstack/react-router";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Hash, Users } from "lucide-react";
 import { getCheckInMembers } from "@/lib/crew-attendance";
 import type { CrewAttendanceMember, CrewAttendanceOperation } from "@/lib/crew-attendance-writes";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
@@ -8,7 +8,7 @@ import { useCrewAttendanceWrite } from "@/hooks/useCrewAttendanceWrite";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { ConfirmDialog, useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { CheckInList } from "./CheckInList";
-const actionClass = "min-h-11 rounded-xl border border-board-border px-4 py-3 text-sm font-medium disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fire-500";
+const actionClass = "min-h-11 rounded-md border border-board-border px-4 py-3 text-sm font-medium disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fire-500";
 export function CrewCheckInPage({ orgId, slug, initialMembers }: { orgId: string; slug: string; initialMembers: CrewAttendanceMember[] }) {
   const [needsRead, setNeedsRead] = useState(false);
   const read = useCallback(async (signal: AbortSignal) => {
@@ -20,7 +20,7 @@ export function CrewCheckInPage({ orgId, slug, initialMembers }: { orgId: string
     errorMessage: "Could not refresh crew attendance. Shown attendance is the last confirmed state. Retry the read before changing attendance." });
   const writes = useCrewAttendanceWrite(orgId);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
-  const [mode, setMode] = useState<"entry" | "list">("entry");
+  const [mode, setMode] = useState<"entry" | "list">("list");
   const [code, setCode] = useState("");
   const [lookupError, setLookupError] = useState("");
   const [selected, setSelected] = useState<CrewAttendanceMember | null>(null);
@@ -64,26 +64,26 @@ export function CrewCheckInPage({ orgId, slug, initialMembers }: { orgId: string
   const selectedStale = selected !== null && crew.value.find(member => member.id === selected.id)?.revision !== selected.revision;
   const completed = completedId ? crew.value.find(member => member.id === completedId) : null;
   return <div className="h-full overflow-auto text-board-text">
-    <header className="sticky top-0 z-10 border-b border-board-border bg-board-bg/95 px-4 py-4"><div className="mx-auto flex max-w-3xl flex-wrap items-center gap-3">
+    <header className="sticky top-0 z-10 border-b border-board-border bg-board-bg/95 px-4 py-4"><div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3">
       <Link to="/$slug/show" params={{ slug }} aria-label="Back to Show Flow" className={`${actionClass} flex items-center gap-2`}><ArrowLeft className="size-4" /><span className="hidden sm:inline">Show Flow</span></Link>
-      <h1 className="min-w-36 flex-1 text-lg font-semibold">Crew check-in</h1>
-      <button className={`${actionClass} ml-auto shrink-0`} onClick={() => setMode(mode === "entry" ? "list" : "entry")}>{mode === "entry" ? "Browse crew" : "Enter member ID"}</button>
+      <div className="min-w-36 flex-1"><h1 className="text-lg font-semibold">Crew check-in</h1><p className="mt-1 hidden text-xs text-board-muted sm:block">Search the roster and check crew in with one tap.</p></div>
+      <button aria-label={mode === "entry" ? "Back to roster" : "Enter member ID"} title={mode === "entry" ? "Back to roster" : "Enter member ID"} className={`${actionClass} ml-auto shrink-0`} onClick={() => { if (mode === "list" && !uncertain) { setCompletedId(null); setSelected(null); } setMode(mode === "entry" ? "list" : "entry"); }}>{mode === "entry" ? <Users className="size-4 sm:hidden" aria-hidden="true" /> : <Hash className="size-4 sm:hidden" aria-hidden="true" />}<span className="hidden sm:inline">{mode === "entry" ? "Back to roster" : "Enter member ID"}</span></button>
     </div></header>
-    <main className="mx-auto max-w-3xl space-y-4 px-4 py-5">
-      {notice && <p role="status" className="rounded-xl border border-green-400/25 bg-green-500/5 p-3 text-sm text-green-300">{notice}{needsRead && " Latest attendance has not yet been confirmed."}</p>}
+    <main className="mx-auto max-w-5xl space-y-4 px-4 py-5">
+      {notice && <p role="status" className="rounded-md border border-green-400/25 bg-green-500/5 p-3 text-sm text-green-300">{notice}{needsRead && " Latest attendance has not yet been confirmed."}</p>}
       <ReadFailureNotice error={crew.error} refreshing={crew.refreshing} retry={() => void refreshAfterWrite()} label="Retry crew list" />
-      {writes.state.kind === "pending" && <p role="status">Confirming attendance…</p>}
-      {failure && <section role="alert" className="space-y-3 rounded-xl border border-amber-400/30 bg-amber-500/5 p-4">
+      {writes.state.kind === "pending" && <p role="status" className="sr-only">Saving attendance…</p>}
+      {failure && <section role="alert" className="space-y-3 rounded-md border border-amber-400/30 bg-amber-500/5 p-4">
         <p className="break-words">{failure.message}</p><p className="text-xs text-board-muted">Last error <time dateTime={new Date(failure.occurredAt).toISOString()}>{new Date(failure.occurredAt).toLocaleTimeString()}</time></p>
         {writes.state.kind === "uncertain" ? <button className={actionClass} onClick={() => void change()}>Retry attendance</button> : <button className={actionClass} disabled={needsRead || Boolean(crew.error) || crew.refreshing} onClick={() => { writes.clearConflict(); setSelected(null); setCompletedId(null); }}>Review updated crew</button>}
       </section>}
       {mode === "list" ? <CheckInList members={crew.value} blocked={blocked} refreshing={crew.refreshing} onChange={single} onSetAll={value => void all(value)} /> : <div className="max-w-lg space-y-4">
-        {completedId && !needsRead && !crew.error ? <section className="space-y-3 rounded-xl border border-board-border bg-board-card p-4">
+        {completedId && !needsRead && !crew.error ? <section className="space-y-3 rounded-md border border-board-border bg-board-card p-4">
           <h2 className="text-lg font-medium">Latest attendance</h2>
           <p className="break-words">{completed ? `${completed.name}: ${completed.isOnline ? "checked in" : "checked out"}` : "This crew member is no longer in the roster."}</p>
           {completed?.isOnline && <div className="flex flex-wrap gap-2"><Link to="/$slug/chat" params={{ slug }} search={{ room: "production", message: undefined }} className={actionClass}>Join Production Chat</Link><Link to="/$slug/rundown" params={{ slug }} className={actionClass}>View Rundown</Link></div>}
           <button className={actionClass} onClick={() => { setCompletedId(null); setNotice(""); }}>Done</button>
-        </section> : selected ? <section className="space-y-3 rounded-xl border border-board-border bg-board-card p-4">
+        </section> : selected ? <section className="space-y-3 rounded-md border border-board-border bg-board-card p-4">
           <h2 className="break-words text-lg font-medium">{selected.name}</h2><p className="text-sm text-board-muted">{selected.role} · Selected status: {selected.isOnline ? "Checked in" : "Checked out"}</p>
           <p className="text-sm text-amber-300">{selectedStale ? "Attendance changed since you selected this person. Find them again before making a change." : ""}</p>
           <button disabled={blocked || selectedStale} className={`${actionClass} bg-fire-500 text-white`} onClick={() => single(selected)}>Check {selected.name} {selected.isOnline ? "out" : "in"}</button>
@@ -95,7 +95,7 @@ export function CrewCheckInPage({ orgId, slug, initialMembers }: { orgId: string
           else setLookupError("Member not found in the confirmed roster. Check the ID or refresh the crew list.");
         }}>
           <label htmlFor="crew-member-id" className="block text-sm font-medium">Member ID</label>
-          <input id="crew-member-id" value={code} onChange={event => setCode(event.target.value.toUpperCase())} maxLength={64} autoComplete="off" disabled={uncertain} className="min-h-11 w-full rounded-xl border border-board-border bg-board-card px-4 py-3 font-mono focus-visible:outline-fire-500" placeholder="e.g. TD3917" />
+          <input id="crew-member-id" value={code} onChange={event => setCode(event.target.value.toUpperCase())} maxLength={64} autoComplete="off" disabled={uncertain} className="min-h-11 w-full rounded-md border border-board-border bg-board-card px-4 py-3 font-mono focus-visible:outline-fire-500" placeholder="e.g. TD3917" />
           <button disabled={blocked || !code.trim()} className={`${actionClass} bg-fire-500 text-white`}>Find crew member</button>
           {lookupError && <div role="alert" className="space-y-2 text-sm text-amber-300"><p>{lookupError}</p><button type="button" className={actionClass} disabled={crew.refreshing} onClick={() => void refreshAfterWrite()}>Refresh crew list</button></div>}
         </form>}

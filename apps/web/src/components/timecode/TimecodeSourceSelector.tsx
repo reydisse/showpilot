@@ -43,7 +43,7 @@ export function TimecodeSourceSelector({
   const [midiError, setMidiError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!mtcSupported) return;
+    if (!mtcSupported || scanAttempt === 0) return;
     let disposed = false;
     let release: (() => void) | undefined;
     setLoadingMidi(true);
@@ -60,7 +60,7 @@ export function TimecodeSourceSelector({
   }, [mtcSupported, scanAttempt]);
 
   return (
-    <fieldset disabled={!connected || pending !== null} className="min-w-0 rounded-xl border border-board-border bg-board-card p-4 space-y-4 disabled:opacity-60">
+    <fieldset disabled={!connected || pending !== null} className="min-w-0 rounded-md border border-board-border bg-board-card p-4 space-y-4 disabled:opacity-60">
       <h3 className="text-xs font-medium text-board-muted uppercase tracking-wider">
         Timecode Source
       </h3>
@@ -125,7 +125,7 @@ export function TimecodeSourceSelector({
                 disabled={loadingMidi}
                 className="min-h-11 px-2 text-xs text-fire-500 hover:underline disabled:opacity-50"
               >
-                {loadingMidi ? "Scanning..." : "Refresh"}
+                {loadingMidi ? "Scanning..." : scanAttempt === 0 ? "Connect MIDI input" : "Refresh"}
               </button>
             </div>
             {midiInputs.length > 0 || selectedMidi ? (
@@ -162,7 +162,7 @@ export function TimecodeSourceSelector({
               </div>
             ) : (
               <p className="text-xs text-board-muted">
-                {loadingMidi ? "Checking MIDI inputs…" : "No MIDI inputs found. Connect a MIDI device; inputs refresh automatically."}
+                {loadingMidi ? "Checking MIDI inputs…" : scanAttempt === 0 ? "Connect a MIDI input when you need external timecode." : "No MIDI inputs found. Connect a MIDI device; inputs refresh automatically."}
               </p>
             )}
             <label className="flex min-h-11 items-center gap-2 text-xs text-board-muted">

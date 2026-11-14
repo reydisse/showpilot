@@ -62,7 +62,7 @@ describe("LiveRundownBar", () => {
     vi.useFakeTimers();
     state = { ...state, connected: false };
     view.rerender(<LiveRundownBar {...props} />);
-    const notice = screen.getByText("Reconnecting, showing last known state");
+    const notice = screen.getByText("Reconnecting · last known state");
     expect(notice.getAttribute("aria-live")).toBe("polite");
     const held = document.querySelector("[data-live-rundown-timer]")?.textContent;
     await act(async () => { vi.advanceTimersByTime(5000); });
@@ -72,7 +72,7 @@ describe("LiveRundownBar", () => {
     expect(mocks.sendCommand).not.toHaveBeenCalled();
     state = { ...state, connected: true };
     view.rerender(<LiveRundownBar {...props} />);
-    expect(screen.queryByText("Reconnecting, showing last known state")).toBeNull();
+    expect(screen.queryByText("Reconnecting · last known state")).toBeNull();
     expect(screen.getByRole("button", { name: "Pause rundown" })).toHaveProperty("disabled", false);
     expect(document.querySelector("[data-live-rundown-timer]")?.textContent).not.toBe(held);
   });
@@ -119,7 +119,7 @@ describe("LiveRundownBar", () => {
     await screen.findByText("Welcome");
     mocks.getTarget.mockRejectedValueOnce(new Error("offline"));
     act(() => window.dispatchEvent(new Event(ACTIVE_RUNDOWN_CHANGED_EVENT)));
-    await screen.findByText("Reconnecting, showing last known state");
+    await screen.findByText("Reconnecting · last known state");
     expect(screen.getByText("Welcome")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Resume rundown" })).toHaveProperty("disabled", true);
     view.rerender(<LiveRundownBar {...props} />);

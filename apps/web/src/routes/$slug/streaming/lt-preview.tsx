@@ -569,7 +569,7 @@ function TemplatePreviewPage() {
             <LibraryMutationNotice label="Scene library confirmation" retryLabel="Retry scene change" mutation={sceneMutation} onConfirmed={() => sceneConfirmed(sceneMutation.attempt?.operation)} />
             <ReadFailureNotice error={output.readFailure} refreshing={output.refreshing} retry={output.retry} label="Refresh Program" />
             {output.failure && <div role="alert" aria-label="Program confirmation" className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm text-amber-200">{output.failure.message} <time dateTime={new Date(output.failure.occurredAt).toISOString()}>{new Date(output.failure.occurredAt).toLocaleTimeString()}</time></div>}
-            {output.pending && <p role="status" className="text-sm text-amber-200">Waiting for Program confirmation…</p>}
+            {output.pending && <p role="status" className="text-sm text-amber-200">Updating Program…</p>}
             {savedScenes.length > 0 && (
               <section className="rounded-xl border border-board-border bg-board-card/55 p-2.5" aria-label="Saved scenes">
                 <div className="mb-2 flex items-center gap-2"><Layers className="h-3.5 w-3.5 text-fire-400" /><span className="text-[10px] font-semibold uppercase tracking-widest text-board-muted">Saved scenes</span></div>

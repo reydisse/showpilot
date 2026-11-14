@@ -742,7 +742,7 @@ function CommentThread({
                     aria-label={`React ${emoji}`}
                     disabled={disabled}
                     aria-pressed={itemReactions.some(reaction => reaction.emoji === emoji && reaction.userId === viewerId)}
-                    className="min-h-11 min-w-11 rounded-full border border-board-border px-2 py-1 text-xs text-board-muted hover:border-fire-500/30 hover:text-board-text"
+                    className="min-h-11 min-w-11 rounded-md border border-board-border px-2 py-1 text-xs text-board-muted hover:border-fire-500/30 hover:text-board-text"
                   >
                     {emoji}
                     {count ? ` ${count}` : ""}

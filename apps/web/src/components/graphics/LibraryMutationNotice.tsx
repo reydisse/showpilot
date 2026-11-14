@@ -6,7 +6,7 @@ export function LibraryMutationNotice({ mutation, onConfirmed, label = "Graphics
   label?: string;
   retryLabel?: string;
 }) {
-  if (!mutation.failure) return mutation.pending ? <p role="status" className="text-sm text-board-muted">Waiting for library confirmation…</p> : null;
+  if (!mutation.failure) return mutation.pending ? <p role="status" className="sr-only">Saving library change…</p> : null;
   return <div role="alert" aria-label={label} className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
     <p>{mutation.failure.message} <time dateTime={new Date(mutation.failure.occurredAt).toISOString()}>{new Date(mutation.failure.occurredAt).toLocaleTimeString()}</time></p>
     <p className="mt-2">Check the library before changing the draft or starting another action. An unconfirmed change may already have applied.</p>

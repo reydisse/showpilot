@@ -186,7 +186,7 @@ export function DeleteOrganization({
       </Dialog>
       {pending ? (
         <p role="status" className="text-sm text-board-muted">
-          Deleting organization… Waiting for confirmation.
+          Deleting organization…
         </p>
       ) : null}
       {unfinished && !pending ? (
