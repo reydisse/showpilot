@@ -193,6 +193,62 @@ afterEach(async () => {
   else await new Promise(resolve => setTimeout(resolve, 0));
   vi.useRealTimers();
 });
+it("moves secondary actions into a keyboard-accessible dropdown while window controls remain outside it", async () => {
+  const observers = new Map<Element, ResizeObserverCallback>();
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(private callback: ResizeObserverCallback) {}
+    observe(element: Element) { observers.set(element, this.callback); }
+    disconnect() {}
+  });
+  try {
+    mocks.slug = "showpilot-demo-nov04";
+    render(<DesktopStatusBar />);
+    const region = screen.getByRole("region", { name: "Desktop controls" });
+    const resize = (width: number) => act(() => {
+      observers.get(region)!([{ target: region, contentRect: new DOMRect(0, 0, width, 44), borderBoxSize: [], contentBoxSize: [], devicePixelContentBoxSize: [] }], {} as ResizeObserver);
+    });
+    resize(860);
+    expect(screen.queryByRole("button", { name: "Local show" })).toBeNull();
+    for (const label of ["Crew status", "Check-in"]) {
+      expect(screen.getByRole("button", { name: label }).closest('[role="dialog"]')).toBeNull();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Desktop actions" }));
+    const dropdown = await screen.findByRole("dialog", { name: "Desktop actions" });
+    expect(within(dropdown).getByRole("button", { name: "Timer window" })).toBeTruthy();
+    expect((await screen.findByRole("button", { name: "Confidence output and appearance" })).closest('[role="dialog"]')).toBeNull();
+    fireEvent.click(within(dropdown).getByRole("button", { name: "Local show" }));
+    await waitFor(() => expect(mocks.openLocalShow).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Check-in" }));
+    await waitFor(() => expect(mocks.openWindow).toHaveBeenCalledWith("check-in", "showpilot-demo-nov04"));
+    const timer = within(dropdown).getByRole("button", { name: "Timer window" });
+    await waitFor(() => expect(timer.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(timer);
+    await waitFor(() => expect(mocks.openWindow).toHaveBeenCalledWith("timer", "showpilot-demo-nov04"));
+    let finishCheck: (value: null) => void = () => {};
+    const checks = mocks.checkUpdate.mock.calls.length;
+    mocks.checkUpdate.mockImplementationOnce(() => new Promise(resolve => { finishCheck = resolve; }));
+    fireEvent.click(within(dropdown).getByRole("button", { name: /Check update|Up to date/ }));
+    await waitFor(() => expect(mocks.checkUpdate).toHaveBeenCalledTimes(checks + 1));
+    fireEvent.keyDown(dropdown, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Desktop actions" })).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Desktop actions" })));
+    resize(1600);
+    expect(screen.queryByRole("button", { name: "Desktop actions" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Local show" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Checking…" }).hasAttribute("disabled")).toBe(true);
+    resize(860);
+    fireEvent.click(screen.getByRole("button", { name: "Desktop actions" }));
+    await screen.findByRole("dialog", { name: "Desktop actions" });
+    expect(screen.getByRole("button", { name: "Checking…" }).hasAttribute("disabled")).toBe(true);
+    expect(mocks.checkUpdate).toHaveBeenCalledTimes(checks + 1);
+    await act(async () => finishCheck(null));
+    await screen.findByRole("button", { name: "Up to date" });
+    expect(mocks.openLocalShow).toHaveBeenCalledTimes(1);
+    expect(mocks.openWindow).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
 it("does not overlap a stalled Bridge status read", async () => {
   vi.useFakeTimers(); mocks.native = true;
   mocks.getBridgeStatus.mockReturnValue(new Promise(() => {}));

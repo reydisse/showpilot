@@ -267,7 +267,7 @@ function QuickActions({ collapsed }: { collapsed: boolean }) {
     "flex min-h-11 min-w-11 items-center justify-center rounded-lg text-board-muted outline-none hover:bg-board-border/50 hover:text-board-text focus-visible:ring-2 focus-visible:ring-fire-500";
   return (
     <div
-      className={`flex items-center justify-end gap-1 ${collapsed ? "flex-col" : ""}`}
+      className={`flex items-center justify-start gap-1 ${collapsed ? "flex-col" : "-ml-2.5"}`}
     >
       <button
         onClick={toggleTheme}
