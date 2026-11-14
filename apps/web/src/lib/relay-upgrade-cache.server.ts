@@ -1,5 +1,6 @@
 import { resolveEffectiveAccess, type AccessDatabase } from "./effective-access";
 import type { Permission } from "./permissions";
+import { AccessCheckUnavailableError, isAuthenticationDenial } from "./access-check-errors.server";
 
 const UPGRADE_TTL_MS = 15_000;
 const MAX_ENTRIES = 500;
@@ -63,7 +64,10 @@ export class RelayUpgradeCache {
     const cached = this.read(this.sessions, key);
     if (cached) return cached;
     const generation = this.generation;
-    const session = await load(request).catch(() => null);
+    const session = await load(request).catch((cause: unknown) => {
+      if (isAuthenticationDenial(cause)) return null;
+      throw new AccessCheckUnavailableError(cause);
+    });
     if (!session || !session.session.id || !Number.isFinite(this.deadline(session)) || this.deadline(session) <= this.now()) return null;
     this.remember(this.sessions, key, { value: session, until: this.deadline(session), userId: session.user.id }, generation);
     return session;
@@ -108,7 +112,10 @@ export class RelayUpgradeCache {
       const identity = { userId: session.user.id, sessionId: session.session.id, name: session.user.name, role: access.role, permissions: access.permissions };
       if (isUpgrade(request)) this.remember(this.identities, key, { value: identity, until: this.deadline(session), userId: session.user.id, orgId }, generation);
       return identity;
-    } catch { return null; }
+    } catch (cause) {
+      if (isAuthenticationDenial(cause)) return null;
+      throw cause instanceof AccessCheckUnavailableError ? cause : new AccessCheckUnavailableError(cause);
+    }
   }
 
   invalidate({ orgId, userId }: { orgId?: string; userId?: string }): void {
