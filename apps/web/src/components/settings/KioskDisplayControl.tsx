@@ -226,7 +226,7 @@ function ScopedKioskDisplayControl({
       ) : null}
       {pending ? (
         <p role="status" className="text-sm text-board-muted">
-          Waiting for the display command to be confirmed…
+          Updating display…
         </p>
       ) : null}
       {unfinished && !pending ? (

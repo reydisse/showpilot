@@ -40,7 +40,7 @@ export function ProfileRecovery({
         <p role="status" className="text-board-muted">
           {attempt.command.kind === "photo-selection"
             ? "Preparing photo…"
-            : "Saving profile… Waiting for confirmation."}
+            : "Saving profile…"}
         </p>
       ) : null}
       {attempt?.kind === "failed" ? (

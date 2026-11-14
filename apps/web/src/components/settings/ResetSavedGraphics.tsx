@@ -180,7 +180,7 @@ export function ResetSavedGraphics({
       </Dialog>
       {pending ? (
         <p role="status" className="text-sm text-board-muted">
-          Resetting saved graphics… Waiting for confirmation.
+          Resetting saved graphics…
         </p>
       ) : null}
       {unfinished && !pending ? (

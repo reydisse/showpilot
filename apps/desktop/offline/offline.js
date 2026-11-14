@@ -8,6 +8,7 @@ let healthy = false;
 let controlPending = false;
 let serverOffset = 0;
 let lastFailure = null;
+let engineAvailability = "checking";
 const deviceRequests = new Set();
 
 function element(tag, className, text) {
@@ -214,6 +215,7 @@ function confirmation(title, message, label, action) {
 
 function accept(value) {
   state = parseStatus(value);
+  engineAvailability = "ready";
   healthy = true;
   if (state.mode !== "empty") serverOffset = state.serverTime - Date.now();
   if (
@@ -236,8 +238,25 @@ async function refresh(fresh = false) {
       accept(await native({ operation: "status" }));
     } catch (cause) {
       healthy = false;
+      if (!state) {
+        try {
+          const bridge = await invokeNative("bridge_status");
+          if (bridge?.lastError) cause = new Error(bridge.lastError);
+          engineAvailability = bridge?.running === false && bridge?.localDevicesEnabled === false && !bridge.lastError
+            ? "disabled"
+            : bridge?.localDevicesEnabled === true && !bridge.running && !bridge.lastError
+              ? "starting"
+              : "unavailable";
+        } catch { engineAvailability = "unavailable"; }
+        if (engineAvailability === "disabled" || engineAvailability === "starting") {
+          lastFailure = null;
+          if (!view || view.engineAvailability !== engineAvailability) render();
+          update();
+          return;
+        }
+      }
       if (!lastFailure?.request) showFailure(cause);
-      if (!view) render();
+      if (!view || view.engineAvailability !== engineAvailability) render();
     }
   })();
   try {
@@ -424,7 +443,9 @@ function render() {
       ? state.title
       : state
         ? "No prepared local show"
-        : "Local engine unavailable",
+        : engineAvailability === "disabled" ? "Local control is off"
+          : engineAvailability === "starting" ? "Starting local control…"
+            : "Local engine unavailable",
   );
   const subtitle = element("p");
   heading.append(title, subtitle);
@@ -442,6 +463,7 @@ function render() {
   feedback.append(error, retry);
   shell.append(topbar, feedback);
   view = {
+    engineAvailability,
     unavailable: state === null,
     sessionId,
     preparedAt: state?.preparedAt,
@@ -462,14 +484,20 @@ function render() {
         "",
         state
           ? "Prepare this computer before going offline"
-          : "Your saved show could not be read",
+          : engineAvailability === "disabled" ? "This computer is using cloud control"
+            : engineAvailability === "starting" ? "Starting the local engine"
+              : "Your saved show could not be read",
       ),
       element(
         "p",
         "",
         state
           ? "While connected, open the saved show in ShowPilot Desktop and prepare local control. Preparation saves its rundown and approved device cues securely on this computer."
-          : "Refresh the local engine status to recover its saved show. Your local journal has not been cleared.",
+          : engineAvailability === "disabled"
+            ? "Open ShowPilot Cloud and choose Use this computer in the Desktop toolbar when you want to enable local control."
+            : engineAvailability === "starting"
+              ? "Your local engine is starting. Saved progress will appear when it is ready."
+              : "Refresh the local engine status to recover its saved show. Your local journal has not been cleared.",
       ),
     );
     shell.append(empty);

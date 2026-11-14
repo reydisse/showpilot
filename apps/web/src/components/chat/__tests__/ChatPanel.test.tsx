@@ -91,6 +91,20 @@ describe("ChatPanel conversation flow", () => {
     expect(onSendMessage).not.toHaveBeenCalled();
   });
 
+  it("keeps routine notification delivery out of the chat layout but exposes a failed delivery", () => {
+    const command = { kind: "message" as const, orgId: "org", userId: "me", roomId: "production", messageId: "sent", requestId: "notification", text: "Stand by", mentionedUserIds: [] };
+    const onSendMessage = vi.fn(), onRetryNotifications = vi.fn();
+    const view = render(<ChatPanel messages={[]} connectionStatus="connected" unreadCount={0} onSendMessage={onSendMessage} onRetryNotifications={onRetryNotifications}
+      notifications={[{ command, label: "Stand by", at: 1234, status: "pending" }]} />);
+    expect(screen.queryByLabelText("Chat recovery")).toBeNull();
+    expect(screen.getByRole("textbox")).toHaveProperty("disabled", false);
+    view.rerender(<ChatPanel messages={[]} connectionStatus="connected" unreadCount={0} onSendMessage={onSendMessage} onRetryNotifications={onRetryNotifications}
+      notifications={[{ command, label: "Stand by", at: 1234, status: "failed" }]} />);
+    fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Retry notifications" }));
+    expect(onRetryNotifications).toHaveBeenCalledExactlyOnceWith("notification");
+    expect(onSendMessage).not.toHaveBeenCalled();
+  });
+
   it("keeps unknown rooms out of the empty state and exposes a timestamped reconnect action", () => {
     const reconnect = vi.fn();
     const props = { messages: [], unreadCount: 0, onSendMessage: vi.fn(), hydrated: false, onReconnect: reconnect };

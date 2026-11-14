@@ -35,7 +35,7 @@ export function DutyRosterFeedback({
       ) : null}
       {pending ? (
         <p role="status" className="text-board-muted">
-          Waiting for the roster command to be confirmed…
+          Saving roster…
         </p>
       ) : null}
       {unfinished && !pending ? (

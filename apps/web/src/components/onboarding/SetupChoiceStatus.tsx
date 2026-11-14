@@ -11,7 +11,7 @@ export function SetupChoiceStatus({ choices, step, onContinue }: { choices: Retu
   const awaiting = pending?.kind === step && (!snapshot || !setupChoiceConfirmed(snapshot, pending));
   const error = failure && (failure.step === null || failure.step === step) ? failure : null;
   return <div className="space-y-3" aria-busy={busy}>
-    {busy && <p role="status" className="flex items-center gap-2 text-sm"><span aria-hidden="true" className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />Confirming saved choices…</p>}
+    {busy && <p role="status" className="flex items-center gap-2 text-sm"><span aria-hidden="true" className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />Saving choices…</p>}
     {error && <div role="alert" className="space-y-2 rounded-xl border border-red-400/40 p-4 text-sm text-red-200"><p>{error.message}</p><p>Last attempt: {new Date(error.occurredAt).toLocaleTimeString()}</p></div>}
     {hasSaved && workspace && <p className="text-sm text-slate-300">Saved {step}: {step === "workspace" ? WORKSPACE_DEFINITIONS[workspace.type].label : archetypesForWorkspace(workspace.type).find(item => item.id === role?.archetype)?.label}.</p>}
     {awaiting && !busy && !error && <p role="status" className="text-sm text-amber-200">Your latest choice is not confirmed. Your draft is kept. Retry it or select again after reviewing the saved choice.</p>}

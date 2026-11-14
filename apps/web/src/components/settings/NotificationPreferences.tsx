@@ -57,7 +57,7 @@ export function NotificationPreferences({
       )}
       {unfinished?.status === "pending" && (
         <p role="status" className="text-sm text-board-muted">
-          Saving your alert choice… Waiting for confirmation.
+          Saving your alert choice…
         </p>
       )}
       {unfinished?.status === "error" && (

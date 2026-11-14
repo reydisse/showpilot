@@ -41,7 +41,7 @@ export function NotificationInbox({ orgId, userId, slug, onUnreadChange, onNavig
       </div>
 
       <div data-testid="notification-list" className="modern-scrollbar min-h-0 flex-1 touch-pan-y divide-y divide-board-border/70 overflow-y-auto overscroll-contain">
-        {pending ? <p role="status" className="px-5 py-3 text-sm text-board-muted">Confirming read status…</p> : null}
+        {pending ? <p role="status" className="sr-only">Updating read status…</p> : null}
         {commands.map(attempt => attempt.status === "uncertain" ? (
           <div key={attempt.command.requestId} role="alert" className="space-y-2 px-5 py-3 text-sm text-amber-700 dark:text-amber-300">
             <p>{attempt.command.notificationId === null ? "Mark all read" : "Mark as read"} was not confirmed and may have saved. Retry checks the same action without repeating a saved change.</p>

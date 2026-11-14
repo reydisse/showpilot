@@ -44,7 +44,7 @@ export function CrewResponseRecovery({
       ) : null}
       {attempt?.kind === "pending" ? (
         <p>
-          Confirming your response… Your original request stays here if you
+          Saving your response… Your original request stays here if you
           switch assignments.
         </p>
       ) : null}

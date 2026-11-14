@@ -15,7 +15,7 @@ export function TimecodeAutomationControl({ state, connected, canControl, onSetE
   const hold = state?.automationHold;
   const reviewChanged = review?.id !== hold?.id;
   return <div className="space-y-3">
-    {hold && <p role="alert" className="rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">
+    {hold && <p role="alert" className="rounded-md border border-amber-500/40 p-4 text-sm text-amber-200">
       Timecode jumped from {hold.from} to {hold.to}. Automation paused for review. The clock and displays keep updating.
     </p>}
     <button type="button" disabled={!connected || !canControl || !state || Boolean(state.incomingFormat)}
@@ -24,20 +24,20 @@ export function TimecodeAutomationControl({ state, connected, canControl, onSetE
         if (hold && state?.triggersEnabled === false) setReview(hold);
         else onSetEnabled(!state?.triggersEnabled);
       }}
-      className="min-h-11 rounded-xl border border-amber-500/40 px-4 py-2 text-sm font-semibold text-amber-200 disabled:opacity-50">
+      className="min-h-11 rounded-md border border-amber-500/40 px-4 py-2 text-sm font-semibold text-amber-200 disabled:opacity-50">
       {state?.triggersEnabled === false ? hold ? "Review and resume automation" : "Enable automation" : "Disable automation"}
     </button>
     {state?.triggersEnabled === false && <p role="status" className="text-sm text-amber-200">
       Automation disabled. Missed cues will not replay automatically.
       {state.incomingFormat && " Confirm the input format before enabling automation."}
     </p>}
-    {state?.automaticCuesEnabled === false && <div className="space-y-2 rounded-xl border border-amber-500/40 p-4">
+    {state?.automaticCuesEnabled === false && <div className="space-y-2 rounded-md border border-amber-500/40 p-4">
       <p role="status" className="text-sm text-amber-200">
         Automatic cues paused by cue. This pause does not stop the clock. Manual Fire remains available when automation is enabled.
       </p>
       <button type="button" onClick={onResumeAutomaticCues}
         disabled={!connected || !canControl || !state.triggersEnabled || Boolean(hold) || Boolean(state.incomingFormat)}
-        className="min-h-11 rounded-xl border border-amber-500/40 px-4 py-2 text-sm font-semibold text-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-50">
+        className="min-h-11 rounded-md border border-amber-500/40 px-4 py-2 text-sm font-semibold text-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-50">
         Resume automatic cues
       </button>
       <p className="text-xs text-board-muted">Resume from the current timecode. Missed cues will not replay.</p>

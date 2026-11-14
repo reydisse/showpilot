@@ -67,7 +67,7 @@ export function NotificationTimeZone(props: Props) {
         </div>
       ) : null}
       {unfinished?.status === "pending" ? (
-        <p role="status">Saving alert timezone… Waiting for confirmation.</p>
+        <p role="status">Saving alert timezone…</p>
       ) : null}
       {unfinished?.status === "error" ? (
         <div

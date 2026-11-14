@@ -1,3 +1,4 @@
+import { RefreshCw } from "lucide-react";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useTimecode, type UseTimecodeReturn } from "@/hooks/useTimecode";
 import { getTimecodeShows } from "@/lib/timecode-shows";
@@ -70,9 +71,9 @@ export function TimecodeShowPicker() {
   if (timecode.showError) return <p role="alert" className="text-sm text-red-400">{timecode.showError} <button onClick={timecode.refreshShows}>Retry</button></p>;
   if (!timecode.shows.length) return <p className="text-sm text-board-muted">Create a show in Rundown to use timecode. <button onClick={timecode.refreshShows}>Refresh shows</button></p>;
   return <div className="flex flex-wrap items-center gap-2">
-    <span className="text-xs text-board-muted">Timecode for</span>
+    <span className="hidden text-xs text-board-muted sm:inline">Timecode for</span>
     <ShowSwitcherMenu shows={timecode.shows} selectedId={timecode.showId} onSelect={show => timecode.selectShow(show.id)} disabled={timecode.isMaster || timecode.generatorPending !== null} />
-    <button className="text-xs text-board-muted" onClick={timecode.refreshShows}>Refresh shows</button>
+    <button type="button" aria-label="Refresh shows" title="Refresh shows" className="flex size-11 shrink-0 items-center justify-center rounded-md text-board-muted hover:bg-board-card" onClick={timecode.refreshShows}><RefreshCw className="size-4" /></button>
     {timecode.isMaster && <span className="text-xs text-board-muted">Stop this generator before switching shows.</span>}
   </div>;
 }
@@ -81,10 +82,10 @@ export function TimecodeShowPicker() {
 export function TimecodeControlNotice() {
   const { connected, control, isMaster, generatorPending, claimControl, releaseControl } = useShowTimecode();
   if (!connected || !control) return null;
-  return <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-board-border px-4 py-3 text-sm text-board-muted">
+  return <div className="flex flex-wrap items-center justify-between gap-3 border-b border-board-border py-2 text-xs text-board-muted">
     <p role="status">{control === "other" ? "Another operator controls this show's timecode. Ask them to release control to make changes."
-      : control === "yours" ? "You control this show's timecode."
-      : "Timecode controls are available. Editing or starting a source takes control."}</p>
+      : control === "yours" ? "You have control"
+      : "Controls available"}</p>
     {control === "available" && <button type="button" onClick={claimControl} className="min-h-11 rounded-lg border border-board-border px-3 text-board-text">Take control</button>}
     {control === "yours" && <button type="button" disabled={isMaster || generatorPending !== null} onClick={releaseControl} className="min-h-11 rounded-lg border border-board-border px-3 text-board-text disabled:opacity-50">Release control</button>}
     {control === "yours" && (isMaster || generatorPending !== null) && <p className="w-full text-xs">Stop the local source before releasing control.</p>}

@@ -22,7 +22,7 @@ export function SetupTeam({ orgId, onFinished, onStateChange }: { orgId: string;
     {save.failure && <div role="alert" className="rounded-xl border border-red-400/40 p-4 text-sm text-red-200">
       <p>{save.failure.message}</p><p className="mt-2">Last attempt: {new Date(save.failure.occurredAt).toLocaleTimeString()}</p>
     </div>}
-    {save.busy && <p role="status" className="flex items-center gap-2 text-sm"><span aria-hidden="true" className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />Confirming setup…</p>}
+    {save.busy && <p role="status" className="flex items-center gap-2 text-sm"><span aria-hidden="true" className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />Saving setup…</p>}
     {!save.snapshot && !save.busy && !save.failure && <p role="status">Loading saved setup…</p>}
     {(!save.snapshot || save.failure || batch) && <button type="button" className={actionClass} disabled={save.busy} onClick={() => void save.check()}>Check saved results</button>}
     {save.snapshot && !batch && <>
@@ -37,7 +37,7 @@ export function SetupTeam({ orgId, onFinished, onStateChange }: { orgId: string;
         const job = save.snapshot?.invitations[index];
         const label = !job ? "Not sent yet." : job.state === "accepted" ? "Invitation created. Email accepted for delivery."
           : job.state === "failed" ? "Invitation created. Email delivery failed."
-          : job.state === "running" && setupAttemptIsActive(job) ? "Waiting for invitation confirmation."
+          : job.state === "running" && setupAttemptIsActive(job) ? "Sending invitations…"
           : "Invitation or email delivery is not confirmed.";
         return <div key={row.email} className="space-y-2 break-words rounded-xl border border-white/20 p-4">
           <p className="font-semibold">{row.email}</p><p className="text-sm text-slate-300">{ROLE_META[row.role].label}</p>

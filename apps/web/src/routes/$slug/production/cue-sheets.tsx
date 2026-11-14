@@ -386,7 +386,7 @@ function CueSheetsPage() {
                 pickedRef.current = false;
                 setShowId(stateShowId);
               }}
-              className="text-[11px] px-2 py-0.5 rounded-full border border-yellow-400/40 bg-yellow-400/10 text-yellow-300"
+              className="min-h-11 text-[11px] px-3 py-2 rounded-md border border-yellow-400/40 bg-yellow-400/10 text-yellow-300"
             >
               Rundown changed — follow it
             </button>
@@ -473,21 +473,21 @@ function CueSheetsPage() {
         {/* Visibility toggles. Always available, even without edit rights:
             hiding a column is a view preference, not a change to the sheet. */}
         {model.columns.length > 0 && (
-          <div className="flex items-center gap-1.5 flex-wrap px-6 pb-2.5">
+          <div className="flex items-center gap-2 flex-wrap px-4 sm:px-6 pb-3">
             <span className="text-[10px] uppercase tracking-[0.12em] text-board-muted mr-1">
               Show
             </span>
             {/* The rundown columns toggle too. On a laptop the clock
                 columns are often dead weight next to eight departments,
                 and the width they free up is the whole point. */}
-            {TOGGLEABLE_COLUMNS.map((column) => {
+            <div role="group" aria-label="Rundown columns" className="inline-flex max-w-full flex-wrap overflow-hidden rounded-md border border-board-border">{TOGGLEABLE_COLUMNS.map((column) => {
               const isHidden = hidden.has(column.key);
               return (
                 <button
                   key={column.key}
                   onClick={() => toggleHidden(column.key)}
                   aria-pressed={!isHidden}
-                  className={`min-h-11 text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                  className={`min-h-11 min-w-11 border-r border-board-border px-3 py-2 text-xs transition-colors last:border-r-0 focus-visible:outline-2 focus-visible:outline-fire-500 ${
                     isHidden
                       ? "border-board-border text-board-muted/60 hover:text-board-text"
                       : "border-board-border bg-board-card text-board-text"
@@ -496,8 +496,8 @@ function CueSheetsPage() {
                   {column.label}
                 </button>
               );
-            })}
-            <span className="w-px h-4 bg-board-border mx-1" aria-hidden="true" />
+            })}</div>
+            <div role="group" aria-label="Department columns" className="inline-flex max-w-full flex-wrap overflow-hidden rounded-md border border-board-border">
             {model.columns.map((column) => {
               const isHidden = hidden.has(column.id);
               return (
@@ -505,7 +505,7 @@ function CueSheetsPage() {
                   key={column.id}
                   onClick={() => toggleHidden(column.id)}
                   aria-pressed={!isHidden}
-                  className={`min-h-11 text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                  className={`min-h-11 min-w-11 border-r border-board-border px-3 py-2 text-xs transition-colors last:border-r-0 focus-visible:outline-2 focus-visible:outline-fire-500 ${
                     isHidden
                       ? "border-board-border text-board-muted/60 hover:text-board-text"
                       : "border-fire-500/40 bg-fire-500/10 text-fire-400"
@@ -514,7 +514,7 @@ function CueSheetsPage() {
                   {column.label}
                 </button>
               );
-            })}
+            })}</div>
             {visibleCount === 0 && (
               <span className="text-[11px] text-yellow-400 ml-1">
                 Every column is hidden — the sheet is just the running order.

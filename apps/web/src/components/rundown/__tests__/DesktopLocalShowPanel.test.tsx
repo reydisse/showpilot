@@ -18,11 +18,13 @@ const mocks = vi.hoisted(() => ({
   prepare: vi.fn(),
   open: vi.fn(),
   desktop: true,
+  bridge: vi.fn(),
 }));
 vi.mock("@/lib/desktop-runtime", () => ({
   invokeDesktopLocalShow: mocks.native,
   isDesktopRuntime: () => mocks.desktop,
   openDesktopLocalShow: mocks.open,
+  getDesktopBridgeStatus: mocks.bridge,
 }));
 vi.mock("@/lib/local-show", () => ({ prepareLocalShow: mocks.prepare }));
 vi.mock("@tanstack/react-router", () => ({
@@ -54,6 +56,7 @@ let fixture: ReturnType<typeof localShowFixture>;
 beforeEach(() => {
   fixture = localShowFixture();
   mocks.desktop = true;
+  mocks.bridge.mockReset().mockResolvedValue({ configured: true, localDevicesEnabled: true, running: true, connection: "connected", pid: 42, logs: [], lastError: null });
   mocks.native.mockReset().mockImplementation(fixture.invoke);
   mocks.open.mockReset().mockResolvedValue(undefined);
   mocks.prepare.mockReset().mockImplementation(async ({ data }) =>
@@ -75,6 +78,21 @@ async function approve(name: string) {
     within(await screen.findByRole("dialog")).getByRole("button", { name }),
   );
 }
+
+it("keeps the rundown clear and never calls a deliberately disabled local engine", async () => {
+  mocks.bridge.mockResolvedValue({ configured: false, localDevicesEnabled: false, running: false, connection: "offline", pid: null, logs: [], lastError: null });
+  render(<DesktopLocalShowPanel {...props} />);
+  await waitFor(() => expect(mocks.bridge).toHaveBeenCalled());
+  expect(screen.queryByRole("region", { name: "Local show" })).toBeNull();
+  expect(mocks.native).not.toHaveBeenCalled();
+});
+
+it("keeps a real engine failure visible instead of calling it disabled", async () => {
+  mocks.bridge.mockResolvedValue({ configured: true, localDevicesEnabled: true, running: false, connection: "error", pid: null, logs: [], lastError: "Fixture engine could not start" });
+  render(<DesktopLocalShowPanel {...props} />);
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Fixture engine could not start");
+  expect(mocks.native).not.toHaveBeenCalled();
+});
 
 it("prepares the exact saved cloud revision for this native installation and verifies receipt", async () => {
   render(<DesktopLocalShowPanel {...props} />);

@@ -50,11 +50,8 @@ async function tick(ms = 20) {
 }
 function confirm() {
   fireEvent.click(screen.getByRole("button", { name: "Sign Out" }));
-  expect(api.signOut).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Tap again to sign out" }),
-  );
 }
+
 beforeEach(() => {
   vi.useFakeTimers();
   api.read.mockResolvedValue(session);
@@ -166,13 +163,10 @@ it("shows a changed session rejected by the server between the read and write", 
   expect(api.navigate).not.toHaveBeenCalled();
 });
 
-it("expires confirmation and coalesces clicks while a sign-out is pending", async () => {
+it("starts on one click and coalesces repeated clicks while sign-out is pending", async () => {
   const held = deferred<typeof success>();
   api.signOut.mockReturnValueOnce(held.promise);
   mount();
-  fireEvent.click(screen.getByRole("button", { name: "Sign Out" }));
-  await tick(4_100);
-  expect(screen.getByRole("button", { name: "Sign Out" })).toBeTruthy();
   confirm();
   await tick();
   fireEvent.click(screen.getByRole("button", { name: "Signing out…" }));

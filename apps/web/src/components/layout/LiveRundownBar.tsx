@@ -59,8 +59,8 @@ function ActiveRundownSession({ target, orgId, slug, canControl, targetFresh, re
   const elapsed = timer.elapsed + (timer.playback === "play" && timer.startedAt !== null ? clockNow - timer.startedAt : 0);
   const displayed = timer.mode === "count-down" ? (currentItem?.duration ?? 0) - elapsed : elapsed;
   const isPaused = timer.playback === "pause";
-  const title = !hydrated ? "Connecting to rundown…" : !active ? hasRun ? "Show ended" : "No live rundown" : !currentItem ? "Live item unavailable" : isPaused ? "Rundown paused" : "Rundown live";
-  const connectionNotice = !live ? hydrated ? "Reconnecting, showing last known state" : "Waiting for confirmed live state" : null;
+  const title = !hydrated ? "Loading…" : !active ? hasRun ? "Show ended" : "No live rundown" : !currentItem ? "Live item unavailable" : isPaused ? "Rundown paused" : "Rundown live";
+  const connectionNotice = !live && hydrated ? "Reconnecting · last known state" : null;
 
   return <Bar>
     {endShowDialog}

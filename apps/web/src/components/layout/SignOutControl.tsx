@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import {
   useMutation,
   useMutationState,
@@ -13,7 +12,6 @@ import { confirmAccountSignOut, SignOutFailure } from "@/lib/account-sign-out";
 export function SignOutControl({ userId }: { userId: string }) {
   const client = useQueryClient();
   const navigate = useNavigate();
-  const [armedUntil, setArmedUntil] = useState(0);
   const mutationKey = ["account-sign-out", userId];
   const history = useMutationState({
     filters: { mutationKey, exact: true },
@@ -46,14 +44,6 @@ export function SignOutControl({ userId }: { userId: string }) {
           cache.remove(old);
     },
   });
-  useEffect(() => {
-    if (!armedUntil) return;
-    const timer = setTimeout(
-      () => setArmedUntil(0),
-      Math.max(0, armedUntil - Date.now()),
-    );
-    return () => clearTimeout(timer);
-  }, [armedUntil]);
   const submit = () => {
     if (
       client
@@ -62,11 +52,6 @@ export function SignOutControl({ userId }: { userId: string }) {
         .some((entry) => entry.state.status === "pending")
     )
       return;
-    if (!failure && armedUntil <= Date.now()) {
-      setArmedUntil(Date.now() + 4_000);
-      return;
-    }
-    setArmedUntil(0);
     mutation.mutate(failure?.command ?? { userId, expectedSessionId: null });
   };
   return (
@@ -106,14 +91,12 @@ export function SignOutControl({ userId }: { userId: string }) {
             ? "Signing out…"
             : failure
               ? "Retry sign-out"
-              : armedUntil
-                ? "Tap again to sign out"
-                : "Sign Out"}
+              : "Sign Out"}
         </Button>
       )}
       {pending ? (
-        <p role="status" className="text-xs text-board-muted">
-          Waiting for sign-out confirmation…
+        <p role="status" className="sr-only">
+          Signing out…
         </p>
       ) : null}
     </div>

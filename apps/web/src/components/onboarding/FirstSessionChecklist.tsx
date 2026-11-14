@@ -222,7 +222,7 @@ export function FirstSessionChecklist({
       )}
       {pending && (
         <p role="status" className="text-sm text-board-muted">
-          Confirming checklist change…
+          Saving checklist…
         </p>
       )}
       {unfinished && !pending && (

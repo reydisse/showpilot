@@ -340,7 +340,7 @@ function ChatMessageRow({
             {(message.reactions ?? []).filter((reaction) => reaction.userIds.length > 0).map((reaction) => {
               const emoji = reaction.emoji;
               const active = Boolean(currentUserId && reaction?.userIds.includes(currentUserId));
-              return <button key={emoji} type="button" disabled={mutationPending} onClick={() => void onSetReaction(message.id, emoji, !active)} className={cn("min-h-11 min-w-11 rounded-full border px-3 py-2 text-xs transition disabled:opacity-50", active ? "border-fire-500/40 bg-fire-500/10 text-board-text" : "border-board-border text-board-muted hover:text-board-text")} aria-label={`React ${emoji}`}>{emoji} {reaction.userIds.length}</button>;
+              return <button key={emoji} type="button" disabled={mutationPending} onClick={() => void onSetReaction(message.id, emoji, !active)} aria-pressed={active} className={cn("min-h-11 min-w-11 rounded-sm px-2 py-2 text-xs transition focus-visible:outline-2 focus-visible:outline-fire-500 disabled:opacity-50", active ? "text-fire-400 underline decoration-fire-500/60 underline-offset-4" : "text-board-muted hover:text-board-text")} aria-label={`React ${emoji}`}>{emoji} {reaction.userIds.length}</button>;
             })}
           </div>
         ) : null}
@@ -1005,16 +1005,16 @@ export function ChatPanel({
         </div>
       )}
 
-      {(pollOpen || mutations.length > 0 || notifications.length > 0 || (attachmentWork.length > 0 && !editingMessage)) && <div aria-label="Chat recovery" className={cn("min-h-20 shrink overflow-x-hidden overflow-y-auto", pollOpen ? "max-h-[50%]" : "max-h-48")}>
+      {(pollOpen || mutations.some(item => item.state !== "sending") || notifications.some(item => item.status === "failed") || (attachmentWork.length > 0 && !editingMessage)) && <div aria-label="Chat recovery" className={cn("min-h-20 shrink overflow-x-hidden overflow-y-auto", pollOpen ? "max-h-[50%]" : "max-h-48")}>
       {pollOpen && <section aria-label="Poll draft" className="space-y-2 rounded-xl border border-board-border bg-board-card p-3">
         <div className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-sky-300" /><p className="text-sm font-semibold text-board-text">Create a poll</p><button type="button" onClick={() => setPollOpen(false)} className="ml-auto min-h-11 min-w-11 text-board-muted" aria-label="Close poll composer"><X className="mx-auto h-4 w-4" /></button></div>
         <label className="block text-xs text-board-muted">Question<input maxLength={240} value={pollQuestion} onChange={event => setPollQuestion(event.target.value)} placeholder="Ask a question" className="mt-1 min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm text-board-text" /></label>
         {pollOptions.map((option, index) => <label key={index} className="block text-xs text-board-muted">Option {index + 1}<input maxLength={120} value={option} onChange={event => setPollOptions(items => items.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder={`Option ${index + 1}`} className="mt-1 min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm text-board-text" /></label>)}
         <div className="flex items-center gap-2"><button type="button" disabled={pollOptions.length >= 6} onClick={() => setPollOptions(items => [...items, ""])} className="flex min-h-11 items-center gap-1 text-xs text-board-muted"><Plus className="h-3 w-3" />Add option</button><button type="button" disabled={!pollQuestion.trim() || pollOptions.filter(item => item.trim()).length < 2} onClick={sendPoll} className="ml-auto min-h-11 rounded-lg bg-sky-400 px-3 text-xs font-semibold text-black disabled:opacity-40">Send poll</button></div>
       </section>}
-      {mutations.length > 0 && <section aria-label="Message changes" className="border-t border-board-border">
-        {mutations.map(item => <div key={item.command.requestId} role={item.state === "sending" ? "status" : "alert"} className="space-y-2 border-b border-board-border px-4 py-3 text-sm text-amber-200">
-          <p className="break-words">{item.state === "sending" ? "Confirming message change…" : item.state === "unknown" ? item.error : chatMutationOutcomeMessage(item.result)}</p>
+      {mutations.some(item => item.state !== "sending") && <section aria-label="Message changes" className="border-t border-board-border">
+        {mutations.map(item => <div key={item.command.requestId} hidden={item.state === "sending"} role={item.state === "sending" ? "status" : "alert"} className="space-y-2 border-b border-board-border px-4 py-3 text-sm text-amber-200">
+          <p className="break-words">{item.state === "sending" ? "Saving message change…" : item.state === "unknown" ? item.error : chatMutationOutcomeMessage(item.result)}</p>
           <p className="break-words text-xs text-board-muted">{chatMutationSummary(item.command.operation).slice(0, 140)}</p>
           <time dateTime={new Date(item.at).toISOString()}>{new Date(item.at).toLocaleTimeString()}</time>
           {item.state !== "sending" && (item.state === "unknown" || item.result.cleanup !== "complete") && onRetryMutation && <button type="button" disabled={connectionStatus !== "connected"} className="ml-2 min-h-11 rounded-lg border border-board-border px-3 disabled:opacity-50" onClick={() => onRetryMutation(item.command.requestId)}>{item.state === "settled" ? "Retry attachment cleanup" : "Recover original change"}</button>}
@@ -1022,8 +1022,8 @@ export function ChatPanel({
         </div>)}
       </section>}
 
-      {notifications.length > 0 && <section aria-label="Crew notification delivery" className="border-t border-board-border">
-          {notifications.map(item => <div key={item.command.requestId} role={item.status === "failed" ? "alert" : "status"} className="space-y-2 border-b border-board-border px-4 py-3 text-sm text-amber-200">
+      {notifications.some(item => item.status === "failed") && <section aria-label="Crew notification delivery" className="border-t border-board-border">
+          {notifications.map(item => <div key={item.command.requestId} hidden={item.status === "pending"} role={item.status === "failed" ? "alert" : "status"} className="space-y-2 border-b border-board-border px-4 py-3 text-sm text-amber-200">
             <p className="break-words">{item.command.kind === "message" ? "Message delivered." : "Reaction saved."} {item.status === "pending" ? "Sending crew notifications…" : "Crew notifications were not confirmed. Retry notifications without repeating the chat action."}</p>
             <p className="break-words text-xs text-board-muted">{item.label.slice(0, 120)}</p>
             <time dateTime={new Date(item.at).toISOString()}>{new Date(item.at).toLocaleTimeString()}</time>

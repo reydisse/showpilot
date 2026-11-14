@@ -275,7 +275,7 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
               <LayoutDashboard className="w-3.5 h-3.5" />
               {editingLayout ? "Done arranging" : "Arrange widgets"}
             </button>
-            <div className="hidden md:flex items-center gap-1.5 text-xs text-board-muted">
+            <div className="hidden w-36 shrink-0 items-center gap-1.5 whitespace-nowrap text-xs tabular-nums text-board-muted md:flex">
               <Clock3 className="w-3 h-3" />
               {read.confirmedAt === null ? "Loaded dashboard" : `Confirmed ${formatFreshness(read.confirmedAt, now)}`}
             </div>
@@ -323,7 +323,6 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
       </header>
 
       <ReadFailureNotice error={read.error} refreshing={read.refreshing} retry={read.retry} label="Retry dashboard" />
-      {read.refreshing && !read.error ? <p role="status" className="px-3 sm:px-6 py-2 text-sm text-board-muted">Refreshing dashboard… Last confirmed values remain visible.</p> : null}
       <TmManagementRecovery control={control} />
 
       <div className="px-3 sm:px-6 py-5 w-full max-w-[1500px] space-y-4">
@@ -658,13 +657,13 @@ function FaultToolbar({
   const views = ["all", "unowned", "mine", "critical"] as const;
   return (
     <div className="flex flex-col md:flex-row md:items-center gap-2 p-1.5 rounded-xl border border-board-border bg-board-card/70">
-      <div className="flex items-center gap-1 overflow-x-auto">
+      <div role="group" aria-label="Incident filters" className="grid max-w-full grid-cols-2 items-center gap-px overflow-hidden rounded-md border border-board-border bg-board-border sm:flex sm:gap-0">
         {views.map((view) => (
           <button
             key={view}
             onClick={() => onChange(view)}
             aria-pressed={value === view}
-            className={`min-h-11 shrink-0 px-3 py-1.5 rounded-lg text-xs capitalize transition-colors ${value === view ? "bg-board-text text-board-bg font-medium" : "text-board-muted hover:text-board-text"}`}
+            className={`min-h-11 shrink-0 border-r border-board-border px-3 py-1.5 text-xs capitalize transition-colors last:border-r-0 ${value === view ? "bg-board-text text-board-bg font-medium" : "bg-board-card text-board-muted hover:text-board-text"}`}
           >
             {view}
             <span className="ml-1.5 opacity-60 tabular-nums">

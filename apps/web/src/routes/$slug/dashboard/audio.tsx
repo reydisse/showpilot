@@ -242,7 +242,7 @@ function AudioShow({ initial, selection, selectShow }: {
 }
 function WriteNotice({ state, retry, review, reviewing }: { state: WriteState; retry: () => void; review: () => void; reviewing: boolean }) {
   if (state.status === "idle") return null;
-  if (state.status === "saving") return <p role="status" className="text-sm text-board-muted">{state.saved ? "Change saved. Refreshing channels…" : `${state.label}… Waiting for confirmation.`}</p>;
+  if (state.status === "saving") return <p role="status" className="text-sm text-board-muted">{state.saved ? "Change saved. Refreshing channels…" : `Saving ${state.label}…`}</p>;
   return <div role="alert" aria-label="Channel change" className="space-y-3 rounded-xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm text-amber-200"><p>{state.saved ? "Change saved." : `${state.label} was not confirmed.`} {state.message} <time dateTime={new Date(state.at).toISOString()}>{new Date(state.at).toLocaleTimeString()}</time></p><div className="flex flex-wrap gap-2"><button className={controlClass} disabled={reviewing} onClick={retry}>{state.saved ? "Retry refresh" : "Retry change"}</button><button className={controlClass} disabled={reviewing} onClick={review}>{reviewing ? "Reviewing…" : "Review stored channels"}</button></div></div>;
 }
 function AudioStat({ label, value, icon: Icon, tone = "text-board-text" }: {

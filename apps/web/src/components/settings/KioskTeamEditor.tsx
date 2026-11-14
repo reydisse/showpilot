@@ -231,7 +231,7 @@ export function KioskTeamEditor({
       {ConfirmDialogEl}
       {pending ? (
         <p role="status" className="text-sm text-board-muted">
-          Waiting for the team command to be confirmed…
+          Saving team…
         </p>
       ) : null}
       {unfinished && !pending ? (

@@ -22,9 +22,17 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.resetAllMocks(); vi.useRealTimers(); });
 function setup() { return render(<CrewCheckInPage key="org-a" orgId="org-a" slug="fixture" initialMembers={initial} />); }
 const flush = () => act(async () => { await Promise.resolve(); });
+it("opens ID entry directly after a one-tap roster check-in without replaying attendance", async () => {
+  setup();
+  fireEvent.click(screen.getByRole("button", { name: "Check Taylor in" }));
+  await screen.findByRole("button", { name: "Check Taylor out" });
+  fireEvent.click(screen.getByRole("button", { name: "Enter member ID" }));
+  expect(screen.getByLabelText("Member ID")).toBeTruthy();
+  expect(changeCrewAttendance).toHaveBeenCalledTimes(1);
+});
 it("shows row write failures and retries the original change across view switches", async () => {
   vi.mocked(changeCrewAttendance).mockRejectedValueOnce(new Error("Network failed"));
-  setup(); fireEvent.click(screen.getByRole("button", { name: "Browse crew" }));
+  setup();
   fireEvent.click(await screen.findByRole("button", { name: "Check Taylor in" }));
   const alert = await screen.findByRole("alert"); expect(alert.querySelector("time")).not.toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Enter member ID" }));
@@ -37,7 +45,7 @@ it("shows row write failures and retries the original change across view switche
 it("never repeats a confirmed write when its follow-up read times out", async () => {
   vi.useFakeTimers(); setup(); await flush();
   vi.mocked(getCheckInMembers).mockImplementationOnce(() => new Promise(() => {}));
-  fireEvent.click(screen.getByRole("button", { name: "Browse crew" })); fireEvent.click(screen.getByRole("button", { name: "Check Taylor in" })); await flush();
+   fireEvent.click(screen.getByRole("button", { name: "Check Taylor in" })); await flush();
   await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
   expect(screen.getByText(/Attendance change saved/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Retry crew list" })).toBeTruthy();
@@ -47,7 +55,7 @@ it("never repeats a confirmed write when its follow-up read times out", async ()
   expect(changeCrewAttendance).toHaveBeenCalledTimes(1);
 });
 it("requires confirmation for the captured whole roster even with a filtered search", async () => {
-  setup(); fireEvent.click(screen.getByRole("button", { name: "Browse crew" }));
+  setup();
   fireEvent.change(screen.getByLabelText("Search crew"), { target: { value: "Taylor" } });
   fireEvent.click(screen.getByRole("button", { name: "Check all 2 crew in" }));
   fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Cancel" }));
@@ -63,7 +71,7 @@ it("keeps a conflict until the operator reviews refreshed attendance", async () 
     roster[0] = { ...roster[0], isOnline: true, revision: "d".repeat(64) };
     return { requestId: input.requestId, outcome: "conflict", changedCount: 0 };
   });
-  setup(); fireEvent.click(screen.getByRole("button", { name: "Browse crew" })); fireEvent.click(screen.getByRole("button", { name: "Check Taylor in" }));
+  setup();  fireEvent.click(screen.getByRole("button", { name: "Check Taylor in" }));
   const review = await screen.findByRole("button", { name: "Review updated crew" });
   await waitFor(() => expect(review).toHaveProperty("disabled", false));
   expect(screen.getByRole("button", { name: "Check Taylor out" })).toHaveProperty("disabled", true);
@@ -71,7 +79,7 @@ it("keeps a conflict until the operator reviews refreshed attendance", async () 
   expect(changeCrewAttendance).toHaveBeenCalledTimes(1);
 });
 it("uses the member-ID flow to select an explicit attendance intent instead of toggling on every submit", async () => {
-  setup(); fireEvent.change(screen.getByLabelText("Member ID"), { target: { value: "td1" } });
+  setup(); fireEvent.click(screen.getByRole("button", { name: "Enter member ID" })); fireEvent.change(screen.getByLabelText("Member ID"), { target: { value: "td1" } });
   fireEvent.click(screen.getByRole("button", { name: "Find crew member" }));
   expect(changeCrewAttendance).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Check Taylor in" }));
@@ -80,7 +88,7 @@ it("uses the member-ID flow to select an explicit attendance intent instead of t
   expect(changeCrewAttendance).toHaveBeenCalledTimes(1);
 });
 it("retains a missing-ID explanation instead of clearing it after four seconds", async () => {
-  vi.useFakeTimers(); setup(); await flush(); fireEvent.change(screen.getByLabelText("Member ID"), { target: { value: "MISSING" } });
+  vi.useFakeTimers(); setup(); await flush(); fireEvent.click(screen.getByRole("button", { name: "Enter member ID" })); fireEvent.change(screen.getByLabelText("Member ID"), { target: { value: "MISSING" } });
   fireEvent.click(screen.getByRole("button", { name: "Find crew member" }));
   await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
   expect(screen.getByRole("alert").textContent).toContain("Member not found");
@@ -89,7 +97,7 @@ it("retains a missing-ID explanation instead of clearing it after four seconds",
 it("does not display another organization's pending result after a route switch", async () => {
   let acknowledge: (value: CrewAttendanceResult) => void = () => {};
   vi.mocked(changeCrewAttendance).mockReturnValueOnce(new Promise(resolve => { acknowledge = resolve; }));
-  const rendered = setup(); fireEvent.click(screen.getByRole("button", { name: "Browse crew" })); fireEvent.click(screen.getByRole("button", { name: "Check Taylor in" }));
+  const rendered = setup();  fireEvent.click(screen.getByRole("button", { name: "Check Taylor in" }));
   const options = vi.mocked(changeCrewAttendance).mock.calls[0][0];
   const attempt = crewAttendanceWriteSchema.parse(options && "data" in options ? options.data : undefined);
   roster = []; rendered.rerender(<CrewCheckInPage key="org-b" orgId="org-b" slug="other" initialMembers={[]} />);
@@ -102,7 +110,7 @@ it("refreshes and unlocks controls when a write completes while the tab is hidde
   let acknowledge: (value: CrewAttendanceResult) => void = () => {};
   vi.mocked(changeCrewAttendance).mockReturnValueOnce(new Promise(resolve => { acknowledge = resolve; }));
   const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
-  setup(); await flush(); fireEvent.click(screen.getByRole("button", { name: "Browse crew" })); fireEvent.click(screen.getByRole("button", { name: "Check Taylor in" }));
+  setup(); await flush();  fireEvent.click(screen.getByRole("button", { name: "Check Taylor in" }));
   const options = vi.mocked(changeCrewAttendance).mock.calls[0][0];
   const attempt = crewAttendanceWriteSchema.parse(options && "data" in options ? options.data : undefined);
   visibility.mockReturnValue("hidden"); fireEvent(document, new Event("visibilitychange"));

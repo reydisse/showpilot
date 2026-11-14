@@ -66,6 +66,7 @@ export function TmManagementRecovery({
         return (
           <div
             key={lane}
+            hidden={pending}
             role={failed ? "alert" : "status"}
             className="py-2 border-b border-board-border"
           >

@@ -3,6 +3,8 @@ import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useDesktopLocalShow } from "@/hooks/useDesktopLocalShow";
+import { useDesktopRuntime } from "@/hooks/useDesktopRuntime";
+import { useDesktopBridgeStatus } from "@/hooks/useDesktopBridgeStatus";
 import { openDesktopLocalShow } from "@/lib/desktop-runtime";
 import { prepareLocalShow } from "@/lib/local-show";
 import {
@@ -35,17 +37,26 @@ export function DesktopLocalShowPanel(props: Props) {
       alive.current = false;
     };
   }, []);
-  const local = useDesktopLocalShow(busy);
+  const desktop = useDesktopRuntime();
+  const bridge = useDesktopBridgeStatus(desktop);
+  const engineReady = bridge.status?.running === true;
+  const local = useDesktopLocalShow(busy || !engineReady);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
   if (!local.desktop) return null;
   const { status } = local;
+  const engineError = bridge.error || bridge.status?.lastError;
+  const disabled = !engineError && bridge.status?.localDevicesEnabled === false && !engineReady;
+  // Deliberately disabled is not a failure. Never hide a retained local journal.
+  if (disabled && (!status || status.mode === "empty")) return null;
+  // Routine engine startup belongs in the Desktop toolbar, not above the rundown.
+  if (!status && !local.error && !engineError) return null;
   const matching = status && matchesLocalShow(status, props) ? status : null;
   const cloudOwned = status?.commandSource === "cloud";
   const canReplace =
     status && ["empty", "prepared", "reconciled"].includes(status.mode);
-  const blocked = busy || Boolean(local.error) || Boolean(status?.storageError);
+  const blocked = busy || !engineReady || Boolean(engineError) || Boolean(local.error) || Boolean(status?.storageError);
   const run = async (work: () => Promise<void>) => {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -220,6 +231,7 @@ export function DesktopLocalShowPanel(props: Props) {
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0 flex-1">
           <h2 className="font-semibold">Local show</h2>
+          {disabled && <p>Local control is off. Saved progress is kept on this computer; use “Use this computer” in the Desktop toolbar to enable local control.</p>}
           {!status && !local.error && (
             <p>Reading this computer's saved show…</p>
           )}
@@ -438,9 +450,9 @@ export function DesktopLocalShowPanel(props: Props) {
             Review saved show's rundown
           </Link>
         )}
-      {(error || local.error || status?.storageError) && (
+      {(error || engineError || local.error || status?.storageError) && (
         <p role="alert" className="mt-2 break-words text-red-300">
-          {error || local.error || status?.storageError}
+          {error || engineError || local.error || status?.storageError}
         </p>
       )}
       {notice && (
