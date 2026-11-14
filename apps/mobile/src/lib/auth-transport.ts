@@ -44,7 +44,7 @@ export async function createAuthenticatedWebSocket(url: string, orgId?: string, 
         authClient.getCookie(),
         orgId ? getStoredRundownPin(orgId) : Promise.resolve(null),
       ]);
-      controller.signal.throwIfAborted();
+      if (controller.signal.aborted) throw new Error("Live connection cancelled.");
       await clearAmbientNativeCookies();
       // SecureStore cannot be cancelled. Never create a socket from its late result.
       if (controller.signal.aborted) throw new Error("Live connection cancelled.");
