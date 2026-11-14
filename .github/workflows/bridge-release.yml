@@ -214,16 +214,16 @@ jobs:
           if ($env:WINDOWS_SIGNING_MODE -eq 'signed') {
             $expected = 'Valid'
             $notice = @"
-Windows signing credentials are complete. Authenticode signatures were required and verified.
-"@
+          Windows signing credentials are complete. Authenticode signatures were required and verified.
+          "@
           } elseif ($env:WINDOWS_SIGNING_MODE -eq 'unsigned') {
             $expected = 'NotSigned'
             $notice = @"
-UNSIGNED Windows build: Windows signing credentials are entirely absent.
-None of WINDOWS_CERTIFICATE, WINDOWS_CERTIFICATE_PASSWORD, or WINDOWS_TIMESTAMP_URL is set.
-These installers are not Authenticode signed. Windows Defender SmartScreen may warn before installation.
-Do not describe this Windows build as signed.
-"@
+          UNSIGNED Windows build: Windows signing credentials are entirely absent.
+          None of WINDOWS_CERTIFICATE, WINDOWS_CERTIFICATE_PASSWORD, or WINDOWS_TIMESTAMP_URL is set.
+          These installers are not Authenticode signed. Windows Defender SmartScreen may warn before installation.
+          Do not describe this Windows build as signed.
+          "@
           } else {
             throw 'partial or invalid Windows signing configuration was not treated as signed or unsigned.'
           }
