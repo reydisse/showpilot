@@ -1,150 +1,97 @@
-name: Test unsigned native builds
-
+name: Supplemental Mac Bridge packaging repair
 on:
   workflow_dispatch:
-
+    inputs:
+      build_run:
+        required: true
+        description: Original successful unsigned build run
+      source_sha:
+        required: true
+        description: Pinned application source
 permissions:
   contents: read
-
+  actions: read
 jobs:
-  build:
-    name: Unsigned bundles (${{ matrix.label }})
+  package:
+    name: Repackage existing Bridge (${{ matrix.label }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
-            label: linux
-          - os: windows-latest
-            label: windows
-          - os: macos-15-intel
-            label: macos-intel
           - os: macos-15
             label: macos-arm
+          - os: macos-15-intel
+            label: macos-intel
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check exact original artifact source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN: ${{ inputs.build_run }}
+          EXPECTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          gh run view "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" --json headSha,conclusion > build-provenance.json
+          python3 -c 'import json,os; p=json.load(open("build-provenance.json")); assert p["headSha"]==os.environ["EXPECTED_SHA"]; assert p["conclusion"]=="success",p'
+          git diff --exit-code "$EXPECTED_SHA" -- apps packages pnpm-lock.yaml
+      - uses: actions/download-artifact@v4
+        with:
+          name: unsigned-bundles-${{ matrix.label }}
+          path: downloaded-bundles
+          run-id: ${{ inputs.build_run }}
+          github-token: ${{ github.token }}
+      - name: Repair packaging only and prove executable bytes unchanged
+        env:
+          BUILD_RUN: ${{ inputs.build_run }}
+          EXPECTED_SHA: ${{ inputs.source_sha }}
+        run: python3 scripts/repackage-downloaded-macos-bridge.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-supplemental-${{ matrix.label }}-b8f6a705
+          path: supplemental-native-bundles
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+  verify:
+    needs: package
+    name: Download and install supplemental bundles (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            label: macos-arm
+          - os: macos-15-intel
+            label: macos-intel
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
           version: 10.30.3
-
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
-
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-python@v5
         with:
-          bun-version: ${{ runner.os == 'Windows' && '1.1.21' || '1.4.0' }}
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Linux build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev dbus-x11 gnome-keyring patchelf
-
-      - name: Prepare Windows baseline Bun runtime
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $archive = Join-Path $env:RUNNER_TEMP 'bun-windows-x64-baseline.tgz'
-          $extract = Join-Path $env:RUNNER_TEMP 'bun-windows-x64-baseline'
-          Invoke-WebRequest `
-            -Uri 'https://registry.npmjs.org/@oven/bun-windows-x64-baseline/-/bun-windows-x64-baseline-1.1.21.tgz' `
-            -OutFile $archive
-          New-Item -ItemType Directory -Force -Path $extract | Out-Null
-          tar -xzf $archive -C $extract
-          $runtime = Join-Path $extract 'package/bin/bun.exe'
-          "SHOWPILOT_BUN_EXECUTABLE_PATH=$runtime" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Install workspace dependencies
-        id: install
-        run: pnpm install --frozen-lockfile
-
-      - name: Build standalone Bridge for credential verification
-        run: pnpm --filter @showpilot/bridge build
-
-      - name: Verify Windows and macOS native credential storage
-        if: runner.os != 'Linux'
-        run: cargo test --locked --manifest-path packages/native-credentials/Cargo.toml -- --include-ignored
-
-      - name: Verify Windows and macOS standalone credential storage
-        if: runner.os != 'Linux'
-        run: node apps/bridge/scripts/check-credential-store.mjs
-
-      - name: Verify Linux credential storage in an unlocked Secret Service session
-        if: runner.os == 'Linux'
-        run: |
-          dbus-run-session -- bash -euo pipefail -c '
-            printf "%s" "showpilot-disposable-ci-keyring" | gnome-keyring-daemon --unlock --components=secrets
-            cargo test --locked --manifest-path packages/native-credentials/Cargo.toml -- --include-ignored
-            node apps/bridge/scripts/check-credential-store.mjs
-          '
-
-      # Default app configs omit updater archives and use ad-hoc Mac signing.
-      # Do not load the signing-enabled ci-release.conf.json overrides.
-      - name: Build Desktop unsigned
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        uses: tauri-apps/tauri-action@v0
-        env:
-          NO_STRIP: ${{ runner.os == 'Linux' && 'true' || '' }}
-          PATCHELF: ${{ runner.os == 'Linux' && format('{0}/scripts/preserve-bun-rpath.py', github.workspace) || '' }}
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
         with:
-          projectPath: apps/desktop
-          args: --ci --verbose
-
-      - name: Build Bridge unsigned
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        uses: tauri-apps/tauri-action@v0
-        env:
-          NO_STRIP: ${{ runner.os == 'Linux' && 'true' || '' }}
-          PATCHELF: ${{ runner.os == 'Linux' && format('{0}/scripts/preserve-bun-rpath.py', github.workspace) || '' }}
+          name: unsigned-supplemental-${{ matrix.label }}-b8f6a705
+          path: downloaded-bundles
+      - run: pnpm install --frozen-lockfile
+      - name: Install downloaded Bridge then Desktop and test actual engines
+        run: python3 scripts/verify-downloaded-native-installers.py downloaded-bundles
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          projectPath: apps/bridge-desktop
-          args: --ci --verbose
-
-      - name: Verify Linux bundled engines
-        if: runner.os == 'Linux'
-        run: |
-          python3 -m unittest discover -s scripts -p 'test_preserve_bun_rpath.py'
-          python3 scripts/check-linux-bundled-sidecars.py
-
-      - name: Verify compiled MIDI transport
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: node apps/bridge/scripts/check-midi-transport.mjs
-
-      - name: Verify native LTC through the compiled Bridge
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: node apps/bridge/scripts/check-native-timecode.mjs
-
-      - name: Verify compiled local show and OS vault
-        if: runner.os != 'Linux'
-        run: node apps/bridge/scripts/check-local-show.mjs
-
-      - name: Verify compiled Linux local show in an unlocked Secret Service session
-        if: runner.os == 'Linux'
-        run: |
-          dbus-run-session -- bash -euo pipefail -c '
-            printf "%s" "showpilot-disposable-ci-keyring" | gnome-keyring-daemon --unlock --components=secrets
-            node apps/bridge/scripts/check-local-show.mjs
-          '
-
-      - name: Verify native controller with real CoreMIDI ports
-        if: runner.os == 'macOS'
-        run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml coremidi_controller_input_feedback_replug_and_session_cleanup -- --ignored --nocapture
-
-      - name: Upload test bundles
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: unsigned-bundles-${{ matrix.label }}
+          name: supplemental-install-evidence-${{ matrix.label }}
+          path: native-install-evidence
           retention-days: 14
-          path: |
-            apps/desktop/src-tauri/target/release/bundle
-            apps/bridge-desktop/src-tauri/target/release/bundle
-          if-no-files-found: warn
-          include-hidden-files: true
-          compression-level: 0
+          if-no-files-found: error
