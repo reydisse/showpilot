@@ -2026,9 +2026,9 @@ function RundownPage() {
               {canEditRundown && (
                 <div className="rounded-xl border border-board-border bg-board-card p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-medium text-board-muted uppercase tracking-widest">
+                    <label htmlFor="stage-message" className="text-xs font-medium text-board-muted uppercase tracking-widest">
                       Stage Message
-                    </p>
+                    </label>
                     <label className="flex items-center gap-1.5 cursor-pointer">
                       <input
                         type="checkbox"
@@ -2056,8 +2056,9 @@ function RundownPage() {
                       onKeyDown={(e) =>
                         e.key === "Enter" && handleSendMessage()
                       }
+                      id="stage-message"
                       placeholder="Message to stage display..."
-                      className="flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500/50 transition-colors"
+                      className="min-w-0 min-h-11 flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500/50 transition-colors"
                     />
                     <Button variant="ghost"
                       onClick={handleSendMessage}

@@ -18,6 +18,13 @@ import {
   updateEquipment,
   deleteEquipment,
 } from "@/lib/data";
+import {
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   EQUIPMENT_CATEGORIES,
@@ -268,400 +275,414 @@ function AssetsPage() {
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="mb-6 flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold font-[family-name:var(--font-display)] text-board-text">
-            Asset Inventory
-          </h1>
-          <p className="text-board-muted text-sm mt-0.5">
-            Track and manage production equipment, gear, and assets
-          </p>
-        </div>
-        {canManage ? (
-          <button
-            onClick={() => {
-              setAddForm(BLANK_ADD_FORM);
-              setShowAddModal(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
-            style={{
-              background: "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
-            }}
-          >
-            <Plus className="w-4 h-4" />
-            Add Item
-          </button>
-        ) : null}
-      </div>
-      {pageError ? (
-        <div
-          role="alert"
-          className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
-        >
-          {pageError}
-        </div>
-      ) : null}
-
-      {/* Filter bar */}
-      <div className="flex flex-wrap gap-2 mb-5">
-        <div className="relative flex-1 min-w-[180px]">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-board-muted pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Search by name..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-8 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 transition-all"
-          />
-          {search && (
-            <button
-              type="button"
-              onClick={() => setSearch("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-board-muted"
-              aria-label="Clear asset search"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-
-        <div className="relative">
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="appearance-none pl-3 pr-8 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50 cursor-pointer"
-          >
-            <option value="">All Types</option>
-            {availableCategories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-board-muted pointer-events-none" />
-        </div>
-
-        <div className="relative">
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="appearance-none pl-3 pr-8 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50 cursor-pointer"
-          >
-            <option value="">All Status</option>
-            {EQUIPMENT_STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {EQUIPMENT_STATUS_LABELS[status]}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-board-muted pointer-events-none" />
-        </div>
-
-        {hasFilters && (
-          <button
-            onClick={clearFilters}
-            className="px-3 py-2.5 rounded-xl text-sm text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
-          >
-            Clear Filters
-          </button>
-        )}
-      </div>
-
-      {/* Grid */}
-      {filtered.length > 0 ? (
-        <div className="overflow-hidden rounded-2xl border border-board-border bg-board-card">
-          {groupedFiltered.map((group) => (
-            <section
-              key={group.key}
-              className="border-b border-board-border last:border-b-0"
-            >
+    <Dialog
+      open={showAddModal}
+      onOpenChange={(open) => {
+        setShowAddModal(open);
+        if (!open) setAddForm(BLANK_ADD_FORM);
+      }}
+    >
+      <div className="p-4 sm:p-6 max-w-5xl mx-auto [&_button]:min-h-11 [&_button]:min-w-11 [&_input]:min-h-11 [&_select]:min-h-11">
+        {/* Header */}
+        <div className="mb-6 flex flex-wrap gap-3 items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-bold font-[family-name:var(--font-display)] text-board-text">
+              Asset Inventory
+            </h1>
+            <p className="text-board-muted text-sm mt-0.5">
+              Track and manage production equipment, gear, and assets
+            </p>
+          </div>
+          {canManage ? (
+            <DialogTrigger asChild>
               <button
-                type="button"
-                onClick={() => toggleGroup(group.key)}
-                className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-board-bg/45"
-              >
-                <ChevronDown
-                  className={`h-4 w-4 shrink-0 text-board-muted transition-transform ${collapsedGroups.has(group.key) ? "-rotate-90" : ""}`}
-                />
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-fire-500/10 text-fire-400">
-                  <Package className="h-4 w-4" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-board-text">
-                    {group.name}
-                  </span>
-                  <span className="mt-0.5 block text-[10px] text-board-muted">
-                    {group.category} · {group.items.length}{" "}
-                    {group.items.length === 1 ? "unit" : "units"}
-                  </span>
-                </span>
-                <span className="hidden items-center gap-1.5 text-[10px] text-board-muted sm:flex">
-                  {
-                    group.items.filter((item) => item.status === "operational")
-                      .length
-                  }{" "}
-                  operational
-                  {group.items.some((item) => item.status !== "operational")
-                    ? ` · ${group.items.filter((item) => item.status !== "operational").length} attention`
-                    : ""}
-                </span>
-              </button>
-              {!collapsedGroups.has(group.key) && (
-                <div className="border-t border-board-border bg-board-bg/20 px-3 py-2">
-                  {group.items.map((item, unitIndex) => (
-                    <div
-                      key={item.id}
-                      className="group/unit border-b border-board-border/60 py-3 last:border-b-0 sm:px-2"
-                    >
-                      {editingItem?.id === item.id ? (
-                        <form onSubmit={handleUpdate} className="space-y-3">
-                          <div className="flex items-center justify-between">
-                            <h3 className="text-sm font-semibold text-board-text">
-                              Edit Item
-                            </h3>
-                            <button
-                              type="button"
-                              onClick={() => setEditingItem(null)}
-                              className="text-board-muted hover:text-board-text"
-                              aria-label={`Cancel editing ${item.name}`}
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                          <input
-                            value={editForm.name}
-                            onChange={(e) =>
-                              setEditForm({ ...editForm, name: e.target.value })
-                            }
-                            placeholder="Equipment name..."
-                            className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
-                          />
-                          <div className="grid grid-cols-2 gap-2">
-                            <select
-                              value={editForm.category}
-                              onChange={(e) =>
-                                setEditForm({
-                                  ...editForm,
-                                  category: e.target.value,
-                                })
-                              }
-                              className="px-2 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
-                            >
-                              {!isEquipmentCategory(editForm.category) ? (
-                                <option value={editForm.category}>
-                                  {equipmentCategoryLabel(editForm.category)}
-                                </option>
-                              ) : null}
-                              {EQUIPMENT_CATEGORIES.map((category) => (
-                                <option key={category} value={category}>
-                                  {EQUIPMENT_CATEGORY_LABELS[category]}
-                                </option>
-                              ))}
-                            </select>
-                            <select
-                              value={editForm.status}
-                              onChange={(e) =>
-                                setEditForm({
-                                  ...editForm,
-                                  status: e.target.value,
-                                })
-                              }
-                              className="px-2 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
-                            >
-                              {!isEquipmentStatus(editForm.status) ? (
-                                <option value={editForm.status}>
-                                  {equipmentStatusLabel(editForm.status)}
-                                </option>
-                              ) : null}
-                              {EQUIPMENT_STATUSES.map((status) => (
-                                <option key={status} value={status}>
-                                  {EQUIPMENT_STATUS_LABELS[status]}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <input
-                            value={editForm.location}
-                            onChange={(e) =>
-                              setEditForm({
-                                ...editForm,
-                                location: e.target.value,
-                              })
-                            }
-                            placeholder="Location..."
-                            className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
-                          />
-                          <input
-                            value={editForm.serialNumber}
-                            onChange={(e) =>
-                              setEditForm({
-                                ...editForm,
-                                serialNumber: e.target.value,
-                              })
-                            }
-                            placeholder="Serial number..."
-                            className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
-                          />
-                          <input
-                            value={editForm.notes}
-                            onChange={(e) =>
-                              setEditForm({
-                                ...editForm,
-                                notes: e.target.value,
-                              })
-                            }
-                            placeholder="Notes..."
-                            className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
-                          />
-                          {editConflict ? (
-                            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-board-text">
-                              <p className="font-semibold text-amber-300">
-                                Current saved version
-                              </p>
-                              <p className="mt-1 text-board-muted">
-                                {equipmentCategoryLabel(editConflict.category)}{" "}
-                                · {equipmentStatusLabel(editConflict.status)}
-                                {editConflict.location
-                                  ? ` · ${editConflict.location}`
-                                  : ""}
-                              </p>
-                              <p className="mt-1 whitespace-pre-wrap text-board-muted">
-                                {editConflict.notes || "No saved notes"}
-                              </p>
-                              <button
-                                type="button"
-                                onClick={() => startEdit(editConflict)}
-                                className="mt-2 font-semibold text-amber-300 hover:text-amber-200"
-                              >
-                                Load current version
-                              </button>
-                            </div>
-                          ) : null}
-                          <button
-                            type="submit"
-                            disabled={!editForm.name.trim()}
-                            className="w-full px-3 py-2 rounded-xl font-semibold text-sm text-black disabled:opacity-50 transition-all"
-                            style={{
-                              background:
-                                "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
-                            }}
-                          >
-                            Update
-                          </button>
-                        </form>
-                      ) : (
-                        <div className="flex items-start gap-3">
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-board-border bg-board-card text-[10px] font-semibold tabular-nums text-board-muted">
-                            {String(unitIndex + 1).padStart(2, "0")}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span
-                                className={`rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${STATUS_COLORS[item.status] || "border-board-border bg-board-border text-board-muted"}`}
-                              >
-                                {equipmentStatusLabel(item.status)}
-                              </span>
-                              {item.serialNumber && (
-                                <span className="truncate text-[10px] font-mono text-board-muted/60">
-                                  S/N {item.serialNumber}
-                                </span>
-                              )}
-                            </div>
-                            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-board-muted">
-                              {item.location && <span>{item.location}</span>}
-                              {item.notes && (
-                                <span className="truncate">{item.notes}</span>
-                              )}
-                            </div>
-                          </div>
-                          {canManage ? (
-                            <div className="flex shrink-0 gap-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/unit:opacity-100 focus-within:opacity-100">
-                              <button
-                                type="button"
-                                aria-label={`Edit unit ${unitIndex + 1}`}
-                                onClick={() => startEdit(item)}
-                                className="rounded-lg p-2 text-board-muted hover:bg-board-border hover:text-board-text"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                aria-label={`Delete unit ${unitIndex + 1}`}
-                                onClick={() => handleDelete(item)}
-                                className="rounded-lg p-2 text-board-muted hover:bg-red-500/20 hover:text-red-400"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          ))}
-        </div>
-      ) : hasFilters ? (
-        <div className="text-center py-16">
-          <Package className="w-8 h-8 text-board-muted/30 mx-auto mb-3" />
-          <p className="text-board-muted text-sm mb-3">
-            No assets match your filters.
-          </p>
-          <button
-            onClick={clearFilters}
-            className="px-4 py-2 rounded-xl text-sm text-board-muted border border-board-border hover:bg-board-border/50 transition-colors"
-          >
-            Clear Filters
-          </button>
-        </div>
-      ) : (
-        <EmptyState
-          icon={Package}
-          title="No equipment yet"
-          description="Track cameras, mixers, cables and the rest of your gear — status, location and serial numbers in one place."
-          action={
-            canManage ? (
-              <EmptyStateButton
                 onClick={() => {
                   setAddForm(BLANK_ADD_FORM);
                   setShowAddModal(true);
                 }}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
+                style={{
+                  background:
+                    "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
+                }}
               >
-                Add first item
-              </EmptyStateButton>
-            ) : undefined
-          }
-        />
-      )}
-
-      {/* Add Asset Modal */}
-      {canManage && showAddModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowAddModal(false);
-              setAddForm(BLANK_ADD_FORM);
-            }
-          }}
-        >
+                <Plus className="w-4 h-4" />
+                Add Item
+              </button>
+            </DialogTrigger>
+          ) : null}
+        </div>
+        {pageError ? (
           <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="add-asset-title"
-            className="bg-board-card border border-board-border rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl"
+            role="alert"
+            className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+          >
+            {pageError}
+          </div>
+        ) : null}
+
+        {/* Filter bar */}
+        <div className="flex flex-wrap gap-2 mb-5">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-board-muted pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search by name..."
+              aria-label="Search assets"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-10 pr-12 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 transition-all"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center justify-center text-board-muted"
+                aria-label="Clear asset search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="relative">
+            <select
+              aria-label="Filter by equipment category"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="appearance-none pl-3 pr-8 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50 cursor-pointer"
+            >
+              <option value="">All Types</option>
+              {availableCategories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-board-muted pointer-events-none" />
+          </div>
+
+          <div className="relative">
+            <select
+              aria-label="Filter by equipment status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="appearance-none pl-3 pr-8 py-2.5 rounded-xl bg-board-card border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50 cursor-pointer"
+            >
+              <option value="">All Status</option>
+              {EQUIPMENT_STATUSES.map((status) => (
+                <option key={status} value={status}>
+                  {EQUIPMENT_STATUS_LABELS[status]}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-board-muted pointer-events-none" />
+          </div>
+
+          {hasFilters && (
+            <button
+              onClick={clearFilters}
+              className="px-3 py-2.5 rounded-xl text-sm text-board-muted hover:text-board-text hover:bg-board-border/50 transition-colors"
+            >
+              Clear Filters
+            </button>
+          )}
+        </div>
+
+        {/* Grid */}
+        {filtered.length > 0 ? (
+          <div className="overflow-hidden rounded-2xl border border-board-border bg-board-card">
+            {groupedFiltered.map((group) => (
+              <section
+                key={group.key}
+                className="border-b border-board-border last:border-b-0"
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.key)}
+                  className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-board-bg/45"
+                >
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-board-muted transition-transform ${collapsedGroups.has(group.key) ? "-rotate-90" : ""}`}
+                  />
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-fire-500/10 text-fire-400">
+                    <Package className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-board-text">
+                      {group.name}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] text-board-muted">
+                      {group.category} · {group.items.length}{" "}
+                      {group.items.length === 1 ? "unit" : "units"}
+                    </span>
+                  </span>
+                  <span className="hidden items-center gap-1.5 text-[10px] text-board-muted sm:flex">
+                    {
+                      group.items.filter(
+                        (item) => item.status === "operational",
+                      ).length
+                    }{" "}
+                    operational
+                    {group.items.some((item) => item.status !== "operational")
+                      ? ` · ${group.items.filter((item) => item.status !== "operational").length} attention`
+                      : ""}
+                  </span>
+                </button>
+                {!collapsedGroups.has(group.key) && (
+                  <div className="border-t border-board-border bg-board-bg/20 px-3 py-2">
+                    {group.items.map((item, unitIndex) => (
+                      <div
+                        key={item.id}
+                        className="group/unit border-b border-board-border/60 py-3 last:border-b-0 sm:px-2"
+                      >
+                        {editingItem?.id === item.id ? (
+                          <form onSubmit={handleUpdate} className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <h3 className="text-sm font-semibold text-board-text">
+                                Edit Item
+                              </h3>
+                              <button
+                                type="button"
+                                onClick={() => setEditingItem(null)}
+                                className="text-board-muted hover:text-board-text"
+                                aria-label={`Cancel editing ${item.name}`}
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <input
+                              aria-label="Equipment name"
+                              value={editForm.name}
+                              onChange={(e) =>
+                                setEditForm({
+                                  ...editForm,
+                                  name: e.target.value,
+                                })
+                              }
+                              placeholder="Equipment name..."
+                              className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
+                            />
+                            <div className="grid grid-cols-2 gap-2">
+                              <select
+                                aria-label="Equipment category"
+                                value={editForm.category}
+                                onChange={(e) =>
+                                  setEditForm({
+                                    ...editForm,
+                                    category: e.target.value,
+                                  })
+                                }
+                                className="min-w-0 px-2 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
+                              >
+                                {!isEquipmentCategory(editForm.category) ? (
+                                  <option value={editForm.category}>
+                                    {equipmentCategoryLabel(editForm.category)}
+                                  </option>
+                                ) : null}
+                                {EQUIPMENT_CATEGORIES.map((category) => (
+                                  <option key={category} value={category}>
+                                    {EQUIPMENT_CATEGORY_LABELS[category]}
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                aria-label="Equipment status"
+                                value={editForm.status}
+                                onChange={(e) =>
+                                  setEditForm({
+                                    ...editForm,
+                                    status: e.target.value,
+                                  })
+                                }
+                                className="min-w-0 px-2 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
+                              >
+                                {!isEquipmentStatus(editForm.status) ? (
+                                  <option value={editForm.status}>
+                                    {equipmentStatusLabel(editForm.status)}
+                                  </option>
+                                ) : null}
+                                {EQUIPMENT_STATUSES.map((status) => (
+                                  <option key={status} value={status}>
+                                    {EQUIPMENT_STATUS_LABELS[status]}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <input
+                              aria-label="Location"
+                              value={editForm.location}
+                              onChange={(e) =>
+                                setEditForm({
+                                  ...editForm,
+                                  location: e.target.value,
+                                })
+                              }
+                              placeholder="Location..."
+                              className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
+                            />
+                            <input
+                              aria-label="Serial number"
+                              value={editForm.serialNumber}
+                              onChange={(e) =>
+                                setEditForm({
+                                  ...editForm,
+                                  serialNumber: e.target.value,
+                                })
+                              }
+                              placeholder="Serial number..."
+                              className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
+                            />
+                            <input
+                              aria-label="Notes"
+                              value={editForm.notes}
+                              onChange={(e) =>
+                                setEditForm({
+                                  ...editForm,
+                                  notes: e.target.value,
+                                })
+                              }
+                              placeholder="Notes..."
+                              className="w-full px-3 py-2 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
+                            />
+                            {editConflict ? (
+                              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-board-text">
+                                <p className="font-semibold text-amber-300">
+                                  Current saved version
+                                </p>
+                                <p className="mt-1 text-board-muted">
+                                  {equipmentCategoryLabel(
+                                    editConflict.category,
+                                  )}{" "}
+                                  · {equipmentStatusLabel(editConflict.status)}
+                                  {editConflict.location
+                                    ? ` · ${editConflict.location}`
+                                    : ""}
+                                </p>
+                                <p className="mt-1 whitespace-pre-wrap text-board-muted">
+                                  {editConflict.notes || "No saved notes"}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => startEdit(editConflict)}
+                                  className="mt-2 font-semibold text-amber-300 hover:text-amber-200"
+                                >
+                                  Load current version
+                                </button>
+                              </div>
+                            ) : null}
+                            <button
+                              type="submit"
+                              disabled={!editForm.name.trim()}
+                              className="w-full px-3 py-2 rounded-xl font-semibold text-sm text-black disabled:opacity-50 transition-all"
+                              style={{
+                                background:
+                                  "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
+                              }}
+                            >
+                              Update
+                            </button>
+                          </form>
+                        ) : (
+                          <div className="flex items-start gap-3">
+                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-board-border bg-board-card text-[10px] font-semibold tabular-nums text-board-muted">
+                              {String(unitIndex + 1).padStart(2, "0")}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${STATUS_COLORS[item.status] || "border-board-border bg-board-border text-board-muted"}`}
+                                >
+                                  {equipmentStatusLabel(item.status)}
+                                </span>
+                                {item.serialNumber && (
+                                  <span className="truncate text-[10px] font-mono text-board-muted/60">
+                                    S/N {item.serialNumber}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-board-muted">
+                                {item.location && <span>{item.location}</span>}
+                                {item.notes && (
+                                  <span className="truncate">{item.notes}</span>
+                                )}
+                              </div>
+                            </div>
+                            {canManage ? (
+                              <div className="flex shrink-0 gap-1 opacity-100 transition-opacity [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/unit:opacity-100 focus-within:opacity-100">
+                                <button
+                                  type="button"
+                                  aria-label={`Edit unit ${unitIndex + 1}`}
+                                  onClick={() => startEdit(item)}
+                                  className="rounded-lg p-2 text-board-muted hover:bg-board-border hover:text-board-text"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={`Delete unit ${unitIndex + 1}`}
+                                  onClick={() => handleDelete(item)}
+                                  className="rounded-lg p-2 text-board-muted hover:bg-red-500/20 hover:text-red-400"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            ))}
+          </div>
+        ) : hasFilters ? (
+          <div className="text-center py-16">
+            <Package className="w-8 h-8 text-board-muted/30 mx-auto mb-3" />
+            <p className="text-board-muted text-sm mb-3">
+              No assets match your filters.
+            </p>
+            <button
+              onClick={clearFilters}
+              className="px-4 py-2 rounded-xl text-sm text-board-muted border border-board-border hover:bg-board-border/50 transition-colors"
+            >
+              Clear Filters
+            </button>
+          </div>
+        ) : (
+          <EmptyState
+            icon={Package}
+            title="No equipment yet"
+            description="Track cameras, mixers, cables and the rest of your gear — status, location and serial numbers in one place."
+            action={
+              canManage ? (
+                <EmptyStateButton
+                  onClick={() => {
+                    setAddForm(BLANK_ADD_FORM);
+                    setShowAddModal(true);
+                  }}
+                >
+                  Add first item
+                </EmptyStateButton>
+              ) : undefined
+            }
+          />
+        )}
+
+        {/* Add Asset Modal */}
+        {canManage && showAddModal && (
+          <DialogContent
+            showCloseButton={false}
+            className="bg-board-card border-board-border rounded-2xl p-4 sm:p-6 max-w-[calc(100%-2rem)] sm:max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto [&_button]:min-h-11 [&_button]:min-w-11 [&_input]:min-h-11 [&_select]:min-h-11"
           >
             <div className="flex items-center justify-between mb-5">
-              <h2
+              <DialogTitle
                 id="add-asset-title"
                 className="text-lg font-semibold text-board-text"
               >
                 Add New Asset
-              </h2>
+              </DialogTitle>
               <button
                 type="button"
                 onClick={() => {
@@ -674,13 +695,23 @@ function AssetsPage() {
                 <X className="w-4 h-4" />
               </button>
             </div>
+            <DialogDescription className="sr-only">
+              Add equipment to the asset inventory.
+            </DialogDescription>
             <form onSubmit={handleAdd} className="space-y-4">
               <div>
-                <label className="block text-xs text-board-muted mb-1.5">
-                  Name <span className="text-red-400">*</span>
+                <label
+                  htmlFor="add-asset-name"
+                  className="block text-xs text-board-muted mb-1.5"
+                >
+                  Name{" "}
+                  <span aria-hidden="true" className="text-red-400">
+                    *
+                  </span>
                 </label>
                 <input
                   type="text"
+                  id="add-asset-name"
                   value={addForm.name}
                   onChange={(e) =>
                     setAddForm({ ...addForm, name: e.target.value })
@@ -691,10 +722,14 @@ function AssetsPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-board-muted mb-1.5">
+                <label
+                  htmlFor="add-asset-category"
+                  className="block text-xs text-board-muted mb-1.5"
+                >
                   Type / Category
                 </label>
                 <select
+                  id="add-asset-category"
                   value={addForm.category}
                   onChange={(e) =>
                     setAddForm({ ...addForm, category: e.target.value })
@@ -709,13 +744,17 @@ function AssetsPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-board-muted mb-1.5">
+                <label
+                  htmlFor="add-asset-quantity"
+                  className="block text-xs text-board-muted mb-1.5"
+                >
                   Number of units
                 </label>
                 <input
                   type="number"
                   min={1}
                   max={100}
+                  id="add-asset-quantity"
                   value={addForm.quantity}
                   onChange={(e) =>
                     setAddForm({
@@ -734,13 +773,21 @@ function AssetsPage() {
                 </p>
               </div>
               <div>
-                <label className="block text-xs text-board-muted mb-1.5">
+                <p
+                  id="add-asset-status"
+                  className="block text-xs text-board-muted mb-1.5"
+                >
                   Status
-                </label>
-                <div className="flex gap-2">
+                </p>
+                <div
+                  role="group"
+                  aria-labelledby="add-asset-status"
+                  className="grid grid-cols-2 gap-2"
+                >
                   {EQUIPMENT_STATUSES.map((s) => (
                     <button
                       key={s}
+                      aria-pressed={addForm.status === s}
                       type="button"
                       onClick={() => setAddForm({ ...addForm, status: s })}
                       className={`flex-1 py-2 rounded-xl text-xs font-medium capitalize border transition-colors ${
@@ -759,11 +806,15 @@ function AssetsPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs text-board-muted mb-1.5">
+                <label
+                  htmlFor="add-asset-notes"
+                  className="block text-xs text-board-muted mb-1.5"
+                >
                   Notes
                 </label>
                 <input
                   type="text"
+                  id="add-asset-notes"
                   value={addForm.notes}
                   onChange={(e) =>
                     setAddForm({ ...addForm, notes: e.target.value })
@@ -796,11 +847,11 @@ function AssetsPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+          </DialogContent>
+        )}
 
-      {ConfirmDialogEl}
-    </div>
+        {ConfirmDialogEl}
+      </div>
+    </Dialog>
   );
 }
