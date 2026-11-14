@@ -1,4 +1,11 @@
 export type NotificationFailure = { message: string; at: number };
+
+export class UnsupportedDesktopNotificationActionsError extends Error {
+  constructor() {
+    super("Update ShowPilot Desktop to enable notification actions. This build does not support them.");
+    this.name = "UnsupportedDesktopNotificationActionsError";
+  }
+}
 export type NotificationDeliveryStage =
   | { kind: "ready" }
   | { kind: "working"; previousFailure: NotificationFailure | null }

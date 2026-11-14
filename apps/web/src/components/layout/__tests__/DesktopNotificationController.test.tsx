@@ -11,6 +11,7 @@ import { useState, type ReactNode } from "react";
 import { DesktopNotificationController } from "../DesktopNotificationController";
 import { DesktopNotificationContext, type DesktopNotificationDelivery } from "../DesktopNotificationContext";
 import { DesktopNotificationNotice } from "../DesktopNotificationNotice";
+import { UnsupportedDesktopNotificationActionsError } from "@/lib/desktop-notification-state";
 
 function NotificationFixture({ children }: { children?: ReactNode }) {
   const [delivery, setDelivery] = useState<DesktopNotificationDelivery | null>(null);
@@ -96,6 +97,24 @@ describe("DesktopNotificationController", () => {
       notifications: [oldNotification],
       unread: 1,
     });
+  });
+
+  it("keeps inbox delivery alive while an unsupported native listener waits for an update or explicit retry", async () => {
+    vi.useFakeTimers();
+    mocks.listen.mockRejectedValueOnce(new UnsupportedDesktopNotificationActionsError());
+    render(<NotificationFixture><DesktopNotificationNotice /></NotificationFixture>);
+    await act(async () => {
+      await vi.dynamicImportSettled();
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(screen.getByRole("alert").textContent).toContain("Update ShowPilot Desktop");
+    await act(async () => { await vi.advanceTimersByTimeAsync(45_000); });
+    expect(mocks.listen).toHaveBeenCalledTimes(1);
+    expect(mocks.getNotifications.mock.calls.length).toBeGreaterThan(1);
+    fireEvent.click(screen.getByRole("button", { name: "Retry desktop alerts" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(mocks.listen).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("retries an unread notification when native permission initially prevents delivery", async () => {
