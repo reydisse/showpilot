@@ -36,6 +36,7 @@ import {
   isEmojiReaction,
 } from "@showpilot/shared";
 import { getAuth } from "./auth";
+import { AccessCheckUnavailableError, accessCheckUnavailableResponse, isAuthenticationDenial } from "./access-check-errors.server";
 import { getCrewScheduleResponseWindow } from "./crew-schedule-response";
 import { getAssignmentCallTime } from "./assignment-call-time";
 import { assignmentResponseVersion } from "./assignment-response-version";
@@ -522,8 +523,9 @@ async function getIdentity(
       permissions: access.permissions,
       today: access.today,
     };
-  } catch {
-    return null;
+  } catch (cause) {
+    if (isAuthenticationDenial(cause)) return null;
+    throw new AccessCheckUnavailableError(cause);
   }
 }
 
@@ -543,7 +545,13 @@ async function authorize(
   if (!validId(suppliedOrgId))
     return json({ error: "A valid orgId is required." }, 400);
   const orgId = await resolveOrgId(suppliedOrgId, db);
-  const identity = await getIdentity(request, orgId, db);
+  let identity: MobileIdentity | null;
+  try {
+    identity = await getIdentity(request, orgId, db);
+  } catch (cause) {
+    if (cause instanceof AccessCheckUnavailableError) return accessCheckUnavailableResponse();
+    throw cause;
+  }
   if (!identity) return json({ error: "Unauthorized" }, 401);
   const resolved: RundownAccess = permissions?.some((permission) => permission.startsWith("rundown:"))
     ? await resolveRundownAccess(db, orgId, identity, getPresentedRundownPin(request, orgId))

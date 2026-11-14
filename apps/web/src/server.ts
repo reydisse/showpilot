@@ -12,6 +12,7 @@ import { withDatabaseRequest, withDatabaseTask } from "./lib/request-database.se
 import { authenticateBridgeRequest, backfillLegacyBridgeInstallations, migrateLegacyBridgeInstallation } from "./lib/bridge-credentials.server";
 import { authenticateDisplayRequest } from "./lib/display-access.server";
 import { getAuth } from "./lib/auth";
+import { AccessCheckUnavailableError, accessCheckUnavailableResponse } from "./lib/access-check-errors.server";
 import { relayUpgradeCache } from "./lib/relay-upgrade-cache.server";
 import type { Permission } from "./lib/permissions";
 import { chatPassDigest, verifyCrewChatPass } from "./lib/chat-pass-revocation.server";
@@ -781,8 +782,16 @@ const appServer = {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     const bindings = env as Env;
-    return withDatabaseRequest(request, bindings.DB, async () =>
-      withSecurityHeaders(request, await appServer.fetch(request, env, ctx)));
+    return withDatabaseRequest(request, bindings.DB, async () => {
+      let response: Response;
+      try {
+        response = await appServer.fetch(request, env, ctx);
+      } catch (cause) {
+        if (!(cause instanceof AccessCheckUnavailableError)) throw cause;
+        response = withApiCorsHeaders(request, accessCheckUnavailableResponse());
+      }
+      return withSecurityHeaders(request, response);
+    });
   },
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     await withDatabaseTask(env.DB, () => appServer.scheduled(controller, env));
