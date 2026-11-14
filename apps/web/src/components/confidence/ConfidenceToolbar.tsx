@@ -42,7 +42,7 @@ export function ConfidenceToolbar({ slug, orgId }: { slug: string; orgId?: strin
           className="sp-button flex h-8 items-center gap-2 rounded-lg px-2 text-sm font-medium text-board-text hover:bg-board-text/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
         >
           <Monitor aria-hidden="true" className="size-4 text-board-muted" />
-          <span>Confidence</span>
+          <span className="hidden min-[1200px]:inline">Confidence</span>
           <span className={`inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium ${failed ? "bg-red-500/10 text-red-400" : output.enabled ? "bg-green-500/10 text-green-400" : "bg-board-text/5 text-board-muted"}`}>
             <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
             {output.busy ? "Updating…" : output.status.state === "starting" ? "Starting…" : failed ? "Error" : output.enabled ? "Live" : "Off"}

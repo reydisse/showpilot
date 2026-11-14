@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useParams } from "@tanstack/react-router";
-import { Download, Laptop, MonitorPlay, PanelTopOpen, RadioTower, RefreshCw, Timer, UserCheck } from "lucide-react";
+import { Download, Laptop, MonitorPlay, MoreHorizontal, PanelTopOpen, RadioTower, RefreshCw, Timer, UserCheck } from "lucide-react";
+import { Popover } from "radix-ui";
 import { configureDesktopLocalDevices } from "@/lib/desktop-local-devices";
 import { getDesktopActions, desktopOperationPending, desktopRead, type DesktopOperation } from "@/lib/desktop-operations";
 import { useDesktopBridgeStatus } from "@/hooks/useDesktopBridgeStatus";
@@ -23,12 +24,13 @@ const ConfidenceToolbar = lazy(() => import("@/components/confidence/ConfidenceT
 
 const DesktopLocalShowNotice = lazy(() => import("./DesktopLocalShowNotice").then((module) => ({ default: module.DesktopLocalShowNotice })));
 
+const INLINE_ACTIONS_MIN_WIDTH = 1360;
+
 const WINDOW_ACTIONS: Array<{
   kind: DesktopWindowKind;
   label: string;
   icon: typeof Timer;
 }> = [
-  { kind: "timer", label: "Timer window", icon: Timer },
   { kind: "show-board", label: "Crew status", icon: MonitorPlay },
   { kind: "check-in", label: "Check-in", icon: UserCheck },
 ];
@@ -40,6 +42,20 @@ function useOperation<T>(operation: DesktopOperation<T>) {
 export function DesktopStatusBar({ orgId }: { orgId?: string } = {}) {
   const { slug } = useParams({ strict: false });
   const desktop = useDesktopRuntime();
+  const toolbar = useRef<HTMLDivElement>(null);
+  const [compact, setCompact] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  useEffect(() => {
+    const element = toolbar.current;
+    if (!desktop || !element) return;
+    const measure = (width: number) => { if (width > 0) setCompact(width < INLINE_ACTIONS_MIN_WIDTH); };
+    measure(element.getBoundingClientRect().width);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(entries => measure(entries[0].contentRect.width));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [desktop]);
+  useEffect(() => { if (!compact) setActionsOpen(false); }, [compact]);
   const actions = getDesktopActions();
   const windowAction = useOperation(actions.window);
   const localShowAction = useOperation(actions.localShow);
@@ -161,16 +177,64 @@ export function DesktopStatusBar({ orgId }: { orgId?: string } = {}) {
     { state: checkAction, operation: actions.check },
     { state: installAction, operation: actions.install },
   ];
+  const timerLabel = (windowAction.kind === "pending" || windowAction.kind === "unconfirmed") && windowAction.label === "Timer window" ? windowAction.kind === "unconfirmed" ? "Timer window pending" : "Opening…" : "Timer window";
+  const timerAction = (
+        <button
+          type="button"
+          disabled={busy}
+          aria-label={timerLabel}
+          onClick={() => openWindow("timer", "Timer window")}
+          className="flex min-h-11 items-center gap-1.5 rounded-md px-2 py-1 text-board-muted transition hover:bg-board-border/60 hover:text-board-text disabled:opacity-50"
+        >
+          <Timer aria-hidden="true" className="h-3 w-3" />
+          {timerLabel}
+        </button>
+  );
+  const secondaryActions = (
+    <div className={`flex items-center gap-1 [&>button]:whitespace-nowrap ${compact ? "flex-col items-stretch" : ""}`}>
+        <button
+          type="button"
+          disabled={desktopOperationPending(localShowAction)}
+          onClick={() => actions.localShow.start("Local show", async () => {
+            try { await openDesktopLocalShow(); }
+            catch { throw new Error("The local workspace could not open. Update ShowPilot Desktop and try again."); }
+          })}
+          title="Open this computer's prepared show and local controls"
+          className="flex min-h-11 items-center gap-1.5 rounded-md px-2 py-1 text-board-muted transition hover:bg-board-border/60 hover:text-board-text"
+        >
+          <Laptop className="h-3 w-3" /> Local show
+        </button>
+        <button
+          type="button"
+          disabled={updateBusy}
+          onClick={() => void handleUpdate()}
+          title="Check for signed Desktop updates"
+          className="flex min-h-11 items-center gap-1.5 rounded-md px-2 py-1 text-board-muted transition hover:bg-board-border/60 hover:text-board-text disabled:opacity-50"
+        >
+          {update ? <Download className="h-3 w-3" /> : <RefreshCw className={`h-3 w-3 ${checkAction.kind === "pending" ? "animate-spin" : ""}`} />}
+          {installed ? installed.restartRequired ? "Restart required" : "Restart requested"
+            : installAction.kind === "unconfirmed" ? "Installation not confirmed"
+            : installAction.kind === "pending" ? "Installing…"
+            : checkAction.kind === "unconfirmed" ? "Update check pending"
+            : checkAction.kind === "pending" ? "Checking…"
+            : update ? `Update ${update.version}`
+            : checkAction.kind === "complete" ? "Up to date"
+            : checkAction.kind === "failed" ? "Retry update" : "Check update"}
+        </button>
+
+    </div>
+  );
   return (
     <>
-    <div role="region" aria-label="Desktop controls" tabIndex={0} className="modern-scrollbar max-h-[35dvh] shrink-0 overflow-y-auto focus-visible:outline-2 focus-visible:outline-fire-500">
+    <div ref={toolbar} role="region" aria-label="Desktop controls" tabIndex={0} className="modern-scrollbar max-h-[35dvh] shrink-0 overflow-auto focus-visible:outline-2 focus-visible:outline-fire-500">
     <DesktopNotificationNotice />
-    <div className="flex min-h-8 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-board-border bg-board-card px-3 py-1 text-xs text-board-muted">
+    <div className="flex min-h-8 min-w-max items-center gap-3 border-b border-board-border bg-board-card px-3 py-1 text-xs text-board-muted">
+      <div role="group" aria-label="Desktop status" className="flex shrink-0 items-center gap-3 whitespace-nowrap">
       <span className="flex items-center gap-1.5 font-semibold text-fire-400">
         <PanelTopOpen className="h-3.5 w-3.5" />
         Desktop
       </span>
-      <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <span className="flex shrink-0 items-center gap-1.5">
         <span
           className={`h-1.5 w-1.5 rounded-full ${engine?.native ? "bg-green-500" : "bg-fire-500 animate-pulse"}`}
         />
@@ -178,7 +242,7 @@ export function DesktopStatusBar({ orgId }: { orgId?: string } = {}) {
           ? `Local engine ${engine.version} · ${engine.platform}`
           : engineError ?? "Connecting to local engine…"}
       </span>
-      <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <span className="flex shrink-0 items-center gap-1.5">
         <span
           className={`h-1.5 w-1.5 rounded-full ${
             !localDevicesEnabled
@@ -212,59 +276,45 @@ export function DesktopStatusBar({ orgId }: { orgId?: string } = {}) {
           </button>
         ) : null}
       </span>
-      {bridgeError ? (
-        <span role="alert" className="max-w-80 break-words text-red-400" title={bridgeError}>
-          {bridgeError}
-        </span>
-      ) : null}
-      <Suspense fallback={null}><DesktopLocalShowNotice orgId={orgId} slug={slug} /></Suspense>
-      <div className="ml-auto flex max-w-full flex-wrap items-center gap-1 [&>button]:whitespace-nowrap">
-        <button
-          type="button"
-          disabled={desktopOperationPending(localShowAction)}
-          onClick={() => actions.localShow.start("Local show", async () => {
-            try { await openDesktopLocalShow(); }
-            catch { throw new Error("The local workspace could not open. Update ShowPilot Desktop and try again."); }
-          })}
-          title="Open this computer's prepared show and local controls"
-          className="flex min-h-11 items-center gap-1.5 rounded-md px-2 py-1 text-board-muted transition hover:bg-board-border/60 hover:text-board-text"
-        >
-          <Laptop className="h-3 w-3" /> Local show
-        </button>
-        <button
-          type="button"
-          disabled={updateBusy}
-          onClick={() => void handleUpdate()}
-          title="Check for signed Desktop updates"
-          className="flex min-h-11 items-center gap-1.5 rounded-md px-2 py-1 text-board-muted transition hover:bg-board-border/60 hover:text-board-text disabled:opacity-50"
-        >
-          {update ? <Download className="h-3 w-3" /> : <RefreshCw className={`h-3 w-3 ${checkAction.kind === "pending" ? "animate-spin" : ""}`} />}
-          {installed ? installed.restartRequired ? "Restart required" : "Restart requested"
-            : installAction.kind === "unconfirmed" ? "Installation not confirmed"
-            : installAction.kind === "pending" ? "Installing…"
-            : checkAction.kind === "unconfirmed" ? "Update check pending"
-            : checkAction.kind === "pending" ? "Checking…"
-            : update ? `Update ${update.version}`
-            : checkAction.kind === "complete" ? "Up to date"
-            : checkAction.kind === "failed" ? "Retry update" : "Check update"}
-        </button>
+      </div>
+      <div className="ml-auto flex shrink-0 items-center gap-1">
+        {!compact && secondaryActions}
         {slug && <Suspense fallback={null}><ConfidenceToolbar key={slug} slug={slug} orgId={orgId} /></Suspense>}
+        {compact ? (
+          <Popover.Root open={actionsOpen} onOpenChange={setActionsOpen}>
+            <Popover.Trigger aria-label="Desktop actions" title="Local show, updates and Timer window" className="flex size-11 shrink-0 items-center justify-center rounded-md text-board-muted hover:bg-board-border/60 hover:text-board-text focus-visible:outline-2 focus-visible:outline-fire-500">
+              <MoreHorizontal aria-hidden="true" className="size-5" />
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Content aria-label="Desktop actions" align="end" sideOffset={6} collisionPadding={12} className="z-50 max-h-[70dvh] max-w-[calc(100vw-24px)] overflow-y-auto rounded-xl border border-board-border bg-board-card p-2 shadow-xl">
+                {secondaryActions}
+                {timerAction}
+              </Popover.Content>
+            </Popover.Portal>
+          </Popover.Root>
+        ) : timerAction}
         {slug
-          ? WINDOW_ACTIONS.map(({ kind, label, icon: Icon }) => (
-            <button
+          ? WINDOW_ACTIONS.map(({ kind, label, icon: Icon }) => {
+            const actionLabel = (windowAction.kind === "pending" || windowAction.kind === "unconfirmed") && windowAction.label === label
+              ? windowAction.kind === "unconfirmed" ? `${label} pending` : "Opening…" : label;
+            return <button
               key={kind}
               type="button"
               disabled={busy}
+              aria-label={actionLabel}
+              title={actionLabel}
               onClick={() => openWindow(kind, label)}
-              className="flex min-h-11 items-center gap-1.5 rounded-md px-2 py-1 text-board-muted transition hover:bg-board-border/60 hover:text-board-text disabled:opacity-50"
+              className="flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-board-muted transition hover:bg-board-border/60 hover:text-board-text disabled:opacity-50"
             >
-              <Icon className="h-3 w-3" />
-              {(windowAction.kind === "pending" || windowAction.kind === "unconfirmed") && windowAction.label === label ? windowAction.kind === "unconfirmed" ? `${label} pending` : "Opening…" : label}
-            </button>
-          ))
+              <Icon aria-hidden="true" className="h-3 w-3" />
+              <span className="hidden min-[1400px]:inline">{actionLabel}</span>
+            </button>;
+          })
           : null}
       </div>
     </div>
+    {bridgeError && <div role="alert" className="border-b border-board-border px-3 py-2 text-xs text-red-400 break-words">{bridgeError}</div>}
+    <Suspense fallback={null}><DesktopLocalShowNotice orgId={orgId} slug={slug} /></Suspense>
     {installed ? (
       <div role="status" className="border-b border-fire-500/30 bg-fire-500/10 px-3 py-2 text-xs text-fire-300">
         {installed.restartRequired ? "Update installed. Choose Quit ShowPilot from the app menu, then reopen it to finish." : "Update installed and restart requested. If this window remains open, quit ShowPilot and reopen it to finish."}
