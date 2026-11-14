@@ -220,6 +220,10 @@ it("moves secondary actions into a keyboard-accessible dropdown while window con
     await waitFor(() => expect(mocks.openLocalShow).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("button", { name: "Check-in" }));
     await waitFor(() => expect(mocks.openWindow).toHaveBeenCalledWith("check-in", "showpilot-demo-nov04"));
+    const timer = within(dropdown).getByRole("button", { name: "Timer window" });
+    await waitFor(() => expect(timer.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(timer);
+    await waitFor(() => expect(mocks.openWindow).toHaveBeenCalledWith("timer", "showpilot-demo-nov04"));
     let finishCheck: (value: null) => void = () => {};
     const checks = mocks.checkUpdate.mock.calls.length;
     mocks.checkUpdate.mockImplementationOnce(() => new Promise(resolve => { finishCheck = resolve; }));
@@ -240,7 +244,7 @@ it("moves secondary actions into a keyboard-accessible dropdown while window con
     await act(async () => finishCheck(null));
     await screen.findByRole("button", { name: "Up to date" });
     expect(mocks.openLocalShow).toHaveBeenCalledTimes(1);
-    expect(mocks.openWindow).toHaveBeenCalledTimes(1);
+    expect(mocks.openWindow).toHaveBeenCalledTimes(2);
   } finally {
     vi.unstubAllGlobals();
   }
