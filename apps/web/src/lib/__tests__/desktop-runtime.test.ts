@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ActionPerformed } from "@tauri-apps/plugin-notification";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -9,9 +10,10 @@ function deferred<T>() {
 const nativeNotifications = vi.hoisted(() => ({
   granted: false,
   sent: [] as Array<Record<string, unknown>>,
-  action: null as ((notification: { extra?: Record<string, unknown> }) => void) | null,
+  action: null as ((event: ActionPerformed) => void) | null,
   unregister: vi.fn(),
   permission: vi.fn(),
+  registrationError: null as unknown,
 }));
 const nativeUpdater = vi.hoisted(() => ({
   available: null as null | { version: string; body?: string; date?: string },
@@ -33,7 +35,8 @@ vi.mock("@tauri-apps/plugin-notification", () => ({
   sendNotification: (options: { title: string; body?: string }) => {
     nativeNotifications.sent.push(options);
   },
-  onAction: async (handler: (notification: { extra?: Record<string, unknown> }) => void) => {
+  onAction: async (handler: (event: ActionPerformed) => void) => {
+    if (nativeNotifications.registrationError) throw nativeNotifications.registrationError;
     nativeNotifications.action = handler;
     return { unregister: nativeNotifications.unregister };
   },
@@ -77,6 +80,7 @@ beforeEach(() => {
   nativeNotifications.permission.mockReset().mockImplementation(async () => nativeNotifications.granted);
   nativeNotifications.sent.length = 0;
   nativeNotifications.action = null;
+  nativeNotifications.registrationError = null;
   nativeNotifications.unregister.mockClear();
   nativeUpdater.available = null;
   nativeUpdater.close.mockClear();
@@ -233,13 +237,22 @@ describe("desktop runtime boundary", () => {
     expect(nativeNotifications.sent).toEqual([]);
   });
 
+  it("identifies an installed native plugin without listener support, without hiding other native failures", async () => {
+    window.__TAURI__ = { core: { invoke: vi.fn() } };
+    nativeNotifications.registrationError = "Command plugin:notification|register_listener not found";
+    await expect(listenForDesktopNotificationActions(vi.fn())).rejects.toThrow("Update ShowPilot Desktop");
+    const failure = new Error("Native notification transport failed");
+    nativeNotifications.registrationError = failure;
+    await expect(listenForDesktopNotificationActions(vi.fn())).rejects.toBe(failure);
+  });
+
   it("deactivates native action callbacks before awaiting listener removal", async () => {
     window.__TAURI__ = { core: { invoke: vi.fn() } };
     nativeNotifications.unregister.mockRejectedValueOnce(new Error("Native cleanup failed"));
     const action = vi.fn();
     const remove = await listenForDesktopNotificationActions(action);
     await expect(remove()).rejects.toThrow("Native cleanup failed");
-    nativeNotifications.action?.({ extra: { notificationId: "retired", orgSlug: "fixture" } });
+    nativeNotifications.action?.({ actionId: "tap", inputValue: null, notification: { id: 1, groupSummary: false, data: {}, attachments: [], extra: { notificationId: "retired", orgSlug: "fixture" } } });
     expect(action).not.toHaveBeenCalled();
   });
 
@@ -254,12 +267,17 @@ describe("desktop runtime boundary", () => {
     const action = vi.fn();
     const unlisten = await listenForDesktopNotificationActions(action);
 
-    nativeNotifications.action?.({ extra: { orgSlug: "faithfire-production" } });
+    nativeNotifications.action?.({ actionId: "tap", inputValue: null, notification: null });
+    nativeNotifications.action?.({ actionId: "tap", inputValue: null, notification: { id: 1, groupSummary: false, data: {}, attachments: [], extra: { orgSlug: "fixture" } } });
     nativeNotifications.action?.({
-      extra: {
-        notificationId: "notice-2",
-        orgSlug: "faithfire-production",
-        actionUrl: "chat?room=production",
+      actionId: "tap", inputValue: null,
+      notification: {
+        id: 2, groupSummary: false, data: {}, attachments: [],
+        extra: {
+          notificationId: "notice-2",
+          orgSlug: "fixture",
+          actionUrl: "chat?room=production",
+        },
       },
     });
     await focusDesktopMainWindow();
@@ -268,7 +286,7 @@ describe("desktop runtime boundary", () => {
     expect(action).toHaveBeenCalledOnce();
     expect(action).toHaveBeenCalledWith({
       notificationId: "notice-2",
-      orgSlug: "faithfire-production",
+      orgSlug: "fixture",
       actionUrl: "chat?room=production",
     });
     expect(calls).toEqual(["focus_main_window"]);

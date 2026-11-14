@@ -8,6 +8,7 @@ import { getPersonalDeviceNotifications } from "./personal-notifications";
 import { announcePersonalNotificationCount } from "./notification-events";
 import { getOrgRouteContext } from "./session";
 import { runRouteLoad } from "./route-load-deadlines";
+import { UnsupportedDesktopNotificationActionsError } from "./desktop-notification-state";
 import type {
   NotificationDeliveryChannel,
   NotificationDeliveryStage,
@@ -42,7 +43,8 @@ export function startDesktopNotificationDelivery({
   ) => void;
 }) {
   let polling = false,
-    registering = false;
+    registering = false,
+    actionsUnsupported = false;
   let context: Awaited<ReturnType<typeof getOrgRouteContext>> | null = null;
   let memory: { key: string; ids: Set<string> } | null = null;
   let unlisten: (() => Promise<void>) | undefined;
@@ -191,7 +193,7 @@ export function startDesktopNotificationDelivery({
     }
   };
   const register = async () => {
-    if (signal.aborted || registering || unlisten) return;
+    if (signal.aborted || registering || unlisten || actionsUnsupported) return;
     registering = true;
     begin("actions");
     let abandoned = false;
@@ -227,11 +229,14 @@ export function startDesktopNotificationDelivery({
         8_000,
       );
       if (!signal.aborted && !cleanupFailed) ready("actions");
-    } catch {
+    } catch (cause) {
       abandoned = true;
+      actionsUnsupported = cause instanceof UnsupportedDesktopNotificationActionsError;
       fail(
         "actions",
-        "Desktop alert actions could not connect. Retrying automatically.",
+        actionsUnsupported
+          ? (cause as UnsupportedDesktopNotificationActionsError).message
+          : "Desktop alert actions could not connect. Retrying automatically.",
       );
     } finally {
       registering = false;
@@ -252,5 +257,5 @@ export function startDesktopNotificationDelivery({
     { once: true },
   );
   refresh();
-  return { refresh };
+  return { refresh: () => { actionsUnsupported = false; refresh(); } };
 }

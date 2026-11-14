@@ -1,4 +1,5 @@
 import { desktopRead } from "./desktop-operations";
+import { UnsupportedDesktopNotificationActionsError } from "./desktop-notification-state";
 import {
   isPermissionGranted as isNativeNotificationPermissionGranted,
   onAction as onNativeNotificationAction,
@@ -131,9 +132,9 @@ export async function listenForDesktopNotificationActions(
 ): Promise<() => Promise<void>> {
   if (!isDesktopRuntime()) return async () => {};
   let active = true;
-  const listener = await onNativeNotificationAction((notification) => {
+  const listener = await onNativeNotificationAction((event) => {
     if (!active) return;
-    const extra = notification.extra;
+    const extra = event.notification?.extra;
     if (
       !extra
       || typeof extra.notificationId !== "string"
@@ -147,6 +148,12 @@ export async function listenForDesktopNotificationActions(
       orgSlug: extra.orgSlug,
       ...(typeof extra.actionUrl === "string" ? { actionUrl: extra.actionUrl } : {}),
     });
+  }).catch((cause: unknown) => {
+    const message = typeof cause === "string" ? cause : cause instanceof Error ? cause.message : "";
+    if (/register_listener.*(?:not found|unknown command)/i.test(message)) {
+      throw new UnsupportedDesktopNotificationActionsError();
+    }
+    throw cause;
   });
   return async () => { active = false; await listener.unregister(); };
 }
