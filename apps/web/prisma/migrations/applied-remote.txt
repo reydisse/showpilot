@@ -100,3 +100,4 @@
 0093_graphic_control_recovery.sql
 0094_destination_control_recovery.sql
 0095_tm_management_recovery.sql
+0096_attendance_iso_timestamps.sql

@@ -171,3 +171,7 @@ destination timeout; neither is labeled an established baseline defect.
   remains draft, and phase progression is stopped under the finish prompt.
 - Production repair 0096 remains unapplied. Workstreams 2–8 remain unstarted.
   The watch is handed back to the user for disposition of this failed gate.
+
+## Remote application record
+
+2026-11-15T22:13:26.758596+00:00: Migration 0096 applied remotely after main b335e2bac8652ed72ca8326b243bab5e8748efea CI 43765876278 and Deploy 43767770006 succeeded; health served exact SHA. Preflight: 7 affected members, 0 invalid epochs. Wrangler executed 2 queries successfully (14 field writes); postcondition rows_to_repair=0. Unchanged SQL moved into migrations and applied-remote.txt updated. Hardware gates remain pending.
