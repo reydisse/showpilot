@@ -22,3 +22,7 @@ it("retains useful validation and sign-in failures without leaking protocol deta
   expect(plainFailure("Enter a valid email address.")).toBe("Enter a valid email address.");
   expect(plainFailure("Unauthorized")).toBe("Please sign in again."); expect(plainFailure("JSON could not be parsed: secret internal detail")).toBe("This action needs attention.");
 });
+
+it.each(["SQLITE_CONSTRAINT_UNIQUE: crew_member.memberId", "D1_ERROR: internal database error", "PrismaClientKnownRequestError: table details", "WebSocket closed: internal endpoint", "HTTP 503", "Cannot read properties of undefined", "internalHandler is not a function"])("keeps diagnostic failures out of the interface: %s", message => {
+  expect(plainFailure(message, "This view could not be opened.")).toBe("This view could not be opened.");
+});
