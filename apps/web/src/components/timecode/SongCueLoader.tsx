@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { getSong, listSongs } from "@/lib/songs";
@@ -65,7 +67,7 @@ export function SongCueLoader({ orgId, format, defaultTarget, connected, running
       await onLoad(events);
       if (selection === selectionRef.current) onClose();
     } catch (cause) {
-      if (selection === selectionRef.current) setError(cause instanceof Error ? cause.message : "Cue load was not confirmed. Your selection has been kept.");
+      if (selection === selectionRef.current) setError(cause instanceof Error ? cause.message : "This change needs attention.");
     } finally { if (selection === selectionRef.current) setSaving(false); }
   }
   const inputClass = "mt-2 w-full rounded-xl border border-board-border bg-board-bg p-2.5 text-sm text-board-text";
@@ -74,11 +76,11 @@ export function SongCueLoader({ orgId, format, defaultTarget, connected, running
       <DialogContent showCloseButton={false} className="max-h-[90dvh] max-w-lg overflow-y-auto border-board-border bg-board-card p-5 text-board-text">
         <div className="flex items-start justify-between"><div><DialogTitle className="font-semibold text-board-text">Load song cues</DialogTitle><DialogDescription className="mt-1 text-xs text-board-muted">Load one cue map into the stopped timeline. Loading the same map again replaces its existing events.</DialogDescription></div><DialogClose asChild><button aria-label="Close song cue loader" className="min-h-11 min-w-11 p-2 text-board-muted"><X className="h-4 w-4" /></button></DialogClose></div>
         {blocked && <p role="status" className="text-sm text-amber-200">{blocked}</p>}
-        {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+        {error && <p role="alert" className="text-sm text-red-300">{plainFailure(error)}</p>}
         <fieldset disabled={Boolean(blocked) || saving} className="mt-5 grid min-w-0 gap-4 disabled:opacity-60">
           <label className="text-xs text-board-muted">Song
             <select autoFocus disabled={loading} value={songId} onChange={(event) => { void selectSong(event.target.value); }} className={inputClass}>
-              <option value="">{loading ? "Loading…" : "Choose a song"}</option>
+              <option value="">{loading ? <QuietActivity label="Loading…" /> : "Choose a song"}</option>
               {songs.map((item) => <option key={item.id} value={item.id}>{item.title}{item.artist ? ` · ${item.artist}` : ""}</option>)}
             </select>
           </label>
@@ -86,7 +88,7 @@ export function SongCueLoader({ orgId, format, defaultTarget, connected, running
           {map?.cues.length === 0 && <p role="status" className="text-sm text-board-muted">This cue map is empty. Add section timings in Songs before loading it.</p>}
           <label className="text-xs text-board-muted">Cue map
             <select disabled={!song || loadingSong} value={mapId} onChange={(event) => setMapId(event.target.value)} className={inputClass}>
-              <option value="">{loadingSong ? "Loading cue maps…" : "Choose a cue map"}</option>
+              <option value="">{loadingSong ? <QuietActivity label="Loading cue maps…" /> : "Choose a cue map"}</option>
               {song?.cueMaps.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.cues.length} cues</option>)}
             </select>
           </label>
@@ -104,7 +106,7 @@ export function SongCueLoader({ orgId, format, defaultTarget, connected, running
           </div>}
           {!validHold && <p role="alert" className="text-xs text-amber-200">Hold must be a whole number of frames, zero or greater.</p>}
           {missingMapping && <p className="text-xs text-amber-200">This song has no ProPresenter presentation mapping. Choose Native display or import its presentation first.</p>}
-          <button disabled={!song || !map || map.cues.length === 0 || !parsedFormat || "error" in parsedFormat || !validOffset || !validHold || Boolean(missingMapping)} onClick={() => { void load(); }} className="min-h-11 rounded-xl bg-fire-500 p-3 text-sm font-bold text-black disabled:opacity-40">{saving ? "Waiting for relay…" : `Load ${map?.cues.length ?? 0} mapped cues`}</button>
+          <button disabled={!song || !map || map.cues.length === 0 || !parsedFormat || "error" in parsedFormat || !validOffset || !validHold || Boolean(missingMapping)} onClick={() => { void load(); }} className="min-h-11 rounded-xl bg-fire-500 p-3 text-sm font-bold text-black disabled:opacity-40">{saving ? <QuietActivity label="Waiting for relay…" /> : `Load ${map?.cues.length ?? 0} mapped cues`}</button>
         </fieldset>
       </DialogContent>
     </Dialog>

@@ -1,6 +1,9 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useRef, useState } from "react";
 import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
-import { authClient } from "@/lib/auth-client";
+import { useQueryClient } from "@tanstack/react-query";
+import { exitAccountLocally } from "@/components/layout/SignOutControl";
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { acceptInvitation, rejectInvitation, getInvitationDetails, setActiveOrg } from "@/lib/session";
 import { verificationHref } from "@/lib/auth-navigation";
 import { withOperationTimeout } from "@/lib/operation-timeout";
@@ -8,17 +11,18 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { InvitationView } from "@/lib/invitation-view";
 
 type Action = "accept" | "decline";
-type Operation = Action | "read" | "open" | "signout";
+type Operation = Action | "read" | "open";
 type State = { status: "idle" } | { status: "busy"; operation: Operation }
   | { status: "failed"; operation: Operation; message: string; at: number };
 const button = "inline-flex min-h-11 items-center justify-center rounded-xl border border-board-border px-4 py-3 text-sm font-medium focus-visible:outline-2 disabled:opacity-50";
-const retryLabels: Record<Operation, string> = { accept: "Retry acceptance", decline: "Retry decline", read: "Retry status check", open: "Retry opening workspace", signout: "Retry sign out" };
+const retryLabels: Record<Operation, string> = { accept: "Retry acceptance", decline: "Retry decline", read: "Retry status check", open: "Retry opening workspace" };
 
 export function InvitationResponseCard({ invitationId, initial, navigate }: {
   invitationId: string;
   initial: InvitationView;
   navigate: (href: string) => Promise<void>;
 }) {
+  const client = useQueryClient();
   const timeZone = useDeviceTimeZone();
   const [view, setView] = useState(initial);
   const [state, setState] = useState<State>({ status: "idle" });
@@ -50,12 +54,6 @@ export function InvitationResponseCard({ invitationId, initial, navigate }: {
     if (operation === "accept" || operation === "decline") setIntent(operation);
     try {
       const work = async () => {
-        if (operation === "signout") {
-          const result = await authClient.signOut({ fetchOptions: { signal: controller.signal } });
-          if (result.error) throw new Error("Could not confirm sign out. Try again.");
-          if (current()) await navigate(login);
-          return;
-        }
         const latest = await getInvitationDetails({ data: invitationId, signal: controller.signal });
         if (!current()) return;
         setView(latest);
@@ -78,10 +76,10 @@ export function InvitationResponseCard({ invitationId, initial, navigate }: {
         setView({ ...latest, status: saved.invitation.status === "accepted" ? "accepted" : "declined" });
       };
       await withOperationTimeout(work(), 10_000, operation === "read" ? "Could not check the invitation in time. Retry the status check."
-        : "The result is unconfirmed. Check the invitation status or retry the same action.");
+        : "This invitation needs attention.");
       if (current()) setState({ status: "idle" });
     } catch (error) {
-      if (current()) setState({ status: "failed", operation, message: error instanceof Error ? error.message : "The result is unconfirmed. Check the invitation status.", at: Date.now() });
+      if (current()) setState({ status: "failed", operation, message: error instanceof Error ? error.message : "This invitation needs attention.", at: Date.now() });
     } finally {
       controller.abort(); if (active.current === controller) active.current = null;
     }
@@ -114,7 +112,7 @@ export function InvitationResponseCard({ invitationId, initial, navigate }: {
         <div className="flex flex-wrap gap-2"><a href={login} className={`${button} bg-fire-500 text-black`}>Sign in</a><a href={`${login}&signup=1`} className={button}>Create account</a></div>
       </>}
       {view.status === "unverified" && <a className={button} href={verificationHref(returnTo)}>Verify email</a>}
-      {view.status === "wrong-account" && !(state.status === "failed" && state.operation === "signout") && <button type="button" className={button} disabled={busy} onClick={() => void run("signout")}>Use another account</button>}
+      {view.status === "wrong-account" && <button type="button" className={button} disabled={busy} onClick={() => { exitAccountLocally(client, view.userId); void navigate(login); }}>Use another account</button>}
       {view.status === "pending" && <>
         <p className="text-sm text-board-muted">Expires {new Date(view.invitation.expiresAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone })}.</p>
         {!intent && <div className="flex flex-wrap gap-2">
@@ -131,9 +129,9 @@ export function InvitationResponseCard({ invitationId, initial, navigate }: {
       {(view.status === "expired" || view.status === "canceled" || view.status === "access-removed") && <p className="text-sm text-board-muted">Ask a workspace administrator for a new invitation. This link cannot grant access.</p>}
       {view.status === "unavailable" && <p className="text-sm text-board-muted">The link is invalid or its invitation or workspace was removed.</p>}
       {view.status === "declined" && <p role="status" className="text-sm">Your decline was saved. You have not joined through this invitation.</p>}
-      {busy && <p role="status" className="text-sm">{state.operation === "read" ? "Checking invitation…" : state.operation === "open" ? "Opening workspace…" : state.operation === "signout" ? "Signing out…" : "Saving your response…"}</p>}
+      {busy && <p role="status" className="text-sm">{state.operation === "read" ? <QuietActivity label="Checking invitation…" /> : state.operation === "open" ? <QuietActivity label="Opening workspace…" /> : <QuietActivity label="Saving your response…" />}</p>}
       {state.status === "failed" && <div role="alert" className="space-y-2 text-sm text-red-300">
-        <p>{state.message}</p><p className="text-xs">Last attempt: {new Date(state.at).toLocaleTimeString()}</p>
+        <p>{plainFailure(state.message, "This invitation needs attention.")}</p>
         <button type="button" className={button} onClick={() => void run(state.operation)}>{retryLabels[state.operation]}</button>
       </div>}
       {view.status !== "signed-out" && <button type="button" className={button} disabled={busy} onClick={() => void run("read")}>Check invitation status</button>}

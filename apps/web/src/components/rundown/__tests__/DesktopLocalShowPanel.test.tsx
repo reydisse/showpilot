@@ -10,7 +10,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { localShowFixture } from "@/test/local-show-fixture";
-import { DesktopLocalShowPanel } from "../DesktopLocalShowPanel";
+import { OfflineShowPreparation as DesktopLocalShowPanel } from "@/components/settings/OfflineShowPreparation";
 import { DesktopLocalShowNotice } from "@/components/layout/DesktopLocalShowNotice";
 
 const mocks = vi.hoisted(() => ({
@@ -83,14 +83,14 @@ it("keeps the rundown clear and never calls a deliberately disabled local engine
   mocks.bridge.mockResolvedValue({ configured: false, localDevicesEnabled: false, running: false, connection: "offline", pid: null, logs: [], lastError: null });
   render(<DesktopLocalShowPanel {...props} />);
   await waitFor(() => expect(mocks.bridge).toHaveBeenCalled());
-  expect(screen.queryByRole("region", { name: "Local show" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Offline preparation" })).toBeNull();
   expect(mocks.native).not.toHaveBeenCalled();
 });
 
 it("keeps a real engine failure visible instead of calling it disabled", async () => {
-  mocks.bridge.mockResolvedValue({ configured: true, localDevicesEnabled: true, running: false, connection: "error", pid: null, logs: [], lastError: "Fixture engine could not start" });
+  mocks.bridge.mockResolvedValue({ configured: true, localDevicesEnabled: true, running: false, connection: "error", pid: null, logs: [], lastError: "This saved show needs attention." });
   render(<DesktopLocalShowPanel {...props} />);
-  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Fixture engine could not start");
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "This saved show needs attention.");
   expect(mocks.native).not.toHaveBeenCalled();
 });
 
@@ -99,7 +99,8 @@ it("prepares the exact saved cloud revision for this native installation and ver
   fireEvent.click(
     await screen.findByRole("button", { name: "Prepare this show" }),
   );
-  await screen.findByText(/Saved on this computer/);
+  await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1));
+  expect(screen.queryByText(/Saved on this computer/)).toBeNull();
   expect(mocks.prepare).toHaveBeenCalledWith({
     data: expect.objectContaining({
       orgId: props.orgId,
@@ -169,7 +170,7 @@ it("rechecks current access after confirmation", async () => {
   await screen.findByRole("dialog");
   ui.rerender(<DesktopLocalShowPanel {...props} canControl={false} />);
   await approve("Sync timer progress");
-  expect((await screen.findByRole("alert")).textContent).toContain("unlock");
+  expect((await screen.findByRole("alert")).textContent).toContain("This saved show needs attention.");
   expect(fetcher).not.toHaveBeenCalled();
 });
 it("cannot discard a session that became active while confirmation was open", async () => {
@@ -188,7 +189,7 @@ it("cannot discard a session that became active while confirmation was open", as
   });
   await approve("Discard local record");
   expect((await screen.findByRole("alert")).textContent).toContain(
-    "session changed",
+    "This saved show needs attention.",
   );
   expect(fixture.status().mode).toBe("active");
 });
@@ -220,7 +221,7 @@ it("does not render or invoke the native engine in a browser", async () => {
   mocks.desktop = false;
   render(<DesktopLocalShowPanel {...props} />);
   await act(async () => {});
-  expect(screen.queryByRole("region", { name: "Local show" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Offline preparation" })).toBeNull();
   expect(mocks.native).not.toHaveBeenCalled();
 });
 it("exports the public record without device credentials", async () => {
@@ -261,32 +262,11 @@ it("exports the public record without device credentials", async () => {
   expect(exported).not.toContain("127.0.0.1");
 });
 
-it("links saved progress from the Desktop toolbar only in its workspace", async () => {
-  fixture.prepare();
-  await fixture.finish();
+it("keeps finished local progress off the toolbar, including a different workspace", async () => {
+  fixture.prepare(); await fixture.finish();
   const ui = render(<DesktopLocalShowNotice orgId="org-1" slug="fixture" />);
-  expect(
-    (
-      await screen.findByRole("link", { name: "Review saved local progress" })
-    ).getAttribute("href"),
-  ).toBe("/fixture/rundown?show=show-1&date=2026-11-06");
+  await waitFor(() => expect(mocks.native).toHaveBeenCalled());
+  expect(screen.queryByRole("link")).toBeNull(); expect(screen.queryByText(/progress/)).toBeNull();
   ui.rerender(<DesktopLocalShowNotice orgId="other-org" slug="other" />);
-  expect(screen.queryByRole("link")).toBeNull();
-  expect(screen.getByRole("status").textContent).toContain(
-    "Open its workspace",
-  );
-  expect(screen.queryByText("Fixture service")).toBeNull();
-});
-it("removes the saved-progress notice once the native sync receipt is present", async () => {
-  fixture.prepare();
-  await fixture.finish();
-  await fixture.invoke({
-    operation: "reconciled",
-    sessionId: fixture.preparation.sessionId,
-    expectedSequence: 3,
-  });
-  render(<DesktopLocalShowNotice orgId="org-1" slug="fixture" />);
-  await act(async () => {});
-  expect(screen.queryByRole("link")).toBeNull();
-  expect(screen.queryByRole("status")).toBeNull();
+  expect(screen.queryByRole("link")).toBeNull(); expect(screen.queryByRole("status")).toBeNull();
 });

@@ -1,3 +1,5 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { useEffect, useId, useRef, useState } from "react";
 import { AlertCircle, ChevronDown } from "lucide-react";
 import { PhotoUpload } from "./PhotoUpload";
@@ -314,7 +316,7 @@ export function MemberForm({
           {error && (
             <p role="alert" className="mt-4 flex gap-2 text-sm text-red-400">
               <AlertCircle className="size-4 shrink-0" />
-              {error}
+              {plainFailure(error)}
             </p>
           )}
           <div className="mt-6 flex flex-wrap gap-3">
@@ -327,7 +329,7 @@ export function MemberForm({
               className={`${control} bg-fire-500 font-semibold text-black`}
             >
               {preparing
-                ? "Preparing photo…"
+                ? <QuietActivity label="Preparing photo…" />
                 : member
                   ? "Save crew member"
                   : "Add crew member"}

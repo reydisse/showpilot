@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useState } from "react";
 import { BellRing, CheckCircle2, ChevronRight } from "lucide-react";
 import { enablePushForOrg, isPushSupported } from "@/lib/notifications";
@@ -74,9 +76,7 @@ export function DeviceNotificationsControl({ orgId }: { orgId: string }) {
   return (
     <>
       {pushSupported && !pushStatusReady ? (
-        <p role="status" className="p-3 text-xs text-board-muted">
-          Checking device notifications…
-        </p>
+        <QuietActivity label="Checking device notifications…" />
       ) : null}
       {pushSupported && pushStatusReady ? (
         pushEnabled || pushPermission === "denied" ? (
@@ -121,7 +121,7 @@ export function DeviceNotificationsControl({ orgId }: { orgId: string }) {
       ) : null}
       {pushError ? (
         <p role="alert" className="px-3 py-1 text-xs leading-5 text-red-400">
-          {pushError}
+          {plainFailure(pushError)}
         </p>
       ) : null}
     </>

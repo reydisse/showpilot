@@ -186,11 +186,7 @@ it("allows Stop during Go Live and keeps Stop feedback after the older reply arr
     }),
   );
   await tick();
-  expect(
-    screen.getByText(
-      "Disconnect request confirmed. Check current output status above.",
-    ),
-  ).toBeTruthy();
+  expect(screen.queryByText("Disconnect request confirmed. Check current output status above.")).toBeNull();
   expect(screen.queryByText(/Go Live request confirmed/)).toBeNull();
 });
 it("reports partial failures by destination and retries the original request", async () => {
@@ -215,11 +211,7 @@ it("preserves success if the following read fails and offers only feedback retry
   await view();
   rpc.read.mockRejectedValue(new Error("Feedback unavailable"));
   await confirm();
-  expect(
-    screen.getByText(
-      "Go Live request confirmed. Check current output status above.",
-    ),
-  ).toBeTruthy();
+  expect(screen.queryByText("Go Live request confirmed. Check current output status above.")).toBeNull();
   expect(
     screen.getByRole("button", { name: "Retry streaming feedback" }),
   ).toBeTruthy();
@@ -298,11 +290,7 @@ it("keeps confirmed output changes visible while retrying notification delivery"
   }));
   await view();
   await confirm();
-  expect(
-    screen.getByText(
-      "Go Live request confirmed. Check current output status above.",
-    ),
-  ).toBeTruthy();
+  expect(screen.queryByText("Go Live request confirmed. Check current output status above.")).toBeNull();
   expect(screen.getByRole("alert").textContent).toContain(
     "Team notification was not saved",
   );

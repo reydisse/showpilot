@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useTmStream } from "@/hooks/useTmStream";
@@ -8,7 +9,7 @@ const statusLabels = {
   enabled: "Output enabled",
   disabled: "Output disabled",
   missing: "Output missing",
-  unconfirmed: "Not confirmed",
+  unconfirmed: "Needs attention",
   unknown: "Status unavailable",
   none: "Not connected",
 };
@@ -143,24 +144,20 @@ function StreamControls({
           Output enablement is checked with the provider. Confirm video and
           audio at each destination.
         </p>
-        <p className="text-xs text-board-muted">
-          {read.dataUpdatedAt
-            ? `${readFailure || stale ? "Last confirmed check" : "Checked"} ${new Date(read.dataUpdatedAt).toLocaleTimeString()}`
-            : "No confirmed check"}
-        </p>
+
       </header>
       <ReadFailureNotice
         error={
           readFailure
             ? {
                 message:
-                  read.error?.message ?? "Streaming feedback is unavailable.",
+                  read.error?.message ?? "Streaming details could not be updated.",
                 occurredAt: read.errorUpdatedAt,
               }
             : unknown
               ? {
                   message:
-                    "Some output statuses could not be confirmed. Retry to check the provider.",
+                    "Some destinations could not be reached.",
                   occurredAt: read.dataUpdatedAt,
                 }
               : null
@@ -171,9 +168,7 @@ function StreamControls({
       />
       <div className="space-y-3 p-4">
         {!state && !readFailure ? (
-          <p role="status" className="text-sm text-board-muted">
-            Checking streaming outputs…
-          </p>
+          <QuietActivity label="Checking streaming outputs…" />
         ) : null}
         {state ? (
           <>
@@ -251,7 +246,7 @@ function StreamControls({
             className="min-h-11 rounded-lg border px-3 text-sm text-amber-200"
           >
             {read.isFetching
-              ? "Checking streaming feedback…"
+              ? <QuietActivity label="Checking streaming feedback…" />
               : "Refresh streaming feedback"}
           </button>
         ) : null}
@@ -283,19 +278,14 @@ function StreamControls({
               request…
             </p>
           ) : latest?.status === "error" ? (
-            <p role="alert" className="text-amber-200">
-              {latest.error instanceof Error
-                ? latest.error.message
-                : "Streaming command was not confirmed."}{" "}
-              Checked {new Date(latest.at).toLocaleTimeString()}
-            </p>
+            <p role="alert">This stream change needs attention.</p>
           ) : null}
           {!control.pending && latest?.result ? (
             <>
               <p>
                 {latest.result.results.every((result) => result.success)
-                  ? `${latest.review?.command.action === "stream-stop" ? "Disconnect" : "Go Live"} request confirmed. Check current output status above.`
-                  : "Some destinations were not confirmed."}
+                  ? ""
+                  : "Some destinations could not be reached."}
               </p>
               {latest.result.results
                 .filter((result) => !result.success)
@@ -307,7 +297,7 @@ function StreamControls({
                   >
                     {latest.review?.names[result.id] ?? "Destination"}:{" "}
                     {result.error ??
-                      "Operation not confirmed. Retry the request."}
+                      "This action needs attention."}
                   </p>
                 ))}
             </>

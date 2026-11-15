@@ -11,10 +11,12 @@ export function AppButton({ label, loading, variant = "primary", disabled, style
   const { colors } = useAppTheme();
   const styles = useStyles();
   const inactive = disabled || loading;
+  const progress = loading || /^(?:Waiting for|Checking|Confirming|Syncing|Reconnecting|Refreshing|Loading|Saving|Sending|Preparing|Opening|Working|Finishing|Applying|Deleting|Clearing|Updating|Retrying|Signing out)(?:\s|…|\.\.\.|$)/.test(label);
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled: inactive, busy: loading }}
+      accessibilityLabel={props.accessibilityLabel ?? label}
+      accessibilityState={{ disabled: inactive, busy: progress }}
       disabled={inactive}
       style={(state) => [
         styles.base,
@@ -25,7 +27,7 @@ export function AppButton({ label, loading, variant = "primary", disabled, style
       ]}
       {...props}
     >
-      {loading ? (
+      {progress ? (
         <ActivityIndicator color={variant === "primary" ? colors.black : colors.text} />
       ) : (
         <Text style={[styles.label, variant === "primary" && styles.primaryLabel]} maxFontSizeMultiplier={1.5}>{label}</Text>

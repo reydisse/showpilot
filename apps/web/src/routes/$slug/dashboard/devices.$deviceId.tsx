@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { PageBreadcrumb } from "@/components/ui/PageBreadcrumb";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { ArrowLeft, Wifi, WifiOff, AlertTriangle, Loader2 } from "lucide-react";
@@ -75,7 +76,7 @@ function DeviceDetailPage({ device }: { device: NonNullable<Awaited<ReturnType<t
         </div>
       </div>
 
-      {error ? <p role="alert" className="mb-4 rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-300">{error} {errorAt !== null && <time dateTime={new Date(errorAt).toISOString()}>{new Date(errorAt).toLocaleTimeString()}</time>}</p> : null}
+      {error ? <p role="alert" className="mb-4 rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-sm text-red-300">{plainFailure(error)} {errorAt !== null && <time dateTime={new Date(errorAt).toISOString()}>{new Date(errorAt).toLocaleTimeString()}</time>}</p> : null}
 
       {/* Control Panel */}
       <DeviceControlPanel

@@ -80,7 +80,7 @@ describe("native background controller loading", () => {
       expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
       expect(screen.getByDisplayValue("Operator draft")).toBe(draft);
       expect(native.mountPage).toHaveBeenCalledTimes(1);
-      expect(screen.getByRole("alert").textContent).toContain("Fixture alerts unavailable");
+      expect(screen.getByRole("alert").textContent).toContain("Desktop alerts could not connect.");
       fireEvent.click(screen.getByRole("button", { name: "Retry desktop alerts" }));
       expect(native.retryNotifications).toHaveBeenCalledTimes(1);
     } finally {

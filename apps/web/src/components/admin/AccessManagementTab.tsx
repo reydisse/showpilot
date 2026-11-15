@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -133,15 +134,7 @@ export function AccessManagementTab({
     setShowGrantForm(true);
   };
   const recordResult = (result: AccessWriteResult) => {
-    const status =
-      result.kind === "revoke"
-        ? "Access revoked."
-        : result.state === "active"
-          ? "Access granted."
-          : "The original grant was saved, but it is no longer active. Retrying did not restore it.";
-    setResultMessage(
-      `${status} ${result.notification === "pending" ? "The member notification is pending. Retry it below." : result.notification === "superseded" ? "An outdated notification was skipped." : "The member notification was created."}`,
-    );
+    setResultMessage(result.notification === "pending" ? "Member alerts could not be sent." : "");
   };
   const submitGrant = (event: React.FormEvent) => {
     event.preventDefault();
@@ -219,7 +212,7 @@ export function AccessManagementTab({
   return (
     <div className="space-y-5">
       {ConfirmDialogEl}
-      {resultMessage && (
+      {resultMessage && notices.length === 0 && (
         <p
           role="status"
           className="rounded-lg border border-board-border p-3 text-sm text-board-text"
@@ -241,7 +234,7 @@ export function AccessManagementTab({
               className="flex flex-wrap items-center gap-3"
             >
               <p className="min-w-0 flex-1 text-sm text-board-muted">
-                {notice.message}
+                Member alerts could not be sent.
               </p>
               <button
                 type="button"
@@ -296,7 +289,7 @@ export function AccessManagementTab({
           role="alert"
           className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300"
         >
-          {error}
+          {plainFailure(error)}
         </div>
       ) : null}
 

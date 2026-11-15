@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { useEffect, useRef, useState } from "react";
 import {
   Image,
@@ -177,14 +179,12 @@ export function CrewProfileSheet(props: {
             signed in.
           </Text>
           {state.error || photoError ? (
-            <Text accessibilityRole="alert" style={styles.error}>
+            <FailureText accessibilityRole="alert" style={styles.error}>
               {state.error || photoError}
-            </Text>
+            </FailureText>
           ) : null}
           {state.reading ? (
-            <Text accessibilityLiveRegion="polite" style={styles.hint}>
-              Loading the current crew profile…
-            </Text>
+            <QuietActivity />
           ) : null}
           {deleting ? (
             <Text style={styles.hint}>
@@ -209,7 +209,7 @@ export function CrewProfileSheet(props: {
               </Pressable>
               <Text style={styles.hint}>
                 {preparingPhoto
-                  ? "Preparing photo…"
+                  ? <QuietActivity label="Preparing photo…" />
                   : "Choose a square crew photo."}
               </Text>
               <AppField
@@ -320,17 +320,15 @@ export function CrewProfileSheet(props: {
             />
           ) : null}
           {attempt?.kind === "pending" ? (
-            <Text accessibilityLiveRegion="polite" style={styles.hint}>
-              Confirming the original crew change…
-            </Text>
+            <QuietActivity />
           ) : null}
           {attempt?.kind === "failed" ? (
             <>
-              <Text accessibilityRole="alert" style={styles.error}>
+              <FailureText accessibilityRole="alert" style={styles.error}>
                 {attempt.message} The change may already have saved. Retry sends
                 the same request; Review checks it or cancels it before a late
                 write can apply.
-              </Text>
+              </FailureText>
               <AppButton
                 label="Retry original crew change"
                 disabled={!active}
@@ -352,14 +350,14 @@ export function CrewProfileSheet(props: {
                   : "The original crew change was cancelled before it applied. Your draft is retained."}
               </Text>
               {attempt.refresh === "pending" ? (
-                <Text style={styles.hint}>Refreshing the roster…</Text>
+                <QuietActivity />
               ) : null}
               {attempt.refresh === "failed" || attempt.refresh === "idle" ? (
                 <>
-                  <Text accessibilityRole="alert" style={styles.error}>
+                  <FailureText accessibilityRole="alert" style={styles.error}>
                     {attempt.message ?? "Refresh the roster to finish."} The
                     outcome above is confirmed.
-                  </Text>
+                  </FailureText>
                   <AppButton
                     label="Refresh roster only"
                     disabled={!active}

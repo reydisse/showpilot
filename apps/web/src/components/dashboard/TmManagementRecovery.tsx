@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState } from "react";
 import {
   Dialog,
@@ -40,7 +42,7 @@ export function TmManagementRecovery({
     <div className="px-3 sm:px-6 space-y-2 text-sm break-words">
       {control.read.isError ? (
         <div role="alert" className="py-2">
-          <p>{control.read.error.message}</p>
+          <p>{plainFailure(control.read.error.message)}</p>
           <button
             className={buttonClass}
             disabled={control.read.isFetching}
@@ -74,8 +76,8 @@ export function TmManagementRecovery({
               {item.attempt.label}:{" "}
               {pending
                 ? item.attempt.mode === "review"
-                  ? "Checking the saved result…"
-                  : "Saving…"
+                  ? <QuietActivity label="Checking the saved result…" />
+                  : <QuietActivity label="Saving…" />
                 : failed
                   ? item.error?.message
                   : result?.outcome === "conflict"
@@ -141,7 +143,7 @@ export function TmManagementRecovery({
             notification deliveries still need confirmation.
           </p>
           {control.notifications.isError ? (
-            <p role="alert">{control.notifications.error.message}</p>
+            <p role="alert">{plainFailure(control.notifications.error.message)}</p>
           ) : null}
           <button
             className={buttonClass}
@@ -152,7 +154,7 @@ export function TmManagementRecovery({
             onClick={() => control.notifications.mutate()}
           >
             {control.notifications.isPending
-              ? "Retrying notifications…"
+              ? <QuietActivity label="Retrying notifications…" />
               : "Retry notifications"}
           </button>
         </div>

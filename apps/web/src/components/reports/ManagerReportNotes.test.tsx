@@ -138,7 +138,7 @@ it("bounds a missing reply, freezes the captured draft and retries the same save
   edit("Original draft");
   fireEvent.click(screen.getByRole("button", { name: "Save my notes" }));
   await act(() => vi.advanceTimersByTimeAsync(10_000));
-  expect(screen.getByRole("alert").textContent).toContain("may have completed");
+  expect(screen.getByRole("alert").textContent).toContain("Your note needs attention.");
   expect(
     screen
       .getByRole("textbox", { name: "Overall summary" })

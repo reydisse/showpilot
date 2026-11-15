@@ -284,7 +284,7 @@ it("retries notifications without repeating the saved roster command", async () 
     screen.getByRole("button", { name: "Retry duty notifications" }),
   );
   await tick(8_100);
-  expect(screen.getByText(/Last delivery attempt/)).toBeTruthy();
+  expect(screen.queryByText(/Last delivery attempt/)).toBeNull(); expect(screen.getByRole("button", { name: "Retry duty notifications" })).toBeTruthy();
   snapshot.pendingNotifications = 0;
   fireEvent.click(
     screen.getByRole("button", { name: "Retry duty notifications" }),
@@ -409,7 +409,7 @@ it("PM uses confirmed assignments, recovers timed-out writes, and never copies o
   );
   expect(screen.queryByText("Confirmed")).toBeNull();
   expect(
-    screen.getByText("Assigned; attendance awaiting refresh"),
+    screen.getByText("Assigned"),
   ).toBeTruthy();
 });
 it("refreshes changes from another operator without discarding unsaved selections", async () => {

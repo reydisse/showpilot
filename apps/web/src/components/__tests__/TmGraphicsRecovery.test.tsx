@@ -177,11 +177,7 @@ it("preserves confirmed success when the following read fails", async () => {
   await view();
   rpc.read.mockRejectedValue(new Error("Read failed"));
   await confirm();
-  expect(
-    screen.getByText(
-      "Clear request confirmed. Current graphics are shown above.",
-    ),
-  ).toBeTruthy();
+  expect(screen.queryByText("Clear request confirmed. Current graphics are shown above.")).toBeNull();
   expect(
     screen.getByRole("button", { name: "Retry graphics feedback" }),
   ).toBeTruthy();

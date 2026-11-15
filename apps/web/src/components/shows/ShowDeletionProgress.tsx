@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import type { useShowDeletions } from "@/hooks/useShowDeletions";
 
 const buttonClass =
@@ -27,10 +28,7 @@ export function ShowDeletionProgress({
                 {work.target.name || "Untitled show"}
               </h2>
               {work.kind === "deleting" && (
-                <p role="status" className="mt-2 text-sm leading-6">
-                  Deleting show… You can leave Schedule and return to check the
-                  result.
-                </p>
+                <QuietActivity />
               )}
               {work.kind === "unconfirmed" && (
                 <>
@@ -38,10 +36,7 @@ export function ShowDeletionProgress({
                     role="alert"
                     className="mt-2 text-sm leading-6 text-red-300"
                   >
-                    {work.message} Deletion is not confirmed. The original
-                    request is retained; retrying finishes or confirms that
-                    deletion.
-                  </p>
+                    {work.message} This change needs attention.</p>
                   <button
                     className={`${buttonClass} mt-3`}
                     onClick={() => void controller.retry(work.target.showId)}
@@ -67,7 +62,7 @@ export function ShowDeletionProgress({
                       }
                     >
                       {work.refresh === "pending"
-                        ? "Refreshing…"
+                        ? <QuietActivity label="Refreshing…" />
                         : "Refresh Schedule"}
                     </button>
                     <button
@@ -84,16 +79,14 @@ export function ShowDeletionProgress({
                 <>
                   <p role="status" className="mt-2 text-sm leading-6">
                     Show deleted.
-                    {work.refresh === "pending" ? " Refreshing Schedule…" : ""}
+                    {work.refresh === "pending" ? <QuietActivity label=" Refreshing Schedule…" /> : ""}
                   </p>
                   {work.message && (
                     <p
                       role="alert"
                       className="mt-2 text-sm leading-6 text-red-300"
                     >
-                      {work.message} Deletion is confirmed; refresh will not
-                      delete again.
-                    </p>
+                      {work.message} </p>
                   )}
                   <button
                     className={`${buttonClass} mt-3`}
@@ -107,7 +100,7 @@ export function ShowDeletionProgress({
                     {work.refresh === "done"
                       ? "Dismiss"
                       : work.refresh === "pending"
-                        ? "Refreshing…"
+                        ? <QuietActivity label="Refreshing…" />
                         : "Refresh Schedule"}
                   </button>
                 </>

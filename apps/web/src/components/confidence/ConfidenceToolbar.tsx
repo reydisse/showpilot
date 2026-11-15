@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useState } from "react";
 import { Monitor, Power } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -45,7 +47,7 @@ export function ConfidenceToolbar({ slug, orgId }: { slug: string; orgId?: strin
           <span className="hidden min-[1200px]:inline">Confidence</span>
           <span className={`inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium ${failed ? "bg-red-500/10 text-red-400" : output.enabled ? "bg-green-500/10 text-green-400" : "bg-board-text/5 text-board-muted"}`}>
             <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
-            {output.busy ? "Updating…" : output.status.state === "starting" ? "Starting…" : failed ? "Error" : output.enabled ? "Live" : "Off"}
+            {output.busy ? <QuietActivity label="Updating…" /> : output.status.state === "starting" ? <QuietActivity label="Starting…" /> : failed ? "Error" : output.enabled ? "Live" : "Off"}
           </span>
         </button>
         <button
@@ -68,7 +70,7 @@ export function ConfidenceToolbar({ slug, orgId }: { slug: string; orgId?: strin
           <DialogTitle>Confidence display</DialogTitle>
           <DialogDescription>Choose an output and adjust what your team sees.</DialogDescription>
           <ConfidenceOutputControls slug={slug} output={output} />
-          {layoutError && <p role="alert" className="text-sm text-red-400">{layoutError}</p>}
+          {layoutError && <p role="alert" className="text-sm text-red-400">{plainFailure(layoutError)}</p>}
           {orgId && layoutOrg === orgId && layout !== null && (
             <ConfidenceSection key={orgId} orgId={orgId} slug={slug} initialValue={layout} onApplied={setLayout} onDirtyChange={setDirty} showOutputs={false} />
           )}

@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useState } from "react";
 import { useConfirmedWrite } from "@/hooks/useConfirmedWrite";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -99,7 +100,7 @@ export function ManagerReportNotes({
           !["applied", "conflict"].includes(result.outcome)
         )
           throw new Error(
-            "The note save could not be confirmed. Retry the same save.",
+            "This change needs attention.",
           );
         return result;
       },
@@ -225,9 +226,7 @@ export function ManagerReportNotes({
             </p>
           )}
           {write.state.status === "saving" && (
-            <p role="status" className="text-sm">
-              Saving note…
-            </p>
+            <QuietActivity label="Saving note…" />
           )}
           {write.state.status === "failed" && (
             <div
@@ -235,17 +234,9 @@ export function ManagerReportNotes({
               className="space-y-3 rounded-lg border border-amber-400/30 bg-amber-500/5 p-3 text-sm text-amber-200"
             >
               <p>
-                The note save was not confirmed and may have completed. Your
-                draft is kept. Retry checks the same save without overwriting a
-                newer note.
-              </p>
+                Your note needs attention.</p>
               <p>{write.state.message}</p>
-              <p>
-                Last error{" "}
-                <time dateTime={new Date(write.state.at).toISOString()}>
-                  {new Date(write.state.at).toLocaleTimeString()}
-                </time>
-              </p>
+
               <button className={action} onClick={() => void write.retry()}>
                 Retry note save
               </button>

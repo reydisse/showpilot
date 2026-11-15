@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect, useCallback } from "react";
 import { Check, LoaderCircle, Mail } from "lucide-react";
@@ -137,7 +139,7 @@ function ForgotPasswordPage() {
 
               {error && (
                 <div className="flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2.5">
-                  <p className="text-sm text-red-300">{error}</p>
+                  <p className="text-sm text-red-300">{plainFailure(error)}</p>
                 </div>
               )}
 
@@ -150,7 +152,7 @@ function ForgotPasswordPage() {
               >
                 {loading ? <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" /> : <Mail aria-hidden="true" />}
                 {loading
-                  ? "Sending..."
+                  ? <QuietActivity label="Sending..." />
                   : cooldown > 0
                     ? `Wait ${cooldown}s`
                     : "Send Reset Link"}

@@ -73,7 +73,7 @@ it("saves the selected file version and volume, and retains them after a failed 
       volume: 0.6,
     },
   });
-  expect(screen.getByRole("alert").textContent).toBe("Save not confirmed");
+  expect(screen.getByRole("alert").textContent).toBe("This action needs attention.");
   expect(screen.getByLabelText("Media clip")).toHaveProperty("value", asset.id);
   expect(screen.getByLabelText("Media volume (%)")).toHaveProperty(
     "value",

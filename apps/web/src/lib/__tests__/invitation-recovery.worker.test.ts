@@ -175,7 +175,7 @@ it("reveals invitation details only to the current verified recipient, even with
   await f.prisma.user.update({ where: { id: f.id }, data: { emailVerified: false } });
   expect(await getInvitationDetails({ data: f.invitationId })).toEqual({ status: "unverified", email: `${f.id}@example.test` });
   await f.prisma.user.update({ where: { id: f.id }, data: { emailVerified: true, email: `changed-${f.id}@example.test` } });
-  expect(await getInvitationDetails({ data: f.invitationId })).toEqual({ status: "wrong-account", email: `changed-${f.id}@example.test` });
+  expect(await getInvitationDetails({ data: f.invitationId })).toEqual({ status: "wrong-account", email: `changed-${f.id}@example.test`, userId: f.id });
   await f.prisma.session.deleteMany({ where: { userId: f.id } });
   expect(await getInvitationDetails({ data: f.invitationId })).toEqual({ status: "signed-out" });
 });

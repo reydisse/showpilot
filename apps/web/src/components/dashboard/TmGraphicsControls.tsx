@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useTmGraphics } from "@/hooks/useTmGraphics";
@@ -55,7 +56,7 @@ function GraphicsControls({
             ? "Program cleared. A newer lower third was preserved. Review current output before clearing again."
             : result.relay === "expired"
               ? "Program cleared, but the lower-third clear expired. Review current output before trying again."
-              : "Clear request confirmed. Current graphics are shown above.";
+              : "";
   return (
     <section
       aria-label="Graphics controls"
@@ -93,18 +94,14 @@ function GraphicsControls({
         <p className="text-sm text-board-muted">
           On-air graphics and lower thirds
         </p>
-        <p className="text-xs text-board-muted">
-          {read.dataUpdatedAt
-            ? `${readFailure || stale ? "Last confirmed check" : "Checked"} ${new Date(read.dataUpdatedAt).toLocaleTimeString()}`
-            : "No confirmed check"}
-        </p>
+
       </header>
       <ReadFailureNotice
         error={
           readFailure
             ? {
                 message:
-                  read.error?.message ?? "Graphics feedback is unavailable.",
+                  read.error?.message ?? "Graphics could not be updated.",
                 occurredAt: read.errorUpdatedAt,
               }
             : null
@@ -115,9 +112,7 @@ function GraphicsControls({
       />
       <div className="space-y-3 p-4 text-sm text-board-text">
         {!state && !readFailure ? (
-          <p role="status" className="text-board-muted">
-            Checking graphics output…
-          </p>
+          <QuietActivity label="Checking graphics output…" />
         ) : null}
         {state ? (
           <>
@@ -164,7 +159,7 @@ function GraphicsControls({
             className="min-h-11 rounded-lg border px-3 text-amber-200"
           >
             {read.isFetching
-              ? "Checking graphics feedback…"
+              ? <QuietActivity label="Checking graphics feedback…" />
               : "Refresh graphics feedback"}
           </button>
         ) : null}
@@ -178,15 +173,10 @@ function GraphicsControls({
         </button>
         <div aria-live="polite" className="space-y-2">
           {control.pending ? (
-            <p>Clearing reviewed graphics…</p>
+            <QuietActivity />
           ) : control.latest?.status === "error" ? (
-            <div role="alert" className="text-amber-200">
-              <p>
-                {control.latest.error instanceof Error
-                  ? control.latest.error.message
-                  : "Clear was not confirmed."}{" "}
-                Checked {new Date(control.latest.at).toLocaleTimeString()}
-              </p>
+            <div role="alert" className="text-amber-200"><p>This graphics change needs attention.</p>
+
               <button
                 type="button"
                 onClick={control.retry}

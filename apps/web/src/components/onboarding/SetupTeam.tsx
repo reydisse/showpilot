@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useState } from "react";
 import { ArrowRight, Plus, QrCode } from "lucide-react";
 import { workspaceCopy } from "@showpilot/shared";
@@ -20,10 +22,10 @@ export function SetupTeam({ orgId, onFinished, onStateChange }: { orgId: string;
   return <div className="space-y-4" aria-busy={save.busy}>
     {ConfirmDialogEl}
     {save.failure && <div role="alert" className="rounded-xl border border-red-400/40 p-4 text-sm text-red-200">
-      <p>{save.failure.message}</p><p className="mt-2">Last attempt: {new Date(save.failure.occurredAt).toLocaleTimeString()}</p>
+      <p>{plainFailure(save.failure.message)}</p>
     </div>}
-    {save.busy && <p role="status" className="flex items-center gap-2 text-sm"><span aria-hidden="true" className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />Saving setup…</p>}
-    {!save.snapshot && !save.busy && !save.failure && <p role="status">Loading saved setup…</p>}
+    {save.busy && <p role="status" className="flex items-center gap-2 text-sm"><span aria-hidden="true" className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />{<QuietActivity />}</p>}
+    {!save.snapshot && !save.busy && !save.failure && <QuietActivity label="Loading saved setup…" />}
     {(!save.snapshot || save.failure || batch) && <button type="button" className={actionClass} disabled={save.busy} onClick={() => void save.check()}>Check saved results</button>}
     {save.snapshot && !batch && <>
       <SetupTeamForm taking={save.busy} locked={save.frozen} onGoLive={team => save.save(team)} />
@@ -35,14 +37,11 @@ export function SetupTeam({ orgId, onFinished, onStateChange }: { orgId: string;
       {batch.crew.length > 0 && <ul className="space-y-2">{batch.crew.map(row => <li key={row.id} className="rounded-lg border border-white/15 p-3">{row.name} · {row.pos}</li>)}</ul>}
       {batch.invites.map((row, index) => {
         const job = save.snapshot?.invitations[index];
-        const label = !job ? "Not sent yet." : job.state === "accepted" ? "Invitation created. Email accepted for delivery."
-          : job.state === "failed" ? "Invitation created. Email delivery failed."
-          : job.state === "running" && setupAttemptIsActive(job) ? "Sending invitations…"
-          : "Invitation or email delivery is not confirmed.";
+        const label = job?.state === "failed" ? "The invitation email could not be sent." : job?.state === "accepted" || job?.state === "running" && setupAttemptIsActive(job) ? "" : "This invitation needs attention.";
         return <div key={row.email} className="space-y-2 break-words rounded-xl border border-white/20 p-4">
           <p className="font-semibold">{row.email}</p><p className="text-sm text-slate-300">{ROLE_META[row.role].label}</p>
-          <p role="status" className="text-sm">{label}</p>
-          {job && <p className="text-xs text-slate-400">Last attempt: {new Date(job.occurredAt).toLocaleTimeString()}</p>}
+          {job?.state === "running" && setupAttemptIsActive(job) ? <QuietActivity label="Sending invitation" /> : label && <p role="alert" className="text-sm">{label}</p>}
+          {job && null}
           {job?.state !== "accepted" && <>
             {job && <p className="text-sm text-slate-300">Check saved results first. Resending may send another email if the earlier delivery succeeded. Expired, revoked or mismatched invitations need review in Team.</p>}
             <button type="button" aria-label={`${job ? "Resend" : "Send"} invitation to ${row.email}`} disabled={save.busy || Boolean(job && setupAttemptIsActive(job))} className={actionClass}
@@ -53,7 +52,7 @@ export function SetupTeam({ orgId, onFinished, onStateChange }: { orgId: string;
       <p className="text-sm text-slate-300">Finishing setup opens your workspace. It does not start a show or turn on outputs.</p>
       {unresolved === 0 ? <button type="button" className={actionClass} disabled={save.busy} onClick={() => void save.finish()}>Finish setup</button>
         : <button type="button" className={actionClass} disabled={save.busy} onClick={async () => {
-          const accepted = await confirm({ title: "Continue with unresolved invitations?", description: "Your saved crew will stay. Some invitations have not been confirmed, and pending requests may still finish. Review or resend them from Team after setup.", confirmLabel: "Continue to workspace", variant: "warning" });
+          const accepted = await confirm({ title: "Continue with unresolved invitations?", description: "Some invitations need attention.", confirmLabel: "Continue to workspace", variant: "warning" });
           if (accepted) void save.finish(true);
         }}>Continue without remaining invitations</button>}
     </section>}
@@ -181,7 +180,7 @@ export function SetupTeamForm({
         </p>
         <p className="text-sm" style={{ color: T.muted }}>Finish setup saves these people and opens your workspace. It does not start a show or turn on outputs.</p>
         <button type="submit" disabled={taking || locked} className="inline-flex min-h-11 items-center gap-2 rounded-xl px-5 py-3 font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-400 disabled:opacity-60"
-          style={{ background: T.amber, color: T.stage }}>{taking ? "Finishing setup…" : locked ? "Team awaiting confirmation" : "Finish setup"}<ArrowRight size={17} /></button>
+          style={{ background: T.amber, color: T.stage }}>{taking ? <QuietActivity label="Finishing setup…" /> : locked ? "Team needs attention" : "Finish setup"}<ArrowRight size={17} /></button>
       </div>
     </form>
   );

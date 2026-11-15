@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState } from "react";
 import { LogIn, LogOut, Search, X } from "lucide-react";
 import type { CrewAttendanceMember } from "@/lib/crew-attendance-writes";
@@ -31,6 +32,6 @@ export function CheckInList({ members, blocked, refreshing, onChange, onSetAll }
       <div className="min-w-0"><p className="break-words text-sm font-medium">{member.name}</p><p className="break-words text-xs text-board-muted">{member.role}</p><p className={`text-xs ${member.isOnline ? "text-green-400" : "text-board-muted"}`}>{member.isOnline ? "Checked in" : "Checked out"}</p></div>
       <button type="button" disabled={blocked} onClick={() => onChange(member)} aria-label={`Check ${member.name} ${member.isOnline ? "out" : "in"}`} className={`${actionClass} shrink-0`}>{member.isOnline ? "Check out" : "Check in"}</button>
     </div>)}</div>
-    {filtered.length === 0 && (refreshing && members.length === 0 ? <p role="status">Loading crew…</p> : <p className="py-5 text-sm text-board-muted">{term ? "No crew match this search." : "No crew members yet. Ask a team admin to add crew."}</p>)}
+    {filtered.length === 0 && (refreshing && members.length === 0 ? <QuietActivity label="Loading crew…" /> : <p className="py-5 text-sm text-board-muted">{term ? "No crew match this search." : "No crew members yet. Ask a team admin to add crew."}</p>)}
   </div>;
 }

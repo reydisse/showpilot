@@ -260,7 +260,7 @@ export default function IncidentsScreen() {
                   <Text style={styles.serviceDateLabel}>
                     {workspaceCopy("SERVICE DATE", workspaceTerms)}
                   </Text>
-                  <Text style={styles.serviceDateValue}>{reportServiceDate ?? "Loading venue date…"}</Text>
+                  <Text style={styles.serviceDateValue}>{reportServiceDate ?? ""}</Text>
                 </View>
                 <AppButton label={editingId ? "Save changes" : "Report incident"} loading={mutation.isPending} disabled={mutation.isPending || (!editingId && !reportServiceDate) || description.trim().length < 2} onPress={() => mutation.mutate()} />
               </View>
@@ -320,7 +320,7 @@ export default function IncidentsScreen() {
               ) : incident.acknowledgedAt ? (
                 <Text style={styles.timeline}>Acknowledged · {new Date(incident.acknowledgedAt).toLocaleString()}</Text>
               ) : incident.assignedName ? (
-                <Text style={styles.timeline}>Awaiting acknowledgement</Text>
+                <Text style={styles.timeline}></Text>
               ) : null}
               <IncidentDiscussion
                 comments={incidentComments}

@@ -26,7 +26,7 @@ export class SignOutFailure extends Error {
   }
 }
 
-export async function confirmAccountSignOut(original: SignOutCommand) {
+export async function confirmAccountSignOut(original: SignOutCommand, signal?: AbortSignal) {
   let command = original;
   try {
     return await runRouteLoad(
@@ -56,6 +56,7 @@ export async function confirmAccountSignOut(original: SignOutCommand) {
           fetchOptions: {
             ...fetchOptions,
             body: { expectedSessionId: command.expectedSessionId },
+            headers: signal ? { "X-ShowPilot-Local-Exit": "1" } : undefined,
           },
         });
         controller.signal.throwIfAborted();
@@ -64,7 +65,7 @@ export async function confirmAccountSignOut(original: SignOutCommand) {
         if (result.error) throw new Error("Sign-out could not be confirmed");
         return successSchema.parse(result.data);
       },
-      undefined,
+      signal,
       8_000,
     );
   } catch (error) {

@@ -106,6 +106,6 @@ it("hydrates the six-step header across server/browser time zones", async () => 
 it("keeps an uncertain draft locked without claiming it is still saving", () => {
   render(<SetupTeamForm taking={false} locked onGoLive={submitTeam} />);
   expect(screen.getByLabelText("Crew 1 name")).toHaveProperty("disabled", true);
-  expect(screen.getByRole("button", { name: "Team awaiting confirmation" })).toHaveProperty("disabled", true);
+  expect(screen.getByRole("button", { name: "Team needs attention" })).toHaveProperty("disabled", true);
   expect(screen.queryByText("Finishing setup…")).toBeNull();
 });

@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import type { PropsWithChildren, ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { createThemedStyles, fontFamily, radii, spacing } from "@/theme/tokens";
@@ -52,7 +54,7 @@ export function OperationsEmpty({ children }: PropsWithChildren) {
 
 export function OperationsError({ message }: { message: string }) {
   const styles = useStyles();
-  return <Text accessibilityRole="alert" style={styles.error}>{message}</Text>;
+  return <FailureText accessibilityRole="alert" style={styles.error}>{plainFailure(message)}</FailureText>;
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({

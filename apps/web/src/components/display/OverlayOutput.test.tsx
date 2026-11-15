@@ -44,12 +44,12 @@ describe("overlay continuity", () => {
     const graphic = screen.getByText("Confirmed graphic");
     expect(graphic.getAttribute("data-visible")).toBe("true");
     offline = true; await tick(500);
-    expect(screen.getByRole("alert").textContent).toContain("Keeping the last confirmed output");
-    expect(document.querySelector("time")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("This display could not be updated.");
+    expect(document.querySelector("time")).toBeFalsy();
     expect(screen.getByText("Confirmed graphic")).toBe(graphic);
     fixture.monitor = false; rerender(<Page />);
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(document.title).toContain("reconnecting");
+    expect(document.title).toBe("ShowPilot display");
     expect(document.querySelector(".overlay-container")?.getAttribute("data-connection-state")).toBe("reconnecting");
     fixture.monitor = true; rerender(<Page />); offline = false;
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Retry overlay" })); });

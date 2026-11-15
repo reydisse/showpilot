@@ -17,7 +17,7 @@ it("bounds reads and retains confirmed entries without allowing a stale write",a
   let late:(value:unknown)=>void=()=>{};api.entries.mockImplementationOnce(()=>new Promise(resolve=>{late=resolve;}));
   render(<ChecklistWorkspace initial={initial}/>);await tick(8000);
   expect(screen.getByText("Line check")).toBeTruthy();expect(screen.queryByText("Loading checklist...")).toBeNull();
-  expect(screen.getByRole("alert",{name:"Retry checklist"}).querySelector("time")).not.toBeNull();
+  expect(screen.getByRole("alert",{name:"Retry checklist"}).querySelector("time")).toBeNull();
   expect(screen.getByRole("button",{name:"Mark complete: Line check"})).toHaveProperty("disabled",true);
   await act(async()=>late([]));expect(screen.getByText("Line check")).toBeTruthy();
   fireEvent.click(screen.getByRole("button",{name:"Retry checklist"}));await tick();
@@ -46,7 +46,7 @@ it("retains add text and the original request after a lost save response",async(
   fireEvent.change(screen.getByLabelText("Checklist item"),{target:{value:"Camera"}});api.write.mockRejectedValueOnce(new Error("lost"));
   fireEvent.click(screen.getByRole("button",{name:"Add checklist item"}));await tick();
   expect(screen.getByLabelText("Checklist item")).toHaveProperty("value","Camera");
-  expect(screen.getByRole("alert",{name:"Retry checklist save"}).querySelector("time")).not.toBeNull();
+  expect(screen.getByRole("alert",{name:"Retry checklist save"}).querySelector("time")).toBeNull();
   fireEvent.click(screen.getByRole("button",{name:"Retry checklist save"}));await tick();
   expect(api.write.mock.calls[1][0].data).toEqual(api.write.mock.calls[0][0].data);expect(screen.getByLabelText("Checklist item")).toHaveProperty("value","");
 });

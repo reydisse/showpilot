@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { StyleSheet, Text, View } from "react-native";
 import { AppButton } from "./app-button";
 import { createThemedStyles, fontFamily, radii } from "@/theme/tokens";
@@ -28,16 +30,13 @@ export function ScheduleReminderProgress({
           <View key={slot} accessibilityLiveRegion="polite" style={styles.card}>
             <Text style={styles.title}>{attempt.label}</Text>
             {attempt.kind === "pending" ? (
-              <Text style={styles.copy}>
-                Checking reminder delivery… You can leave this screen and return
-                to check the result.
-              </Text>
+              <QuietActivity />
             ) : null}
             {attempt.kind === "failed" ? (
               <>
-                <Text accessibilityRole="alert" style={styles.error}>
+                <FailureText accessibilityRole="alert" style={styles.error}>
                   {attempt.message}
-                </Text>
+                </FailureText>
                 <Text style={styles.copy}>
                   Some emails may already have been accepted. Retry checks this
                   request without repeating accepted emails.
@@ -52,7 +51,7 @@ export function ScheduleReminderProgress({
               <>
                 <Text style={styles.copy}>
                   {attempt.kind !== "confirmed"
-                    ? "Previous confirmed result: "
+                    ? "Previous result:"
                     : ""}
                   {result.items.length
                     ? `${result.items.filter((item) => item.email === "accepted").length} of ${result.items.length} emails accepted by the delivery service.`
@@ -68,20 +67,16 @@ export function ScheduleReminderProgress({
             ) : null}
             {attempt.kind === "confirmed" ? (
               <>
-                <Text style={styles.copy}>
-                  Last checked: {new Date(attempt.at).toLocaleString()}
-                </Text>
+                {null}
                 {attempt.refresh === "pending" ? (
-                  <Text style={styles.copy}>
-                    Delivery checked. Refreshing Schedule…
-                  </Text>
+                  <QuietActivity />
                 ) : null}
                 {attempt.refresh === "idle" || attempt.refresh === "failed" ? (
                   <>
                     {attempt.message ? (
-                      <Text accessibilityRole="alert" style={styles.error}>
+                      <FailureText accessibilityRole="alert" style={styles.error}>
                         {attempt.message}
-                      </Text>
+                      </FailureText>
                     ) : null}
                     <Text style={styles.copy}>
                       Delivery was checked. Refresh Schedule to see the current

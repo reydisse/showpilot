@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import {
   createFileRoute,
   useBlocker,
@@ -440,7 +441,7 @@ function ReportDetailModal({
     initialValue: null,
     read: readReport,
     errorMessage:
-      "The report details could not be confirmed. Retry the read; no notes will be changed.",
+      "This change needs attention.",
   });
   const [updated, setUpdated] = useState<ShowReport | null>(null),
     report = updated ?? read.value;
@@ -575,12 +576,7 @@ function ReportDetailModal({
             />
             {!report ? (
               !read.error && (
-                <p
-                  role="status"
-                  className="p-8 text-center text-sm text-board-muted"
-                >
-                  Loading full report…
-                </p>
+                <QuietActivity label="Loading full report…" />
               )
             ) : (
               <div className="min-w-0 space-y-5 p-4">

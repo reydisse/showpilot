@@ -129,13 +129,7 @@ export function RundownPinForm({
               <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
               <div>
                 <p>{state.message}</p>
-                <time
-                  dateTime={new Date(state.occurredAt).toISOString()}
-                  className="mt-1 block text-xs"
-                >
-                  Last attempt:{" "}
-                  {new Date(state.occurredAt).toLocaleTimeString()}
-                </time>
+
               </div>
             </div>
           )}

@@ -29,6 +29,8 @@ const code = ts.transpileModule(
 const host = ({ children, accessibilityRole }) =>
   React.createElement("div", { role: accessibilityRole }, children);
 const modules = {
+  "@/components/failure-text": { FailureText: ({ children, accessibilityRole }) => React.createElement("p", { role: accessibilityRole }, children) },
+  "@/components/quiet-activity": { QuietActivity: () => jsx.jsx("span", { role: "progressbar", "aria-label": "Loading" }) },
   "react/jsx-runtime": jsx,
   "react-native": {
     View: host,
@@ -166,7 +168,7 @@ it("unconfirmed copies retain previous results and cannot be dismissed", () => {
   expect(
     screen.getByText(/Some positions and invitations may already be saved/),
   ).toBeTruthy();
-  expect(screen.getByText("Previous confirmed result:")).toBeTruthy();
+  expect(screen.getByText("Previous result:")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Retry team copy" })).toBeTruthy();
   expect(
     screen.queryByRole("button", { name: "Dismiss copy result" }),

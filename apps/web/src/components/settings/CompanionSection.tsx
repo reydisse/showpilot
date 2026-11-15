@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -104,7 +106,7 @@ function CompanionSettings({ orgId, slug }: { orgId: string; slug: string }) {
   const readTokens = useCallback((signal: AbortSignal) => listCompanionTokens({ data: { orgId }, signal }), [orgId]);
   const tokenRead = useOperatorRead<CompanionTokenRow[] | null>({
     key: orgId, initialValue: null, read: readTokens,
-    errorMessage: "Could not read Companion tokens. Any displayed list is the last confirmed result.",
+    errorMessage: "Companion tokens could not be loaded.",
   });
   const tokens = tokenRead.value ?? [];
   const loading = tokenRead.value === null && !tokenRead.error;
@@ -148,7 +150,7 @@ function CompanionSettings({ orgId, slug }: { orgId: string; slug: string }) {
 
   return (
     <div>
-      {error && <p role="alert" className="mb-3 text-sm text-red-300">{error}</p>}
+      {error && <p role="alert" className="mb-3 text-sm text-red-300">{plainFailure(error)}</p>}
       {issuedToken && <CreatedTokenNotice key={issuedToken.id} label={issuedToken.label} token={issuedToken.token} onDismiss={() => setIssuedToken(null)} />}
       <ConfirmDialog open={removal !== null} onOpenChange={open => { if (!open && !busy) setRemoval(null); }} title={`Revoke ${removal?.label ?? "this token"}?`} description="Devices using this token will lose access. Generate a replacement before revoking a token still in use." confirmLabel="Revoke token" loading={busy} onConfirm={() => { void revoke(); }} />
       <div className="mb-6">
@@ -165,7 +167,7 @@ function CompanionSettings({ orgId, slug }: { orgId: string; slug: string }) {
         <div className="text-[10px] font-semibold uppercase tracking-widest text-board-muted mb-1">
           Base URL
         </div>
-        <code className="text-sm text-board-text font-mono break-all">{baseUrl ?? "Preparing connection URL…"}</code>
+        <code className="text-sm text-board-text font-mono break-all">{baseUrl ?? <QuietActivity label="Preparing connection URL…" />}</code>
         <p className="mt-2 text-[11px] text-board-muted/70">
           Every request authenticates with{" "}
           <code className="text-board-muted">Authorization: Bearer &lt;cmp_token&gt;</code>. The org
@@ -198,7 +200,7 @@ function CompanionSettings({ orgId, slug }: { orgId: string; slug: string }) {
 
         <ReadFailureNotice error={tokenRead.error} refreshing={tokenRead.refreshing} retry={tokenRead.retry} label="Retry Companion tokens" />
         {loading ? (
-          <div className="py-6 text-center text-sm text-board-muted">Loading…</div>
+          <QuietActivity label="Loading…" />
         ) : tokenRead.value === null ? null : tokens.length === 0 ? (
           <div className="text-center py-6 text-sm text-board-muted">
             No tokens yet — generate one above for your Stream Deck.

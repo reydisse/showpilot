@@ -317,7 +317,7 @@ export default function ChecklistScreen() {
                 <ChevronLeft color={colors.text} size={20} />
               </Pressable>
               <Pressable accessibilityRole="button" accessibilityLabel="Choose show" onPress={() => setPickerOpen(true)} style={({ pressed }) => [styles.showPicker, pressed && styles.pressed]}>
-                <Text numberOfLines={1} style={styles.showPickerText}>{show ? formatShowLabel(show) : "Loading show…"}</Text>
+                <Text numberOfLines={1} style={styles.showPickerText}>{show ? formatShowLabel(show) : ""}</Text>
                 <Text style={styles.showPickerHint}>CHOOSE SHOW</Text>
               </Pressable>
               <Pressable

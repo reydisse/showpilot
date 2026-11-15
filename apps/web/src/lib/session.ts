@@ -15,6 +15,7 @@ import { resolveMemberRoleForOrg } from "@/lib/org-role";
 import { z } from "zod";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 import { withPrimaryDatabase } from "./request-database.server";
+import { accountExitRequested } from "./local-account-exit";
 
 // Role names are org-defined (dynamic access control) — bound, not enumerated.
 const roleNameSchema = z.string().min(1).max(50);
@@ -34,6 +35,7 @@ const organizationMemberRow = z.object({
 async function getSessionOrThrow() {
   const auth = getAuth();
   const headers = getRequestHeaders();
+  if (accountExitRequested(headers.get("cookie") ?? "")) throw new Error("Unauthorized");
   const session = await auth.api.getSession({ headers });
   if (!session) throw new Error("Unauthorized");
   return session;

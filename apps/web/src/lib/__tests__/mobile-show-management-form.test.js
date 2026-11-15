@@ -36,6 +36,8 @@ function loadSheet(send, read, focus) {
   const container = ({ children }) =>
     React.createElement("div", null, children);
   const modules = {
+  "@/components/quiet-activity": { QuietActivity: () => jsx.jsx("span", { role: "progressbar", "aria-label": "Loading" }) },
+  "@/components/failure-text": { FailureText: ({ children, accessibilityRole }) => React.createElement("p", { role: accessibilityRole }, children) },
     "@/hooks/use-show-management": managementHook,
     "@/hooks/use-screen-polling": { useScreenFocus: () => focus.active },
     "@/lib/show-management-recovery": managementContract,
@@ -170,7 +172,7 @@ it("confirmed deletion sends its reviewed version once and survives close", asyn
   fireEvent.click(screen.getByRole("button", { name: "Close show change" }));
   view.rerender(view.draw(false));
   view.rerender(view.draw(true));
-  expect(screen.getByText(/Confirming the original deletion/)).toBeTruthy();
+  expect(screen.getByRole("progressbar")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Delete show…" })).toBeNull();
   expect(
     screen.queryByRole("button", { name: "Discard retained draft…" }),

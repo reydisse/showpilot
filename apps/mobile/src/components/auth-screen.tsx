@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { QuietActivity } from "@/components/quiet-activity";
+import { FailureText } from "@/components/failure-text";
+import { useSyncExternalStore , useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -31,6 +33,7 @@ import Pause from "lucide-react-native/icons/pause";
 import Play from "lucide-react-native/icons/play";
 import { AuthArtwork } from "@/components/auth-artwork";
 import { BrandMark } from "@/components/brand-mark";
+import { prepareMobileSignIn, finishMobileSignIn, mobileSignOutRecovery, retryMobileSignOut } from "@/lib/account-exit";
 import { authClient } from "@/lib/auth-client";
 import { SHOWPILOT_URL } from "@/lib/env";
 import * as Haptics from "@/lib/haptics";
@@ -51,6 +54,7 @@ export function AuthScreen({ mode }: { mode: AuthMode }) {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const exitFailed = useSyncExternalStore(mobileSignOutRecovery.subscribe, mobileSignOutRecovery.getSnapshot, mobileSignOutRecovery.getServerSnapshot);
   const [loading, setLoading] = useState(false);
   const submitting = useRef(false);
   const emailRef = useRef<TextInput>(null);
@@ -116,6 +120,7 @@ export function AuthScreen({ mode }: { mode: AuthMode }) {
     submitting.current = true;
     setLoading(true);
     try {
+      await prepareMobileSignIn();
       const result = signingUp
         ? await authClient.signUp.email({
             name: name.trim(),
@@ -130,6 +135,7 @@ export function AuthScreen({ mode }: { mode: AuthMode }) {
               ? "We could not create your account."
               : "Invalid email or password."),
         );
+      finishMobileSignIn();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.replace("/organizations");
     } catch (caught) {
@@ -349,14 +355,15 @@ export function AuthScreen({ mode }: { mode: AuthMode }) {
                     </View>
                   </View>
                 </View>
+                {exitFailed ? <View><FailureText accessibilityRole="alert" style={styles.error}>Sign-out could not finish.</FailureText><Pressable accessibilityRole="button" onPress={retryMobileSignOut}><Text style={styles.error}>Retry sign-out</Text></Pressable></View> : null}
                 {error ? (
-                  <Text
+                  <FailureText
                     accessibilityRole="alert"
                     accessibilityLiveRegion="polite"
                     style={styles.error}
                   >
                     {error}
-                  </Text>
+                  </FailureText>
                 ) : null}
                 <Pressable
                   accessibilityRole="button"
@@ -373,8 +380,8 @@ export function AuthScreen({ mode }: { mode: AuthMode }) {
                   <Text style={styles.submitText}>
                     {loading
                       ? signingUp
-                        ? "Creating account…"
-                        : "Signing in…"
+                        ? <QuietActivity label="Creating account…" />
+                        : <QuietActivity label="Signing in…" />
                       : signingUp
                         ? "Create account"
                         : "Sign in"}

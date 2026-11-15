@@ -36,6 +36,8 @@ function loadSheet(send, navigate) {
   const container = ({ children }) =>
     React.createElement("div", null, children);
   const modules = {
+  "@/components/quiet-activity": { QuietActivity: () => jsx.jsx("span", { role: "progressbar", "aria-label": "Loading" }) },
+  "@/components/failure-text": { FailureText: ({ children, accessibilityRole }) => React.createElement("p", { role: accessibilityRole }, children) },
     "@/hooks/use-show-creation": creationHook,
     "@/hooks/use-screen-polling": { useScreenFocus: () => true },
     "@/lib/show-creation-recovery": creationContract,

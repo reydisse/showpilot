@@ -76,7 +76,7 @@ it("keeps failed checks visible and retryable without trusting stale successful 
   fixture.getSession.mockResolvedValueOnce({ ...verified(), error: { message: "unavailable" } });
   render(<Page />);
   await screen.findByRole("heading", { name: "Verification status unavailable" });
-  expect(screen.getByRole("alert").textContent).toContain("Last attempt:");
+  expect(screen.getByRole("alert").textContent).not.toContain("Last attempt:");
   fireEvent.click(screen.getByRole("button", { name: "Retry verification check" }));
   await screen.findByRole("heading", { name: "Check your inbox" });
 });
@@ -101,7 +101,7 @@ it("reports resend failure, retries explicitly and never confuses delivery with 
   render(<Page />); await screen.findByRole("heading", { name: "Check your inbox" });
   fireEvent.click(screen.getByRole("button", { name: "Resend verification email" }));
   await screen.findByRole("button", { name: "Retry sending verification email" });
-  expect(screen.getByRole("alert").textContent).toContain("Last attempt:");
+  expect(screen.getByRole("alert").textContent).not.toContain("Last attempt:");
   fireEvent.click(screen.getByRole("button", { name: "Retry sending verification email" }));
   await screen.findByText("Verification email sent. Check your inbox.");
   expect(screen.queryByRole("heading", { name: "Email verified" })).toBeNull();

@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import {
   useMutation,
   useMutationState,
@@ -65,7 +66,7 @@ function ScopedKioskDisplayControl({
           await withOperationTimeout(
             readDisplay({ data: { orgId }, signal: controller.signal }),
             8_000,
-            "Display state could not be confirmed. Retry the read before changing it.",
+            "This change needs attention.",
           ),
         );
       } finally {
@@ -112,7 +113,7 @@ function ScopedKioskDisplayControl({
           await withOperationTimeout(
             writeDisplay({ data: command, signal: controller.signal }),
             10_000,
-            "Display command was not confirmed. Retry the same command to recover its result.",
+            "This change needs attention.",
           ),
         );
       } finally {
@@ -176,9 +177,9 @@ function ScopedKioskDisplayControl({
           <p role="status" className="text-sm text-board-muted">
             {!state.data
               ? state.isError
-                ? "Display state is unavailable."
-                : "Reading display state…"
-              : `${state.isError ? "Last confirmed: " : ""}${state.data.blanked ? "Displays are set to show a blank slate." : "Displays are set to show their content."}`}
+                ? "Display details could not be loaded."
+                : <QuietActivity label="Loading display" />
+              : `${state.isError ? "" : ""}${state.data.blanked ? "Displays are set to show a blank slate." : "Displays are set to show their content."}`}
           </p>
           <p className="mt-1 text-xs text-board-muted">
             Connected kiosks apply this setting on their next poll.
@@ -207,12 +208,7 @@ function ScopedKioskDisplayControl({
               ? state.error.message
               : "Display state could not be read."}
           </p>
-          <p>
-            Last failed read{" "}
-            <time dateTime={new Date(state.errorUpdatedAt).toISOString()}>
-              {new Date(state.errorUpdatedAt).toLocaleTimeString()}
-            </time>
-          </p>
+
           <Button
             className="h-auto min-h-11 whitespace-normal"
             variant="outline"
@@ -220,14 +216,12 @@ function ScopedKioskDisplayControl({
             disabled={state.isFetching}
             onClick={() => void state.refetch()}
           >
-            {state.isFetching ? "Retrying…" : "Retry display state"}
+            {state.isFetching ? <QuietActivity label="Retrying…" /> : "Retry display state"}
           </Button>
         </div>
       ) : null}
       {pending ? (
-        <p role="status" className="text-sm text-board-muted">
-          Updating display…
-        </p>
+        <QuietActivity />
       ) : null}
       {unfinished && !pending ? (
         <div
@@ -238,17 +232,12 @@ function ScopedKioskDisplayControl({
           <p>
             {latest?.error instanceof Error
               ? latest.error.message
-              : "The display command was not confirmed."}{" "}
+              : "This change needs attention."}{" "}
             Retry checks the original command and will not overwrite a later
             controller change.
           </p>
           {latest ? (
-            <p>
-              Last attempt{" "}
-              <time dateTime={new Date(latest.at).toISOString()}>
-                {new Date(latest.at).toLocaleTimeString()}
-              </time>
-            </p>
+            null
           ) : null}
           <Button
             className="h-auto min-h-11 whitespace-normal"

@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CircleStop,
@@ -77,7 +79,7 @@ export function CockpitControlPanel({ module, status, feedbacks, definition }: C
       ) : null}
       {commandError ? (
         <div role="alert" className="rounded-lg border border-red-500/25 bg-red-500/[0.07] px-3 py-2 text-xs text-red-300">
-          {commandError}
+          {plainFailure(commandError)}
         </div>
       ) : null}
     </div>
@@ -141,7 +143,7 @@ function CommandButton({ action, connected, pendingAction, params, run, tone = "
       }}
       className={`min-h-11 min-w-0 rounded-lg border px-3 py-2 text-xs font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500 disabled:cursor-not-allowed disabled:opacity-40 ${tones[tone]}`}
     >
-      {pending ? "Sending…" : armed ? `Confirm ${label ?? action.label}` : label ?? action.label}
+      {pending ? <QuietActivity label="Sending…" /> : armed ? `Confirm ${label ?? action.label}` : label ?? action.label}
     </button>
   );
 }

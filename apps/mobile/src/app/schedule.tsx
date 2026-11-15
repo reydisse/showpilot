@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { ScheduleProviderSheet } from "@/components/schedule-provider-sheet";
 import { useScheduleProviderDraft } from "@/hooks/use-schedule-provider";
 import { usePersonalResponses } from "@/hooks/use-personal-responses";
@@ -273,7 +274,7 @@ function ScheduleWorkspace({ orgId, userId }: { orgId: string; userId: string })
               <Text style={styles.copyTitle}>Copy team and send invitations?</Text>
               <Text style={styles.copyMessage}>{copyConfirmation.label}</Text>
               <Text style={styles.copyMessage}>{copyConfirmation.count} positions will be copied. New invitations will be sent for assigned positions.{copyConfirmation.again ? " Earlier invitations may already have arrived." : ""}</Text>
-              {!canCopyAgain(copyConfirmation.selection) ? <Text accessibilityRole="alert" style={styles.error}>The show selection changed or the destination is not empty and stopped. Cancel and review the schedule.</Text> : null}
+              {!canCopyAgain(copyConfirmation.selection) ? <FailureText accessibilityRole="alert" style={styles.error}>The show selection changed or the destination is not empty and stopped. Cancel and review the schedule.</FailureText> : null}
               <AppButton disabled={!canCopyAgain(copyConfirmation.selection)} label="Copy and invite" onPress={() => {
                 if (!canCopyAgain(copyConfirmation.selection)) return;
                 if (copyConfirmation.again) copies.another(copyConfirmation.selection.showId);

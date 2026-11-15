@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { useEffect, useState } from "react";
 import {
   Modal,
@@ -110,14 +112,12 @@ export function ScheduleProviderSheet(props: {
             while you remain signed in.
           </Text>
           {state.error ? (
-            <Text accessibilityRole="alert" style={styles.error}>
+            <FailureText accessibilityRole="alert" style={styles.error}>
               {state.error}
-            </Text>
+            </FailureText>
           ) : null}
           {state.reading ? (
-            <Text accessibilityLiveRegion="polite" style={styles.hint}>
-              Loading the current scheduling source…
-            </Text>
+            <QuietActivity />
           ) : null}
           {!draft && !state.reading ? (
             <AppButton
@@ -197,16 +197,14 @@ export function ScheduleProviderSheet(props: {
                 />
               ) : null}
               {attempt?.kind === "pending" ? (
-                <Text accessibilityLiveRegion="polite" style={styles.hint}>
-                  Confirming the original scheduling source change…
-                </Text>
+                <QuietActivity />
               ) : null}
               {attempt?.kind === "failed" ? (
                 <>
-                  <Text accessibilityRole="alert" style={styles.error}>
+                  <FailureText accessibilityRole="alert" style={styles.error}>
                     {attempt.message} The save may already have applied. Retry
                     keeps the original settings and request.
-                  </Text>
+                  </FailureText>
                   <AppButton
                     label="Retry original source change"
                     onPress={state.retry}
@@ -228,15 +226,15 @@ export function ScheduleProviderSheet(props: {
                     {scheduleProviderLabel(attempt.result.snapshot.config)}
                   </Text>
                   {attempt.refresh === "pending" ? (
-                    <Text style={styles.hint}>Refreshing Schedule…</Text>
+                    <QuietActivity />
                   ) : null}
                   {attempt.refresh === "failed" ||
                   attempt.refresh === "idle" ? (
                     <>
-                      <Text accessibilityRole="alert" style={styles.error}>
+                      <FailureText accessibilityRole="alert" style={styles.error}>
                         {attempt.message ?? "Refresh Schedule to finish."} The
                         save outcome above is confirmed.
-                      </Text>
+                      </FailureText>
                       <AppButton
                         label="Refresh Schedule only"
                         onPress={state.refresh}

@@ -226,7 +226,7 @@ function DisplaySurface(props: DeviceCockpitProps) {
   const styles = useStyles();
   const powerFeedback = feedbackValue(props.feedbacks, "power_status");
   const power = powerFeedback === true ? "ON" : powerFeedback === false ? "OFF" : String(powerFeedback ?? "unknown").toUpperCase();
-  const input = String(feedbackValue(props.feedbacks, "current_input") ?? "Waiting for display");
+  const input = String(feedbackValue(props.feedbacks, "current_input") ?? "—");
   const handled = new Set(["power_on", "power_off", "shutter_close", "shutter_open", "mute_video", "mute", "unmute"]);
   return (
     <View style={styles.surface}>

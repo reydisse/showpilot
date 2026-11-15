@@ -1,3 +1,5 @@
+import { QuietActivity } from "@/components/quiet-activity";
+import { FailureText } from "@/components/failure-text";
 import { invitationCommandSchema, invitationStatusText, invitationMutationOptions, type InvitationCommand } from "@/lib/invitation-recovery";
 import { createLocalRequestUuid } from "@/lib/request-id";
 import { useMemo, useState } from "react";
@@ -206,9 +208,9 @@ export default function TeamMembersScreen() {
         ListHeaderComponent={(
           <View style={styles.headerContent}>
             {query.isPending ? <ActivityIndicator color={colors.amberText} size="large" /> : null}
-            {query.error ? <View><Text accessibilityRole="alert" style={styles.error}>{query.error.message}</Text><AppButton label="Retry team refresh" variant="secondary" onPress={() => void query.refetch()} /></View> : null}
+            {query.error ? <View><FailureText accessibilityRole="alert" style={styles.error}>{query.error.message}</FailureText><AppButton label="Retry team refresh" variant="secondary" onPress={() => void query.refetch()} /></View> : null}
             {unfinished && <View style={styles.summaryCard}><View style={styles.summaryCopy}>
-              <Text accessibilityRole="alert" style={styles.summaryText}>{unfinished.status === "pending" ? "Waiting for invitation confirmation…" : `The invitation request was not confirmed. ${unfinished.error instanceof Error ? unfinished.error.message : "Retry the same request to check its result."}`}</Text>
+              {unfinished.status === "pending" ? <QuietActivity /> : <FailureText accessibilityRole="alert" style={styles.summaryText}>{`The invitation request was not confirmed. ${unfinished.error instanceof Error ? unfinished.error.message : "Retry the same request to check its result."}`}</FailureText>}
               {unfinished.status === "error" && unfinished.command.success && <AppButton label="Retry invitation request" variant="secondary" onPress={() => { if (unfinished.command.success) inviteMutation.mutate(unfinished.command.data); }} />}
               {unfinished.status === "error" && <AppButton label="Review stored invitations" variant="secondary" onPress={reviewInvitation} />}
             </View></View>}
@@ -312,7 +314,7 @@ export default function TeamMembersScreen() {
               <Pressable accessibilityLabel="Close invitation form" hitSlop={10} onPress={() => setInviteOpen(false)} style={styles.closeButton}><X color={colors.textMuted} size={20} /></Pressable>
             </View>
             <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
-              {unfinished && <View><Text accessibilityRole="alert" style={styles.error}>{unfinished.status === "pending" ? "Waiting for invitation confirmation…" : "The last invitation request is unconfirmed. Retry that request before creating another."}</Text>
+              {unfinished && <View>{unfinished.status === "pending" ? <QuietActivity /> : <FailureText accessibilityRole="alert" style={styles.error}>{"This invitation needs attention."}</FailureText>}
                 {unfinished.status === "error" && unfinished.command.success && <AppButton label="Retry invitation request" variant="secondary" onPress={() => { if (unfinished.command.success) inviteMutation.mutate(unfinished.command.data); }} />}
               </View>}
               <Text style={styles.label}>EMAIL</Text>

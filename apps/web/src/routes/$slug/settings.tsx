@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { ProPresenterOutputControl } from "@/components/rundown/ProPresenterOutputControl";
 import { NotificationPreferences } from "@/components/settings/NotificationPreferences";
 import { TimezoneSetting } from "@/components/settings/TimezoneSetting";
@@ -8,6 +10,7 @@ import { useSettingsReturnTo } from "@/components/layout/AppShell";
 import { CredentialSettingInput } from "@/components/settings/CredentialSettingInput";
 import type { CredentialChange } from "@/lib/credential-fields";
 import { BridgeTargetSettings } from "@/components/settings/BridgeTargetSettings";
+import { DesktopShowSetup } from "@/components/settings/DesktopShowSetup";
 import { BridgeInstallationSettings } from "@/components/settings/BridgeInstallationSettings";
 import { ConfidenceSection } from "@/components/settings/ConfidenceSection";
 import { CONFIDENCE_LAYOUT_KEY } from "@/lib/confidence-layout";
@@ -397,7 +400,7 @@ function OrganizationSettingsPage({
         </div>
       </div>
       <Dialog open={blocker.status === "blocked"} onOpenChange={open => { if (!open) blocker.reset?.(); }}>
-        <DialogContent><DialogHeader><DialogTitle>Leave Settings?</DialogTitle><DialogDescription>An unconfirmed save may still complete. Leaving discards local edits and retry controls. Review the saved settings when you return.</DialogDescription></DialogHeader><DialogFooter><Button className="min-h-11" variant="outline" onClick={() => blocker.reset?.()}>Stay</Button><Button className="min-h-11" onClick={() => blocker.proceed?.()}>Leave Settings</Button></DialogFooter></DialogContent>
+        <DialogContent><DialogHeader><DialogTitle>Leave Settings?</DialogTitle><DialogDescription>Leaving discards your unsaved settings.</DialogDescription></DialogHeader><DialogFooter><Button className="min-h-11" variant="outline" onClick={() => blocker.reset?.()}>Stay</Button><Button className="min-h-11" onClick={() => blocker.proceed?.()}>Leave Settings</Button></DialogFooter></DialogContent>
       </Dialog>
     </div>
   );
@@ -800,7 +803,7 @@ function RundownPinSettings({
             disabled={saving || !pin || !confirmation}
             className="rounded-lg bg-fire-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-fire-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {saving ? "Saving..." : enabled ? "Change PIN" : "Enable PIN"}
+            {saving ? <QuietActivity label="Saving..." /> : enabled ? "Change PIN" : "Enable PIN"}
           </button>
 
           {enabled && !confirmingDisable ? (
@@ -1470,7 +1473,7 @@ function CloudLowerThirdsToggle({
               Only an owner or admin can change this.
             </p>
           )}
-          {error && <p className="mt-1 text-[10px] text-red-400">{error}</p>}
+          {error && <p className="mt-1 text-[10px] text-red-400">{plainFailure(error)}</p>}
         </div>
       </div>
     </div>
@@ -1550,7 +1553,7 @@ function LowerThirdsSection({ orgId, slug, role, org, getSetting, editSetting, s
           </p>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-4">
             <code className="flex-1 text-xs text-board-muted bg-board-bg px-3 py-2 rounded-lg break-all sm:truncate overflow-x-auto">
-              {overlayLink.url || (overlayLink.pending ? "Creating display link…" : "Display link unavailable")}
+              {overlayLink.url || (overlayLink.pending ? <QuietActivity label="Creating display link…" /> : "Display link unavailable")}
             </code>
             <button
               type="button"
@@ -1581,7 +1584,7 @@ function LowerThirdsSection({ orgId, slug, role, org, getSetting, editSetting, s
               <p>Paste this link into OBS/vMix for clean output, or scan the QR code to open that display on another device. The monitor view adds connection status and Retry. This link expires in 8 hours.</p>
               {overlayLink.error && <p role="alert" className="text-red-300">{overlayLink.error}</p>}
               <button type="button" disabled={overlayLink.pending} onClick={overlayLink.refresh} className="min-h-11 underline">Create a fresh link</button>
-              {overlayLink.errorAt !== null && <p className="text-xs text-board-muted">Last error <time dateTime={new Date(overlayLink.errorAt).toISOString()}>{new Date(overlayLink.errorAt).toLocaleTimeString()}</time></p>}
+              {overlayLink.errorAt !== null && null}
               {overlayLink.monitorUrl && <a href={overlayLink.monitorUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center px-3 text-sm text-fire-500 underline outline-none focus-visible:ring-2 focus-visible:ring-fire-500">Open overlay monitor</a>}
               <p className="font-medium text-board-text">Setup Instructions</p>
               <details className="group">
@@ -1674,7 +1677,7 @@ function NotificationPolicyRow({
 
 // ─── API & WEBHOOKS ─────────────────────────────────────────
 
-function ApiSection({ orgId, role, getSetting, saveCredential }: SectionProps) {
+function ApiSection({ orgId, slug, role, getSetting, saveCredential }: SectionProps) {
   const readEvents = useCallback((signal: AbortSignal) => getRecentWebhookEvents({ data: { orgId }, signal }), [orgId]);
   const eventsRead = useOperatorRead<WebhookEventLogItem[] | null>({
     key: orgId, initialValue: null, read: readEvents,
@@ -1690,6 +1693,7 @@ function ApiSection({ orgId, role, getSetting, saveCredential }: SectionProps) {
         description="Manage API keys and webhook endpoints for external integrations"
       />
       <div className="space-y-5">
+        <DesktopShowSetup orgId={orgId} slug={slug} />
         <BridgeInstallationSettings orgId={orgId} />
         {hasAnyPermission(role, ["settings:api_keys", "settings:integrations"]) && <BridgeTargetSettings orgId={orgId} />}
 
@@ -1715,7 +1719,7 @@ function ApiSection({ orgId, role, getSetting, saveCredential }: SectionProps) {
           {isLoadingEvents ? (
             <div className="flex items-center justify-center gap-2 text-xs text-board-muted py-6">
               <RefreshCw className="w-3 h-3 animate-spin" />
-              <span>Loading events...</span>
+              <QuietActivity label="Loading events..." />
             </div>
           ) : eventsRead.value === null ? null : webhookEvents.length === 0 ? (
             <div className="text-center py-6">

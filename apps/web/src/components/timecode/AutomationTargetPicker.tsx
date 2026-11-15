@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useId, useState } from "react";
 
 export type AutomationTargetKind = "rundown-goto-item" | "rundown-start-item" | "lighting-blackout";
@@ -37,7 +38,7 @@ export function AutomationTargetPicker({ kind, loadOptions, selection, onSelect 
       <option value="">Choose {kind !== "lighting-blackout" ? "an item" : "a device"}</option>
       {choices.status === "ready" && choices.options.map((option, index) => <option key={option.id} value={option.id}>{index + 1}. {option.label}</option>)}
     </select>
-    {choices.status === "loading" && <p role="status" className="text-xs text-board-muted">Loading {noun}…</p>}
+    {choices.status === "loading" && <QuietActivity label={`Loading ${noun}…`} />}
     {choices.status === "error" && <p role="alert" className="text-xs text-red-300">{choices.message}</p>}
     {choices.status === "ready" && choices.options.length === 0 && <p className="text-xs text-board-muted">{kind !== "lighting-blackout" ? "Add playable items to this show's rundown first." : "Add an enabled lighting device with a blackout action in Devices first."}</p>}
     <p className="text-xs text-board-muted">{kind !== "lighting-blackout" ? (kind === "rundown-goto-item" ? "Start the selected item from zero. The current item is marked complete." : "Start the selected rundown item.") : "Send the dedicated blackout command. This does not recall a scene. Output stays black until restored through the device controls."}</p>

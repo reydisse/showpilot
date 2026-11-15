@@ -25,7 +25,7 @@ async function attemptSignup() {
 it.each(["USER_ALREADY_EXISTS", "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"])("offers sign-in after %s and retains the email", async code => {
   auth.signUp.mockResolvedValue({ error: { code, message: "Use another email" } });
   await attemptSignup();
-  expect(screen.getByRole("alert").textContent).toContain("Sign in to create another organization");
+  expect(screen.getByRole("alert").textContent).toContain("An account with this email already exists.");
   fireEvent.click(screen.getByRole("button", { name: "Sign in to create an organization" }));
   expect(screen.getByLabelText("Email address")).toHaveProperty("value", "existing@example.test");
   expect(screen.getByLabelText("Password")).toHaveProperty("value", "");
@@ -37,8 +37,8 @@ it.each(["USER_ALREADY_EXISTS", "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"])("offer
 it("keeps a failed signup draft and does not mistake another failure for an existing account", async () => {
   auth.signUp.mockRejectedValue(new Error("Connection failed. Try again."));
   await attemptSignup();
-  expect(screen.getByRole("alert").textContent).toContain("Your account may already exist");
-  expect(screen.getByRole("alert").textContent).toContain("Last attempt:");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
+  expect(screen.getByRole("alert").textContent).not.toContain("Last attempt:");
   expect(screen.getByLabelText("Full name")).toHaveProperty("value", "Existing member");
   expect(screen.getByLabelText("Password")).toHaveProperty("value", "Draft-password-123!");
   expect(screen.queryByRole("button", { name: "Sign in to create an organization" })).toBeNull();

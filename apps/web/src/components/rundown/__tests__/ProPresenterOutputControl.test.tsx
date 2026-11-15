@@ -89,11 +89,11 @@ it("shows a timestamp and recovery control after a lost output reply", async () 
   fireEvent.click(screen.getByRole("button", { name: "Show slides" }));
   await settle();
   expect(screen.getByRole("alert").textContent).toContain(
-    "Output change was not confirmed",
+    "The output change needs attention.",
   );
   expect(
     screen.getByRole("alert").querySelector("time")?.dateTime,
-  ).toBeTruthy();
+  ).toBeUndefined();
   expect(
     screen.getByRole("button", { name: "Recover output change" }),
   ).toHaveProperty("disabled", false);

@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { useState } from "react";
 
 /** The creation response stays in component memory only until dismissed. */
@@ -80,7 +81,7 @@ export function CreatedTokenNotice({
       )}
       {error && (
         <p role="alert" className="text-sm text-red-300">
-          {error}
+          {plainFailure(error)}
         </p>
       )}
       <div className="flex flex-wrap gap-2">

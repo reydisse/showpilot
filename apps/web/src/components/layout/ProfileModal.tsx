@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useRef, useState } from "react";
 import {
   BadgeCheck,
@@ -136,7 +137,7 @@ export function ProfilePanel({
               onClick={() => fileInputRef.current?.click()}
             >
               <Camera data-icon="inline-start" />
-              {uploadingPhoto ? "Saving photo" : "Choose photo"}
+              {uploadingPhoto ? <QuietActivity label="Saving photo" /> : "Choose photo"}
             </Button>
           </div>
           <input
@@ -298,7 +299,7 @@ export function ProfilePanel({
             ) : nameUnchanged ? (
               <Check data-icon="inline-start" />
             ) : null}
-            {saving ? "Saving" : "Save changes"}
+            {saving ? <QuietActivity label="Saving" /> : "Save changes"}
           </Button>
         </div>
       </footer>

@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useCallback, useRef, useState } from "react";
 import { Link, useBlocker } from "@tanstack/react-router";
 import { ArrowLeft, Hash, Users } from "lucide-react";
@@ -17,7 +19,7 @@ export function CrewCheckInPage({ orgId, slug, initialMembers }: { orgId: string
     return members;
   }, [orgId]);
   const crew = useOperatorRead({ key: orgId, initialValue: initialMembers, read, intervalMs: 15_000,
-    errorMessage: "Could not refresh crew attendance. Shown attendance is the last confirmed state. Retry the read before changing attendance." });
+    errorMessage: "Crew attendance could not be updated." });
   const writes = useCrewAttendanceWrite(orgId);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const [mode, setMode] = useState<"entry" | "list">("list");
@@ -70,11 +72,11 @@ export function CrewCheckInPage({ orgId, slug, initialMembers }: { orgId: string
       <button aria-label={mode === "entry" ? "Back to roster" : "Enter member ID"} title={mode === "entry" ? "Back to roster" : "Enter member ID"} className={`${actionClass} ml-auto shrink-0`} onClick={() => { if (mode === "list" && !uncertain) { setCompletedId(null); setSelected(null); } setMode(mode === "entry" ? "list" : "entry"); }}>{mode === "entry" ? <Users className="size-4 sm:hidden" aria-hidden="true" /> : <Hash className="size-4 sm:hidden" aria-hidden="true" />}<span className="hidden sm:inline">{mode === "entry" ? "Back to roster" : "Enter member ID"}</span></button>
     </div></header>
     <main className="mx-auto max-w-5xl space-y-4 px-4 py-5">
-      {notice && <p role="status" className="rounded-md border border-green-400/25 bg-green-500/5 p-3 text-sm text-green-300">{notice}{needsRead && " Latest attendance has not yet been confirmed."}</p>}
+      {notice && <p role="status" className="rounded-md border border-green-400/25 bg-green-500/5 p-3 text-sm text-green-300">{notice}{needsRead && ""}</p>}
       <ReadFailureNotice error={crew.error} refreshing={crew.refreshing} retry={() => void refreshAfterWrite()} label="Retry crew list" />
-      {writes.state.kind === "pending" && <p role="status" className="sr-only">Saving attendance…</p>}
+      {writes.state.kind === "pending" && <QuietActivity label="Saving attendance…" />}
       {failure && <section role="alert" className="space-y-3 rounded-md border border-amber-400/30 bg-amber-500/5 p-4">
-        <p className="break-words">{failure.message}</p><p className="text-xs text-board-muted">Last error <time dateTime={new Date(failure.occurredAt).toISOString()}>{new Date(failure.occurredAt).toLocaleTimeString()}</time></p>
+        <p className="break-words">{plainFailure(failure.message)}</p>
         {writes.state.kind === "uncertain" ? <button className={actionClass} onClick={() => void change()}>Retry attendance</button> : <button className={actionClass} disabled={needsRead || Boolean(crew.error) || crew.refreshing} onClick={() => { writes.clearConflict(); setSelected(null); setCompletedId(null); }}>Review updated crew</button>}
       </section>}
       {mode === "list" ? <CheckInList members={crew.value} blocked={blocked} refreshing={crew.refreshing} onChange={single} onSetAll={value => void all(value)} /> : <div className="max-w-lg space-y-4">
@@ -92,12 +94,12 @@ export function CrewCheckInPage({ orgId, slug, initialMembers }: { orgId: string
           event.preventDefault(); if (blocked) return;
           const member = crew.value.find(member => member.memberId.toUpperCase() === code.trim().toUpperCase());
           if (member) { setSelected(member); setLookupError(""); setCompletedId(null); }
-          else setLookupError("Member not found in the confirmed roster. Check the ID or refresh the crew list.");
+          else setLookupError("No crew member matches this ID.");
         }}>
           <label htmlFor="crew-member-id" className="block text-sm font-medium">Member ID</label>
           <input id="crew-member-id" value={code} onChange={event => setCode(event.target.value.toUpperCase())} maxLength={64} autoComplete="off" disabled={uncertain} className="min-h-11 w-full rounded-md border border-board-border bg-board-card px-4 py-3 font-mono focus-visible:outline-fire-500" placeholder="e.g. TD3917" />
           <button disabled={blocked || !code.trim()} className={`${actionClass} bg-fire-500 text-white`}>Find crew member</button>
-          {lookupError && <div role="alert" className="space-y-2 text-sm text-amber-300"><p>{lookupError}</p><button type="button" className={actionClass} disabled={crew.refreshing} onClick={() => void refreshAfterWrite()}>Refresh crew list</button></div>}
+          {lookupError && <div role="alert" className="space-y-2 text-sm text-amber-300"><p>{plainFailure(lookupError)}</p><button type="button" className={actionClass} disabled={crew.refreshing} onClick={() => void refreshAfterWrite()}>Refresh crew list</button></div>}
         </form>}
       </div>}
     </main>

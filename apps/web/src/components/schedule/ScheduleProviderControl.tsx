@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useRef, useState } from "react";
 import { Settings2, X } from "lucide-react";
 import {
@@ -55,7 +56,7 @@ export function ScheduleProviderControl({
       {!open && (attention || editor.pending) && (
         <span role="status" className="max-w-64 text-xs text-board-muted">
           {editor.pending
-            ? "Checking scheduling source…"
+            ? <QuietActivity label="Checking scheduling source…" />
             : "Scheduling source needs attention. Open Manage source."}
         </span>
       )}
@@ -91,20 +92,14 @@ export function ScheduleProviderControl({
                 retry={() => void editor.snapshot.refetch()}
                 disabled={editor.snapshot.isFetching}
               >
-                The saved scheduling source could not be checked. Your draft is
-                kept.
-              </Notice>
+                The scheduling source could not be loaded.</Notice>
             )}
             {editor.snapshot.isFetching && (
-              <p role="status" className="text-sm text-board-muted">
-                Checking saved source…
-              </p>
+              <QuietActivity label="Checking saved source…" />
             )}
             {editor.attempt?.kind === "failed" && (
               <Notice at={editor.attempt.at} retry={editor.retry}>
-                The save was not confirmed and may have completed. Retry checks
-                the same change without replacing a newer source.
-              </Notice>
+                Your source change needs attention.</Notice>
             )}
             {editor.attempt?.kind === "confirmed" &&
               editor.attempt.refresh.kind === "failed" && (
@@ -112,15 +107,12 @@ export function ScheduleProviderControl({
                   at={editor.attempt.refresh.at}
                   retry={editor.retryRefresh}
                 >
-                  The source change was checked, but the Schedule view could not
-                  refresh. Retry refreshes the view without saving again.
-                </Notice>
+                  Schedule could not be updated.</Notice>
               )}
             {editor.attempt?.kind === "confirmed" &&
               editor.attempt.refresh.kind === "pending" && (
                 <p role="status" className="text-sm text-board-muted">
-                  Source checked. Refreshing Schedule…
-                </p>
+                  </p>
               )}
             {editor.snapshot.data && (
               <ProviderForm
@@ -164,7 +156,7 @@ function Notice({
         onClick={retry}
         disabled={disabled}
       >
-        {disabled ? "Retrying…" : "Retry"}
+        {disabled ? <QuietActivity label="Retrying…" /> : "Retry"}
       </button>
     </div>
   );
@@ -320,7 +312,7 @@ function ProviderForm({
           className={`${button} w-full bg-fire-500 font-semibold text-black`}
         >
           {editor.attempt?.kind === "pending"
-            ? "Saving source…"
+            ? <QuietActivity label="Saving source…" />
             : conflict
               ? "Save reviewed source"
               : "Save source"}

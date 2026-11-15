@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { TimecodeTransport } from "@/components/timecode/TimecodeTransport";
 import { NamedTimers } from "@/components/timers/NamedTimers";
 import { MediaLibrary } from "@/components/timecode/MediaLibrary";
@@ -60,7 +61,7 @@ function TimecodePage() {
     events,
     isMaster,
     generatorPending,
-    lastError, lastErrorAt, retryConnection,
+    lastError, retryConnection,
     startFreerun,
     stopGenerator,
     pauseGenerator,
@@ -137,13 +138,11 @@ function TimecodePage() {
         <Button type="button" variant="outline" disabled={!connected || state?.running || generatorPending !== null} onClick={() => setSongLoaderOpen(true)} aria-label="Load song cues" title="Load song cues" className="min-h-11 min-w-11 text-xs"><Music2 /><span className="hidden sm:inline">Load song cues</span></Button>
         </div>
         <TimecodeControlNotice />
-        {!connected && <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/40 p-4 text-sm text-amber-200">
-          <p>{timecode.connectionStatus === "disabled" ? "Select a show to connect." : timecode.connectionStatus === "error" ? "Timecode connection is unavailable." : state ? "Reconnecting, showing last known timecode state." : timecode.connectionStatus === "reconnecting" ? "Reconnecting to timecode." : "Connecting to timecode…"}</p>
-          {lastError && <Button type="button" variant="outline" className="min-h-11" onClick={retryConnection}>Reconnect timecode</Button>}
+        {!connected && !state && !lastError && <QuietActivity label="Reconnecting to timecode." />}
+        {lastError && <div role="alert" data-timecode-error className="flex flex-wrap items-center gap-3 rounded-xl border border-red-500/40 p-4 text-sm text-red-300">
+          <p>Timecode could not be updated.</p>
+          <Button type="button" variant="outline" className="min-h-11" onClick={retryConnection}>Retry timecode</Button>
         </div>}
-        {lastError && <p role="alert" data-timecode-error className="rounded-xl border border-red-500/40 p-4 text-sm text-red-300">
-          Last error: {lastError} {lastErrorAt !== null && <time dateTime={new Date(lastErrorAt).toISOString()}>{new Date(lastErrorAt).toLocaleTimeString()}</time>}
-        </p>}
         <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="min-w-0 space-y-4">
         <div className="rounded-md border border-board-border bg-board-card p-4 sm:p-6">
@@ -164,7 +163,7 @@ function TimecodePage() {
           onSetEventEnabled={setEventEnabled}
           onEditEvent={event => { if (state && timecode.showId) setEditing({ event: structuredClone(event), format: { ...state.format }, showId: timecode.showId, generation: 0 }); }}
           connected={connected && control !== "other"}
-        /> : <p role="status" className="text-sm text-board-muted">Loading timeline…</p>}
+        /> : <QuietActivity label="Loading timeline…" />}
 
         {events.length === 0 && !demoLoaded && !state?.running && connected && (
           <section className="rounded-xl border border-board-border p-4 text-sm text-board-muted">

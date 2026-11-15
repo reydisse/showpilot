@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { useMobileTeam } from "@/hooks/use-mobile-team";
 import { teamRetryable, type TeamDraft } from "@/lib/team-recovery";
 import { useMobileAssignment } from "@/hooks/use-mobile-assignment";
@@ -233,12 +235,12 @@ export function ScheduleAssignmentSheet({
         value={fields.notes}
       />
       {work.error ? (
-        <Text accessibilityRole="alert" style={styles.assignmentCopy}>
+        <FailureText accessibilityRole="alert" style={styles.assignmentCopy}>
           {work.error}
-        </Text>
+        </FailureText>
       ) : null}
       {work.reading ? (
-        <Text style={styles.assignmentCopy}>Loading current position…</Text>
+        <QuietActivity />
       ) : null}
       {!attempt && !confirm ? (
         <>
@@ -331,16 +333,13 @@ export function ScheduleAssignmentSheet({
       {attempt ? (
         <View accessibilityLiveRegion="polite" style={styles.responseBox}>
           {attempt.kind === "pending" ? (
-            <Text style={styles.assignmentCopy}>
-              Checking assignment save… You can close this editor and return to
-              check the result.
-            </Text>
+            <QuietActivity />
           ) : null}
           {attempt.kind === "failed" ? (
             <>
-              <Text accessibilityRole="alert" style={styles.assignmentCopy}>
+              <FailureText accessibilityRole="alert" style={styles.assignmentCopy}>
                 {attempt.message}
-              </Text>
+              </FailureText>
               <Text style={styles.assignmentCopy}>
                 The original save may already have applied. Retry checks that
                 same save and invitation.
@@ -367,8 +366,7 @@ export function ScheduleAssignmentSheet({
             <>
               {attempt.kind !== "confirmed" ? (
                 <Text style={styles.assignmentCopy}>
-                  Previous confirmed result:
-                </Text>
+                  Previous result:</Text>
               ) : null}
               <Text style={styles.responseValue}>
                 {result.outcome === "applied"
@@ -398,12 +396,12 @@ export function ScheduleAssignmentSheet({
               {attempt.refresh === "idle" || attempt.refresh === "failed" ? (
                 <>
                   {attempt.message ? (
-                    <Text
+                    <FailureText
                       accessibilityRole="alert"
                       style={styles.assignmentCopy}
                     >
                       {attempt.message}
-                    </Text>
+                    </FailureText>
                   ) : null}
                   <Text style={styles.assignmentCopy}>
                     The result is retained. Refreshing does not save or send
@@ -667,9 +665,9 @@ export function ScheduleTeamSheet({
         </>
       ) : null}
       {work.error ? (
-        <Text accessibilityRole="alert" style={styles.assignmentCopy}>
+        <FailureText accessibilityRole="alert" style={styles.assignmentCopy}>
           {work.error}
-        </Text>
+        </FailureText>
       ) : null}
       {!attempt && !confirmation ? (
         <>
@@ -734,16 +732,13 @@ export function ScheduleTeamSheet({
       {attempt ? (
         <View accessibilityLiveRegion="polite" style={styles.responseBox}>
           {attempt.kind === "pending" ? (
-            <Text style={styles.assignmentCopy}>
-              Checking each position and invitation… You can close this sheet
-              and return to check the results.
-            </Text>
+            <QuietActivity />
           ) : null}
           {attempt.kind === "failed" ? (
             <>
-              <Text accessibilityRole="alert" style={styles.assignmentCopy}>
+              <FailureText accessibilityRole="alert" style={styles.assignmentCopy}>
                 {attempt.message}
-              </Text>
+              </FailureText>
               <Text style={styles.assignmentCopy}>
                 Some positions may already exist. Retry checks the original
                 selection and saves.
@@ -767,7 +762,7 @@ export function ScheduleTeamSheet({
                   <Text style={styles.choiceName}>{row.name}</Text>
                   <Text style={styles.assignmentCopy}>
                     {!row.result
-                      ? "Position save is unconfirmed."
+                      ? "This position could not be saved."
                       : row.result.outcome === "applied"
                         ? "Position saved."
                         : row.result.outcome === "conflict"
@@ -780,12 +775,12 @@ export function ScheduleTeamSheet({
                     </Text>
                   ) : null}
                   {row.error ? (
-                    <Text
+                    <FailureText
                       accessibilityRole="alert"
                       style={styles.assignmentCopy}
                     >
                       {row.error}
-                    </Text>
+                    </FailureText>
                   ) : null}
                 </View>
               ))}
@@ -801,12 +796,12 @@ export function ScheduleTeamSheet({
               {attempt.refresh === "idle" || attempt.refresh === "failed" ? (
                 <>
                   {attempt.message ? (
-                    <Text
+                    <FailureText
                       accessibilityRole="alert"
                       style={styles.assignmentCopy}
                     >
                       {attempt.message}
-                    </Text>
+                    </FailureText>
                   ) : null}
                   <Text style={styles.assignmentCopy}>
                     Refresh reloads the schedule without creating positions or
@@ -963,9 +958,9 @@ export function ScheduleInventorySheet({
         future date. Scheduled changes never rewrite the inventory.
       </Text>
       {work.notice ? (
-        <Text accessibilityRole="alert" style={styles.intro}>
+        <FailureText accessibilityRole="alert" style={styles.intro}>
           {work.notice}
-        </Text>
+        </FailureText>
       ) : null}
       {attempt ? (
         <View style={styles.inventorySection} accessibilityLiveRegion="polite">
@@ -973,21 +968,18 @@ export function ScheduleInventorySheet({
           {attempt.kind === "saving" || attempt.kind === "reviewing" ? (
             <Text style={styles.intro}>
               {attempt.kind === "saving"
-                ? "Saving…"
+                ? ""
                 : "Reviewing original request…"}{" "}
               You can close this sheet and return to check the result.
             </Text>
           ) : null}
           {attempt.kind === "unconfirmed" ? (
             <>
-              <Text accessibilityRole="alert" style={styles.intro}>
+              <FailureText accessibilityRole="alert" style={styles.intro}>
                 {attempt.message}
-              </Text>
+              </FailureText>
               <Text style={styles.intro}>
-                The result is unconfirmed. Retry the same request, or review it
-                before editing. Review cancels a request that has not reached
-                the server.
-              </Text>
+                This change needs attention.</Text>
               <AppButton label="Retry change" onPress={work.retry} />
               <AppButton
                 label="Review original request"
@@ -999,7 +991,7 @@ export function ScheduleInventorySheet({
             <>
               <Text style={styles.intro}>
                 {attempt.result.outcome === "applied"
-                  ? "Change confirmed. Refresh inventory to see the latest list."
+                  ? ""
                   : attempt.result.outcome === "superseded"
                     ? "The original change succeeded. Later changes are preserved."
                     : attempt.result.outcome === "removed"
@@ -1013,9 +1005,9 @@ export function ScheduleInventorySheet({
                 </Text>
               ) : null}
               {attempt.message ? (
-                <Text accessibilityRole="alert" style={styles.intro}>
+                <FailureText accessibilityRole="alert" style={styles.intro}>
                   {attempt.message}
-                </Text>
+                </FailureText>
               ) : null}
               <AppButton
                 label={
@@ -1145,10 +1137,10 @@ export function ScheduleInventorySheet({
             <View style={styles.picker}>
               <Text style={styles.fieldLabel}>RUNDOWN SOURCE</Text>
               {missingSource ? (
-                <Text accessibilityRole="alert" style={styles.intro}>
+                <FailureText accessibilityRole="alert" style={styles.intro}>
                   The selected saved rundown is unavailable. Choose another
                   source or explicitly choose an empty rundown.
-                </Text>
+                </FailureText>
               ) : null}
               <Pressable
                 disabled={work.locked}

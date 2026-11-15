@@ -56,7 +56,7 @@ describe("confidence quick controls", () => {
     await screen.findByRole("button", { name: "Confidence Error" });
     expect(screen.queryByRole("button", { name: "Confidence On" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Confidence Error" }));
-    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Display disconnected");
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Display disconnected.");
   });
 });
 

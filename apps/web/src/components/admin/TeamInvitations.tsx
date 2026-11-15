@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useId, useRef, useState } from "react";
 import { inviteMember, retryTeamInvitationDelivery } from "@/lib/session";
 import type { TeamInvitation } from "@/lib/team-invitation-contract";
@@ -18,20 +19,12 @@ export function invitationDeliveryMessage(invitation: TeamInvitation): string {
   if (invitation.expiresAt.getTime() <= Date.now())
     return "This invitation has expired. Send again to renew it before sharing the link.";
   switch (invitation.delivery.state) {
-    case "accepted":
-      return "Email provider accepted this invitation. Waiting for the recipient to join.";
-    case "failed":
-      return "The invitation exists, but the email was rejected. You can share its link or retry the email.";
-    case "uncertain":
-      return invitation.delivery.retryable
-        ? "Email acceptance is unknown. Retry checks the same email attempt without creating another invitation."
-        : "Email acceptance is unknown and its safe retry window has ended. Share the link or explicitly send another email.";
-    case "sending":
-      return "Email confirmation is pending. Refresh its status before sending again.";
-    case "ready":
-      return "The invitation exists. Its email has not been confirmed yet.";
-    case "unknown":
-      return "No email delivery record is available for this invitation. Share its link or send again.";
+    case "accepted": return "";
+    case "failed": return "The invitation email could not be sent.";
+    case "uncertain": return "The invitation email needs attention.";
+    case "sending": return "";
+    case "ready": return "";
+    case "unknown": return "The invitation email needs attention.";
   }
 }
 
@@ -91,7 +84,7 @@ function CopyInvitationLink({ invitation }: { invitation: TeamInvitation }) {
         aria-label={`Copy invitation link for ${invitation.email}`}
       >
         {state === "copying"
-          ? "Copying…"
+          ? <QuietActivity label="Copying…" />
           : state === "copied"
             ? "Copied"
             : state === "failed"
@@ -276,7 +269,7 @@ export function TeamInvitations({
           role="status"
           className="rounded-lg border border-board-border p-3 text-sm text-board-text"
         >
-          Last request confirmed for {receipt.email}.{" "}
+          Invitation for{receipt.email}.{" "}
           {receipt.status === "pending"
             ? "See pending invitations below for current email status."
             : `Invitation ${receipt.status}.`}

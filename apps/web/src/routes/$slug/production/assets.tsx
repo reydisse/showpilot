@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { useState, useMemo } from "react";
@@ -303,7 +304,7 @@ function AssetsPage() {
             role="alert"
             className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
           >
-            {pageError}
+            {plainFailure(pageError)}
           </div>
         ) : null}
 

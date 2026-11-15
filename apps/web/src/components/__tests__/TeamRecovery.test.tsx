@@ -141,7 +141,7 @@ it("keeps the exact failed role command available after switching tabs", async (
   await act(async () => {});
   expect(
     screen.getByRole("alert", { name: "Team change" }).textContent,
-  ).toContain("Reply lost");
+  ).toContain("This change needs attention.");
   const original = api.role.mock.calls[0][0].data;
   expect(original).toMatchObject({
     orgId: "org-id",
@@ -173,7 +173,7 @@ it("retries only the read after a confirmed change whose refresh fails", async (
   await act(async () => {});
   expect(
     screen.getByRole("alert", { name: "Team change" }).textContent,
-  ).toContain("Change saved.");
+  ).toContain("This view could not be updated.");
   fireEvent.click(screen.getByRole("button", { name: "Retry refresh" }));
   await act(async () => {});
   expect(api.role).toHaveBeenCalledTimes(1);
@@ -226,7 +226,7 @@ it("requires invitation cancellation confirmation and recovers a failed cancella
   await act(async () => {});
   expect(
     screen.getByRole("alert", { name: "Team change" }).textContent,
-  ).toContain("Cancellation not confirmed");
+  ).toContain("This change needs attention.");
   fireEvent.click(screen.getByRole("button", { name: "Retry change" }));
   await act(async () => {});
   expect(api.cancel.mock.calls[1][0].data).toEqual(
@@ -314,7 +314,7 @@ it("retains an invitation draft and exact creation retry across form close and t
   const original = api.invite.mock.calls[0][0].data;
   expect(original).toMatchObject({ email: "new@example.test", requestId: expect.any(String) });
   fireEvent.click(screen.getByRole("tab", { name: /Content reports/ }));
-  expect(screen.getByRole("alert", { name: "Team change" }).textContent).toContain("Creation reply lost");
+  expect(screen.getByRole("alert", { name: "Team change" }).textContent).toContain("This change needs attention.");
   fireEvent.click(screen.getByRole("button", { name: "Retry change" }));
   await act(async () => {});
   expect(api.invite.mock.calls[1][0].data).toEqual(original);
@@ -326,7 +326,7 @@ it("retries only the list after invitation creation was acknowledged", async () 
   api.invitations.mockRejectedValue(new Error("Refresh unavailable"));
   fireEvent.click(screen.getByRole("button", { name: "Create invitation" }));
   await act(async () => {});
-  expect(screen.getByRole("alert", { name: "Team change" }).textContent).toContain("Change saved");
+  expect(screen.getByRole("alert", { name: "Team change" }).textContent).toContain("This view could not be updated.");
   api.invitations.mockResolvedValue([invitation]);
   fireEvent.click(screen.getByRole("button", { name: "Retry refresh" }));
   await act(async () => {});
@@ -337,7 +337,7 @@ it("keeps failed email separate from invitation creation and retries its exact d
   api.invitations.mockResolvedValue([failed]);
   await open();
   const row = screen.getByRole("article", { name: `Invitation for ${invitation.email}` });
-  expect(row.textContent).toContain("email was rejected");
+  expect(row.textContent).toContain("invitation email could not be sent");
   fireEvent.click(within(row).getByRole("button", { name: "Retry email" }));
   await act(async () => {});
   expect(api.retryEmail.mock.calls[0][0].data).toEqual({ orgId: "org-id", invitationId: invitation.id, deliveryId: failed.delivery.id });

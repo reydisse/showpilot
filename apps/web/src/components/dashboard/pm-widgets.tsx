@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useShowCreation } from "@/hooks/useShowCreation";
 import { CreationRecovery } from "@/components/shows/CreationRecovery";
 import { useDutyRoster } from "@/hooks/useDutyRoster";
@@ -829,7 +830,7 @@ const CREW_STATUS: Record<
 > = {
   confirmed: { label: "Confirmed", dot: "ok", className: "text-green-400" },
   assigned: {
-    label: "Not confirmed",
+    label: "Needs attention",
     dot: "warn",
     className: "text-yellow-300",
   },
@@ -1271,9 +1272,7 @@ export function EditableDutyOfficers({
       {ConfirmDialogEl}
       <DutyRosterFeedback roster={roster} />
       {!snapshot && !roster.read.isError ? (
-        <p role="status" className="text-sm text-board-muted">
-          Loading roster week…
-        </p>
+        <QuietActivity label="Loading roster week…" />
       ) : null}
       {snapshot ? (
         <ul className="space-y-3">
@@ -1331,7 +1330,7 @@ export function EditableDutyOfficers({
                 ) : selected ? (
                   <span className="text-xs text-board-muted">
                     {member
-                      ? "Assigned; attendance awaiting refresh"
+                      ? "Assigned"
                       : "This person is no longer a member."}
                   </span>
                 ) : null}

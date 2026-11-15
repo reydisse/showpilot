@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { CalendarDays, ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
@@ -118,7 +119,7 @@ export function ShowOptionsModal({
             </label>
           </section> : null}
 
-          {busy ? <p className="text-xs text-board-muted" role="status">Saving changes…</p> : null}
+          {busy ? <QuietActivity label="Saving changes…" /> : null}
           {canCreate ? <Button variant="ghost" type="button" onClick={onCreate} disabled={busy} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-fire-500 px-4 text-sm font-semibold text-black transition-colors hover:bg-fire-400 disabled:opacity-50"><Plus className="h-4 w-4" />Create another show</Button> : null}
         </div>
       </DialogContent>

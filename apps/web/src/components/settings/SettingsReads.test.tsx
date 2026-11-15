@@ -30,7 +30,7 @@ describe('Settings list recovery', () => {
     expect(screen.queryByText('Loading…')).toBeNull();
     expect(screen.queryByText(/No tokens yet/)).toBeNull();
     const retry = screen.getByRole('button', {name:'Retry Companion tokens'});
-    expect(screen.getByRole('alert', {name:'Retry Companion tokens'}).querySelector('time')).not.toBeNull();
+    expect(screen.getByRole('alert', {name:'Retry Companion tokens'}).querySelector('time')).toBeNull();
     await act(async () => resolve([{id:'late',label:'Late token',createdAt:new Date(),expiresAt:null}]));
     expect(screen.queryByText('Late token')).toBeNull();
     fireEvent.click(retry); await tick();

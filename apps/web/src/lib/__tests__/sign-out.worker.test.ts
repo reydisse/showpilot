@@ -54,6 +54,7 @@ async function signOut(
   cookie: string,
   expectedSessionId?: string,
   requestOrigin = origin,
+  background = false,
 ) {
   return getAuth().handler(
     new Request(`${origin}/api/auth/sign-out`, {
@@ -62,6 +63,7 @@ async function signOut(
         "Content-Type": "application/json",
         Origin: requestOrigin,
         Cookie: cookie,
+        ...(background ? { "X-ShowPilot-Local-Exit": "1" } : {}),
       },
       body: JSON.stringify({ expectedSessionId }),
     }),
@@ -126,4 +128,15 @@ it("preserves legacy sign-out and rejects a foreign origin", async () => {
       .some((cookie) => cookie.includes("Max-Age=0")),
   ).toBe(true);
   expect(await stillSignedIn(f.cookie)).toBeNull();
+});
+
+
+it("revokes a background-exit session without a cookie response that could erase a newer login", async () => {
+  const old = await fixture();
+  const newer = await old.login();
+  const response = await signOut(old.cookie, old.sessionId, origin, true);
+  expect(response.status).toBe(200);
+  expect(response.headers.getSetCookie()).toEqual([]);
+  expect(await stillSignedIn(old.cookie)).toBeNull();
+  expect(await stillSignedIn(newer.cookie)).not.toBeNull();
 });

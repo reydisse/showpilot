@@ -56,7 +56,7 @@ it("times out, preserves the PIN and ignores a late valid reply before retrying"
     await vi.advanceTimersByTimeAsync(8_000);
   });
   expect(screen.getByRole("alert").textContent).toContain("timed out");
-  expect(screen.getByRole("alert").querySelector("time")).not.toBeNull();
+  expect(screen.getByRole("alert").querySelector("time")).toBeNull();
   expect(api.validate.mock.calls[0][0].signal.aborted).toBe(true);
   expect(screen.getByLabelText<HTMLInputElement>("PIN").value).toBe("1842");
   await act(async () => {

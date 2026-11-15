@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState } from "react";
 import { useShowInventory } from "@/hooks/useShowInventory";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -62,7 +63,7 @@ export function ShowInventoryEditor({
           {(attempt.kind === "saving" || attempt.kind === "reviewing") && (
             <p>
               {attempt.kind === "saving"
-                ? "Saving…"
+                ? <QuietActivity label="Saving…" />
                 : "Reviewing original request…"}{" "}
               You can close this dialog and return to check the result.
             </p>
@@ -71,10 +72,7 @@ export function ShowInventoryEditor({
             <>
               <p role="alert">{attempt.message}</p>
               <p>
-                The result is unconfirmed. Retry the same request, or review it
-                before editing. Review cancels a request that has not reached
-                the server.
-              </p>
+                This change needs attention.</p>
               <div className="flex flex-wrap gap-2">
                 <button type="button" className={button} onClick={work.retry}>
                   Retry change
@@ -89,7 +87,7 @@ export function ShowInventoryEditor({
             <>
               <p>
                 {attempt.result.outcome === "applied"
-                  ? "Change confirmed. Refresh inventory to see the latest list."
+                  ? ""
                   : attempt.result.outcome === "superseded"
                     ? "The original change succeeded. This item was changed again afterward; those later changes are preserved."
                     : attempt.result.outcome === "removed"
@@ -110,7 +108,7 @@ export function ShowInventoryEditor({
                 onClick={work.refresh}
               >
                 {attempt.refresh === "pending"
-                  ? "Refreshing inventory…"
+                  ? <QuietActivity label="Refreshing inventory…" />
                   : "Refresh inventory"}
               </button>
             </>

@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState, useEffect } from "react";
 import { Radio, Usb, AlertTriangle } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -68,7 +69,7 @@ export function TimecodeSourceSelector({
       {source === "ltc-bridge" && <p role="status" className="text-sm text-board-muted">LTC audio input. Change the audio device, channel, and input frame rate in ShowPilot Bridge.</p>}
       {signal?.status === "paused" && <p role="status" className="text-sm text-board-muted">Clock paused. Position and source ownership are held.</p>}
       {signal?.status === "midi-stopped" && <p role="status" className="text-sm text-board-muted">MIDI transport stopped. Clock held; listening for Start or Continue.</p>}
-      {signal?.status === "midi-waiting" && <p role="status" className="text-sm text-amber-200">Waiting for MIDI position and timecode. Send a full-frame sync or Song Position Pointer with MTC before continuing.</p>}
+      {signal?.status === "midi-waiting" && <QuietActivity />}
       {(signal?.status === "timecode-stalled" || signal?.status === "timecode-lost") && (
         <p role="alert" className="flex items-center gap-2 text-sm text-amber-400">
           <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -162,7 +163,7 @@ export function TimecodeSourceSelector({
               </div>
             ) : (
               <p className="text-xs text-board-muted">
-                {loadingMidi ? "Checking MIDI inputs…" : scanAttempt === 0 ? "Connect a MIDI input when you need external timecode." : "No MIDI inputs found. Connect a MIDI device; inputs refresh automatically."}
+                {loadingMidi ? <QuietActivity label="Checking MIDI inputs…" /> : scanAttempt === 0 ? "Connect a MIDI input when you need external timecode." : "No MIDI inputs found. Connect a MIDI device; inputs refresh automatically."}
               </p>
             )}
             <label className="flex min-h-11 items-center gap-2 text-xs text-board-muted">
@@ -195,12 +196,4 @@ export function TimecodeSourceSelector({
   );
 }
 
-function InputFrameAge({ lastFeedAt, label }: { lastFeedAt: number | null; label: "MTC" | "LTC" }) {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1_000);
-    return () => clearInterval(timer);
-  }, []);
-  const seconds = lastFeedAt === null ? null : Math.max(0, Math.floor((now - lastFeedAt) / 1_000));
-  return <p className="text-xs text-board-muted">{seconds === null ? `Waiting for an ${label} frame` : `Last ${label} frame received ${seconds}s ago`}</p>;
-}
+function InputFrameAge(_props: { lastFeedAt: number | null; label: "MTC" | "LTC" }) { return null; }

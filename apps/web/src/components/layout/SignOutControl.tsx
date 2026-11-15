@@ -1,104 +1,50 @@
-import {
-  useMutation,
-  useMutationState,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { confirmAccountSignOut, SignOutFailure } from "@/lib/account-sign-out";
+import { authClient } from "@/lib/auth-client";
+import { lockLocalAccount } from "@/lib/local-account-exit";
+import { reconcileSignOut } from "@/lib/sign-out-reconciliation";
 
-/** Account menu and profile share an unfinished attempt, even after unmount. */
+export function exitAccountLocally(client: ReturnType<typeof useQueryClient>, userId: string) {
+    lockLocalAccount();
+    const session = authClient.$store.atoms.session;
+    const expectedSessionId = session.get().data?.session.id ?? null;
+    session.set({ ...session.get(), data: null, error: null, isPending: false });
+    const activeOrganization = authClient.$store.atoms.activeOrganization;
+    if (activeOrganization) activeOrganization.set({ ...activeOrganization.get(), data: null, error: null, isPending: false, isRefetching: false });
+    const listOrganizations = authClient.$store.atoms.listOrganizations;
+    if (listOrganizations) listOrganizations.set({ ...listOrganizations.get(), data: null, error: null, isPending: false, isRefetching: false });
+    const activeMember = authClient.$store.atoms.activeMember;
+    if (activeMember) activeMember.set({ ...activeMember.get(), data: null, error: null, isPending: false, isRefetching: false });
+    const activeMemberRole = authClient.$store.atoms.activeMemberRole;
+    if (activeMemberRole) activeMemberRole.set({ ...activeMemberRole.get(), data: null, error: null, isPending: false, isRefetching: false });
+    void client.cancelQueries();
+    client.clear();
+    reconcileSignOut({ userId, expectedSessionId });
+}
+
 export function SignOutControl({ userId }: { userId: string }) {
   const client = useQueryClient();
   const navigate = useNavigate();
-  const mutationKey = ["account-sign-out", userId];
-  const history = useMutationState({
-    filters: { mutationKey, exact: true },
-    select: (entry) => ({
-      status: entry.state.status,
-      at: entry.state.submittedAt,
-      failure:
-        entry.state.error instanceof SignOutFailure ? entry.state.error : null,
-    }),
-  });
-  const latest = history.at(-1);
-  const pending = latest?.status === "pending";
-  const failure = latest?.status === "error" ? latest.failure : null;
-  const mutation = useMutation({
-    mutationKey,
-    mutationFn: confirmAccountSignOut,
-    retry: false,
-    networkMode: "always",
-    gcTime: Infinity,
-    onSuccess: () => {
-      client.clear();
-      // Full document navigation also discards private route/query state.
-      void navigate({ to: "/login", reloadDocument: true, replace: true });
-    },
-    onSettled: () => {
-      const cache = client.getMutationCache(),
-        entries = cache.findAll({ mutationKey, exact: true });
-      for (const old of entries)
-        if (old !== entries.at(-1) && old.state.status !== "pending")
-          cache.remove(old);
-    },
-  });
+  const router = useRouter();
+  useEffect(() => {
+    // Warm the public form without running its authenticated beforeLoad hook.
+    for (const id of ["/_auth", "/_auth/login"] as const) {
+      const component = router.routesById[id]?.options.component;
+      if (component && "preload" in component && typeof component.preload === "function")
+        void Promise.resolve(component.preload()).catch(() => undefined);
+    }
+  }, [router]);
+  const clicked = useRef(false);
   const submit = () => {
-    if (
-      client
-        .getMutationCache()
-        .findAll({ mutationKey, exact: true })
-        .some((entry) => entry.state.status === "pending")
-    )
-      return;
-    mutation.mutate(failure?.command ?? { userId, expectedSessionId: null });
+    if (clicked.current) return;
+    clicked.current = true;
+    exitAccountLocally(client, userId);
+    void navigate({ to: "/login", replace: true, ignoreBlocker: true });
   };
-  return (
-    <div className="min-w-0 space-y-2">
-      {failure && latest ? (
-        <div
-          role="alert"
-          aria-label="Sign-out recovery"
-          className="space-y-1 rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-xs text-red-400"
-        >
-          <p>{failure.message}</p>
-          <p>
-            Last attempt{" "}
-            <time dateTime={new Date(latest.at).toISOString()}>
-              {new Date(latest.at).toLocaleTimeString()}
-            </time>
-          </p>
-        </div>
-      ) : null}
-      {failure?.kind === "changed" ? (
-        <a
-          href={window.location.pathname + window.location.search}
-          className="flex min-h-11 items-center rounded-lg border border-board-border px-3 text-sm text-board-text"
-        >
-          Review current sign-in
-        </a>
-      ) : (
-        <Button
-          type="button"
-          variant="ghost"
-          className="h-auto min-h-11 whitespace-normal text-left text-red-400 hover:text-red-300"
-          disabled={pending}
-          onClick={submit}
-        >
-          <LogOut data-icon="inline-start" />
-          {pending
-            ? "Signing out…"
-            : failure
-              ? "Retry sign-out"
-              : "Sign Out"}
-        </Button>
-      )}
-      {pending ? (
-        <p role="status" className="sr-only">
-          Signing out…
-        </p>
-      ) : null}
-    </div>
-  );
+  return <Button type="button" variant="ghost" className="h-auto min-h-11 whitespace-normal text-left text-red-400 hover:text-red-300" onClick={submit}>
+    <LogOut data-icon="inline-start" />Sign Out
+  </Button>;
 }

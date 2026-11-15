@@ -3,11 +3,14 @@ import {
   Outlet,
   Scripts,
   createRootRoute,
+  useRouterState,
 } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DesktopControllers } from "@/components/layout/DesktopControllers";
 import { registerNotificationWorker } from "@/lib/notifications";
+import { LOCAL_ACCOUNT_EXIT_COOKIE, accountExitRequested, localAccountExit } from "@/lib/local-account-exit";
+import { AuthSkeleton } from "@/components/ui/Skeleton";
 import appCss from "../styles.css?url";
 
 const THEME_BOOTSTRAP = `try{if(localStorage.getItem("showpilot-theme")==="light")document.documentElement.className="light"}catch(_){}`;
@@ -72,11 +75,22 @@ function RootComponent() {
   // One cache per rendered app, never a module singleton shared by SSR requests.
   // Personal data and mutation keys include both account and organization IDs.
   const [queryClient] = useState(() => new QueryClient());
+  const exited = useSyncExternalStore(localAccountExit.subscribe, localAccountExit.getSnapshot, localAccountExit.getServerSnapshot);
+  const privatePage = useRouterState({ select: state => state.matches.some(match => match.routeId === "/$slug" || match.routeId === "/superadmin") });
   useEffect(() => { void registerNotificationWorker(); }, []);
+  useEffect(() => {
+    const onExit = (event: StorageEvent) => {
+      if (event.key !== LOCAL_ACCOUNT_EXIT_COOKIE || !accountExitRequested(document.cookie)) return;
+      void queryClient.cancelQueries(); queryClient.clear();
+      window.location.replace("/login");
+    };
+    window.addEventListener("storage", onExit);
+    return () => window.removeEventListener("storage", onExit);
+  }, [queryClient]);
   useEffect(() => () => queryClient.clear(), [queryClient]);
   return (
     <QueryClientProvider client={queryClient}>
-      <DesktopControllers><Outlet /></DesktopControllers>
+      <DesktopControllers>{exited && privatePage ? <AuthSkeleton /> : <Outlet />}</DesktopControllers>
     </QueryClientProvider>
   );
 }

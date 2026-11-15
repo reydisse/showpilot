@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { refreshRetainedResult } from "@/lib/retained-refresh";
 import {
   useQuery,
@@ -163,15 +164,13 @@ export function CopyTeamControl({
       {pending && (
         <p role="status">
           {attempt?.phase === "pending"
-            ? "Checking team copy…"
-            : "Copy result received. Refreshing Schedule…"}
+            ? <QuietActivity label="Checking team copy…" />
+            : ""}
         </p>
       )}
       {attempt?.phase === "failed" && (
         <p role="alert" className="text-amber-300">
-          Team copy was not confirmed. Positions or invitations may already
-          exist. Retry checks the original request.
-        </p>
+          The team copy needs attention.</p>
       )}
       {result && (
         <div role="status" className="space-y-2 break-words">
@@ -211,7 +210,7 @@ export function CopyTeamControl({
       )}
       {attempt?.refresh === "failed" && (
         <div role="alert" className="space-y-2">
-          <p>The copy result is known, but Schedule could not refresh.</p>
+          <p>Schedule could not be updated.</p>
           <button
             type="button"
             className={button}

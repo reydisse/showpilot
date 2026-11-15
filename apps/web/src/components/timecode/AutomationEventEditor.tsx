@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { AUTOMATION_ACTIONS as ACTION_OPTIONS } from "@showpilot/shared";
 import { BasicCueFields } from "./BasicCueFields";
 import type { CueDetails } from "@/lib/automation-catalog";
@@ -145,7 +147,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
       if (editing) return;
       setTcString(""); setLabel(""); setDetailsGeneration(value => value + 1); setCrewMessage(""); setPropName(""); setPropTarget(""); setTargetSelection(null); setToleranceText(String(DEFAULT_TIMECODE_TOLERANCE_FRAMES)); setLeadText("0"); attemptRef.current = null;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Save was not confirmed. Your changes have been kept.");
+      setError(cause instanceof Error ? cause.message : "This change needs attention.");
     } finally { setSaving(false); }
   }
 
@@ -225,7 +227,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
           value={leadText} onChange={event => setLeadText(event.target.value)} aria-invalid={!leadValid}
           aria-describedby={`${leadId}-help`} className={INPUT_CLASS} />
         <p id={`${leadId}-help`} className="mt-1 text-xs text-board-muted">Send early by this amount, plus the saved device latency, rounded up to whole frames. The cue's time stays unchanged; dispatch cannot precede 00:00:00:00.</p>
-        {!leadValid && <p role="alert" className="mt-1 text-xs text-red-400">{leadError}</p>}
+        {!leadValid && <p role="alert" className="mt-1 text-xs text-red-400">{plainFailure(leadError)}</p>}
       </div>
 
       <div>
@@ -237,7 +239,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
           Used only for startup and resync matching{toleranceValid ? ` (±${toleranceFrames} frames, about ${Math.round(toleranceFrames * 1000 / format.frameRate)} ms)` : ""}.
           {" "}Forward playback fires when the clock crosses the cue. Failed actions retry only within this cue window.
         </p>
-        {!toleranceValid && <p role="alert" className="mt-1 text-xs text-red-400">{toleranceError}</p>}
+        {!toleranceValid && <p role="alert" className="mt-1 text-xs text-red-400">{plainFailure(toleranceError)}</p>}
       </div>
 
       {editing && <label className="flex min-h-11 items-center gap-2 text-sm text-board-text"><input type="checkbox" checked={changeDetails} onChange={event => setChangeDetails(event.target.checked)} />Change action details</label>}
@@ -279,7 +281,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
         {action === "pp-clear-props" && <p className="text-xs text-board-muted">Clears only the props layer.</p>}
       </div> : <BasicCueFields key={`${action}:${detailsGeneration}`} action={action} initial={initialDetails} orgId={orgId} onChange={setDetails} />}
 
-      {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
+      {error && <p role="alert" className="text-xs text-red-400">{plainFailure(error)}</p>}
 
       <button
         type="submit"
@@ -287,7 +289,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
         className="flex min-h-11 items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2 text-sm font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
       >
         <Plus className="w-3.5 h-3.5" />
-        {saving ? "Waiting for relay…" : editing ? "Save changes" : "Add Event"}
+        {saving ? <QuietActivity label="Waiting for relay…" /> : editing ? "Save changes" : "Add Event"}
       </button>
       </fieldset>
       {!connected && <p role="status" className="text-xs text-amber-200">Reconnect to save this event. Your draft is kept here.</p>}

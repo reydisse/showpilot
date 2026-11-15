@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { RelaySyncNotice } from "@/components/RelaySyncNotice";
 /**
  * Cue sheet.
@@ -406,7 +408,7 @@ function CueSheetsPage() {
           />
 
           <RelaySyncNotice error={loadError ?? syncError} occurredAt={loadError ? loadErrorAt : syncErrorAt} status={syncStatus} onRetry={retrySync} />
-          {noteWrites.some(([, entry]) => entry.pending) && <p role="status" className="text-sm text-board-muted">Saving cue notes…</p>}
+          {noteWrites.some(([, entry]) => entry.pending) && <QuietActivity label="Saving cue notes…" />}
           {noteFailures.length > 0 && <div role="alert" className="min-w-0 basis-full space-y-2 text-sm text-amber-300">
             <p>{noteFailures.length} cue note(s) have not saved. Your edits are kept.</p>
             {noteFailures.map(([key, entry]) => {
@@ -415,7 +417,7 @@ function CueSheetsPage() {
               const column = model.columns.find(column => column.id === op.columnId)?.label ?? "Removed department";
               const title = rows.find(row => row.itemId === op.itemId)?.title ?? "Cue note";
               return <div key={key} className="flex flex-wrap items-center gap-2">
-                <p className="min-w-0 flex-1"><strong>{title} · {column}</strong> {failure.message} <time dateTime={new Date(failure.occurredAt).toISOString()}>{new Date(failure.occurredAt).toLocaleTimeString()}</time></p>
+                <p className="min-w-0 flex-1"><strong>{title} · {column}</strong> {plainFailure(failure.message)} </p>
                 {entry.conflict && <>
                   <button type="button" className="min-h-11 px-3 underline" onClick={() => void reviewNote(key)}>Review saved note</button>
                   <button type="button" className="min-h-11 px-3 underline" onClick={() => {
@@ -430,9 +432,9 @@ function CueSheetsPage() {
             })}
             {noteFailures.some(([, entry]) => !entry.conflict) && <button type="button" className="min-h-11 px-3 font-semibold underline" disabled={noteFailures.every(([, entry]) => entry.pending || entry.conflict)} onClick={() => { for (const [key, entry] of noteFailures) if (!entry.conflict) void saveNote(key, true); }}>Retry saves</button>}
           </div>}
-          {columnWrite?.pending && <p role="status" className="text-sm text-board-muted">Saving column change…</p>}
+          {columnWrite?.pending && <QuietActivity label="Saving column change…" />}
           {columnWrite?.failure && <div role="alert" className="min-w-0 basis-full flex flex-wrap items-center gap-2 text-sm text-amber-300">
-            <div className="min-w-0 flex-1 basis-40"><p>{describeCueSheetWrite(columnWrite.attempt.operation)}. {columnWrite.failure.message}</p><time dateTime={new Date(columnWrite.failure.occurredAt).toISOString()}>{new Date(columnWrite.failure.occurredAt).toLocaleTimeString()}</time></div>
+            <div className="min-w-0 flex-1 basis-40"><p>{describeCueSheetWrite(columnWrite.attempt.operation)}. {plainFailure(columnWrite.failure.message)}</p></div>
             {columnWrite.conflict ? <button type="button" className="min-h-11 px-3 underline" onClick={() => { if (writes.clearConflict("columns", columnWrite.attempt.requestId)) retrySync(); }}>Refresh saved columns</button> : <button type="button" className="min-h-11 px-3 underline disabled:opacity-50" disabled={columnWrite.pending} onClick={() => void runColumn()}>Retry column change</button>}
           </div>}
           <div className="ml-auto flex items-center gap-3">
@@ -451,11 +453,11 @@ function CueSheetsPage() {
               title={
                 connected
                   ? "Other people's notes appear here as they type"
-                  : "Refreshing live changes. The last confirmed sheet and your edits are kept; check any save errors before leaving."
+                  : ""
               }
             >
               {connected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-              {connected ? "Synced" : syncStatus === "connecting" ? "Connecting…" : syncStatus === "refreshing" ? "Refreshing…" : "Reconnecting…"}
+              {connected ? "Synced" : syncStatus === "connecting" ? <QuietActivity label="Connecting…" /> : syncStatus === "refreshing" ? <QuietActivity label="Refreshing…" /> : <QuietActivity label="Reconnecting…" />}
             </span>
             {canManageColumns && (
               <button
@@ -544,7 +546,7 @@ function CueSheetsPage() {
       <div className="flex-1 relative min-h-0">
         <div ref={sheetScroll.ref} aria-busy={loading} className="absolute inset-0 overflow-auto">
         {model.showId !== showId ? (
-          <p className="text-center text-sm text-board-muted py-16">{loadError ? "Cue sheet unavailable. Retry above." : "Loading cue sheet…"}</p>
+          <p className="text-center text-sm text-board-muted py-16">{loadError ? "Cue sheet unavailable. Retry above." : <QuietActivity label="Loading cue sheet…" />}</p>
         ) : hasRows ? (
           <CueTable
             rows={rows}

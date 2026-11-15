@@ -29,6 +29,8 @@ class Socket {
   }
 }
 const modules = {
+  "@/components/quiet-activity": { QuietActivity: () => jsx.jsx("span", { role: "progressbar", "aria-label": "Loading" }) },
+  "@/components/failure-text": { FailureText: ({ children, accessibilityRole }) => React.createElement("p", { role: accessibilityRole }, children) },
   "react-native": { Platform: platform, TurboModuleRegistry: { get: nativeNetworking } },
   "@/lib/auth-client": { authClient: { getCookie: cookie } },
   "@/lib/rundown-pin": { getStoredRundownPin: pin },

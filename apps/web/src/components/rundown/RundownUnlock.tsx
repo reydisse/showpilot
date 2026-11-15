@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { Lock, LockOpen } from "lucide-react";
@@ -89,13 +90,7 @@ export function RundownUnlock({
             {state.status === "error" && (
               <div role="alert" className="text-sm text-red-400">
                 <p>{state.message}</p>
-                <time
-                  dateTime={new Date(state.occurredAt).toISOString()}
-                  className="mt-1 block text-xs"
-                >
-                  Last attempt:{" "}
-                  {new Date(state.occurredAt).toLocaleTimeString()}
-                </time>
+
               </div>
             )}
             <Button
@@ -105,7 +100,7 @@ export function RundownUnlock({
               className="min-h-11 w-full rounded-xl bg-fire-500 px-4 py-3 text-sm font-semibold text-black disabled:opacity-50"
             >
               {busy
-                ? "Checking…"
+                ? <QuietActivity label="Checking…" />
                 : state.status === "error"
                   ? "Retry verification"
                   : "Unlock changes"}

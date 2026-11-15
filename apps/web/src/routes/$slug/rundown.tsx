@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { ProPresenterOutputControl } from "@/components/rundown/ProPresenterOutputControl";
 import { ProPresenterSlideControls } from "@/components/rundown/ProPresenterSlideControls";
 import { runRouteLoad } from "@/lib/route-load-deadlines";
@@ -21,7 +23,7 @@ import { useShowEndConfirmation } from "@/hooks/useShowEndConfirmation";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { nextPlayableItem } from "@/lib/rundown-transport";
-import { lazy, Suspense, useState, useEffect, useCallback, useRef, useId } from "react";
+import { useState, useEffect, useCallback, useRef, useId } from "react";
 import {
   Play,
   Pause,
@@ -104,7 +106,6 @@ import { createBrowserId } from "@/lib/browser-id";
 import { useRundownDragReorder } from "@/hooks/useRundownDragReorder";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { cacheDesktopService, isDesktopRuntime } from "@/lib/desktop-runtime";
-import { useDesktopRuntime } from "@/hooks/useDesktopRuntime";
 import {
   NewShowModal,
 } from "@/components/rundown/NewShowModal";
@@ -300,11 +301,9 @@ export const Route = createFileRoute("/$slug/rundown")({
   component: RundownPage,
 });
 
-const DesktopLocalShowPanel = lazy(() => import("@/components/rundown/DesktopLocalShowPanel").then((module) => ({ default: module.DesktopLocalShowPanel })));
 
 function RundownPage() {
   const { user } = Route.useRouteContext();
-  const desktop = useDesktopRuntime();
   const workspaceTerms = useWorkspaceTerms();
   const {
     orgId,
@@ -412,7 +411,7 @@ function RundownPage() {
     ppPreviewSlide: syncedPpSlide,
     stageMessage: syncedStageMessage,
     lastError: syncError,
-    lastErrorAt: syncErrorAt,
+
     retryConnection: reconnectRundown,
     saving: syncSaving,
     connected: syncConnected,
@@ -1787,43 +1786,20 @@ function RundownPage() {
         </div>
       </div>
 
-      {desktop && showId && <Suspense fallback={null}>
-        <DesktopLocalShowPanel key={`${orgId}:${showId}:${serviceDate}`} orgId={orgId} slug={slug} showId={showId} serviceDate={serviceDate}
-          cloudRevision={cloudRevision} canControl={canControlRundown}
-          canPrepare={canControlRundown && hasEffectivePermission(role, grantedPermissions, "devices:access") && hasEffectivePermission(role, grantedPermissions, "timecode:access")}
-          cloudReady={syncConnected && syncHydrated && syncedInitialized && relayMatchesTarget && !syncSaving && !metaSavePending && !hasPendingCommands() && !saveError && !syncError} />
-      </Suspense>}
 
       {(selectionError || saveError || syncError) && (
         <div
           role="alert"
           className="shrink-0 flex items-start gap-2 px-6 py-2 bg-red-500/15 border-b border-red-500/30 text-[12px] text-red-300"
         >
-          <span className="font-medium shrink-0">
-            {selectionError
-              ? "Show unchanged."
-              : saveError
-                ? "Not saved."
-                : "Rundown sync."}
-          </span>
-          <span className="min-w-0">
-            {selectionError || saveError || syncError}
-            {!selectionError && !saveError && syncErrorAt !== null && <time className="ml-2 whitespace-nowrap" dateTime={new Date(syncErrorAt).toISOString()}>{new Date(syncErrorAt).toLocaleTimeString()}</time>}
-          </span>
+          <span>{selectionError ? "This show could not be opened." : saveError ? "Your rundown changes need attention." : "The rundown could not be updated."}</span>
+          {syncError && !selectionError && !saveError && <Button type="button" variant="outline" className="min-h-11" onClick={reconnectRundown}>Retry rundown</Button>}
         </div>
       )}
 
       <ReadFailureNotice {...ppConfiguration} label="Retry ProPresenter configuration" />
       {canControlRundown && <RundownShortcutBanner />}
-      {(!syncConnected || unconfirmedCount > 0) && (
-        <div role="status" aria-live="polite" className="shrink-0 flex flex-wrap items-center gap-3 border-b border-amber-500/25 bg-amber-500/10 px-4 py-2 text-sm text-amber-200">
-          <span className="min-w-0 flex-1 basis-full sm:basis-0">{syncConnected
-            ? `Syncing ${unconfirmedCount} ${unconfirmedCount === 1 ? "change" : "changes"}…`
-            : !syncHydrated && !syncError ? "Connecting to live rundown…"
-            : `Offline, ${unconfirmedCount} changes queued. Transport is unavailable until live state reconnects.`}</span>
-          {!syncConnected && (syncHydrated || syncError) && <Button type="button" variant="outline" className="min-h-11" onClick={reconnectRundown}>Reconnect rundown</Button>}
-        </div>
-      )}
+      {(!syncConnected || unconfirmedCount > 0) && !syncError && !saveError && !selectionError && <div className="shrink-0 px-4 py-2"><QuietActivity /></div>}
       {/* Page body — flex-col container, never scrolls itself */}
       <div
         className="rundown-page-body flex-1 overflow-hidden flex flex-col"
@@ -1834,7 +1810,7 @@ function RundownPage() {
           <div className="shrink-0 bg-red-500/10 border-b border-red-500/20 px-6 py-2.5 flex items-center gap-3">
             <X className="w-4 h-4 text-red-400 shrink-0" />
             <p className="text-sm text-red-400 flex-1">
-              Export failed: {exportError}
+              Export failed: {plainFailure(exportError)}
             </p>
             <Button variant="ghost"
               type="button"
@@ -1868,9 +1844,7 @@ function RundownPage() {
         )}
 
         {loading ? (
-          <div className="flex-1 flex items-center justify-center text-board-muted text-sm">
-            Loading rundown...
-          </div>
+          <QuietActivity label="Loading rundown..." />
         ) : (
           <div className="rundown-columns flex-1 overflow-hidden flex flex-row gap-6 px-4 py-5 sm:px-6 max-w-[1400px] mx-auto w-full min-h-0">
             {/* Left: Timer + Controls + Message */}
@@ -2099,7 +2073,7 @@ function RundownPage() {
                           ) : (
                             <WifiOff className="w-3 h-3" />
                           )}
-                          {ppEnabled ? pp.isStreaming ? "Streaming" : "Reconnecting" : "Off"}
+                          {ppEnabled ? pp.isStreaming ? "Streaming" : <QuietActivity label="Reconnecting" /> : "Off"}
                         </Button>
                       </>
                     )}
@@ -2108,14 +2082,13 @@ function RundownPage() {
                   {(canEditRundown || canControlRundown) && <ProPresenterOutputControl orgId={orgId} userId={user.id} surface="rundown" enabled /> }
                   {ppCommands.failure && (
                     <div role="alert" aria-label="ProPresenter command confirmation" className="my-3 space-y-2 text-sm text-amber-200">
-                      <p>{ppCommands.failure.message} <time dateTime={new Date(ppCommands.failure.occurredAt).toISOString()}>{new Date(ppCommands.failure.occurredAt).toLocaleTimeString()}</time></p>
+                      <p>{plainFailure(ppCommands.failure.message)} </p>
                       {ppCommands.canCheck && <Button type="button" variant="outline" className="min-h-11 h-auto whitespace-normal" onClick={() => void ppCommands.checkStatus()}>Check command status</Button>}
                       {ppCommands.canAcknowledge && <Button type="button" variant="outline" className="min-h-11 h-auto whitespace-normal" onClick={ppCommands.acknowledgeReview}>I've checked the output</Button>}
                     </div>
                   )}
                   {ppCommands.previousContext && <p role="status" className="my-2 text-sm text-board-muted">This action started before the show or ProPresenter settings changed. Its result belongs to that earlier action.</p>}
-                  {ppCommands.notice && <p role="status" aria-live="polite" className="my-2 text-sm text-green-400">{ppCommands.notice}</p>}
-                  {ppCommands.pending && <p role="status" aria-live="polite" className="my-2 text-sm text-board-muted">{ppCommands.checking ? "Checking the original command status…" : "Sending to ProPresenter…"}</p>}
+                  {ppCommands.pending && <p role="status" aria-live="polite" className="my-2 text-sm text-board-muted">{<QuietActivity label="Checking the original command status…" />}</p>}
 
                   {ppEnabled && (
                     <>
@@ -2134,12 +2107,12 @@ function RundownPage() {
                         />
                         <span className="text-xs text-board-muted">
                           {pp.status === "error"
-                            ? "Reconnecting, showing last confirmed slide"
+                            ? ""
                             : ppIsConnected
                               ? "Connected through venue Bridge"
                               : pp.status === "connecting"
-                                ? "Connecting..."
-                                : "Waiting for venue Bridge..."}
+                                ? <QuietActivity label="Connecting..." />
+                                : <QuietActivity label="Waiting for venue Bridge..." />}
                         </span>
                       </div>
 
@@ -2183,9 +2156,7 @@ function RundownPage() {
                         </div>
                       ) : (
                         <div>
-                          <p className="text-xs text-board-muted italic">
-                            Waiting for slide content from ProPresenter...
-                          </p>
+                          <QuietActivity label="Waiting for slide content from ProPresenter..." />
                           {/* Debug info — helps troubleshoot why slides aren't appearing */}
                           {pp.debugInfo && (
                             <div className="mt-2 rounded-lg bg-board-bg/80 border border-board-border/50 p-2 space-y-1">

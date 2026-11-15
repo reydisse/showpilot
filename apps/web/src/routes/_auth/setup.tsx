@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useOrganizationCreation, runCreationRequest } from "@/hooks/useOrganizationCreation";
 import { creationRequestIdSchema } from "@/lib/organization-creation-contract";
 import { useSetupChoices } from "@/hooks/useSetupChoices";
@@ -321,7 +323,7 @@ function SetupWizard() {
               onClick={() => { navigation.current.suspended = true; navigation.current.version++; setExitTarget(workspaceHref); }}>Exit setup</button>
           </nav>
           <p className="text-sm text-slate-400">Back keeps your entries in this tab. You can exit now and resume saved progress later.</p>
-          {navigationError && <p role="alert" className="mt-3 text-sm text-red-300">{navigationError}</p>}
+          {navigationError && <p role="alert" className="mt-3 text-sm text-red-300">{plainFailure(navigationError)}</p>}
           {scene === 1 && org && <section className="space-y-4 pt-10">
             <h1 className="text-3xl font-bold">Your organization is saved</h1><p>{org.name}</p>
             <p className="text-sm text-slate-300">You can change its name in Settings. Continuing uses this organization.</p>
@@ -707,7 +709,7 @@ function SceneOrgCreate({
                 {verificationSent
                   ? "Email sent — check your inbox"
                   : sendingVerification
-                    ? "Sending..."
+                    ? <QuietActivity label="Sending..." />
                     : "Resend verification email"}
               </button>
             </div>
@@ -783,7 +785,7 @@ function SceneOrgCreate({
         {creation.snapshot?.status === "removed" && <p role="alert">This workspace was removed. Retrying will not recreate it. Exit setup to start a new organization.</p>}
         {creation.snapshot?.status === "forbidden" && <p role="alert">You no longer own this workspace. Contact its owner or exit setup.</p>}
         {creation.snapshot?.status === "empty" && creation.pending && <button type="button" disabled={creating} onClick={creation.edit} className="min-h-11 rounded-lg border px-4 py-2">Edit creation details</button>}
-        <button type="button" disabled={creating} onClick={() => { setError(null); void creation.check(); }} className="min-h-11 rounded-lg border px-4 py-2 disabled:opacity-50">{creation.busy ? "Waiting for confirmation…" : "Check saved workspace"}</button>
+        <button type="button" disabled={creating} onClick={() => { setError(null); void creation.check(); }} className="min-h-11 rounded-lg border px-4 py-2 disabled:opacity-50">{creation.busy ? <QuietActivity label="This change needs attention." /> : "Check saved workspace"}</button>
       </div>}
       {slugState === "error" && !createdOrg && !creation.pending && <div role="alert" className="mt-4 text-sm">
         Could not check this workspace address.
@@ -795,8 +797,8 @@ function SceneOrgCreate({
           className="mt-4 rounded-lg border px-3 py-2.5 text-sm"
           style={{ borderColor: `${T.red}40`, background: `${T.red}14`, color: "#FCA5A5" }}
         >
-          {error ?? creation.failure?.message}
-          {creation.failure && <span className="mt-1 block text-xs">Last attempt: {new Date(creation.failure.occurredAt).toLocaleTimeString()}</span>}
+          {plainFailure(error ?? creation.failure?.message ?? "")}
+          {creation.failure && null}
         </div>
       )}
 
@@ -811,7 +813,7 @@ function SceneOrgCreate({
           cursor: ctaReady ? "pointer" : "default",
         }}
       >
-        {creating ? "Waiting for confirmation…" : createdOrg ? "Continue setup" : creation.pending ? "Retry creation" : additional ? "Create organization" : "Build my show"} <ArrowRight size={17} />
+        {creating ? <QuietActivity label="This change needs attention." /> : createdOrg ? "Continue setup" : creation.pending ? "Retry creation" : additional ? "Create organization" : "Build my show"} <ArrowRight size={17} />
       </button>
     </form>
   );

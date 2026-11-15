@@ -9,6 +9,8 @@ import * as ids from "../../../../mobile/src/lib/request-id.ts";
 import * as draft from "../../../../mobile/src/lib/rundown-item-draft.ts";
 const container = ({ children }) => React.createElement("div", null, children);
 const modules = {
+  "@/components/failure-text": { FailureText: ({ children, accessibilityRole }) => React.createElement("p", { role: accessibilityRole }, children) },
+  "@/components/quiet-activity": { QuietActivity: () => jsx.jsx("span", { role: "progressbar", "aria-label": "Loading" }) },
   react: React,
   "react/jsx-runtime": jsx,
   "@/lib/request-id": ids,

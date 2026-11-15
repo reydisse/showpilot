@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/quiet-activity";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import BadgeCheck from "lucide-react-native/icons/badge-check";
@@ -85,9 +86,9 @@ export default function ProfileScreen() {
   async function signOut() {
     setSigningOut(true);
     try {
-      await exitMobileAccount(queryClient, organization?.id);
-      await Haptics.selectionAsync();
+      exitMobileAccount(queryClient, organization?.id);
       router.replace("/sign-in");
+      void Haptics.selectionAsync();
     } catch (error) {
       Alert.alert("Could not sign out", error instanceof Error ? error.message : "Check your connection and try again.");
     } finally {
@@ -109,7 +110,7 @@ export default function ProfileScreen() {
             <Pressable accessibilityRole="button" accessibilityLabel={session?.user.emailVerified ? "Account verification details" : "Verify your email"} onPress={() => router.push("/settings")} style={styles.verifiedBadge}><BadgeCheck size={13} color={session?.user.emailVerified ? colors.green : colors.amberText} /><Text style={[styles.verifiedText, session?.user.emailVerified && styles.verifiedTextReady]}>{session?.user.emailVerified ? "Verified account" : "Verify your email"}</Text></Pressable>
           </View>
         </View>
-        {savingAvatar ? <Text style={styles.savingText}>Preparing and saving your photo…</Text> : null}
+        {savingAvatar ? <Text style={styles.savingText}><QuietActivity label="Preparing and saving your photo…" /></Text> : null}
       </View>
       <View style={styles.editor}>
         <Text style={styles.editorLabel}>DISPLAY NAME</Text>

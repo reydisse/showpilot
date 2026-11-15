@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect } from "react";
 import { ArrowLeft, ArrowRight, Eraser } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -33,9 +35,9 @@ export function LyricsControls({ enabled, pending, error, onChange, keyboard = f
     <div className="flex flex-wrap gap-2">
       <Button type="button" variant="outline" className="min-h-11 min-w-11" disabled={!enabled || pending !== null} onClick={() => { void onChange("previous").catch(() => {}); }}><ArrowLeft />{pending === "previous" ? "Changing…" : "Previous section"}</Button>
       <Button type="button" variant="outline" className="min-h-11 min-w-11" disabled={!enabled || pending !== null} onClick={() => { void onChange("next").catch(() => {}); }}><ArrowRight />{pending === "next" ? "Changing…" : "Next section"}</Button>
-      <Button type="button" variant="outline" className="min-h-11 min-w-11" disabled={!enabled || pending !== null} onClick={() => { void onChange("clear").catch(() => {}); }}><Eraser />{pending === "clear" ? "Clearing…" : "Clear lyrics"}</Button>
+      <Button type="button" variant="outline" className="min-h-11 min-w-11" disabled={!enabled || pending !== null} onClick={() => { void onChange("clear").catch(() => {}); }}><Eraser />{pending === "clear" ? <QuietActivity label="Clearing…" /> : "Clear lyrics"}</Button>
     </div>
     {keyboard && <p className="text-xs text-board-muted">Use ← / → or a keyboard footswitch while this page has focus. Shortcuts pause while editing or using a dialog.</p>}
-    {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+    {error && <p role="alert" className="text-sm text-red-300">{plainFailure(error)}</p>}
   </div>;
 }

@@ -102,7 +102,7 @@ it("retains the original copy across navigation, a changed source and a populate
   api.canCopy = false;
   view.show(true);
   await tick();
-  expect(screen.getByText(/Team copy was not confirmed/)).toBeTruthy();
+  expect(screen.getByText("The team copy needs attention.")).toBeTruthy();
   pending.resolve(result(command));
   await tick();
   expect(api.refresh).not.toHaveBeenCalled();
@@ -145,7 +145,7 @@ it("bounds refresh independently and does not copy again on Retry refresh", asyn
   mount();
   click("Copy team");
   await tick(12_100);
-  expect(screen.getByText(/Schedule could not refresh/)).toBeTruthy();
+  expect(screen.getByText("Schedule could not be updated.")).toBeTruthy();
   pending.resolve();
   await tick();
   click("Retry refresh");

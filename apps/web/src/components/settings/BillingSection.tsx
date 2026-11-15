@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Check, ExternalLink, FlaskConical, LoaderCircle } from "lucide-react";
 import {
@@ -199,7 +201,7 @@ export function BillingSection({
       )}
       {billingError && (
         <div className="mb-5 px-4 py-3 rounded-xl border border-red-500/20 bg-red-500/10">
-          <p className="text-sm text-red-400">{billingError}</p>
+          <p className="text-sm text-red-400">{plainFailure(billingError)}</p>
         </div>
       )}
 
@@ -240,7 +242,7 @@ export function BillingSection({
             className="min-h-11 focus-visible:outline-2 focus-visible:outline-fire-500 mt-3 inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg text-board-text border border-board-border hover:bg-board-border/50 transition-colors disabled:opacity-50"
           >
             <ExternalLink className="w-3.5 h-3.5" />
-            {openingPortal ? "Opening..." : "Manage billing"}
+            {openingPortal ? <QuietActivity label="Opening..." /> : "Manage billing"}
           </button>
         )}
       </section>

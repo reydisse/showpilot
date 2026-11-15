@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { AppButton } from "./app-button";
@@ -48,9 +49,9 @@ export function RundownClearConfirmation({
       ) : null}
       {changed ? (
         <>
-          <Text accessibilityRole="alert" style={text}>
+          <FailureText accessibilityRole="alert" style={text}>
             The rundown changed. Review it again before clearing.
-          </Text>
+          </FailureText>
           <AppButton
             label="Review current rundown"
             variant="secondary"
@@ -60,10 +61,10 @@ export function RundownClearConfirmation({
         </>
       ) : null}
       {!active ? (
-        <Text accessibilityRole="alert" style={text}>
+        <FailureText accessibilityRole="alert" style={text}>
           Reconnect with editing access and resolve any previous rundown action
           first.
-        </Text>
+        </FailureText>
       ) : null}
       <AppButton label="Keep rundown" variant="secondary" onPress={onClose} />
       <AppButton

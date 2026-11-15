@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { Button } from "@/components/ui/button";
 import { identifyConfidenceMonitor, preferredDeckLinkMode } from "@/lib/confidence-output";
 import { useConfidenceOutput } from "@/lib/use-confidence-output";
@@ -129,7 +131,7 @@ export function ConfidenceOutputControls({ slug, output }: {
               onClick={() => void toggle()}
             >
               {busy
-                ? "Updating…"
+                ? <QuietActivity label="Updating…" />
                 : enabled
                   ? "Disable output"
                   : "Enable output"}
@@ -174,7 +176,7 @@ export function ConfidenceOutputControls({ slug, output }: {
       )}
       {error && (
         <p role="alert" className="mt-3 text-sm text-red-400">
-          {error}
+          {plainFailure(error)}
         </p>
       )}
     </div>

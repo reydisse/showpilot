@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, useBlocker } from "@tanstack/react-router";
@@ -166,7 +167,7 @@ export function ChecklistWorkspace({ initial }: { initial: ChecklistInitial }) {
     <ReadFailureNotice error={writes.state.failure} refreshing={writes.state.kind === "conflict" && (entryRead.refreshing || !!entryRead.error)}
       retry={() => writes.state.kind === "conflict" ? writes.clearConflict() : void save()}
       label={writes.state.kind === "conflict" ? "I reviewed the refreshed checklist" : "Retry checklist save"} />
-  ) : writes.state.kind === "pending" ? <p role="status" className="px-4 py-3 text-sm text-board-muted">Saving checklist change…</p> : null;
+  ) : writes.state.kind === "pending" ? <QuietActivity label="Saving checklist change…" /> : null;
 
   return (
     <div className="h-full overflow-auto">
@@ -294,7 +295,7 @@ export function ChecklistWorkspace({ initial }: { initial: ChecklistInitial }) {
           ))}
 
           {loadingEntries ? (
-            <p className="text-center text-sm text-board-muted py-8">Loading checklist...</p>
+            <QuietActivity label="Loading checklist..." />
           ) : (
             !entryRead.error && totalCount === 0 && (
               <EmptyState

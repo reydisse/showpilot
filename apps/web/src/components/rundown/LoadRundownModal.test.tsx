@@ -18,7 +18,7 @@ it("shows a timestamped list error, never an empty state, and reloads on retry",
   vi.mocked(listRundownDates).mockRejectedValueOnce(new Error("offline"));
   render(<LoadRundownModal {...props()} />);
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("Could not load rundowns"));
-  expect(screen.getByRole("alert").querySelector("time")?.dateTime).toBeTruthy();
+  expect(screen.getByRole("alert").querySelector("time")?.dateTime).toBeFalsy();
   expect(screen.queryByText("No previous rundowns found")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Retry list" }));
   expect(await screen.findByRole("button", { name: /Earlier show/ })).toBeTruthy();

@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import { AppButton } from "./app-button";
@@ -57,19 +59,16 @@ export function RundownChangeStatus({
         </Text>
       ) : null}
       {attempt.kind === "pending" ? (
-        <Text accessibilityLiveRegion="polite" style={text}>
-          Confirming the action… Leaving this screen keeps the request during
-          this app session.
-        </Text>
+        <QuietActivity />
       ) : null}
       {attempt.kind === "failed" ? (
         <>
-          <Text
+          <FailureText
             accessibilityRole="alert"
             style={{ ...text, color: colors.red }}
           >
             {attempt.message}
-          </Text>
+          </FailureText>
           <Text style={text}>
             The action may have completed. Retry checks the original request and
             reviewed rundown.
@@ -108,14 +107,14 @@ export function RundownChangeStatus({
           ) : null}
           {attempt.refresh !== "done" ? (
             <>
-              <Text
+              <FailureText
                 accessibilityRole={
                   attempt.refresh === "failed" ? "alert" : undefined
                 }
                 style={text}
               >
-                {attempt.message ?? "Refreshing the rundown…"}
-              </Text>
+                {attempt.message ?? ""}
+              </FailureText>
               <AppButton
                 label="Refresh rundown result"
                 variant="secondary"

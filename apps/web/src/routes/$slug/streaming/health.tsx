@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, useBlocker } from "@tanstack/react-router";
@@ -191,7 +192,7 @@ export function StreamHealthWorkspace({ orgId, initialInputs, canManageStreamHea
               {connectedCount}<span className="ml-1 text-xs font-normal text-board-muted">/ {inputs.length}</span>
             </p>
             {lastCheckedAt && (
-              <p className="mt-1 text-[9px] text-board-muted">Checked {new Date(lastCheckedAt).toLocaleTimeString()}</p>
+              null
             )}
           </div>
         </div>
@@ -201,7 +202,7 @@ export function StreamHealthWorkspace({ orgId, initialInputs, canManageStreamHea
         {!showAddForm && notice}
         {!showAddForm && newName && <button className={controlClass} onClick={() => setShowAddForm(true)}>Review input draft</button>}
         {/* Stats row */}
-        {inputs.length === 0 && (read.refreshing || read.error) ? <p role="status" className="text-sm text-board-muted">{read.refreshing ? "Loading inputs…" : "Input list unavailable. Retry above."}</p> : inputs.length === 0 ? (
+        {inputs.length === 0 && (read.refreshing || read.error) ? <p role="status" className="text-sm text-board-muted">{read.refreshing ? <QuietActivity label="Loading inputs…" /> : "Input list unavailable. Retry above."}</p> : inputs.length === 0 ? (
           <EmptyState
             icon={Activity}
             title="No live inputs configured"
@@ -257,10 +258,10 @@ export function StreamHealthWorkspace({ orgId, initialInputs, canManageStreamHea
                                 : "text-board-muted"
                           }`}
                         >
-                          {isLive ? "Streaming" : isConnected ? "Reconnecting" : status === "error" ? "Fault" : status === "unknown" ? "Unknown" : status === "disabled" ? "Disabled" : "Idle"}
+                          {isLive ? "Streaming" : isConnected ? <QuietActivity label="Reconnecting" /> : status === "error" ? "Fault" : status === "unknown" ? "Unknown" : status === "disabled" ? "Disabled" : "Idle"}
                         </span>
                         {health && (
-                          <p className="mt-1 text-[9px] text-board-muted">{healthRead.error ? "Last confirmed" : "Provider"}: {health.providerStatus.replaceAll("_", " ")} · {new Date(health.checkedAt).toLocaleTimeString()}</p>
+                          <p className="mt-1 text-[9px] text-board-muted">Provider: {health.providerStatus.replaceAll("_", " ")}</p>
                         )}
                         {health?.error && (
                           <p className="mt-1 text-[10px] text-red-400">{health.error}</p>
@@ -282,7 +283,7 @@ export function StreamHealthWorkspace({ orgId, initialInputs, canManageStreamHea
                   </div>
 
                   {input.setupState !== "ready" && <div className="mb-4 space-y-2 text-sm text-amber-200">
-                    <p>{input.setupState === "deleting" ? "Removal is pending. Retry removal to confirm the result." : "Setup is pending. Resume to recover the same input."}</p>
+                    <p>{input.setupState === "deleting" ? "This removal needs attention." : "This setup needs attention."}</p>
                     {canManageStreamHealth && <button className={controlClass} disabled={controlsDisabled} onClick={() => input.setupState === "deleting" ? void handleDelete(input) : handleResume(input)}>{input.setupState === "deleting" ? "Retry removal" : "Resume setup"}</button>}
                   </div>}
                   <div className="space-y-2">
@@ -535,7 +536,7 @@ export function StreamHealthWorkspace({ orgId, initialInputs, canManageStreamHea
               <input id="live-input-name" value={newName} onChange={e => setNewName(e.target.value)} maxLength={200} disabled={locked} placeholder="e.g. ATEM Program, Main Camera" className="min-h-11 w-full min-w-0 rounded-lg border border-board-border bg-board-bg px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-fire-500" />
               {notice}
               {read.error && <ReadFailureNotice error={read.error} refreshing={read.refreshing} retry={read.retry} label="Retry inputs" />}
-              <div className="flex flex-wrap gap-3"><button type="button" className={controlClass} disabled={busy} onClick={() => void closeEditor()}>Cancel</button><button type="submit" className={controlClass} disabled={controlsDisabled || !newName.trim()}>{busy ? "Creating…" : "Create"}</button></div>
+              <div className="flex flex-wrap gap-3"><button type="button" className={controlClass} disabled={busy} onClick={() => void closeEditor()}>Cancel</button><button type="submit" className={controlClass} disabled={controlsDisabled || !newName.trim()}>{busy ? <QuietActivity label="Creating…" /> : "Create"}</button></div>
             </form>
           </DialogContent>
         </Dialog>

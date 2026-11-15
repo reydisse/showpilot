@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 import { Bell, CalendarDays, ChevronLeft, ChevronRight, Settings, UserRound } from "lucide-react";
 import { CatchBoundary, Link, useRouter } from "@tanstack/react-router";
@@ -10,10 +11,9 @@ import { Button } from "@/components/ui/button";
 import { runRouteLoad } from "@/lib/route-load-deadlines";
 
 function AccountPanelFailure({ retry }: { retry: () => void }) {
-  const [failedAt] = useState(Date.now);
   return <div role="alert" aria-label="Account view unavailable" className="min-h-0 overflow-y-auto p-5 text-sm text-board-text">
     <p>Could not load this account view.</p>
-    <time className="mt-2 block text-xs text-board-muted" dateTime={new Date(failedAt).toISOString()}>Last attempt: {new Date(failedAt).toLocaleTimeString()}</time>
+
     <Button type="button" variant="outline" onClick={retry} className="mt-4 min-h-11">Retry account view</Button>
   </div>;
 }
@@ -205,7 +205,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
               </Link>
 
               <CatchBoundary getResetKey={() => panelAttempt} errorComponent={PanelError}>
-                <Suspense fallback={<p role="status" className="p-3 text-xs text-board-muted">Checking device notifications…</p>}>
+                <Suspense fallback={<QuietActivity label="Checking device notifications…" />}>
                   <DeviceNotifications orgId={orgId} />
                 </Suspense>
               </CatchBoundary>
@@ -227,12 +227,12 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
               <div className="my-2 h-px bg-board-border" />
 
               <CatchBoundary getResetKey={() => panelAttempt} errorComponent={PanelError}>
-                <Suspense fallback={<p role="status" className="p-3 text-xs text-board-muted">Loading sign-out…</p>}>
+                <Suspense fallback={<QuietActivity label="Loading sign-out…" />}>
                   <AccountPanels view="signout" panelProps={{ userId: user.id }} />
                 </Suspense>
               </CatchBoundary>
               <CatchBoundary getResetKey={() => panelAttempt} errorComponent={PanelError}>
-                <Suspense fallback={<p role="status" className="p-3 text-xs text-board-muted">Checking account status…</p>}>
+                <Suspense fallback={<QuietActivity label="Checking account status…" />}>
                   <AccountPanels view="timezone" panelProps={{ orgId, userId: user.id, mode: "status" }} />
                   <AccountPanels view="count" panelProps={{ state: countState, onRetry: notificationCount.retry }} />
                 </Suspense>
@@ -242,7 +242,7 @@ export function SidebarIdentity({ collapsed, user, role, orgName, orgId, slug, c
 
           {accountView !== "menu" ? (
             <CatchBoundary key={`${orgId}:${localUser.id}`} getResetKey={() => panelAttempt} errorComponent={PanelError}>
-              <Suspense fallback={<p role="status" aria-label="Loading account view" className="p-5 text-sm text-board-muted">Loading…</p>}>
+              <Suspense fallback={<QuietActivity label="Loading…" />}>
                 {accountView === "profile" ? (
                   <AccountPanels view="profile" panelProps={{ user: localUser, role, orgName, onUserUpdated: handleUserUpdated }} />
                 ) : (

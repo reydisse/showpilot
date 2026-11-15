@@ -30,7 +30,7 @@ it("preserves an entered destination and reports a failed approval", async () =>
   fireEvent.change(screen.getByLabelText("Protocol"), { target: { value: "propresenter" } });
   expect(screen.getByText(/Approve each configured port/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Approve destination" }));
-  expect((await screen.findByRole("alert")).textContent).toBe("Approval could not be saved");
+  expect((await screen.findByRole("alert")).textContent).toBe("Approval could not be saved.");
   expect(api.approve).toHaveBeenCalledExactlyOnceWith({ data: { orgId: "org-1", label: "ProPresenter", host: "192.168.1.10", port: "50001", protocol: "propresenter" } });
   expect((screen.getByLabelText("Destination name") as HTMLInputElement).value).toBe("ProPresenter");
 });
@@ -53,5 +53,5 @@ it("shows the saved policy and an explicit warning when native output shutdown w
   fireEvent.click(screen.getByRole("button", { name: "Remove approval for Venue OBS" }));
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Remove approval" }));
   await screen.findByText("No Bridge destinations approved yet.");
-  expect((await screen.findByRole("alert")).textContent).toContain("did not confirm");
+  expect((await screen.findByRole("alert")).textContent).toContain("This destination needs attention.");
 });

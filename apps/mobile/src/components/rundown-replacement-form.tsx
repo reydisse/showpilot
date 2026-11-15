@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { useState } from "react";
 import { Text, View, StyleSheet } from "react-native";
 import { AppButton } from "@/components/app-button";
@@ -36,12 +38,12 @@ export function RundownReplacementForm({
         remain signed in.
       </Text>
       {state.error ? (
-        <Text accessibilityRole="alert" style={styles.error}>
+        <FailureText accessibilityRole="alert" style={styles.error}>
           {state.error}
-        </Text>
+        </FailureText>
       ) : null}
       {state.reading ? (
-        <Text style={styles.text}>Loading the source and current show…</Text>
+        <QuietActivity />
       ) : null}
       {!base && !state.reading ? (
         <AppButton
@@ -72,9 +74,9 @@ export function RundownReplacementForm({
             ({base.timeZone}){"\n"}Venue: {base.copy.location || "Not set"}
           </Text>
           {!base.canReplace ? (
-            <Text accessibilityRole="alert" style={styles.error}>
+            <FailureText accessibilityRole="alert" style={styles.error}>
               Stop the show, then review the current copy before replacing it.
-            </Text>
+            </FailureText>
           ) : null}
           {!attempt && !confirm ? (
             <AppButton
@@ -88,15 +90,13 @@ export function RundownReplacementForm({
         </>
       ) : null}
       {attempt?.kind === "pending" ? (
-        <Text accessibilityLiveRegion="polite" style={styles.text}>
-          Confirming the original replacement…
-        </Text>
+        <QuietActivity />
       ) : null}
       {attempt?.kind === "failed" ? (
         <>
-          <Text accessibilityRole="alert" style={styles.error}>
+          <FailureText accessibilityRole="alert" style={styles.error}>
             {attempt.message}
-          </Text>
+          </FailureText>
           <AppButton
             label="Retry original replacement"
             disabled={!active}
@@ -117,15 +117,15 @@ export function RundownReplacementForm({
       ) : null}
       {attempt?.kind === "confirmed" && !settled ? (
         <>
-          <Text
+          <FailureText
             accessibilityRole={
               attempt.refresh === "failed" ? "alert" : undefined
             }
             style={styles.text}
           >
-            {attempt.message ?? "Refreshing the show…"} The replacement result
+            {attempt.message ?? ""} The replacement result
             above is confirmed.
-          </Text>
+          </FailureText>
           <AppButton
             label="Refresh show only"
             loading={attempt.refresh === "pending"}

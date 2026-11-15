@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, useBlocker } from "@tanstack/react-router";
@@ -153,7 +155,7 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
     if (await read.refresh()) writes.discard();
     setReviewing(false);
   };
-  const notice = <><ConfirmedWriteNotice collectionLabel="destinations" state={writes.state} retry={() => void writes.retry()} review={() => void reviewStored()} reviewing={reviewing} />{editor?.open && read.error && <p role="alert" className="text-sm text-amber-200">{read.error.message}</p>}</>;
+  const notice = <><ConfirmedWriteNotice collectionLabel="destinations" state={writes.state} retry={() => void writes.retry()} review={() => void reviewStored()} reviewing={reviewing} />{editor?.open && read.error && <p role="alert" className="text-sm text-amber-200">{plainFailure(read.error.message)}</p>}</>;
   const [reviewingOutputs, setReviewingOutputs] = useState(false);
   const activeCount = destinations.filter((d) => d.enabled).length;
   const connectedCount = destinations.filter((d) => d.cfOutputId).length;
@@ -275,15 +277,15 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
         {!editor?.open && notice}
         <ConfirmedWriteNotice collectionLabel="outputs" state={outputWrites.state} retry={() => void outputWrites.retry()} review={() => void reviewOutputs()} reviewing={reviewingOutputs} />
         {editor && !editor.open && <button className={controlClass} onClick={() => setEditor({ ...editor, open: true })}>Review destination draft</button>}
-        {read.refreshing && <p role="status" className="text-xs text-board-muted">Refreshing destinations… Previously confirmed values are shown.</p>}
+        {read.refreshing && <QuietActivity />}
         <ReadFailureNotice error={outputFailure} refreshing={outputRead.refreshing} retry={outputRead.retry} label="Retry output status" />
         {connectedCount > 0 && (() => {
           const enabled = Object.values(outputStatuses).filter(state => state.status === "enabled").length;
           const checked = Object.keys(outputStatuses).length > 0;
           return <section aria-label="Output status" className="space-y-2 rounded-xl border border-board-border bg-board-card px-4 py-3 text-sm text-board-text">
-            <p>{outputRead.error ? "Last confirmed: " : ""}{checked ? `${enabled} output${enabled === 1 ? "" : "s"} enabled${unknownCount ? ` · ${unknownCount} status${unknownCount === 1 ? "" : "es"} unavailable` : ""}` : outputRead.refreshing ? "Checking output status…" : "Output status unavailable"}</p>
+            <p>{outputRead.error ? "" : ""}{checked ? `${enabled} output${enabled === 1 ? "" : "s"} enabled${unknownCount ? ` · ${unknownCount} status${unknownCount === 1 ? "" : "es"} unavailable` : ""}` : outputRead.refreshing ? <QuietActivity label="" /> : "Output details could not be loaded."}</p>
             <p className="text-xs text-board-muted">Enabled means forwarding is configured. Verify the broadcast on each destination platform.</p>
-            {outputRead.confirmedAt !== null && <p className="text-xs text-board-muted">Checked <time dateTime={new Date(outputRead.confirmedAt).toISOString()}>{new Date(outputRead.confirmedAt).toLocaleTimeString()}</time>{outputRead.refreshing ? " · Refreshing…" : ""}</p>}
+            {outputRead.confirmedAt !== null && null}
           </section>;
         })()}
 
@@ -340,8 +342,8 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
                 : outputStatus?.status === "disabled" ? "Output disabled"
                 : outputStatus?.status === "missing" ? "Output missing at provider"
                 : outputStatus?.status === "unconfirmed" ? "Connection unconfirmed"
-                : outputStatus?.status === "unknown" || outputRead.error ? "Output status unavailable"
-                : outputRead.confirmedAt !== null || !outputRead.refreshing ? "Output status unavailable" : "Checking output status…";
+                : outputStatus?.status === "unknown" || outputRead.error ? "Output details could not be loaded."
+                : outputRead.confirmedAt !== null || !outputRead.refreshing ? "Output details could not be loaded." : "";
               const outputError = outputStatus?.status === "unknown" ? outputStatus.error : null;
 
               return (
@@ -350,8 +352,8 @@ export function PlatformsWorkspace({ initial }: { initial: PlatformInitial }) {
                     <div className="min-w-0 flex-1 space-y-2">
                       <span className={`inline-block rounded border px-2 py-1 text-xs font-medium ${platformCfg.color}`}>{platformCfg.label}</span>
                       <p className="break-words text-sm font-semibold text-board-text">{dest.name}</p>
-                      {isConnected && <p className="text-xs text-board-muted">{outputRead.error && outputStatus ? "Last confirmed: " : ""}{outputLabel}</p>}
-                      {outputError && <p className="text-xs text-amber-200">{outputError}</p>}
+                      {isConnected && <p className="text-xs text-board-muted">{outputRead.error && outputStatus ? "" : ""}{outputLabel}</p>}
+                      {outputError && <p className="text-xs text-amber-200">{plainFailure(outputError)}</p>}
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
                       <button disabled={controlsDisabled} onClick={() => handleToggle(dest)} className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted outline-none hover:bg-board-border/50 focus-visible:ring-2 focus-visible:ring-fire-500" aria-label={`${dest.enabled ? "Disable" : "Enable"} ${dest.name}`}>
@@ -451,7 +453,7 @@ function DestinationFormModal({ existing, open, locked, busy, controlsDisabled, 
             <div className="space-y-2"><label htmlFor="destination-key" className="text-sm text-board-muted">{existing ? "New stream key" : "Stream key"}</label><input id="destination-key" type="password" autoComplete="new-password" required={!existing} maxLength={500} value={streamKey} onChange={event => setStreamKey(event.target.value)} aria-describedby="destination-key-help" className={`${fieldClass} font-mono`} /><p id="destination-key-help" className="text-xs text-board-muted">{existing ? "Leave blank to keep the stored key. Disable a connected destination before replacing its credentials." : "Enter the stream key from your destination platform."}</p></div>
           </fieldset>
         </div>
-        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-board-border p-4"><button type="button" disabled={busy} onClick={onClose} className={controlClass}>{locked ? "Close editor" : "Cancel"}</button><button type="submit" disabled={controlsDisabled || !name.trim() || !rtmpUrl.trim() || (!existing && !streamKey.trim())} className={`${controlClass} bg-fire-500 text-black`}>{busy ? "Saving…" : existing ? "Update destination" : "Add destination"}</button></div>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-board-border p-4"><button type="button" disabled={busy} onClick={onClose} className={controlClass}>{locked ? "Close editor" : "Cancel"}</button><button type="submit" disabled={controlsDisabled || !name.trim() || !rtmpUrl.trim() || (!existing && !streamKey.trim())} className={`${controlClass} bg-fire-500 text-black`}>{busy ? <QuietActivity label="Saving…" /> : existing ? "Update destination" : "Add destination"}</button></div>
       </form>
     </DialogContent>
   </Dialog>;

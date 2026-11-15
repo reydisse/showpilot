@@ -117,7 +117,7 @@ describe("display access deadlines", () => {
     });
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.getByRole("alert").textContent).toContain(
-      "could not be checked",
+      "could not be opened",
     );
     api.ensure.mockResolvedValue({ authorized: false });
     await act(async () => {

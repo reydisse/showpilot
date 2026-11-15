@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import {
   EquipmentRequestError,
   type EquipmentController,
@@ -26,13 +27,9 @@ export function EquipmentRecovery({
         >
           <p>{control.read.error?.message ?? "Inventory could not refresh."}</p>
           <p>
-            Last confirmed assets are shown. Changes are locked until you retry.
-          </p>
-          {control.read.error instanceof EquipmentRequestError && (
-            <p className="mt-1 text-xs">
-              Failed at{" "}
-              {new Date(control.read.error.occurredAt).toLocaleTimeString()}
             </p>
+          {control.read.error instanceof EquipmentRequestError && (
+            null
           )}
           <button
             type="button"
@@ -41,7 +38,7 @@ export function EquipmentRecovery({
             onClick={() => void control.read.refetch()}
           >
             {control.read.isFetching
-              ? "Refreshing inventory…"
+              ? <QuietActivity label="Refreshing inventory…" />
               : "Retry inventory"}
           </button>
         </div>
@@ -55,25 +52,22 @@ export function EquipmentRecovery({
           {control.pending ? (
             <p role="status">
               {current.attempt.mode === "review"
-                ? "Checking the original request…"
-                : "Waiting for confirmation…"}
+                ? <QuietActivity label="Checking the original request…" />
+                : <QuietActivity label="This change needs attention." />}
             </p>
           ) : current.status === "error" ? (
             <>
               <p role="alert">
                 {current.error instanceof Error
                   ? current.error.message
-                  : "The change was not confirmed."}
+                  : "This change needs attention."}
               </p>
               <p>
                 Your draft is kept. Retry checks for a saved result. Review
                 cancels the change if it has not been applied.
               </p>
               {current.error instanceof EquipmentRequestError && (
-                <p className="mt-1 text-xs">
-                  Failed at{" "}
-                  {new Date(current.error.occurredAt).toLocaleTimeString()}
-                </p>
+                null
               )}
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
@@ -94,8 +88,7 @@ export function EquipmentRecovery({
             </>
           ) : outcome === "applied" ? (
             <p role="status">
-              Change confirmed.
-              {control.read.isFetching ? " Refreshing inventory…" : ""}
+              {control.read.isFetching ? <QuietActivity label=" Refreshing inventory…" /> : ""}
             </p>
           ) : outcome ? (
             <>

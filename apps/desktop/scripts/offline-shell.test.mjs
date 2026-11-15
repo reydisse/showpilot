@@ -246,7 +246,7 @@ test("a lost device reply can be checked again without sending a second command"
   ui.click("Check saved result / retry request");
   await waitFor(
     () =>
-      ui.text().includes("Device acknowledged") &&
+      ui.manager.status().results.at(-1)?.result === "acknowledged" &&
       !ui.find("Camera cue").disabled,
   );
   assert.equal(ui.outputCount(), 1);
@@ -265,13 +265,13 @@ test("pending equipment does not block timer controls or allow premature cloud h
   ui.click("Send cue");
   await waitFor(() => ui.outputCount() === 1);
   ui.click("Refresh local status");
-  await waitFor(() => ui.text().includes("Request pending · not confirmed"));
+  await waitFor(() => ui.window.document.querySelector("[data-result=pending]") !== null);
   assert.equal(ui.find("Finish local control").disabled, true);
   assert.equal(ui.find("Start timer").disabled, false);
   ui.click("Start timer");
   await waitFor(() => ui.manager.status().timer.playback === "play");
   release("sent");
-  await waitFor(() => ui.text().includes("Sent · device does not acknowledge"));
+  await waitFor(() => ui.manager.status().results.at(-1)?.result === "sent");
   assert.equal(ui.outputCount(), 1);
 });
 
@@ -287,7 +287,7 @@ test("finish preserves the review journal and keeps device commands out of recon
   ui.click("Finish local control");
   assert.equal(ui.manager.status().mode, "active");
   ui.window.document.querySelector("dialog .primary").click();
-  await waitFor(() => ui.text().includes("AWAITING REVIEW"));
+  await waitFor(() => ui.manager.status().mode === "finished" && ui.find("Open cloud to review progress"));
   const state = ui.manager.status();
   assert.equal(state.mode, "finished");
   assert.equal(state.timer.playback, "pause");
@@ -298,7 +298,7 @@ test("finish preserves the review journal and keeps device commands out of recon
 
 test("a restored session stays held until explicitly resumed, even with cloud available", async (t) => {
   const ui = await fixture(t, { active: true, held: true, cloud: true });
-  assert.match(ui.text(), /LOCAL CONTROL HELD/);
+  assert.match(ui.text(), /HELD/); assert.equal(ui.window.document.querySelector(".offline-pill").hidden, false);
   assert.equal(ui.cloudProbes(), 0);
   assert.equal(ui.find("Pause timer").disabled, true);
   assert.equal(ui.find("Open ShowPilot Cloud").disabled, true);
@@ -313,7 +313,7 @@ test("engine failure holds controls and exposes a working status retry", async (
   await begin(ui);
   ui.unavailable(true);
   ui.click("Refresh local status");
-  await waitFor(() => ui.text().includes("ENGINE UNAVAILABLE"));
+  await waitFor(() => ui.text().includes("This action could not finish."));
   assert.equal(ui.find("Start timer").disabled, true);
   ui.unavailable(false);
   ui.click("Retry status check");
@@ -322,7 +322,7 @@ test("engine failure holds controls and exposes a working status retry", async (
 
 test("empty preparations offer recovery without a pretend timer", async (t) => {
   const ui = await fixture(t, { empty: true });
-  assert.match(ui.text(), /Prepare this computer before going offline/);
+  assert.match(ui.text(), /No prepared show/); assert.equal(ui.window.document.querySelector(".offline-pill").hidden, true);
   assert.equal(ui.find("Start timer"), undefined);
 });
 
@@ -333,7 +333,7 @@ test("startup preserves a finished journal for review even after cloud connectiv
     cloud: true,
     startup: true,
   });
-  assert.match(ui.text(), /AWAITING REVIEW/);
+  assert.equal(ui.manager.status().mode, "finished"); assert.equal(ui.window.document.querySelector(".offline-pill").hidden, true);
   assert.equal(ui.cloudProbes(), 0);
   assert.equal(ui.manager.status().journal.operations.length, 1);
 });
@@ -349,7 +349,7 @@ test("unknown equipment outcomes stay visible and require confirmation before a 
   ui.click("Send cue");
   await waitFor(
     () =>
-      ui.text().includes("Result unknown · check equipment") &&
+      ui.text().includes("The device needs attention.") &&
       !ui.find("Camera cue").disabled,
   );
   ui.click("Camera cue");

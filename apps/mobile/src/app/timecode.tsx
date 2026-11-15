@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { TimecodeLyricsPreview } from "@/components/timecode-lyrics-preview";
 import { useTimecodeLyricsControls } from "@/hooks/use-timecode-lyrics-controls";
 import { TimecodeCueEditor } from "@/components/timecode-cue-editor";
@@ -84,7 +86,7 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
   const cueSave = useTimecodeCueSave({ orgId, userId: actorId, ...target }, {
     active: true, canSend: canControl && !clockEdit.locked && !cueEdit.locked, format: data?.state.format, send: createMobileTimecodeCue,
     refresh: async signal => {
-      if (!await relay.refresh() || signal.aborted) throw new Error("The timeline refresh was not confirmed. Retry to load its current state.");
+      if (!await relay.refresh() || signal.aborted) throw new Error("This change needs attention.");
     },
   });
   const draft = cueSave.draft;
@@ -150,10 +152,10 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
         </View> : null}
         {Object.entries(gate.work).map(([id, attempt]) => <View key={id} style={styles.saveNotice}>
           <Text accessibilityRole="header" style={styles.saveText}>{attempt.label}</Text>
-          <Text accessibilityRole="alert" style={styles.saveText}>{attempt.kind === "pending" ? "Waiting for the relay to confirm…" : attempt.kind === "failed" ? attempt.message
-            : attempt.result.outcome === "applied" ? "Automation change confirmed. Later changes are preserved." : attempt.result.message ?? "The automation change was not applied."}</Text>
+          {attempt.kind === "pending" ? <QuietActivity /> : <FailureText accessibilityRole="alert" style={styles.saveText}>{attempt.kind === "failed" ? attempt.message
+            : attempt.result.outcome === "applied" ? "" : attempt.result.message ?? "The automation change was not applied."}</FailureText>}
           {attempt.kind === "failed" ? <AppButton label={`Retry original ${attempt.label.toLowerCase()}`} disabled={relay.status !== "connected" || relay.control !== "yours"} onPress={() => gate.retry(id)} /> : null}
-          {attempt.kind === "confirmed" && attempt.refresh === "pending" ? <Text style={styles.saveText}>Refreshing current automation…</Text> : null}
+          {attempt.kind === "confirmed" && attempt.refresh === "pending" ? <QuietActivity /> : null}
           {attempt.kind === "confirmed" && (attempt.refresh === "failed" || attempt.refresh === "idle") ? <><OperationsError message={attempt.message ?? "Refresh the current automation state."} /><AppButton label="Retry automation refresh" disabled={relay.status !== "connected"} onPress={() => gate.refresh(id)} /></> : null}
           {attempt.kind === "confirmed" && attempt.refresh === "done" ? <AppButton label="Continue with current automation" variant="secondary" onPress={() => gate.finish(id)} /> : null}
         </View>)}
@@ -162,10 +164,10 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
       {data?.state.incomingFormat ? <OperationsError message={`Input format needs review: ${data.state.incomingFormat.format.frameRate} fps ${data.state.incomingFormat.format.dropFrame.toUpperCase()}.`} /> : null}
       {clockEdit.error ? <OperationsError message={clockEdit.error} /> : null}
       {clockEdit.attempt ? <OperationsPanel title="Clock change" detail={clockEdit.attempt.label}>
-        <Text accessibilityRole="alert" style={styles.saveText}>{clockEdit.attempt.kind === "pending" ? "Confirming the clock change…" : clockEdit.attempt.kind === "failed" ? clockEdit.attempt.message
-          : clockEdit.attempt.result.outcome === "applied" ? "Clock change confirmed. Later clock changes are preserved." : clockEdit.attempt.result.message ?? "The clock change was not applied."}</Text>
+        {clockEdit.attempt.kind === "pending" ? <QuietActivity /> : <FailureText accessibilityRole="alert" style={styles.saveText}>{clockEdit.attempt.kind === "failed" ? clockEdit.attempt.message
+          : clockEdit.attempt.result.outcome === "applied" ? "" : clockEdit.attempt.result.message ?? "The clock change was not applied."}</FailureText>}
         {clockEdit.attempt.kind === "failed" ? <AppButton label="Retry original clock change" disabled={!canControl} onPress={clockEdit.retry} /> : null}
-        {clockEdit.attempt.kind === "confirmed" && clockEdit.attempt.refresh === "pending" ? <Text style={styles.saveText}>Refreshing current clock…</Text> : null}
+        {clockEdit.attempt.kind === "confirmed" && clockEdit.attempt.refresh === "pending" ? <QuietActivity /> : null}
         {clockEdit.attempt.kind === "confirmed" && (clockEdit.attempt.refresh === "failed" || clockEdit.attempt.refresh === "idle") ? <><OperationsError message={clockEdit.attempt.message ?? "Refresh the current clock before continuing."} /><AppButton label="Retry clock refresh" disabled={relay.status !== "connected"} onPress={clockEdit.refresh} /></> : null}
         {clockEdit.attempt.kind === "confirmed" && clockEdit.attempt.refresh === "done" ? <AppButton label="Continue with current clock" variant="secondary" onPress={clockEdit.finish} /> : null}
       </OperationsPanel> : null}
@@ -186,12 +188,12 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
       {cueControls.error ? <OperationsError message={cueControls.error} /> : null}
       {cueAttempt ? <View style={styles.saveNotice}>
         <Text accessibilityRole="header" style={styles.saveText}>{cueAttempt.label}</Text>
-        <Text accessibilityRole="alert" style={styles.saveText}>{cueAttempt.kind === "pending" ? "Waiting for the relay to confirm the cue action…" : cueAttempt.kind === "failed" ? cueAttempt.message
+        {cueAttempt.kind === "pending" ? <QuietActivity /> : <FailureText accessibilityRole="alert" style={styles.saveText}>{cueAttempt.kind === "failed" ? cueAttempt.message
           : cueAttempt.result.outcome !== "applied" ? cueAttempt.result.message ?? "The cue action was not applied."
-          : ["fire", "retry", "refire"].includes(cueAttempt.command.operation) ? "Cue request accepted. Check its delivery status in the timeline. Recovery will not send it again."
-          : "Cue change confirmed. Later changes are preserved."}</Text>
+          : ["fire", "retry", "refire"].includes(cueAttempt.command.operation) ? ""
+          : ""}</FailureText>}
         {cueAttempt.kind === "failed" ? <AppButton label="Retry original cue action" disabled={!canControl} onPress={cueControls.retry} /> : null}
-        {cueAttempt.kind === "confirmed" && cueAttempt.refresh === "pending" ? <Text style={styles.saveText}>Refreshing current cues…</Text> : null}
+        {cueAttempt.kind === "confirmed" && cueAttempt.refresh === "pending" ? <QuietActivity /> : null}
         {cueAttempt.kind === "confirmed" && (cueAttempt.refresh === "failed" || cueAttempt.refresh === "idle") ? <><OperationsError message={cueAttempt.message ?? "Refresh the current cues before continuing."} /><AppButton label="Retry cue action refresh" disabled={relay.status !== "connected"} onPress={cueControls.refresh} /></> : null}
         {cueAttempt.kind === "confirmed" && cueAttempt.refresh === "done" ? <AppButton label="Continue with current cues" variant="secondary" onPress={cueControls.finish} /> : null}
       </View> : null}
@@ -201,9 +203,9 @@ function TimecodeShow({ orgId, actorId, show, onChangeShow }: { orgId: string; a
       <OperationsPanel title="Automation" detail="Events fire when the relay crosses the selected frame. Cue drafts and unconfirmed saves stay with this show when you leave the screen.">
         {cueSave.error ? <OperationsError message={cueSave.error} /> : null}
         {save ? <View style={styles.saveNotice}>
-          <Text accessibilityRole="alert" style={styles.saveText}>{save.kind === "pending" ? "Saving cue… Your draft is kept." : save.kind === "failed" ? save.message : save.result.outcome === "applied" ? "Cue saved. Refreshing or retrying this save will preserve later edits." : save.result.message ?? "Review the cue save result."}</Text>
+          {save.kind === "pending" ? <QuietActivity /> : <FailureText accessibilityRole="alert" style={styles.saveText}>{save.kind === "failed" ? save.message : save.result.outcome === "applied" ? "Cue saved. Refreshing or retrying this save will preserve later edits." : save.result.message ?? "Review the cue save result."}</FailureText>}
           {save.kind === "failed" ? <AppButton label="Retry original cue save" disabled={!canControl} onPress={cueSave.retry} /> : null}
-          {save.kind === "confirmed" && save.refresh === "pending" ? <Text style={styles.saveText}>Refreshing timeline…</Text> : null}
+          {save.kind === "confirmed" && save.refresh === "pending" ? <QuietActivity /> : null}
           {save.kind === "confirmed" && (save.refresh === "failed" || save.refresh === "idle") ? <><OperationsError message={save.message ?? "The cue result is known. Refresh the current timeline before continuing."} /><AppButton label="Retry timeline refresh" disabled={relay.status !== "connected"} onPress={cueSave.refresh} /></> : null}
           {save.kind === "confirmed" && save.refresh === "done" ? <View style={styles.buttonRow}>
             <View style={styles.button}><AppButton label="New cue" variant="secondary" onPress={() => cueSave.finish(false)} /></View>

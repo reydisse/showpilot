@@ -376,7 +376,7 @@ async function reconnect() {
     return;
   }
   view.cloud.disabled = true;
-  view.cloud.textContent = "Checking connection…";
+  view.cloud.textContent = ""; view.cloud.classList.add("spinner"); view.cloud.setAttribute("aria-label", "Open ShowPilot Cloud");
   if (await cloudAvailable()) window.location.replace(CLOUD_ORIGIN);
   else
     showFailure(
@@ -434,18 +434,13 @@ function render() {
   app.removeAttribute("aria-live");
   const shell = element("div", "shell");
   const topbar = element("header", "topbar");
-  const pill = element("span", "offline-pill", "LOCAL SHOW");
+  const pill = element("span", "offline-pill", "On this computer");
+  pill.hidden = !(state?.mode === "active" && ["local", "local-held"].includes(state.commandSource));
   const heading = element("div", "heading");
   const title = element(
     "h1",
     "",
-    sessionId
-      ? state.title
-      : state
-        ? "No prepared local show"
-        : engineAvailability === "disabled" ? "Local control is off"
-          : engineAvailability === "starting" ? "Starting local control…"
-            : "Local engine unavailable",
+    sessionId ? state.title : "ShowPilot Desktop",
   );
   const subtitle = element("p");
   heading.append(title, subtitle);
@@ -476,31 +471,14 @@ function render() {
     error,
     retry,
   };
-  if (!sessionId) {
-    const empty = element("section", "empty panel");
-    empty.append(
-      element(
-        "h2",
-        "",
-        state
-          ? "Prepare this computer before going offline"
-          : engineAvailability === "disabled" ? "This computer is using cloud control"
-            : engineAvailability === "starting" ? "Starting the local engine"
-              : "Your saved show could not be read",
-      ),
-      element(
-        "p",
-        "",
-        state
-          ? "While connected, open the saved show in ShowPilot Desktop and prepare local control. Preparation saves its rundown and approved device cues securely on this computer."
-          : engineAvailability === "disabled"
-            ? "Open ShowPilot Cloud and choose Use this computer in the Desktop toolbar when you want to enable local control."
-            : engineAvailability === "starting"
-              ? "Your local engine is starting. Saved progress will appear when it is ready."
-              : "Refresh the local engine status to recover its saved show. Your local journal has not been cleared.",
-      ),
-    );
-    shell.append(empty);
+  if (!sessionId || engineAvailability === "disabled") {
+    if (engineAvailability === "ready" && !sessionId) {
+      const empty = element("section", "empty panel");
+      empty.append(element("h2", "", "No prepared show"), element("p", "", "Open ShowPilot Cloud to prepare a show for this computer."));
+      shell.append(empty);
+    } else if (engineAvailability === "starting" || engineAvailability === "checking") {
+      const spinner = element("div", "spinner"); spinner.setAttribute("role", "status"); spinner.setAttribute("aria-label", "Loading"); shell.append(spinner);
+    }
     app.append(shell);
     update();
     return;
@@ -643,7 +621,7 @@ function updateClock() {
 }
 function update() {
   if (!view) return;
-  view.error.textContent = state?.storageError || lastFailure?.message || "";
+  view.error.textContent = state?.storageError ? "Your saved show could not be opened." : lastFailure ? "This action could not finish." : "";
   view.retry.hidden = !lastFailure || Boolean(state?.storageError);
   view.retry.textContent = lastFailure?.request
     ? "Check saved result / retry request"
@@ -666,32 +644,14 @@ function update() {
       : "Open ShowPilot Cloud";
   if (!state || state.mode === "empty") return;
   const expired = Date.now() + serverOffset >= state.expiresAt;
-  view.subtitle.textContent = `${state.serviceDate} · Prepared ${new Date(state.preparedAt).toLocaleString()} · Revision ${state.baseRevision}`;
-  view.pill.textContent = !healthy
-    ? "ENGINE UNAVAILABLE"
-    : state.mode === "active"
-      ? state.ready
-        ? "LOCAL CONTROL"
-        : "LOCAL CONTROL HELD"
-      : state.mode === "finished"
-        ? "AWAITING REVIEW"
-        : state.mode === "reconciled"
-          ? "PROGRESS SYNCED"
-          : "PREPARED";
+  view.subtitle.textContent = state.serviceDate;
+  view.pill.hidden = !(state.mode === "active" && ["local", "local-held"].includes(state.commandSource));
+  view.pill.textContent = "On this computer";
   view.mode.textContent =
     state.mode === "active" && state.ready
       ? state.timer.playback.toUpperCase()
       : "HELD";
-  view.notice.textContent =
-    state.mode === "finished"
-      ? "Local control has ended. Your timer progress and device results are saved. Review the exact cloud revision before applying timer progress. Device commands are never replayed."
-      : state.mode === "reconciled"
-        ? "Timer progress has been accepted by the cloud. Prepare the show again before another local session."
-        : expired
-          ? "This preparation has expired. Device commands are blocked. Finish local control and reconnect to refresh device approvals."
-          : state.mode === "active"
-            ? "Timer changes stay on this computer until reviewed. Only the prepared device cues control venue equipment. Cloud displays and teammates do not follow this local timer."
-            : "This show is saved securely on this computer. Enable local control to run its timer and prepared device cues when the cloud is unavailable.";
+  view.notice.textContent = expired ? "This preparation has expired." : "";
   view.enable.hidden =
     !["prepared", "active"].includes(state.mode) || state.ready;
   view.enable.textContent =
@@ -723,11 +683,11 @@ function update() {
     itemStatus.textContent = `${item.status} · ${item.notes || item.cue || item.type}`;
   }
   const labels = {
-    pending: "Waiting for device result",
-    acknowledged: "Device acknowledged",
-    sent: "Sent · device does not acknowledge",
-    failed: "Device reported failure",
-    unknown: "Result unknown · check equipment",
+    pending: "",
+    acknowledged: "",
+    sent: "",
+    failed: "The device could not respond.",
+    unknown: "The device needs attention.",
   };
   for (const { id, fireButton, result } of view.actions) {
     const latest = latestResult(id);
@@ -737,10 +697,10 @@ function update() {
       deviceRequests.has(id) ||
       latest?.result === "pending";
     result.textContent = deviceRequests.has(id)
-      ? "Request pending · not confirmed"
+      ? ""
       : latest
         ? labels[latest.result]
-        : "Not sent";
+        : "";
     result.dataset.result = latest?.result ?? "idle";
   }
   updateClock();

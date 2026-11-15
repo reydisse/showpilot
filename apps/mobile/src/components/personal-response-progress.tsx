@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { AppButton } from "./app-button";
@@ -85,15 +87,13 @@ function ResponseCard({
         </>
       ) : null}
       {attempt?.kind === "pending" ? (
-        <Text style={styles.copy}>
-          Confirming your response… You can leave this screen and return.
-        </Text>
+        <QuietActivity />
       ) : null}
       {attempt?.kind === "failed" ? (
         <>
-          <Text style={styles.error} accessibilityRole="alert">
+          <FailureText style={styles.error} accessibilityRole="alert">
             {attempt.message}
-          </Text>
+          </FailureText>
           <Text style={styles.copy}>
             It may already have saved. Retry sends the same response. Review
             checks it or cancels it before a delayed request can apply.
@@ -117,7 +117,7 @@ function ResponseCard({
             {personalResponseMessage(attempt.result)}
           </Text>
           {attempt.refresh === "pending" ? (
-            <Text style={styles.copy}>Refreshing Schedule…</Text>
+            <QuietActivity />
           ) : null}
           {attempt.refresh === "failed" || attempt.refresh === "idle" ? (
             <>

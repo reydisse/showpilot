@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { ChatDelivery } from "../hooks/use-chat-relay";
@@ -9,13 +10,15 @@ export function ChatDeliveryStatus({ items, connected, retry, retryNotifications
 }) {
   const styles = useStyles();
   const [review, setReview] = useState<string | null>(null);
+  const visible = items.filter(item => ["uncertain", "rejected", "notification-failed"].includes(item.kind));
+  if (!visible.length) return null;
   return <View style={styles.container}>
-    {items.map(item => <View key={item.id} style={styles.item} testID={`chat-delivery-${item.id}`}>
-      <Text style={styles.title}>{item.kind === "queued" ? "Queued, not sent" : item.kind === "sending" ? "Waiting for delivery confirmation…" : item.kind === "rejected" ? "Message rejected" : item.kind === "notifying" ? "Delivered · notifying crew…" : item.kind === "notification-failed" ? "Delivered · notifications need attention" : "Delivery not confirmed"}</Text>
+    {visible.map(item => <View key={item.id} style={styles.item} testID={`chat-delivery-${item.id}`}>
+      <Text style={styles.title}>{item.kind === "queued" ? "" : item.kind === "sending" ? "" : item.kind === "rejected" ? "Message rejected" : item.kind === "notifying" ? "" : item.kind === "notification-failed" ? "Crew alerts could not be sent." : "Message could not be sent."}</Text>
       <Text style={styles.text}>{item.text}</Text>
-      <Text accessibilityRole={item.kind === "uncertain" || item.kind === "rejected" || item.kind === "notification-failed" ? "alert" : undefined} style={styles.detail}>
-        {item.kind === "queued" ? "This message will send when this room reconnects." : item.kind === "sending" ? "Keep this entry until the relay confirms delivery." : item.kind === "notifying" ? "The chat update is saved. Waiting for crew notification confirmation." : item.error}
-      </Text>
+      <FailureText accessibilityRole={item.kind === "uncertain" || item.kind === "rejected" || item.kind === "notification-failed" ? "alert" : undefined} style={styles.detail}>
+        {item.kind === "queued" ? "" : item.kind === "sending" ? "" : item.kind === "notifying" ? "" : item.error}
+      </FailureText>
       {item.kind === "uncertain" ? <AppButton label="Retry original message" variant="secondary" disabled={!connected} onPress={() => retry(item.id)} /> : null}
       {item.kind === "notification-failed" ? <AppButton label="Retry crew notifications" variant="secondary" disabled={!connected} onPress={() => retryNotifications(item.id)} /> : null}
       {review === item.id ? <View style={styles.list}>

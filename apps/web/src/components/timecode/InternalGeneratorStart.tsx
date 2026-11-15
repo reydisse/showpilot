@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useId, useState } from "react";
 import { Play } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -128,7 +129,7 @@ export function InternalGeneratorStart({
       >
         <Play className="h-4 w-4 shrink-0" />
         {pending === "starting"
-          ? "Starting…"
+          ? <QuietActivity label="Starting…" />
           : pending === "stopping"
             ? "Stopping…"
             : custom

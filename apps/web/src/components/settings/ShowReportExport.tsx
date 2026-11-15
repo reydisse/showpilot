@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -185,7 +186,7 @@ export function ShowReportExport({
             label="Retry loading shows"
           />
           {shows.confirmedAt === null && !shows.error ? (
-            <p role="status">Loading available shows…</p>
+            <QuietActivity label="Loading available shows…" />
           ) : null}
           {shows.confirmedAt !== null &&
           shows.value.length === 0 &&
@@ -296,9 +297,7 @@ export function ShowReportExport({
             <p role="alert" className="text-sm text-amber-200">
               The export could not be prepared. Your selections are kept. Retry
               the download.{" "}
-              <time dateTime={new Date(state.at).toISOString()}>
-                {new Date(state.at).toLocaleTimeString()}
-              </time>
+
             </p>
           ) : null}
           <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
@@ -323,7 +322,7 @@ export function ShowReportExport({
               onClick={() => void download()}
             >
               {pending
-                ? "Preparing download…"
+                ? <QuietActivity label="Preparing download…" />
                 : state.kind === "error"
                   ? "Retry download"
                   : "Download"}

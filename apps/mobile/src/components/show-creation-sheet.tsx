@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/quiet-activity";
 import { useState } from "react";
 import {
   Modal,
@@ -250,10 +251,7 @@ export function ShowCreationSheet(props: {
             <View accessibilityLiveRegion="polite" style={styles.progress}>
               <Text style={styles.label}>{attempt.label}</Text>
               {attempt.kind === "pending" ? (
-                <Text style={styles.copy}>
-                  Confirming the original creation request… You can close and
-                  resume this form.
-                </Text>
+                <QuietActivity />
               ) : null}
               {attempt.kind === "failed" ? (
                 <>
@@ -283,7 +281,7 @@ export function ShowCreationSheet(props: {
                         : "The original show was created and later removed. This request will not recreate it."}
                   </Text>
                   {attempt.refresh === "pending" ? (
-                    <Text style={styles.copy}>Refreshing shows…</Text>
+                    <QuietActivity />
                   ) : null}
                   {attempt.refresh === "failed" ||
                   attempt.refresh === "idle" ? (

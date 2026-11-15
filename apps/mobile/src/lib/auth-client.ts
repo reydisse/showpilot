@@ -31,7 +31,7 @@ const webStorage = {
   },
 };
 
-const authStorage = Platform.OS === "web" ? webStorage : SecureStore;
+export const authStorage = Platform.OS === "web" ? webStorage : SecureStore;
 
 export const authClient = createAuthClient({
   baseURL: SHOWPILOT_URL,

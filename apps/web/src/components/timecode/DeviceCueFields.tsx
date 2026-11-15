@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { getAutomationDeviceTargets, getAutomationHomeAssistantActions } from "@/lib/automation-targets";
 import { normalizeActionParams } from "@showpilot/shared";
@@ -59,7 +60,7 @@ export function DeviceCueFields({ orgId, lighting, initial, onChange, loadDevice
           : <input id={fieldId} className={inputClass} type={field.type === "number" ? "number" : "text"} min={field.min} max={field.max} step={field.step ?? "any"} maxLength={256} value={typeof value === "string" || typeof value === "number" ? value : ""} onChange={event => change(event.target.value)} />}
       </div>;
     })}
-    {choices.status === "loading" && <p role="status" className="text-xs text-board-muted">Loading devices…</p>}
+    {choices.status === "loading" && <QuietActivity label="Loading devices…" />}
     {choices.status === "error" && <p role="alert" className="text-xs text-red-300">{choices.message}</p>}
     {choices.status === "ready" && devices.length === 0 && <p className="text-xs text-board-muted">Add an enabled device with supported actions in Devices first.</p>}
     {discoveryDeviceId && <div className="space-y-2">

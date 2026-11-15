@@ -26,7 +26,7 @@ it("stays on the role step when the checkpoint fails", async () => {
   await act(async () => vi.advanceTimersByTimeAsync(300));
   expect(api.role).toHaveBeenCalledOnce();
   expect(screen.queryByText("What's your role on the team?")).not.toBeNull();
-  expect(screen.getByRole("alert").textContent).toContain("not confirmed");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
 });
 
 it("does not change workspace or advance while its save is pending or rejected", async () => {
@@ -37,7 +37,7 @@ it("does not change workspace or advance while its save is pending or rejected",
   expect(api.workspace).toHaveBeenCalledOnce(); expect(screen.queryByText("What's your role on the team?")).toBeNull();
   expect(screen.queryByText(/Saved workspace:/)).toBeNull();
   await act(async () => vi.advanceTimersByTimeAsync(10_000));
-  expect(screen.getByRole("alert").textContent).toContain("not confirmed");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   expect(screen.getByRole("button", { name: /School/ }).getAttribute("aria-pressed")).toBe("true");
   expect(screen.queryByText("What's your role on the team?")).toBeNull();
 });
@@ -156,7 +156,7 @@ it("bounds an organization creation request that never replies and keeps its dra
   await act(async () => vi.advanceTimersByTimeAsync(450));
   await act(async () => fireEvent.click(screen.getByRole("button", { name: /Build my show/ })));
   await act(async () => vi.advanceTimersByTimeAsync(10_000));
-  expect(screen.getByRole("alert").textContent).toContain("not confirmed");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   expect(screen.getByLabelText("Organization name")).toHaveProperty("value", "Pending fixture");
   expect(api.create.mock.calls[0][0].fetchOptions.signal.aborted).toBe(true);
   expect(api.activate).not.toHaveBeenCalled(); expect(api.started).not.toHaveBeenCalled();
@@ -234,7 +234,7 @@ it("does not send creation if preserving the recovery URL stalls", async () => {
   await act(async () => vi.advanceTimersByTimeAsync(450));
   await act(async () => fireEvent.click(screen.getByRole("button", { name: /Build my show/ })));
   await act(async () => vi.advanceTimersByTimeAsync(10_000));
-  expect(screen.getByRole("alert").textContent).toContain("not confirmed");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   await act(async () => release());
   expect(api.create).not.toHaveBeenCalled();
 });
@@ -246,7 +246,7 @@ it("bounds verification resend without reporting an unsent email as sent", async
   await act(async () => render(<Wizard />));
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Resend verification email" })));
   await act(async () => vi.advanceTimersByTimeAsync(10_000));
-  expect(screen.getByRole("alert").textContent).toContain("not confirmed");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   expect(api.verify.mock.calls[0][0].fetchOptions.signal.aborted).toBe(true);
   expect(screen.queryByText("Email sent — check your inbox")).toBeNull();
   api.verify.mockResolvedValue({ error: null });
@@ -263,7 +263,7 @@ it("requires an acknowledgement of this creation identity before advancing", asy
   fireEvent.change(screen.getByLabelText("Organization name"), { target: { value: "Legacy fixture" } });
   await act(async () => vi.advanceTimersByTimeAsync(450));
   await act(async () => fireEvent.click(screen.getByRole("button", { name: /Build my show/ })));
-  expect(screen.getByRole("alert").textContent).toContain("not confirmed");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   expect(screen.getByRole("alert").textContent).not.toContain("invalid_type");
   expect(api.routeNavigate).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("button", { name: /Continue setup/ })).toBeNull();

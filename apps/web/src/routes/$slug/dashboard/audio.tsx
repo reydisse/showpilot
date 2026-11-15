@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { createFileRoute, Link, useBlocker } from "@tanstack/react-router";
@@ -177,7 +179,7 @@ function AudioShow({ initial, selection, selectShow }: {
     rows: visibleAssignments.filter(row => (Object.hasOwn(GROUP_CONFIG, row.group) ? row.group : "other") === key),
   })).filter(group => group.rows.length > 0);
   const enabledMixer = mixers.find(mixer => mixer.enabled);
-  const notice = <><WriteNotice state={writes.state} retry={() => void writes.retry()} review={() => void reviewStored()} reviewing={reviewing} />{editor?.open && read.error && <p role="alert" className="text-sm text-amber-200">{read.error.message}</p>}</>;
+  const notice = <><WriteNotice state={writes.state} retry={() => void writes.retry()} review={() => void reviewStored()} reviewing={reviewing} />{editor?.open && read.error && <p role="alert" className="text-sm text-amber-200">{plainFailure(read.error.message)}</p>}</>;
   const muteButton = (row: Assignment) => <button type="button" disabled={controlsDisabled} onClick={() => void handleToggleMute(row)} className={`${controlClass} min-w-11 ${row.muted ? "text-red-400" : "text-board-muted"}`} aria-label={`${row.muted ? "Mark unmuted" : "Mark muted"}: ${row.label}`}>
     {row.muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
   </button>;
@@ -198,7 +200,7 @@ function AudioShow({ initial, selection, selectShow }: {
     <div className="mx-auto max-w-[1500px] space-y-4 p-4 md:p-6">
       {!editor?.open && notice}
       {editor && !editor.open && <button className={controlClass} onClick={() => setEditor({ ...editor, open: true })}>Review channel draft</button>}
-      {read.refreshing && read.value !== null && <p role="status" className="text-xs text-board-muted">Refreshing channels… Previously confirmed values are shown.</p>}
+      {read.refreshing && read.value !== null && <QuietActivity />}
       <div className="grid grid-cols-2 divide-x divide-y divide-board-border overflow-hidden rounded-xl border border-board-border bg-board-card md:grid-cols-4 md:divide-y-0">
         <AudioStat label="Assigned channels" value={assignments.length} icon={SlidersHorizontal} />
         <AudioStat label="Muted" value={assignments.filter(row => row.muted).length} icon={MicOff} />
@@ -209,7 +211,7 @@ function AudioShow({ initial, selection, selectShow }: {
         <PlugZap className="h-5 w-5 shrink-0 text-fire-500" /><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-board-text">Connect a mixer for live control</p><p className="mt-1 text-xs leading-5 text-board-muted">{workspaceCopy("This page stores the service patch, gain notes, phantom and mute state. Marking an assignment muted does not mute the physical mixer. Open a connected mixer's device controls for live changes.", workspaceTerms)}</p></div>
         <Link to="/$slug/dashboard/devices" params={{ slug }} className={controlClass}>Configure mixer</Link>
       </div>}
-      {loading ? <p role="status" className="py-12 text-center text-sm text-board-muted">Loading channels…</p>
+      {loading ? <QuietActivity label="Loading channels…" />
         : read.value === null ? null
         : assignments.length === 0 ? <EmptyState icon={Mic} title="No channels assigned" description={workspaceCopy("Map mics, instruments and playback inputs to mixer channels for this service.", workspaceTerms)} action={showId ? <EmptyStateButton disabled={controlsDisabled} onClick={() => openEditor(null)}>Add First Channel</EmptyStateButton> : undefined} />
         : <div className="grid min-w-0 overflow-hidden rounded-xl border border-board-border bg-board-card 2xl:grid-cols-[minmax(0,1fr)_300px]">
@@ -243,7 +245,7 @@ function AudioShow({ initial, selection, selectShow }: {
 function WriteNotice({ state, retry, review, reviewing }: { state: WriteState; retry: () => void; review: () => void; reviewing: boolean }) {
   if (state.status === "idle") return null;
   if (state.status === "saving") return <p role="status" className="text-sm text-board-muted">{state.saved ? "Change saved. Refreshing channels…" : `Saving ${state.label}…`}</p>;
-  return <div role="alert" aria-label="Channel change" className="space-y-3 rounded-xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm text-amber-200"><p>{state.saved ? "Change saved." : `${state.label} was not confirmed.`} {state.message} <time dateTime={new Date(state.at).toISOString()}>{new Date(state.at).toLocaleTimeString()}</time></p><div className="flex flex-wrap gap-2"><button className={controlClass} disabled={reviewing} onClick={retry}>{state.saved ? "Retry refresh" : "Retry change"}</button><button className={controlClass} disabled={reviewing} onClick={review}>{reviewing ? "Reviewing…" : "Review stored channels"}</button></div></div>;
+  return <div role="alert" aria-label="Channel change" className="space-y-3 rounded-xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm text-amber-200"><p>{state.saved ? "This view could not be updated." : "This change needs attention."}</p><div className="flex flex-wrap gap-2"><button className={controlClass} disabled={reviewing} onClick={retry}>{state.saved ? "Retry refresh" : "Retry change"}</button><button className={controlClass} disabled={reviewing} onClick={review}>{reviewing ? "Reviewing…" : "Review stored channels"}</button></div></div>;
 }
 function AudioStat({ label, value, icon: Icon, tone = "text-board-text" }: {
   label: string;
@@ -394,7 +396,7 @@ function MicAssignmentForm({ existing, open, locked, busy, nextChannel, onClose,
           </div>
 
       </fieldset></div>
-      <div className="flex shrink-0 gap-3 border-t border-board-border p-4"><button type="button" disabled={busy} className={`${controlClass} flex-1`} onClick={onClose}>Cancel</button><button type="submit" disabled={locked || !label.trim()} className={`${controlClass} flex-1 bg-fire-500 text-black`}>{busy ? "Saving…" : existing ? "Update" : "Add Channel"}</button></div>
+      <div className="flex shrink-0 gap-3 border-t border-board-border p-4"><button type="button" disabled={busy} className={`${controlClass} flex-1`} onClick={onClose}>Cancel</button><button type="submit" disabled={locked || !label.trim()} className={`${controlClass} flex-1 bg-fire-500 text-black`}>{busy ? <QuietActivity label="Saving…" /> : existing ? "Update" : "Add Channel"}</button></div>
     </form>
   </DialogContent></Dialog>;
 }

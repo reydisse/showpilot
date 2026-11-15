@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -45,7 +47,7 @@ export function KioskSection({
     initialValue: null,
     read: readOrganization,
     errorMessage:
-      "Could not read the kiosk organization. Any displayed teams are the last confirmed result.",
+      "Display teams could not be loaded.",
   });
   const teams = organizationRead.value ?? [];
   const loading = organizationRead.value === null && !organizationRead.error;
@@ -113,9 +115,7 @@ export function KioskSection({
             label="Retry kiosk organization"
           />
           {loading ? (
-            <div className="py-10 text-center text-sm text-board-muted">
-              Loading kiosk organization…
-            </div>
+            <QuietActivity label="Loading kiosk organization…" />
           ) : organizationRead.value === null ? null : (
             <KioskTeamEditor
               key={`${orgId}:${userId}`}
@@ -173,7 +173,7 @@ function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
     initialValue: null,
     read: readTokens,
     errorMessage:
-      "Could not read kiosk tokens. Any displayed list is the last confirmed result.",
+      "Display links could not be loaded.",
   });
   const tokens = tokenRead.value ?? [];
   const loading = tokenRead.value === null && !tokenRead.error;
@@ -232,7 +232,7 @@ function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
     <div className="space-y-4">
       {error && (
         <p role="alert" className="text-sm text-red-300">
-          {error}
+          {plainFailure(error)}
         </p>
       )}
       {issuedToken && (
@@ -314,9 +314,7 @@ function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
         label="Retry kiosk tokens"
       />
       {loading ? (
-        <div className="py-10 text-center text-sm text-board-muted">
-          Loading…
-        </div>
+        <QuietActivity label="Loading…" />
       ) : tokenRead.value === null ? null : tokens.length === 0 ? (
         <div className="text-center py-10 text-sm text-board-muted">
           No tokens yet — generate one above for your kiosk displays.

@@ -1,3 +1,5 @@
+import { QuietActivity } from "@/components/quiet-activity";
+import { FailureText } from "@/components/failure-text";
 import { parseRundownDuration } from "@/lib/rundown-item-draft";
 import { useState } from "react";
 import ArrowDown from "lucide-react-native/icons/arrow-down";
@@ -128,18 +130,7 @@ export function RundownItemSheet({
               <Text numberOfLines={2} style={styles.heading}>
                 {item?.title || "Add to the show"}
               </Text>
-              {state.attempt ? (
-                <Text
-                  accessibilityLiveRegion="polite"
-                  style={styles.switchHint}
-                >
-                  {state.attempt.kind === "pending"
-                    ? "Confirming edit…"
-                    : state.attempt.kind === "failed"
-                      ? "Edit unconfirmed · Retry below"
-                      : "Edit result ready · Review below"}
-                </Text>
-              ) : null}
+              {state.attempt?.kind === "pending" && <QuietActivity />}
             </View>
             <Pressable
               accessibilityLabel="Close rundown item editor"
@@ -345,15 +336,15 @@ export function RundownItemSheet({
                   Removing the item discards the unsaved fields in this editor.
                 </Text>
                 {!currentItem ? (
-                  <Text accessibilityRole="alert" style={styles.deleteText}>
+                  <FailureText accessibilityRole="alert" style={styles.deleteText}>
                     This item is no longer in the rundown.
-                  </Text>
+                  </FailureText>
                 ) : revision !== removal.revision ? (
                   <>
-                    <Text accessibilityRole="alert" style={styles.deleteText}>
+                    <FailureText accessibilityRole="alert" style={styles.deleteText}>
                       The rundown changed. Review the current item before
                       removing it.
-                    </Text>
+                    </FailureText>
                     <AppButton
                       label="Review current item"
                       variant="secondary"
@@ -363,9 +354,9 @@ export function RundownItemSheet({
                   </>
                 ) : null}
                 {!canEdit ? (
-                  <Text accessibilityRole="alert" style={styles.deleteText}>
+                  <FailureText accessibilityRole="alert" style={styles.deleteText}>
                     Reconnect with editing access before removing an item.
-                  </Text>
+                  </FailureText>
                 ) : null}
                 <AppButton
                   label="Keep item"

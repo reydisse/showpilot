@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Pause, Play, Radio } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
@@ -34,7 +35,7 @@ function Bar({ children }: { children: ReactNode }) {
 }
 
 function ActiveRundownSession({ target, orgId, slug, canControl, targetFresh, refresh }: LiveRundownBarProps & { target: ActiveTarget; targetFresh: boolean; refresh: ReactNode }) {
-  const { items, timer, serviceName, connected, hydrated, sendCommand, lastError, lastErrorAt, retryConnection } = useRundownSync(orgId, target.serviceDate, target.showId);
+  const { items, timer, serviceName, connected, hydrated, sendCommand, lastError, retryConnection } = useRundownSync(orgId, target.serviceDate, target.showId);
   const [now, setNow] = useState(Date.now());
   const [hasRun, setHasRun] = useState(false);
   const live = connected && hydrated && targetFresh;
@@ -60,7 +61,7 @@ function ActiveRundownSession({ target, orgId, slug, canControl, targetFresh, re
   const displayed = timer.mode === "count-down" ? (currentItem?.duration ?? 0) - elapsed : elapsed;
   const isPaused = timer.playback === "pause";
   const title = !hydrated ? "Loading…" : !active ? hasRun ? "Show ended" : "No live rundown" : !currentItem ? "Live item unavailable" : isPaused ? "Rundown paused" : "Rundown live";
-  const connectionNotice = !live && hydrated ? "Reconnecting · last known state" : null;
+  const connectionNotice = !live && !hydrated;
 
   return <Bar>
     {endShowDialog}
@@ -68,7 +69,7 @@ function ActiveRundownSession({ target, orgId, slug, canControl, targetFresh, re
       <Radio aria-hidden="true" className={`h-4 w-4 shrink-0 ${live && active ? "text-fire-400" : "text-board-muted"}`} />
       <Link to="/$slug/rundown" params={{ slug }} search={{ date: target.serviceDate, show: target.showId }}
         className="min-w-0 flex-1 rounded py-1 focus-visible:outline-2 focus-visible:outline-fire-500 focus-visible:outline-offset-2">
-        <p className="text-xs font-semibold text-fire-400" role="status" aria-live="polite">{title}</p>
+        <p className="text-xs font-semibold text-fire-400" role="status" aria-live="polite">{hydrated ? title : <QuietActivity />}</p>
         {hydrated && <p className="truncate text-sm" title={currentItem && active ? currentItem.title : serviceName || target.serviceDate}>
           {currentItem && active ? currentItem.title : serviceName || target.serviceDate}
         </p>}
@@ -81,8 +82,8 @@ function ActiveRundownSession({ target, orgId, slug, canControl, targetFresh, re
           onClick={() => { if (!nextPlayableItem(items, timer.currentItemId)) requestEndShow(); else sendCommand("timer-next"); }}><ChevronRight /></Button>
       </div>}
     </div>
-    {connectionNotice && <p role="status" aria-live="polite" className="mt-1 text-xs text-amber-200">{connectionNotice}</p>}
-    {lastError && <p role="alert" className="mt-1 break-words text-xs text-red-300">{lastError} {lastErrorAt != null && <time dateTime={new Date(lastErrorAt).toISOString()}>{new Date(lastErrorAt).toLocaleTimeString()}</time>}</p>}
+    {connectionNotice && <p role="status" aria-live="polite" className="mt-1 text-xs text-amber-200"><QuietActivity /></p>}
+    {(lastError || !targetFresh) && <p role="alert" className="mt-1 break-words text-xs text-red-300">Live rundown could not be updated.</p>}
     {!connected && lastError && <Button type="button" variant="outline" className="mt-2 min-h-11" onClick={retryConnection}>Reconnect rundown</Button>}
     {refresh}
   </Bar>;
@@ -124,10 +125,10 @@ function LiveRundownWorkspace(props: LiveRundownBarProps) {
     };
   }, [props.orgId, attempt]);
 
-  const retry = lookup.status === "unavailable" ? <Button type="button" variant="outline" className="mt-2 min-h-11 text-xs" disabled={refreshPending} onClick={() => setAttempt(value => value + 1)}>{refreshPending ? "Checking live rundown…" : "Retry live rundown"}</Button> : null;
+  const retry = lookup.status === "unavailable" ? <Button type="button" variant="outline" className="mt-2 min-h-11 text-xs" disabled={refreshPending} onClick={() => setAttempt(value => value + 1)}>{refreshPending ? <QuietActivity label="Checking live rundown…" /> : "Retry live rundown"}</Button> : null;
   const target = "target" in lookup ? lookup.target : undefined;
   return target ? <ActiveRundownSession key={JSON.stringify([target.showId ?? null, target.serviceDate])} {...props} target={target} targetFresh={lookup.status === "ready"} refresh={retry} />
-    : <Bar><p role="status" aria-live="polite" className="text-xs text-board-text">{lookup.status === "loading" ? "Checking live rundown…" : "Live rundown unavailable"}</p>{retry}</Bar>;
+    : <Bar><p role="status" aria-live="polite" className="text-xs text-board-text">{lookup.status === "loading" ? <QuietActivity label="Checking live rundown…" /> : "Live rundown unavailable"}</p>{retry}</Bar>;
 }
 
 /** Replacing the workspace clears its target, timer and pending confirmation synchronously. */

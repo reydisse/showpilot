@@ -28,20 +28,20 @@ async function load(status: { running: boolean; localDevicesEnabled: boolean; la
 
 it("explains deliberate cloud mode without an engine-failure alert or an automatic claim", async () => {
   const invoke = await load({ running: false, localDevicesEnabled: false, lastError: null });
-  expect(document.querySelector("h1")?.textContent).toBe("Local control is off");
-  expect(document.body.textContent).toContain("Use this computer");
+  expect(document.querySelector("h1")?.textContent).toBe("ShowPilot Desktop");
+  expect(document.body.textContent).not.toMatch(/Use this computer|Local show|Local engine|Off/);
   expect(document.querySelector('[role="alert"]')?.textContent).toBe("");
   expect(invoke.mock.calls.map(call => call[0])).toEqual(["local_show_command", "bridge_status"]);
 });
 
 it("distinguishes an engine that is starting from one that failed", async () => {
   await load({ running: false, localDevicesEnabled: true, lastError: null });
-  expect(document.querySelector("h1")?.textContent).toBe("Starting local control…");
+  expect(document.querySelector("h1")?.textContent).toBe("ShowPilot Desktop");
   expect(document.querySelector('[role="alert"]')?.textContent).toBe("");
 });
 
 it("keeps genuine engine failures visible", async () => {
   await load({ running: false, localDevicesEnabled: true, lastError: "Fixture startup failed" });
-  expect(document.querySelector("h1")?.textContent).toBe("Local engine unavailable");
-  expect(document.querySelector('[role="alert"]')?.textContent).toContain("Fixture startup failed");
+  expect(document.querySelector("h1")?.textContent).toBe("ShowPilot Desktop");
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe("This action could not finish.");
 });

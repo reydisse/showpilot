@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState } from "react";
 import type {
   CrewPortalAssignment,
@@ -43,10 +44,7 @@ export function CrewResponseRecovery({
         </p>
       ) : null}
       {attempt?.kind === "pending" ? (
-        <p>
-          Saving your response… Your original request stays here if you
-          switch assignments.
-        </p>
+        <QuietActivity />
       ) : null}
       {attempt?.kind === "unknown" ? (
         <>
@@ -71,14 +69,12 @@ export function CrewResponseRecovery({
         <>
           <p>{resultMessage(attempt.result)}</p>
           {attempt.refresh === "pending" ? (
-            <p>Refreshing your assignments…</p>
+            <QuietActivity label="Refreshing your assignments…" />
           ) : null}
           {attempt.refresh === "failed" || attempt.refresh === "idle" ? (
             <>
               <p role="alert" className="text-red-300">
-                {attempt.message ?? "Refresh this page to finish."} The response
-                outcome above is confirmed.
-              </p>
+                {attempt.message ?? "Refresh this page to finish."} </p>
               <button className={button} onClick={() => work.refresh(id)}>
                 Refresh assignments only
               </button>

@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useId, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { CredentialChange } from "@/lib/credential-fields";
@@ -28,11 +30,11 @@ export function CredentialSettingInput({ label, configured, placeholder, save }:
         placeholder={configured ? "Enter a replacement" : placeholder}
         className="min-h-11 min-w-0 flex-1 rounded-xl border border-board-border bg-board-bg px-3 text-sm text-board-text placeholder:text-board-muted/50 focus:outline-none focus:border-fire-500" />
       <button type="button" disabled={busy || !draft} onClick={() => { void submit({ action: "replace", value: draft }); }}
-        className="min-h-11 rounded-xl border border-board-border px-3 text-sm text-board-text disabled:opacity-50">{busy ? "Saving…" : configured ? "Save replacement" : "Save credential"}</button>
+        className="min-h-11 rounded-xl border border-board-border px-3 text-sm text-board-text disabled:opacity-50">{busy ? <QuietActivity label="Saving…" /> : configured ? "Save replacement" : "Save credential"}</button>
       {configured && <button type="button" disabled={busy} onClick={() => setConfirmClear(true)}
         className="min-h-11 rounded-xl border border-board-border px-3 text-sm text-red-300 disabled:opacity-50">Clear credential</button>}
     </div>
-    {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+    {error && <p role="alert" className="text-sm text-red-300">{plainFailure(error)}</p>}
     <ConfirmDialog open={confirmClear} onOpenChange={open => { if (!busy) setConfirmClear(open); }}
       title={`Clear ${label}?`} description="This connection may stop working until a new credential is saved."
       confirmLabel="Clear credential" loading={busy} onConfirm={() => { void submit({ action: "clear" }); }} />

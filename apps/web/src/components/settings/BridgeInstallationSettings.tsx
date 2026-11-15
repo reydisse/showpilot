@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getBridgeSelection, takeBridgeControl } from "@/lib/bridge-selection";
@@ -72,7 +74,7 @@ function InstallationSettings({ orgId }: { orgId: string }) {
     try {
       const selected = await takeBridgeControl({ data: { orgId, installationId: takeover.id, expectedActiveInstallationId: selection.activeInstallation?.installationId ?? null, confirmed: true } });
       if (activeOrg.current === orgId) { setSelection(selected); setNotice(`${takeover.label} now controls venue devices.`); }
-    } catch (cause) { if (activeOrg.current === orgId) setError(cause instanceof Error ? cause.message : "Bridge takeover was not confirmed."); }
+    } catch (cause) { if (activeOrg.current === orgId) setError(cause instanceof Error ? cause.message : "This change needs attention."); }
     finally { if (activeOrg.current === orgId) { setBusy(false); setTakeover(null); } }
   }
 
@@ -84,7 +86,7 @@ function InstallationSettings({ orgId }: { orgId: string }) {
         : "No active Bridge. The first installation to connect becomes active."}</p>
       <button type="button" disabled={busy} onClick={() => { void refreshSelection(); }} className="min-h-11 rounded-lg border border-board-border px-3 text-xs text-board-text disabled:opacity-40">Refresh status</button>
     </div>
-    {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+    {error && <p role="alert" className="text-sm text-red-300">{plainFailure(error)}</p>}
     {notice && <p role="status" className="text-sm text-amber-200">{notice}</p>}
     {issued && <div className="space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
       <p className="text-sm text-amber-200">Copy this key into the Bridge now. It is shown only here and cannot be retrieved later.</p>
@@ -97,7 +99,7 @@ function InstallationSettings({ orgId }: { orgId: string }) {
       <label className="min-w-0 flex-1 text-xs text-board-muted">Installation name<input required maxLength={80} value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Main room computer" className="mt-1 block min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm text-board-text" /></label>
       <button disabled={busy || !label.trim()} className="min-h-11 rounded-lg border border-board-border px-3 text-sm text-board-text disabled:opacity-40">Create key</button>
     </form>
-    {loading ? <p className="text-xs text-board-muted">Loading installations…</p> : installations.length === 0 ? <p className="text-xs text-board-muted">No Bridge installations yet.</p> : <ul className="divide-y divide-board-border">
+    {loading ? <QuietActivity label="Loading installations…" /> : installations.length === 0 ? <p className="text-xs text-board-muted">No Bridge installations yet.</p> : <ul className="divide-y divide-board-border">
       {installations.map((installation) => <li key={installation.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
         <div className="min-w-0"><p className="break-words text-sm text-board-text">{installation.label}</p><p className="text-xs text-board-muted">{selection.connections.find(connection => connection.installationId === installation.id)?.role === "active" ? "Active · Connected" : selection.connections.some(connection => connection.installationId === installation.id) ? "Standby · Connected" : "Offline"}</p><p className="text-xs text-board-muted">{installation.revokedAt !== null ? "Revoked" : installation.lastUsedAt !== null ? `Last used ${new Date(installation.lastUsedAt).toLocaleString()}` : "Not connected yet"}</p></div>
         {installation.revokedAt === null && <div className="flex gap-2">

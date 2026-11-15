@@ -258,13 +258,13 @@ export function AutomationTimeline({
                   {webhookSummary && <span className="block break-words text-xs text-board-muted">{webhookSummary}</span>}
                   <span className="block text-xs text-board-muted">Tolerance ±{event.toleranceFrames} frames</span>
                   {mediaSummary && <span className="block text-xs text-board-muted">{mediaSummary}</span>}
-                  <span className="block text-xs text-board-muted">{event.skipped ? "Skipped" : !event.enabled ? "Disabled" : event.executionStatus === "failed" ? "Failed" : event.executionStatus === "dispatching" ? "Awaiting acknowledgement" : event.fired ? "Acknowledged" : missed(event) ? "Missed" : overdue(event) ? "Overdue · within tolerance" : isNext ? "Next" : "Scheduled"}</span>
+                  <span className="block text-xs text-board-muted">{event.skipped ? "Skipped" : !event.enabled ? "Disabled" : event.executionStatus === "failed" ? "Failed" : event.executionStatus === "dispatching" ? "" : event.fired ? "Acknowledged" : missed(event) ? "Missed" : overdue(event) ? "Overdue · within tolerance" : isNext ? "Next" : "Scheduled"}</span>
                   {event.executionStatus === "failed" && event.executionError ? (
                     <span className="mt-0.5 block break-words text-xs text-red-400">
                       {event.executionError}
                     </span>
                   ) : null}
-                  {event.executionDurationMs !== undefined && <span className="block text-xs text-board-muted">Last attempt: {event.executionDurationMs} ms</span>}
+                  {event.executionDurationMs !== undefined && null}
                 </span>
 
                 <label className="flex min-h-11 items-center gap-2 text-xs text-board-muted">

@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { useState } from "react";
 import { ToggleLeft, ToggleRight, Sliders } from "lucide-react";
 import type {
@@ -147,7 +148,7 @@ function ActionButton({
         >
           {executing ? "..." : action.label}
         </button>
-        {actionError ? <p role="alert" className="mt-1 text-[10px] leading-4 text-red-400">{actionError}</p> : null}
+        {actionError ? <p role="alert" className="mt-1 text-[10px] leading-4 text-red-400">{plainFailure(actionError)}</p> : null}
       </div>
     );
   }
@@ -243,7 +244,7 @@ function ActionButton({
           >
             {executing ? "Executing..." : "Execute"}
           </button>
-          {actionError ? <p role="alert" className="text-[10px] leading-4 text-red-400">{actionError}</p> : null}
+          {actionError ? <p role="alert" className="text-[10px] leading-4 text-red-400">{plainFailure(actionError)}</p> : null}
         </div>
       )}
     </div>

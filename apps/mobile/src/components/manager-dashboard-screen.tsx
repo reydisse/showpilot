@@ -29,8 +29,8 @@ function ManagerWorkspace({ orgId, userId, kind }: { orgId: string; userId: stri
   const streamAttention = (data?.inputs.filter((input) => !["connected", "streaming"].includes(input.status)).length ?? 0) + (data?.destinations.filter((destination) => destination.enabled && !destination.connected).length ?? 0);
   return (
     <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow={kind === "pm" ? "SHOW READINESS" : "SYSTEM READINESS"} title={kind === "pm" ? "Prod Manager" : "Tech Manager"} subtitle={kind === "pm" ? "Crew assignments, rundown preparation and checklist readiness." : "Incidents, equipment and system readiness. Open Stream health for current provider status."} refreshing={query.isRefetching} onRefresh={() => void query.refetch()}>
-      {query.isPending ? <OperationsEmpty>Loading manager dashboard…</OperationsEmpty> : null}
-      {query.isError ? <><OperationsError message={data ? "Dashboard could not refresh. Last confirmed values are shown." : "Dashboard could not load. Retry to check readiness."} /><AppButton label="Retry dashboard" variant="secondary" loading={query.isFetching} onPress={() => void query.refetch()} /></> : null}
+      {query.isPending ? <OperationsEmpty></OperationsEmpty> : null}
+      {query.isError ? <><OperationsError message={data ? "The dashboard could not be updated." : "Dashboard could not load. Retry to check readiness."} /><AppButton label="Retry dashboard" variant="secondary" loading={query.isFetching} onPress={() => void query.refetch()} /></> : null}
       {data ? <>
       <OperationsPanel title={data?.show?.name || data?.show?.serviceDate || "No scheduled show"} detail={data?.show ? `${data.show.serviceDate} · ${data.show.status ?? "stopped"}` : "Schedule a show to populate readiness data."} />
       <View style={styles.stats}>

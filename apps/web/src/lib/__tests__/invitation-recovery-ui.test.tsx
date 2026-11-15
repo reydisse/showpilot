@@ -1,3 +1,6 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { stopSignOutReconciliation } from "../sign-out-reconciliation";
+import { unlockLocalAccount } from "../local-account-exit";
 import { renderToString } from "react-dom/server";
 import { hydrateRoot } from "react-dom/client";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
@@ -6,10 +9,10 @@ import { afterEach, expect, it, vi } from "vitest";
 import { Route as InviteRoute } from "@/routes/invite/$invitationId";
 import { InvitationResponseCard } from "@/components/invitations/InvitationResponseCard";
 import type { InvitationView } from "../invitation-view";
-const api = vi.hoisted(() => ({ session: vi.fn(), details: vi.fn(), accept: vi.fn(), reject: vi.fn(), active: vi.fn(), signout: vi.fn() }));
+const api = vi.hoisted(() => ({ session: vi.fn(), details: vi.fn(), accept: vi.fn(), reject: vi.fn(), active: vi.fn(), signout: vi.fn(), read: vi.fn(), atom: { data: { user: { id: "other" }, session: { id: "old-session" } } as unknown } }));
 vi.mock("@/lib/session", () => ({ getSession: api.session, getInvitationDetails: api.details, acceptInvitation: api.accept, rejectInvitation: api.reject, setActiveOrg: api.active }));
-vi.mock("@/lib/auth-client", () => ({ authClient: { signOut: api.signout } }));
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.resetAllMocks(); });
+vi.mock("@/lib/auth-client", () => ({ authClient: { signOut: api.signout, getSession: api.read, $store: { atoms: { session: { get: () => api.atom, set: (next: typeof api.atom) => Object.assign(api.atom, next) } } } } }));
+afterEach(() => { cleanup(); stopSignOutReconciliation(); unlockLocalAccount(); vi.useRealTimers(); vi.resetAllMocks(); });
 async function open() {
   api.session.mockResolvedValue({ user: { id: "invitee", email: "invitee@example.test", emailVerified: true } });
   api.details.mockResolvedValue({ status: "pending", email: "invitee@example.test", invitation: { id: "fixture-invite", expiresAt: Date.now() + 3600_000, role: "member", organization: { id: "org", name: "Fixture workspace", slug: "fixture" } } });
@@ -17,7 +20,7 @@ async function open() {
   Object.assign(InviteRoute.options, { getParentRoute: () => root, id: "/invite/$invitationId", path: "/invite/$invitationId" });
   const index = createRoute({ getParentRoute: () => root, path: "/", component: () => <p>Home fixture</p> });
   const router = createRouter({ routeTree: root.addChildren([InviteRoute, index]), history: createMemoryHistory({ initialEntries: ["/invite/fixture-invite"] }) });
-  await router.load(); await act(async () => render(<RouterProvider router={router} />));
+  await router.load(); await act(async () => render(<QueryClientProvider client={new QueryClient()}><RouterProvider router={router} /></QueryClientProvider>));
   return router;
 }
 it("Decline sends a rejection and stays on the invite until the result is confirmed", async () => {
@@ -43,7 +46,7 @@ function pending() {
 function card(initial: InvitationView = pending()) {
   const navigate = vi.fn().mockResolvedValue(undefined);
   api.details.mockResolvedValue(initial);
-  return { ...render(<InvitationResponseCard initial={initial} invitationId="fixture-invite" navigate={navigate} />), navigate };
+  return { ...render(<QueryClientProvider client={new QueryClient()}><InvitationResponseCard initial={initial} invitationId="fixture-invite" navigate={navigate} /></QueryClientProvider>), navigate };
 }
 async function click(name: string) { await act(async () => fireEvent.click(screen.getByRole("button", { name }))); }
 function deferred<T>() {
@@ -60,7 +63,7 @@ it("bounds an uncertain acceptance and recovers by reading without another write
   vi.useFakeTimers(); const saved = deferred<unknown>(); api.accept.mockReturnValue(saved.promise);
   const { navigate } = card(); await click("Accept & Join");
   await act(async () => vi.advanceTimersByTimeAsync(10_001));
-  expect(screen.getByRole("alert").textContent).toContain("unconfirmed");
+  expect(screen.getByRole("alert").textContent).toContain("This invitation needs attention.");
   expect(api.accept.mock.calls[0][0].signal.aborted).toBe(true);
   await act(async () => saved.resolve({ invitation: { status: "accepted" } }));
   expect(screen.queryByRole("button", { name: "Open workspace" })).toBeNull();
@@ -114,12 +117,12 @@ it("keeps the invitation destination through the main signup and verification fl
   expect(screen.getByRole("link", { name: "Verify email" }).getAttribute("href")).toBe("/verify-email?returnTo=%2Finvite%2Ffixture-invite");
   expect(screen.queryByRole("button", { name: "Accept & Join" })).toBeNull();
 });
-it("contains sign-out failure while retaining the invitation destination", async () => {
-  const { navigate } = card({ status: "wrong-account", email: "other@example.test" });
-  api.signout.mockResolvedValueOnce({ error: { message: "Fixture denial" } }).mockResolvedValueOnce({ error: null });
-  await click("Use another account"); expect(navigate).not.toHaveBeenCalled();
-  expect(screen.getByRole("alert").textContent).toContain("sign out");
-  await click("Retry sign out"); expect(navigate).toHaveBeenCalledExactlyOnceWith("/login?returnTo=%2Finvite%2Ffixture-invite");
+it("leaves the wrong account immediately and retains the invitation destination while the server is held", async () => {
+  const read = deferred<unknown>(); api.read.mockReturnValue(read.promise);
+  const { navigate } = card({ status: "wrong-account", email: "other@example.test", userId: "other" });
+  await click("Use another account");
+  expect(navigate).toHaveBeenCalledExactlyOnceWith("/login?returnTo=%2Finvite%2Ffixture-invite");
+  expect(api.atom.data).toBeNull(); expect(api.signout).not.toHaveBeenCalled();
 });
 it("disables responses when an open invitation expires", async () => {
   vi.useFakeTimers(); const initial = pending(); initial.invitation.expiresAt = Date.now() + 1000;
@@ -138,7 +141,7 @@ it("hydrates an invitation when server and viewer default timezones differ", asy
   const formatting = vi.spyOn(Date.prototype, "toLocaleString").mockImplementation(function(this: Date, locale, options) {
     return format.call(this, locale, { ...options, timeZone: options?.timeZone ?? fallbackTimeZone });
   });
-  const element = <InvitationResponseCard initial={initial} invitationId="fixture-invite" navigate={navigate} />;
+  const element = <QueryClientProvider client={new QueryClient()}><InvitationResponseCard initial={initial} invitationId="fixture-invite" navigate={navigate} /></QueryClientProvider>;
   const container = document.createElement("div"); document.body.appendChild(container);
   container.innerHTML = renderToString(element);
   fallbackTimeZone = "America/Toronto";

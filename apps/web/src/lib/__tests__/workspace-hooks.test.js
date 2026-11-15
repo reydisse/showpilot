@@ -15,6 +15,8 @@ const code = ts.transpileModule(readFileSync(resolve(process.cwd(), "../mobile/s
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const modules = {
+  "@/components/quiet-activity": { QuietActivity: () => jsx.jsx("span", { role: "progressbar", "aria-label": "Loading" }) },
+  "@/components/failure-text": { FailureText: ({ children, accessibilityRole }) => React.createElement("p", { role: accessibilityRole }, children) },
   react: React, "@tanstack/react-query": queries, "@showpilot/shared/workspace-editor": editor,
   "@/lib/request-id": { createLocalRequestUuid: () => crypto.randomUUID() },
   "@/lib/mobile-api": { getMobileWorkspaceChange: (data, signal) => api.read({ data, signal }), sendMobileWorkspaceChange: (data, mode, signal) => (mode === "save" ? api.save : api.review)({ data, signal }) },

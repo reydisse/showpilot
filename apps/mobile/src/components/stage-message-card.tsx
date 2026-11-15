@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { decodeStageMessage } from "@showpilot/shared";
@@ -89,13 +91,13 @@ export function StageMessageCard({
             you leave this screen during this app session.
           </Text>
           {!ready ? (
-            <Text
+            <FailureText
               accessibilityRole="alert"
               style={{ ...text, color: colors.amberText }}
             >
               Reconnect to the live rundown before reviewing, sending or
               clearing a message.
-            </Text>
+            </FailureText>
           ) : null}
           <AppField
             label="Stage message"
@@ -215,13 +217,13 @@ export function StageMessageCard({
           ) : null}
           {!state.canConfirm(review) ? (
             <>
-              <Text
+              <FailureText
                 accessibilityRole="alert"
                 style={{ ...text, color: colors.red }}
               >
                 The rundown or access changed. Review the current message again
                 before continuing.
-              </Text>
+              </FailureText>
               <AppButton
                 label="Review current stage message again"
                 variant="secondary"
@@ -255,19 +257,16 @@ export function StageMessageCard({
         <View style={group}>
           <Text style={heading}>{attempt.label}</Text>
           {attempt.kind === "pending" ? (
-            <Text accessibilityLiveRegion="polite" style={text}>
-              Confirming stage message action… Leaving keeps the request during
-              this app session.
-            </Text>
+            <QuietActivity />
           ) : null}
           {attempt.kind === "failed" ? (
             <>
-              <Text
+              <FailureText
                 accessibilityRole="alert"
                 style={{ ...text, color: colors.red }}
               >
                 {attempt.message}
-              </Text>
+              </FailureText>
               <AppButton
                 label="Retry original stage message action"
                 disabled={!ready || !canWrite}
@@ -279,21 +278,21 @@ export function StageMessageCard({
             <>
               <Text accessibilityLiveRegion="polite" style={text}>
                 {attempt.result.outcome === "applied"
-                  ? "Action accepted. The current message may include later changes from another operator."
+                  ? ""
                   : attempt.result.outcome === "conflict"
                     ? "The rundown changed. This request was not applied again. Your draft is kept; review the current message before another action."
                     : "This action is no longer available. Your draft is kept."}
               </Text>
               {attempt.refresh !== "done" ? (
                 <>
-                  <Text
+                  <FailureText
                     accessibilityRole={
                       attempt.refresh === "failed" ? "alert" : undefined
                     }
                     style={text}
                   >
-                    {attempt.message ?? "Refreshing the show…"}
-                  </Text>
+                    {attempt.message ?? ""}
+                  </FailureText>
                   <AppButton
                     label="Refresh stage message result"
                     variant="secondary"

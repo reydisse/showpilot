@@ -107,7 +107,7 @@ describe("DesktopNotificationController", () => {
       await vi.dynamicImportSettled();
       await vi.advanceTimersByTimeAsync(1);
     });
-    expect(screen.getByRole("alert").textContent).toContain("Update ShowPilot Desktop");
+    expect(screen.getByRole("alert").textContent).toContain("Desktop alerts could not connect.");
     await act(async () => { await vi.advanceTimersByTimeAsync(45_000); });
     expect(mocks.listen).toHaveBeenCalledTimes(1);
     expect(mocks.getNotifications.mock.calls.length).toBeGreaterThan(1);
@@ -239,11 +239,11 @@ describe("DesktopNotificationController", () => {
       await vi.advanceTimersByTimeAsync(8_100);
     });
     expect(screen.getByRole("alert").textContent).toContain(
-      "could not be checked",
+      "Desktop alerts could not connect.",
     );
     expect(
       screen.getByRole("alert").querySelector("time")?.dateTime,
-    ).toBeTruthy();
+    ).toBeUndefined();
     expect(mocks.getNotifications.mock.calls[0][0].signal.aborted).toBe(true);
     fireEvent.click(
       screen.getByRole("button", { name: "Retry desktop alerts" }),
@@ -374,7 +374,7 @@ describe("DesktopNotificationController", () => {
       await vi.advanceTimersByTimeAsync(8_100);
     });
     expect(screen.getByRole("alert").textContent).toContain(
-      "actions could not connect",
+      "Desktop alerts could not connect.",
     );
     fireEvent.click(
       screen.getByRole("button", { name: "Retry desktop alerts" }),
@@ -421,7 +421,7 @@ describe("DesktopNotificationController", () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(screen.getByRole("alert").textContent).toContain(
-      "previous desktop alert connection could not close",
+      "Desktop alerts could not connect.",
     );
     fireEvent.click(
       screen.getByRole("button", { name: "Retry desktop alerts" }),

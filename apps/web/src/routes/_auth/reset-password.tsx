@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Check, Eye, EyeOff } from "lucide-react";
@@ -89,10 +91,10 @@ function ResetPasswordForm({ token }: { token: string }) {
   return <div className="animate-float-in">
     <h1 className="mb-8 text-center text-3xl font-bold tracking-tight"><span className="text-fire-500">Show</span>Pilot</h1>
     <section aria-label="Password reset" className="space-y-4 rounded-2xl border border-board-border bg-board-surface p-5 text-center shadow-2xl sm:p-8">
-      {state.status === "checking" && <><h2 className="text-xl font-semibold">Checking reset link</h2><p role="status" className="text-sm text-board-muted">Checking that your link is still valid…</p></>}
+      {state.status === "checking" && <><QuietActivity label="Checking reset link" /></>}
       {state.status === "check-error" && <>
         <h2 className="text-xl font-semibold">Reset link check unavailable</h2>
-        <p role="alert" className="text-sm text-red-300">We couldn't check this link. Wait a moment and retry.<br />Last attempt: {new Date(state.at).toLocaleTimeString()}</p>
+        <p role="alert" className="text-sm text-red-300">We couldn't check this link. Wait a moment and retry.<br /></p>
         <Button className="min-h-11" onClick={() => setAttempt(value => value + 1)}>Retry link check</Button>
       </>}
       {state.status === "invalid" && <>
@@ -101,8 +103,8 @@ function ResetPasswordForm({ token }: { token: string }) {
         <Link to="/forgot-password" className={`${linkClass} bg-fire-500 text-black`}>Request a new reset link</Link>
       </>}
       {state.status === "uncertain" && <>
-        <h2 className="text-xl font-semibold">Reset not confirmed</h2>
-        <p role="alert" className="text-sm text-red-300">We couldn't confirm whether your password changed. Try signing in with your new password. If that doesn't work, request a new reset link.<br />Last attempt: {new Date(state.at).toLocaleTimeString()}</p>
+        <h2 className="text-xl font-semibold">Password reset needs attention</h2>
+        <p role="alert" className="text-sm text-red-300">We couldn't confirm whether your password changed. Try signing in with your new password. If that doesn't work, request a new reset link.<br /></p>
         <Link to="/login" className={`${linkClass} bg-fire-500 text-black`}>Try signing in</Link>
         <Link to="/forgot-password" className={linkClass}>Request a new reset link</Link>
       </>}
@@ -128,7 +130,7 @@ function ResetPasswordForm({ token }: { token: string }) {
             <label htmlFor="confirmPassword" className="mb-1.5 block text-sm font-medium">Confirm Password</label>
             <input id="confirmPassword" type={showPassword ? "text" : "password"} autoComplete="new-password" required minLength={PASSWORD_MIN_LENGTH} maxLength={128} disabled={busy} value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} className={inputClass} />
           </div>
-          {error && <p role="alert" className="text-sm text-red-300">{error.message}<br />Last attempt: {new Date(error.at).toLocaleTimeString()}</p>}
+          {error && <p role="alert" className="text-sm text-red-300">{plainFailure(error.message)}</p>}
           <Button type="submit" disabled={busy} className="min-h-12 w-full rounded-xl">{busy ? "Resetting…" : error ? "Try again" : "Reset password"}</Button>
         </form>
       </>}

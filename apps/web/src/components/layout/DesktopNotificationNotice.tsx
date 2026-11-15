@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useDesktopNotificationDelivery } from "./DesktopNotificationContext";
 import type { NotificationDeliveryStage } from "@/lib/desktop-notification-state";
 
@@ -32,17 +33,7 @@ export function DesktopNotificationNotice() {
       className="flex shrink-0 flex-wrap items-center gap-3 border-b border-amber-500/30 bg-board-card px-4 py-3 text-xs text-board-text"
     >
       <div className="min-w-0 flex-1 space-y-1">
-        {errors.map((error) => (
-          <p key={error.message}>
-            {error.message}{" "}
-            <time
-              className="whitespace-nowrap text-board-muted"
-              dateTime={new Date(error.at).toISOString()}
-            >
-              {new Date(error.at).toLocaleTimeString()}
-            </time>
-          </p>
-        ))}
+        <p>Desktop alerts could not connect.</p>
       </div>
       <button
         type="button"
@@ -50,7 +41,7 @@ export function DesktopNotificationNotice() {
         onClick={retry}
         className="min-h-11 min-w-11 rounded-lg border border-board-border px-3 font-medium focus-visible:outline-2 focus-visible:outline-fire-500 disabled:opacity-50"
       >
-        {busy ? "Retrying alerts…" : "Retry desktop alerts"}
+        {busy ? <QuietActivity label="Retrying alerts…" /> : "Retry desktop alerts"}
       </button>
     </div>
   );

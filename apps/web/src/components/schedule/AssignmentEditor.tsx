@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import {
@@ -290,7 +292,7 @@ export function AssignmentEditor({
           {assignmentId && !work.attempt && (
             <>
               {work.snapshot.isFetching && (
-                <p role="status">Loading current assignment…</p>
+                <QuietActivity label="Loading current assignment…" />
               )}
               {work.snapshot.isError && (
                 <div role="alert" className="space-y-2">
@@ -519,7 +521,7 @@ export function AssignmentEditor({
               </fieldset>
               {error && (
                 <p role="alert" className="text-sm text-red-300">
-                  {error}
+                  {plainFailure(error)}
                 </p>
               )}
             </form>
@@ -529,8 +531,8 @@ export function AssignmentEditor({
               {work.pending && (
                 <p role="status">
                   {work.attempt.pending
-                    ? "Checking assignment saves…"
-                    : "Saved result received. Refreshing Schedule…"}
+                    ? <QuietActivity label="Checking assignment saves…" />
+                    : ""}
                 </p>
               )}
               {!work.attempt.pending &&
@@ -545,7 +547,7 @@ export function AssignmentEditor({
                         ? `${draft?.rows[index]?.role || `Position ${index + 1}`}: `
                         : ""}
                       {!result
-                        ? "Save not confirmed. Your draft is kept. Retry checks the same request."
+                        ? "Your changes need attention."
                         : result.outcome === "conflict"
                           ? "The assignment or show changed before this save. Review the latest details."
                           : result.outcome === "superseded"
@@ -576,7 +578,7 @@ export function AssignmentEditor({
               {work.attempt.refresh === "failed" && (
                 <div role="alert">
                   <p>
-                    The save result is known, but Schedule could not refresh.
+                    Schedule could not be updated.
                   </p>
                   <button
                     className={`${button} mt-2`}

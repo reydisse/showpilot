@@ -1,5 +1,6 @@
+import { mobileAccountIsLocked, mobileSignOutRecovery } from "@/lib/account-exit";
 import { WorkspaceProvider } from "@/providers/workspace-provider";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { LoadingView } from "@/components/loading-view";
@@ -20,7 +21,9 @@ export default function RootLayout() {
 
 function RootNavigator() {
   const { colors, statusBarStyle } = useAppTheme();
-  const { data: session, error, isPending, isRefetching, refetch } = authClient.useSession();
+  const { data: storedSession, error, isPending, isRefetching, refetch } = authClient.useSession();
+  const localExit = useSyncExternalStore(mobileSignOutRecovery.subscribe, mobileAccountIsLocked, () => false);
+  const session = localExit ? null : storedSession;
   const [retrying, setRetrying] = useState(false);
   const [restoreTimedOut, setRestoreTimedOut] = useState(false);
 
@@ -43,15 +46,15 @@ function RootNavigator() {
     }
   }
 
-  if (!session && (isPending || isRefetching) && !restoreTimedOut) {
+  if (!localExit && !session && (isPending || isRefetching) && !restoreTimedOut) {
     return <LoadingView label="Restoring your session…" />;
   }
-  if (!session && restoreTimedOut) {
+  if (!localExit && !session && restoreTimedOut) {
     return (
       <SessionRecoveryView error="Session restore took too long. Check your connection and try again." retrying={retrying} onRetry={() => void retrySession()} />
     );
   }
-  if (!session && error) {
+  if (!localExit && !session && error) {
     return (
       <SessionRecoveryView error={error.message} retrying={retrying} onRetry={() => void retrySession()} />
     );

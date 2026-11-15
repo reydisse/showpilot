@@ -51,7 +51,7 @@ it("saves a structured crew message and preserves it after an unconfirmed save",
   fireEvent.change(screen.getByLabelText("Crew message"), { target: { value: "  Standby cameras\nCamera 2 next  " } });
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
   expect(save.mock.calls[0][0]).toMatchObject({ action: "crew-message", payload: { message: "Standby cameras\nCamera 2 next" } });
-  expect(screen.getByRole("alert").textContent).toBe("Relay disconnected");
+  expect(screen.getByRole("alert").textContent).toBe("This action needs attention.");
   expect(screen.getByLabelText("Crew message")).toHaveProperty("value", "  Standby cameras\nCamera 2 next  ");
   expect(screen.getByText(/Delivery to any linked chat service/)).toBeTruthy();
 });
@@ -66,7 +66,7 @@ it("offers a named prop cue and preserves its fields when saving fails", async (
   expect(screen.queryByRole("textbox", { name: "Action details (JSON)" })).toBeNull();
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
   expect(save.mock.calls[0][0]).toMatchObject({ action: "pp-trigger-prop", payload: { propName: "Standby", target: "propresenter:venue.local:50001" } });
-  expect(screen.getByRole("alert").textContent).toBe("Relay disconnected");
+  expect(screen.getByRole("alert").textContent).toBe("This action needs attention.");
   expect(screen.getByLabelText("Prop name")).toHaveProperty("value", " Standby ");
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
   expect(save.mock.calls[1][0].id).toBe(save.mock.calls[0][0].id);

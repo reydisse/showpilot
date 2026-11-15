@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { WorkspacePicker } from "@/components/workspace-picker";
 import { saveMobileInitialWorkspace, type MobileBootstrap } from "@/lib/mobile-api";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -124,7 +125,7 @@ export default function OrganizationsScreen() {
     setSelectionError("");
     setSigningOut(true);
     try {
-      await exitMobileAccount(queryClient, activeOrganization?.id);
+      exitMobileAccount(queryClient, activeOrganization?.id);
       router.replace("/sign-in");
     } catch (caught) {
       setSelectionError(caught instanceof Error ? caught.message : "Sign out could not be completed.");
@@ -207,7 +208,7 @@ export default function OrganizationsScreen() {
           }}
         />
         {selectionError ? (
-          <Text accessibilityRole="alert" style={styles.error}>{selectionError}</Text>
+          <FailureText accessibilityRole="alert" style={styles.error}>{selectionError}</FailureText>
         ) : null}
         <AppButton
           label="Finish later"
@@ -225,10 +226,10 @@ export default function OrganizationsScreen() {
   return (
     <Page eyebrow="WORKSPACE" title={pageTitle} subtitle="Your shows, crew, and permissions stay isolated inside each organization." refreshing={isRefetching || refreshingVerification} onRefresh={refreshVerification}>
       {selectionError ? (
-        <Text accessibilityRole="alert" style={styles.error}>{selectionError}</Text>
+        <FailureText accessibilityRole="alert" style={styles.error}>{selectionError}</FailureText>
       ) : null}
       {organizationsError ? (
-        <Text accessibilityRole="alert" onPress={refreshVerification} style={styles.error}>{organizationsError.message || "Your workspaces could not be loaded."} · Tap to retry</Text>
+        <FailureText accessibilityRole="alert" onPress={refreshVerification} style={styles.error}>{organizationsError.message || "Your workspaces could not be loaded."} · Tap to retry</FailureText>
       ) : null}
       <View style={styles.list}>
         {organizations?.map((organization) => {
