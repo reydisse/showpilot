@@ -152,7 +152,9 @@ export function TmManagementRecovery({
               !control.read.data.canManageIncidents
             }
             onClick={() => control.notifications.mutate()}
-          >
+           aria-label={control.notifications.isPending
+              ? "Retrying notifications…"
+              : "Retry notifications"}>
             {control.notifications.isPending
               ? <QuietActivity label="Retrying notifications…" />
               : "Retry notifications"}

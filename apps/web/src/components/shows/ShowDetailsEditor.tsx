@@ -198,7 +198,9 @@ export function ShowDetailsEditor({
                     className={buttonClass}
                     disabled={disabled || settled.refresh === "pending"}
                     onClick={() => void work.refreshSaved()}
-                  >
+                   aria-label={settled.refresh === "pending"
+                      ? "Refreshing…"
+                      : "Refresh show"}>
                     {settled.refresh === "pending"
                       ? <QuietActivity label="Refreshing…" />
                       : "Refresh show"}

@@ -584,7 +584,7 @@ function SongStudioPage() {
                   disabled={locked}
                   onClick={() => void saveAll()}
                   className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-fire-500 px-3 text-xs font-bold text-black disabled:opacity-40"
-                >
+                 aria-label={busy ? "Saving…" : "Save all changes"}>
                   <Save className="h-3.5 w-3.5" />
                   {busy ? <QuietActivity label="Saving…" /> : "Save all changes"}
                 </button>}
@@ -1102,7 +1102,7 @@ function SongStudioPage() {
                   disabled={locked}
                   onClick={() => void saveMap()}
                   className="mt-2 w-full rounded-xl border border-board-border p-2.5 text-sm font-semibold text-board-text"
-                >
+                 aria-label={busy ? "Saving…" : "Save cue map"}>
                   {busy ? <QuietActivity label="Saving…" /> : "Save cue map"}
                 </button>
               </fieldset>
@@ -1198,7 +1198,7 @@ function SongStudioPage() {
                   });
                 }}
                 className="rounded-xl bg-fire-500 px-4 py-2 text-sm font-bold text-black disabled:opacity-40"
-              >
+               aria-label={busy ? "Saving…" : "Save and leave"}>
                 {busy ? <QuietActivity label="Saving…" /> : "Save and leave"}
               </button>
             </DialogFooter>

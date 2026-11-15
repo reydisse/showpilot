@@ -705,7 +705,11 @@ function SceneOrgCreate({
                 disabled={sendingVerification || verificationSent}
                 className="mt-1.5 min-h-11 px-2 text-sm font-medium disabled:pointer-events-none disabled:opacity-60"
                 style={{ color: T.amber }}
-              >
+               aria-label={verificationSent
+                  ? "Email sent — check your inbox"
+                  : sendingVerification
+                    ? "Sending..."
+                    : "Resend verification email"}>
                 {verificationSent
                   ? "Email sent — check your inbox"
                   : sendingVerification
@@ -785,7 +789,7 @@ function SceneOrgCreate({
         {creation.snapshot?.status === "removed" && <p role="alert">This workspace was removed. Retrying will not recreate it. Exit setup to start a new organization.</p>}
         {creation.snapshot?.status === "forbidden" && <p role="alert">You no longer own this workspace. Contact its owner or exit setup.</p>}
         {creation.snapshot?.status === "empty" && creation.pending && <button type="button" disabled={creating} onClick={creation.edit} className="min-h-11 rounded-lg border px-4 py-2">Edit creation details</button>}
-        <button type="button" disabled={creating} onClick={() => { setError(null); void creation.check(); }} className="min-h-11 rounded-lg border px-4 py-2 disabled:opacity-50">{creation.busy ? <QuietActivity label="This change needs attention." /> : "Check saved workspace"}</button>
+        <button type="button" disabled={creating} onClick={() => { setError(null); void creation.check(); }} className="min-h-11 rounded-lg border px-4 py-2 disabled:opacity-50" aria-label={creation.busy ? "This change needs attention." : "Check saved workspace"}>{creation.busy ? <QuietActivity label="This change needs attention." /> : "Check saved workspace"}</button>
       </div>}
       {slugState === "error" && !createdOrg && !creation.pending && <div role="alert" className="mt-4 text-sm">
         Could not check this workspace address.
@@ -812,7 +816,7 @@ function SceneOrgCreate({
           borderColor: T.border,
           cursor: ctaReady ? "pointer" : "default",
         }}
-      >
+       aria-label={creating ? "This change needs attention." : createdOrg ? "Continue setup" : creation.pending ? "Retry creation" : additional ? "Create organization" : "Build my show"}>
         {creating ? <QuietActivity label="This change needs attention." /> : createdOrg ? "Continue setup" : creation.pending ? "Retry creation" : additional ? "Create organization" : "Build my show"} <ArrowRight size={17} />
       </button>
     </form>

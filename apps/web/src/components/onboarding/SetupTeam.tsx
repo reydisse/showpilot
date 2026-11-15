@@ -180,7 +180,7 @@ export function SetupTeamForm({
         </p>
         <p className="text-sm" style={{ color: T.muted }}>Finish setup saves these people and opens your workspace. It does not start a show or turn on outputs.</p>
         <button type="submit" disabled={taking || locked} className="inline-flex min-h-11 items-center gap-2 rounded-xl px-5 py-3 font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-400 disabled:opacity-60"
-          style={{ background: T.amber, color: T.stage }}>{taking ? <QuietActivity label="Finishing setup…" /> : locked ? "Team needs attention" : "Finish setup"}<ArrowRight size={17} /></button>
+          style={{ background: T.amber, color: T.stage }} aria-label={taking ? "Finishing setup…" : locked ? "Team needs attention" : "Finish setup"}>{taking ? <QuietActivity label="Finishing setup…" /> : locked ? "Team needs attention" : "Finish setup"}<ArrowRight size={17} /></button>
       </div>
     </form>
   );

@@ -40,7 +40,7 @@ export function DesktopNotificationNotice() {
         disabled={busy}
         onClick={retry}
         className="min-h-11 min-w-11 rounded-lg border border-board-border px-3 font-medium focus-visible:outline-2 focus-visible:outline-fire-500 disabled:opacity-50"
-      >
+       aria-label={busy ? "Retrying alerts…" : "Retry desktop alerts"}>
         {busy ? <QuietActivity label="Retrying alerts…" /> : "Retry desktop alerts"}
       </button>
     </div>

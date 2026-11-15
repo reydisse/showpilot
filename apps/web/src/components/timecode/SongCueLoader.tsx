@@ -106,7 +106,7 @@ export function SongCueLoader({ orgId, format, defaultTarget, connected, running
           </div>}
           {!validHold && <p role="alert" className="text-xs text-amber-200">Hold must be a whole number of frames, zero or greater.</p>}
           {missingMapping && <p className="text-xs text-amber-200">This song has no ProPresenter presentation mapping. Choose Native display or import its presentation first.</p>}
-          <button disabled={!song || !map || map.cues.length === 0 || !parsedFormat || "error" in parsedFormat || !validOffset || !validHold || Boolean(missingMapping)} onClick={() => { void load(); }} className="min-h-11 rounded-xl bg-fire-500 p-3 text-sm font-bold text-black disabled:opacity-40">{saving ? <QuietActivity label="Waiting for relay…" /> : `Load ${map?.cues.length ?? 0} mapped cues`}</button>
+          <button disabled={!song || !map || map.cues.length === 0 || !parsedFormat || "error" in parsedFormat || !validOffset || !validHold || Boolean(missingMapping)} onClick={() => { void load(); }} className="min-h-11 rounded-xl bg-fire-500 p-3 text-sm font-bold text-black disabled:opacity-40" aria-label={saving ? "Waiting for relay…" : `Load ${map?.cues.length ?? 0} mapped cues`}>{saving ? <QuietActivity label="Waiting for relay…" /> : `Load ${map?.cues.length ?? 0} mapped cues`}</button>
         </fieldset>
       </DialogContent>
     </Dialog>

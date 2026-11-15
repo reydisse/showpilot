@@ -802,7 +802,7 @@ function RundownPinSettings({
             onClick={() => void savePin()}
             disabled={saving || !pin || !confirmation}
             className="rounded-lg bg-fire-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-fire-600 disabled:cursor-not-allowed disabled:opacity-50"
-          >
+           aria-label={saving ? "Saving..." : enabled ? "Change PIN" : "Enable PIN"}>
             {saving ? <QuietActivity label="Saving..." /> : enabled ? "Change PIN" : "Enable PIN"}
           </button>
 

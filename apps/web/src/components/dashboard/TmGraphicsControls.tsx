@@ -157,7 +157,9 @@ function GraphicsControls({
             disabled={read.isFetching}
             onClick={() => void read.refetch()}
             className="min-h-11 rounded-lg border px-3 text-amber-200"
-          >
+           aria-label={read.isFetching
+              ? "Checking graphics feedback…"
+              : "Refresh graphics feedback"}>
             {read.isFetching
               ? <QuietActivity label="Checking graphics feedback…" />
               : "Refresh graphics feedback"}

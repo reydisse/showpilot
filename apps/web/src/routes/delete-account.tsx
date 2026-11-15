@@ -74,7 +74,7 @@ function DeleteAccountPage() {
                 <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" className="mt-2 w-full rounded-xl border border-board-border bg-board-bg px-4 py-3 text-base text-board-text outline-none focus:border-red-500/60" />
               </label>
               {error ? <p role="alert" className="mt-4 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-300">{plainFailure(error)}</p> : null}
-              <button type="button" onClick={submitDeletion} disabled={submitting || confirmation !== "DELETE" || !password} className="mt-5 w-full rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-45">
+              <button type="button" onClick={submitDeletion} disabled={submitting || confirmation !== "DELETE" || !password} className="mt-5 w-full rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-45" aria-label={submitting ? "Deleting…" : "Permanently delete my account"}>
                 {submitting ? <QuietActivity label="Deleting…" /> : "Permanently delete my account"}
               </button>
             </>

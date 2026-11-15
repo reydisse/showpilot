@@ -715,7 +715,7 @@ function TemplatePreviewPage() {
                   onClick={handleSave}
                   disabled={libraryMutation.locked || (sampleKey === "custom" && !customPrimary.trim())}
                   className="min-h-11 flex items-center gap-1.5 px-4 py-2 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 disabled:opacity-50 transition-colors"
-                >
+                 aria-label={saving ? "Saving..." : "Save graphic"}>
                   <Save className="w-3.5 h-3.5" />
                   {saving ? <QuietActivity label="Saving..." /> : "Save graphic"}
                 </button>
@@ -723,7 +723,7 @@ function TemplatePreviewPage() {
               {canConfigureGraphics && (
                 <div className="flex min-w-0 w-full flex-1 flex-wrap items-center gap-2 sm:max-w-md">
                   <input aria-label="Scene name" disabled={sceneMutation.locked} value={sceneName} onChange={(event) => setSceneName(event.target.value)} maxLength={200} placeholder="Scene name" className="min-h-11 min-w-24 flex-1 rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none focus:border-fire-500" />
-                  <button type="button" onClick={() => void handleSaveScene()} disabled={sceneMutation.locked || !sceneName.trim() || composedCount === 0} className="min-h-11 flex shrink-0 items-center gap-1.5 rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-text disabled:opacity-40"><Layers className="h-3.5 w-3.5" />{savingScene ? <QuietActivity label="Saving…" /> : sceneId ? "Update scene" : "Save scene"}</button>
+                  <button type="button" onClick={() => void handleSaveScene()} disabled={sceneMutation.locked || !sceneName.trim() || composedCount === 0} className="min-h-11 flex shrink-0 items-center gap-1.5 rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-text disabled:opacity-40" aria-label={savingScene ? "Saving…" : sceneId ? "Update scene" : "Save scene"}><Layers className="h-3.5 w-3.5" />{savingScene ? <QuietActivity label="Saving…" /> : sceneId ? "Update scene" : "Save scene"}</button>
                 </div>
               )}
               {savedMsg && (

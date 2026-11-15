@@ -469,7 +469,7 @@ function SuperAdminDashboard() {
                   onClick={() => launchDateInput && handleSaveLaunchDate(launchDateInput)}
                   disabled={savingLaunchDate || !launchDateInput}
                   className="min-h-11 min-w-11 text-xs font-medium px-3 py-2 rounded-lg bg-fire-500/10 text-fire-500 border border-fire-500/20 hover:bg-fire-500/20 transition-colors disabled:opacity-50"
-                >
+                 aria-label={savingLaunchDate ? "Saving..." : "Set date"}>
                   {savingLaunchDate ? <QuietActivity label="Saving..." /> : "Set date"}
                 </button>
                 {publicLaunchDate && (

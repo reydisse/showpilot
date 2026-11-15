@@ -858,7 +858,7 @@ function GraphicFormModal({
               type="submit"
               disabled={mutation.locked || !title.trim()}
               className="min-h-11 flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
-            >
+             aria-label={saving ? "Saving..." : existing ? "Update" : "Create"}>
               {saving ? <QuietActivity label="Saving..." /> : existing ? "Update" : "Create"}
             </button>
           </div>

@@ -155,7 +155,7 @@ function Notice({
         className={button}
         onClick={retry}
         disabled={disabled}
-      >
+       aria-label={disabled ? "Retrying…" : "Retry"}>
         {disabled ? <QuietActivity label="Retrying…" /> : "Retry"}
       </button>
     </div>
@@ -310,7 +310,11 @@ function ProviderForm({
           type="submit"
           disabled={editor.locked || matches}
           className={`${button} w-full bg-fire-500 font-semibold text-black`}
-        >
+         aria-label={editor.attempt?.kind === "pending"
+            ? "Saving source…"
+            : conflict
+              ? "Save reviewed source"
+              : "Save source"}>
           {editor.attempt?.kind === "pending"
             ? <QuietActivity label="Saving source…" />
             : conflict

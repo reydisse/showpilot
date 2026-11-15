@@ -50,7 +50,11 @@ export function CreationRecovery<D>({ work }: { work: ShowCreationWork<D> }) {
             className={button}
             disabled={attempt.opening === "pending"}
             onClick={work.open}
-          >
+           aria-label={attempt.opening === "pending"
+              ? "Opening show…"
+              : attempt.opening === "failed"
+                ? "Retry opening show"
+                : "Open show"}>
             {attempt.opening === "pending"
               ? <QuietActivity label="Opening show…" />
               : attempt.opening === "failed"

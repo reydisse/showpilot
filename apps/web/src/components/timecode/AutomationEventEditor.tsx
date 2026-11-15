@@ -287,7 +287,7 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
         type="submit"
         disabled={!timecodeValid || !toleranceValid || !leadValid || (changeDetails && basicFields && details.status !== "ready") || (changeDetails && ((action === "custom-webhook" && !isSafeAutomationWebhookUrl(webhookUrl)) || (mediaAction && (!mediaOutput.trim() || (action === "media-play" && (!mediaAsset || !mediaVolumeValid)))) || (namedTimer && (!timerName.trim() || (action === "timer-start" && timerDurationMs === null))) || (usesTargetPicker && !targetSelection)))}
         className="flex min-h-11 items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2 text-sm font-medium text-fire-500 hover:bg-fire-500/20 transition-colors"
-      >
+       aria-label={saving ? "Waiting for relay…" : editing ? "Save changes" : "Add Event"}>
         <Plus className="w-3.5 h-3.5" />
         {saving ? <QuietActivity label="Waiting for relay…" /> : editing ? "Save changes" : "Add Event"}
       </button>

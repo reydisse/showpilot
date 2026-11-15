@@ -44,7 +44,7 @@ export function OverlayOutput({ orgSlug, monitor, retryAccess }: { orgSlug: stri
         {feed.error && null}
         <p className="mt-1 text-xs text-white/70">Monitor view. Use the clean display link in OBS or vMix.</p>
       </div>
-      {feed.error && <button type="button" onClick={feed.retry} disabled={feed.refreshing} className="min-h-11 shrink-0 rounded border border-white/30 px-4 outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60">{feed.refreshing ? <QuietActivity label="Retrying…" /> : "Retry overlay"}</button>}
+      {feed.error && <button type="button" onClick={feed.retry} disabled={feed.refreshing} className="min-h-11 shrink-0 rounded border border-white/30 px-4 outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60" aria-label={feed.refreshing ? "Retrying…" : "Retry overlay"}>{feed.refreshing ? <QuietActivity label="Retrying…" /> : "Retry overlay"}</button>}
     </aside>}
     <div className="overlay-container" data-connection-state={feed.error ? "reconnecting" : feed.confirmedAt === null ? "connecting" : "connected"} data-last-error-at={feed.error?.occurredAt}>
       <GraphicLayers graphics={feed.value.graphics} />

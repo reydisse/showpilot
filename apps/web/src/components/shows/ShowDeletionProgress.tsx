@@ -60,7 +60,9 @@ export function ShowDeletionProgress({
                       onClick={() =>
                         void controller.refresh(work.target.showId)
                       }
-                    >
+                     aria-label={work.refresh === "pending"
+                        ? "Refreshing…"
+                        : "Refresh Schedule"}>
                       {work.refresh === "pending"
                         ? <QuietActivity label="Refreshing…" />
                         : "Refresh Schedule"}
@@ -96,7 +98,11 @@ export function ShowDeletionProgress({
                         ? controller.dismiss(work.target.showId)
                         : void controller.refresh(work.target.showId)
                     }
-                  >
+                   aria-label={work.refresh === "done"
+                      ? "Dismiss"
+                      : work.refresh === "pending"
+                        ? "Refreshing…"
+                        : "Refresh Schedule"}>
                     {work.refresh === "done"
                       ? "Dismiss"
                       : work.refresh === "pending"

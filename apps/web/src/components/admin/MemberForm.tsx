@@ -327,7 +327,11 @@ export function MemberForm({
               type="submit"
               disabled={disabled || preparing || !dirty}
               className={`${control} bg-fire-500 font-semibold text-black`}
-            >
+             aria-label={preparing
+                ? "Preparing photo…"
+                : member
+                  ? "Save crew member"
+                  : "Add crew member"}>
               {preparing
                 ? <QuietActivity label="Preparing photo…" />
                 : member

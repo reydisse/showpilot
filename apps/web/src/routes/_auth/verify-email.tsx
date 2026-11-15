@@ -89,7 +89,7 @@ function VerifyEmailPage() {
         <p className="break-words text-sm text-board-muted">Your email address, {verification.email}, isn't verified yet. Open the verification link in your inbox, then check again.</p>
         <div className="flex flex-col gap-3">
           <button type="button" className={`${buttonClass} bg-fire-500 text-black`} disabled={delivery.status === "sending"} onClick={checkAgain}>I've verified my email</button>
-          <button type="button" className={buttonClass} disabled={delivery.status === "sending" || (delivery.status === "sent" && delivery.email === verification.email)} onClick={() => void resend()}>
+          <button type="button" className={buttonClass} disabled={delivery.status === "sending" || (delivery.status === "sent" && delivery.email === verification.email)} onClick={() => void resend()} aria-label={delivery.status === "sending" ? "Sending verification email…" : delivery.status === "error" && delivery.email === verification.email ? "Retry sending verification email" : "Resend verification email"}>
             {delivery.status === "sending" ? <QuietActivity label="Sending verification email…" /> : delivery.status === "error" && delivery.email === verification.email ? "Retry sending verification email" : "Resend verification email"}
           </button>
         </div>

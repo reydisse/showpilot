@@ -244,7 +244,9 @@ function StreamControls({
             disabled={read.isFetching}
             onClick={() => void read.refetch()}
             className="min-h-11 rounded-lg border px-3 text-sm text-amber-200"
-          >
+           aria-label={read.isFetching
+              ? "Checking streaming feedback…"
+              : "Refresh streaming feedback"}>
             {read.isFetching
               ? <QuietActivity label="Checking streaming feedback…" />
               : "Refresh streaming feedback"}

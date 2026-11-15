@@ -197,7 +197,13 @@ function LoginPage() {
           className="submit"
           disabled={loading}
           aria-busy={loading}
-        >
+         aria-label={loading
+            ? isSignUp
+              ? "Creating account…"
+              : "Signing in…"
+            : isSignUp
+              ? uncertainSignup ? "Retry creating account" : "Create account"
+              : error ? "Retry sign-in" : "Sign in"}>
           {loading
             ? isSignUp
               ? <QuietActivity label="Creating account…" />

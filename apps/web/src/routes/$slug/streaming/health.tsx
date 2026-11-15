@@ -536,7 +536,7 @@ export function StreamHealthWorkspace({ orgId, initialInputs, canManageStreamHea
               <input id="live-input-name" value={newName} onChange={e => setNewName(e.target.value)} maxLength={200} disabled={locked} placeholder="e.g. ATEM Program, Main Camera" className="min-h-11 w-full min-w-0 rounded-lg border border-board-border bg-board-bg px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-fire-500" />
               {notice}
               {read.error && <ReadFailureNotice error={read.error} refreshing={read.refreshing} retry={read.retry} label="Retry inputs" />}
-              <div className="flex flex-wrap gap-3"><button type="button" className={controlClass} disabled={busy} onClick={() => void closeEditor()}>Cancel</button><button type="submit" className={controlClass} disabled={controlsDisabled || !newName.trim()}>{busy ? <QuietActivity label="Creating…" /> : "Create"}</button></div>
+              <div className="flex flex-wrap gap-3"><button type="button" className={controlClass} disabled={busy} onClick={() => void closeEditor()}>Cancel</button><button type="submit" className={controlClass} disabled={controlsDisabled || !newName.trim()} aria-label={busy ? "Creating…" : "Create"}>{busy ? <QuietActivity label="Creating…" /> : "Create"}</button></div>
             </form>
           </DialogContent>
         </Dialog>

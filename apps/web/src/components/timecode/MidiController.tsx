@@ -255,7 +255,7 @@ export function MidiControllerPanel({ timecode }: { timecode: UseTimecodeReturn 
   ];
   return <section aria-label="MIDI controller" className="min-w-0 space-y-4 rounded-xl border border-board-border bg-board-card p-4">
     <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-sm font-semibold text-board-text">MIDI controller</h3>
-      <button type="button" className={button} disabled={controller.connecting || controller.ready} onClick={() => void controller.connect()}>{controller.connecting ? <QuietActivity label="Opening MIDI…" /> : controller.ready ? "MIDI available" : "Connect controller"}</button></div>
+      <button type="button" className={button} disabled={controller.connecting || controller.ready} onClick={() => void controller.connect()} aria-label={controller.connecting ? "Opening MIDI…" : controller.ready ? "MIDI available" : "Connect controller"}>{controller.connecting ? <QuietActivity label="Opening MIDI…" /> : controller.ready ? "MIDI available" : "Connect controller"}</button></div>
     <p role="status" className="text-sm text-board-muted">{controller.armed ? "Controller armed for this show." : "Controller disarmed. Saved mappings do not activate automatically."} {controller.ready && (controller.inputConnected ? "Input connected." : "Selected input disconnected.")} {saved.config.output && (controller.outputConnected ? "Feedback connected." : "Feedback output disconnected.")}</p>
     {(controller.error || saveError) && <p role="alert" className="text-sm text-red-300">{saveError || controller.error}</p>}
     <div className="grid gap-3 sm:grid-cols-2">
@@ -270,7 +270,7 @@ export function MidiControllerPanel({ timecode }: { timecode: UseTimecodeReturn 
         if (!parsed.success) { setSaveError(parsed.error.issues[0]?.message ?? "Invalid mappings."); return; }
         const result = timecode.saveController(parsed.data, draft.revision);
         if (result.status === "failed") setSaveError(result.error); else { setSaving(true); setSaveError(null); }
-      }}>{saving ? <QuietActivity label="Saving mappings…" /> : "Save mappings"}</button>
+      }} aria-label={saving ? "Saving mappings…" : "Save mappings"}>{saving ? <QuietActivity label="Saving mappings…" /> : "Save mappings"}</button>
       <button className={button} disabled={saving || controller.armed} onClick={() => { setDraft(saved); setSaveError(null); controller.cancelLearn(); }}>Reload saved mappings</button>
       <button className={button} disabled={!controller.armed && (!controller.inputConnected || Boolean(controller.learning) || dirty || saving || timecode.control !== "yours" || !timecode.connected)} onClick={controller.armed ? controller.disarm : controller.arm}>{controller.armed ? "Disarm controller" : "Arm controller"}</button>
     </div>

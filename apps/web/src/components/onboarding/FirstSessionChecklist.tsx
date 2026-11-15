@@ -211,7 +211,7 @@ export function FirstSessionChecklist({
             className={actionClass}
             disabled={state.isFetching}
             onClick={() => void state.refetch()}
-          >
+           aria-label={state.isFetching ? "Retrying…" : "Retry checklist"}>
             {state.isFetching ? <QuietActivity label="Retrying…" /> : "Retry checklist"}
           </button>
         </div>

@@ -240,7 +240,7 @@ export function BillingSection({
             onClick={handlePortal}
             disabled={openingPortal}
             className="min-h-11 focus-visible:outline-2 focus-visible:outline-fire-500 mt-3 inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg text-board-text border border-board-border hover:bg-board-border/50 transition-colors disabled:opacity-50"
-          >
+           aria-label={openingPortal ? "Opening..." : "Manage billing"}>
             <ExternalLink className="w-3.5 h-3.5" />
             {openingPortal ? <QuietActivity label="Opening..." /> : "Manage billing"}
           </button>

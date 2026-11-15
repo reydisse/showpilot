@@ -142,7 +142,7 @@ function CommandButton({ action, connected, pendingAction, params, run, tone = "
         void run(action.id, params);
       }}
       className={`min-h-11 min-w-0 rounded-lg border px-3 py-2 text-xs font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500 disabled:cursor-not-allowed disabled:opacity-40 ${tones[tone]}`}
-    >
+     aria-label={pending ? "Sending…" : armed ? `Confirm ${label ?? action.label}` : label ?? action.label}>
       {pending ? <QuietActivity label="Sending…" /> : armed ? `Confirm ${label ?? action.label}` : label ?? action.label}
     </button>
   );

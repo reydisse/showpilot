@@ -36,7 +36,9 @@ export function EquipmentRecovery({
             className={action}
             disabled={control.read.isFetching}
             onClick={() => void control.read.refetch()}
-          >
+           aria-label={control.read.isFetching
+              ? "Refreshing inventory…"
+              : "Retry inventory"}>
             {control.read.isFetching
               ? <QuietActivity label="Refreshing inventory…" />
               : "Retry inventory"}

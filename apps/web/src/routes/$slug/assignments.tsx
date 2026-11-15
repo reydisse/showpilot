@@ -298,7 +298,9 @@ function MyAssignmentsPage() {
                           disabled={responding === assignment.id}
                           onClick={() => void respond(assignment, "declined")}
                           className="min-h-11 rounded-xl bg-red-500 px-4 py-2 text-sm font-bold text-white disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
-                        >
+                         aria-label={responding === assignment.id
+                            ? "Saving…"
+                            : "Confirm decline"}>
                           {responding === assignment.id
                             ? <QuietActivity label="Saving…" />
                             : "Confirm decline"}

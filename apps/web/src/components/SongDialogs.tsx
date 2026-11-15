@@ -190,7 +190,7 @@ export function SongCreateModal({ orgId, open, onClose, onCreate, onOpenSong }: 
           {write.state.status === "failed" ? <>
             {!write.state.saved && <button type="button" onClick={() => void editDraft()} className="min-h-11 rounded-xl border border-board-border px-3 text-sm">Edit draft</button>}
             <button type="button" onClick={() => void write.retry()} className="min-h-11 flex-1 rounded-xl bg-fire-500 p-2.5 text-sm font-bold text-black">{write.state.saved ? "Retry opening song" : "Retry creation"}</button>
-          </> : <button type="submit" disabled={!canSubmit || locked} className="min-h-11 flex-1 rounded-xl bg-fire-500 p-2.5 text-sm font-bold text-black disabled:opacity-40">{write.state.status === "saving" ? write.state.saved ? <QuietActivity label="Opening song…" /> : <QuietActivity label="Creating…" /> : "Create song"}</button>}
+          </> : <button type="submit" disabled={!canSubmit || locked} className="min-h-11 flex-1 rounded-xl bg-fire-500 p-2.5 text-sm font-bold text-black disabled:opacity-40" aria-label={write.state.status === "saving" ? write.state.saved ? "Opening song…" : "Creating…" : "Create song"}>{write.state.status === "saving" ? write.state.saved ? <QuietActivity label="Opening song…" /> : <QuietActivity label="Creating…" /> : "Create song"}</button>}
         </footer>
       </form>
       </DialogContent>
@@ -210,7 +210,7 @@ export function DeleteSongModal({ title, sectionCount, cueMapCount, busy, saved 
         {error ? <p role="alert" className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{plainFailure(error)}</p> : null}
         <div className="mt-5 flex gap-2">
           <button type="button" disabled={busy} onClick={onClose} className="flex-1 rounded-xl border border-board-border p-2.5 text-sm font-semibold text-board-text disabled:opacity-40">{saved ? "Close" : "Keep song"}</button>
-          <button type="button" disabled={busy} onClick={onDelete} className="flex-1 rounded-xl bg-red-500 p-2.5 text-sm font-bold text-white disabled:opacity-40">{saved ? busy ? <QuietActivity label="Opening library…" /> : "Retry opening library" : busy ? <QuietActivity label="Deleting…" /> : error ? "Retry delete" : "Delete song"}</button>
+          <button type="button" disabled={busy} onClick={onDelete} className="flex-1 rounded-xl bg-red-500 p-2.5 text-sm font-bold text-white disabled:opacity-40" aria-label={saved ? busy ? "Opening library…" : "Retry opening library" : busy ? "Deleting…" : error ? "Retry delete" : "Delete song"}>{saved ? busy ? <QuietActivity label="Opening library…" /> : "Retry opening library" : busy ? <QuietActivity label="Deleting…" /> : error ? "Retry delete" : "Delete song"}</button>
         </div>
       </DialogContent>
     </Dialog>

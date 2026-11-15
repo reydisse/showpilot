@@ -396,7 +396,7 @@ function MicAssignmentForm({ existing, open, locked, busy, nextChannel, onClose,
           </div>
 
       </fieldset></div>
-      <div className="flex shrink-0 gap-3 border-t border-board-border p-4"><button type="button" disabled={busy} className={`${controlClass} flex-1`} onClick={onClose}>Cancel</button><button type="submit" disabled={locked || !label.trim()} className={`${controlClass} flex-1 bg-fire-500 text-black`}>{busy ? <QuietActivity label="Saving…" /> : existing ? "Update" : "Add Channel"}</button></div>
+      <div className="flex shrink-0 gap-3 border-t border-board-border p-4"><button type="button" disabled={busy} className={`${controlClass} flex-1`} onClick={onClose}>Cancel</button><button type="submit" disabled={locked || !label.trim()} className={`${controlClass} flex-1 bg-fire-500 text-black`} aria-label={busy ? "Saving…" : existing ? "Update" : "Add Channel"}>{busy ? <QuietActivity label="Saving…" /> : existing ? "Update" : "Add Channel"}</button></div>
     </form>
   </DialogContent></Dialog>;
 }

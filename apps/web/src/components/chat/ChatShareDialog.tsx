@@ -148,7 +148,7 @@ export function ChatShareDialog({ orgId, scope, members, open, onOpenChange, rev
           : <p className="text-sm text-board-muted">This link is too long for a QR code. Copy the link to share it.</p>}
         <label htmlFor={`${fieldId}-link`} className="text-sm font-medium">{planning ? "Planning invite link" : "Crew join link"}</label>
         <textarea id={`${fieldId}-link`} readOnly value={link} rows={3} onFocus={event => event.currentTarget.select()} className="min-w-0 w-full resize-y rounded-lg border border-board-border bg-board-bg p-3 text-xs [overflow-wrap:anywhere]" />
-        <button type="button" disabled={copy === "copying"} onClick={() => void copyLink()} className={control}>{copy === "copying" ? <QuietActivity label="Copying…" /> : copy === "copied" ? "Copied" : copy === "failed" ? "Retry copy" : "Copy link"}</button>
+        <button type="button" disabled={copy === "copying"} onClick={() => void copyLink()} className={control} aria-label={copy === "copying" ? "Copying…" : copy === "copied" ? "Copied" : copy === "failed" ? "Retry copy" : "Copy link"}>{copy === "copying" ? <QuietActivity label="Copying…" /> : copy === "copied" ? "Copied" : copy === "failed" ? "Retry copy" : "Copy link"}</button>
         {copy === "failed" && <p role="alert" className="text-sm text-red-300">Could not copy. Select the link above and copy it manually, or retry.</p>}
         <p className="text-xs text-board-muted">Expires {new Date(pass.expiresAt).toLocaleString()}{planning ? ` · ${pass.targetCount} selected members` : ""}</p>
 

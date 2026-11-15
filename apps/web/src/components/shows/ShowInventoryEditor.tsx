@@ -106,7 +106,9 @@ export function ShowInventoryEditor({
                 className={button}
                 disabled={attempt.refresh === "pending"}
                 onClick={work.refresh}
-              >
+               aria-label={attempt.refresh === "pending"
+                  ? "Refreshing inventory…"
+                  : "Refresh inventory"}>
                 {attempt.refresh === "pending"
                   ? <QuietActivity label="Refreshing inventory…" />
                   : "Refresh inventory"}
