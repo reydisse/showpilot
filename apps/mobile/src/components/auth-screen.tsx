@@ -1,4 +1,3 @@
-import { QuietActivity } from "@/components/quiet-activity";
 import { FailureText } from "@/components/failure-text";
 import { useSyncExternalStore , useEffect, useRef, useState } from "react";
 import {
@@ -377,17 +376,9 @@ export function AuthScreen({ mode }: { mode: AuthMode }) {
                     loading && styles.disabled,
                   ]}
                 >
-                  <Text style={styles.submitText}>
-                    {loading
-                      ? signingUp
-                        ? <QuietActivity label="Creating account…" />
-                        : <QuietActivity label="Signing in…" />
-                      : signingUp
-                        ? "Create account"
-                        : "Sign in"}
-                  </Text>
+                  {!loading && <Text style={styles.submitText}>{signingUp ? "Create account" : "Sign in"}</Text>}
                   {loading ? (
-                    <ActivityIndicator size="small" color="#171307" />
+                    <ActivityIndicator accessibilityLabel={signingUp ? "Creating account" : "Signing in"} size="small" color="#171307" />
                   ) : (
                     <ArrowRight size={18} color="#171307" />
                   )}

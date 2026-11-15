@@ -112,7 +112,7 @@ export function InvitationResponseCard({ invitationId, initial, navigate }: {
         <div className="flex flex-wrap gap-2"><a href={login} className={`${button} bg-fire-500 text-black`}>Sign in</a><a href={`${login}&signup=1`} className={button}>Create account</a></div>
       </>}
       {view.status === "unverified" && <a className={button} href={verificationHref(returnTo)}>Verify email</a>}
-      {view.status === "wrong-account" && <button type="button" className={button} disabled={busy} onClick={() => { exitAccountLocally(client, view.userId); void navigate(login); }}>Use another account</button>}
+      {view.status === "wrong-account" && <button type="button" className={button} disabled={busy} onClick={() => { const userId = view.userId; setView({ status: "signed-out" }); exitAccountLocally(client, userId); void navigate(login); }}>Use another account</button>}
       {view.status === "pending" && <>
         <p className="text-sm text-board-muted">Expires {new Date(view.invitation.expiresAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone })}.</p>
         {!intent && <div className="flex flex-wrap gap-2">

@@ -24,7 +24,7 @@ export function SetupTeam({ orgId, onFinished, onStateChange }: { orgId: string;
     {save.failure && <div role="alert" className="rounded-xl border border-red-400/40 p-4 text-sm text-red-200">
       <p>{plainFailure(save.failure.message)}</p>
     </div>}
-    {save.busy && <p role="status" className="flex items-center gap-2 text-sm"><span aria-hidden="true" className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />{<QuietActivity />}</p>}
+    {save.busy && <p role="status" className="flex items-center gap-2 text-sm"><QuietActivity /></p>}
     {!save.snapshot && !save.busy && !save.failure && <QuietActivity label="Loading saved setup…" />}
     {(!save.snapshot || save.failure || batch) && <button type="button" className={actionClass} disabled={save.busy} onClick={() => void save.check()}>Check saved results</button>}
     {save.snapshot && !batch && <>

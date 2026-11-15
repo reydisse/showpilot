@@ -207,11 +207,7 @@ export function CrewProfileSheet(props: {
                   <UserRound color={colors.amberText} size={34} />
                 )}
               </Pressable>
-              <Text style={styles.hint}>
-                {preparingPhoto
-                  ? <QuietActivity label="Preparing photo…" />
-                  : "Choose a square crew photo."}
-              </Text>
+              {preparingPhoto ? <QuietActivity label="Preparing photo…" /> : <Text style={styles.hint}>Choose a square crew photo.</Text>}
               <AppField
                 label="Crew member ID"
                 autoCapitalize="characters"

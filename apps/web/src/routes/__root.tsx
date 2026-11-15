@@ -76,7 +76,7 @@ function RootComponent() {
   // Personal data and mutation keys include both account and organization IDs.
   const [queryClient] = useState(() => new QueryClient());
   const exited = useSyncExternalStore(localAccountExit.subscribe, localAccountExit.getSnapshot, localAccountExit.getServerSnapshot);
-  const privatePage = useRouterState({ select: state => state.matches.some(match => match.routeId === "/$slug" || match.routeId === "/superadmin") });
+  const privatePage = useRouterState({ select: state => state.matches.some(match => ["/$slug", "/superadmin", "/_auth/setup", "/_auth/invitations"].includes(match.routeId)) });
   useEffect(() => { void registerNotificationWorker(); }, []);
   useEffect(() => {
     const onExit = (event: StorageEvent) => {

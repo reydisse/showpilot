@@ -1,4 +1,3 @@
-import { QuietActivity } from "@/components/ui/QuietActivity";
 import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
@@ -204,13 +203,7 @@ function LoginPage() {
             : isSignUp
               ? uncertainSignup ? "Retry creating account" : "Create account"
               : error ? "Retry sign-in" : "Sign in"}>
-          {loading
-            ? isSignUp
-              ? <QuietActivity label="Creating account…" />
-              : <QuietActivity label="Signing in…" />
-            : isSignUp
-              ? uncertainSignup ? "Retry creating account" : "Create account"
-              : error ? "Retry sign-in" : "Sign in"}
+          {!loading && (isSignUp ? uncertainSignup ? "Retry creating account" : "Create account" : error ? "Retry sign-in" : "Sign in")}
           {loading ? (
             <LoaderCircle
               size={16}

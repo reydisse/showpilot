@@ -110,7 +110,7 @@ export default function ProfileScreen() {
             <Pressable accessibilityRole="button" accessibilityLabel={session?.user.emailVerified ? "Account verification details" : "Verify your email"} onPress={() => router.push("/settings")} style={styles.verifiedBadge}><BadgeCheck size={13} color={session?.user.emailVerified ? colors.green : colors.amberText} /><Text style={[styles.verifiedText, session?.user.emailVerified && styles.verifiedTextReady]}>{session?.user.emailVerified ? "Verified account" : "Verify your email"}</Text></Pressable>
           </View>
         </View>
-        {savingAvatar ? <Text style={styles.savingText}><QuietActivity label="Preparing and saving your photo…" /></Text> : null}
+        {savingAvatar ? <QuietActivity label="Preparing and saving your photo…" /> : null}
       </View>
       <View style={styles.editor}>
         <Text style={styles.editorLabel}>DISPLAY NAME</Text>

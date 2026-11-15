@@ -122,7 +122,7 @@ it("leaves the wrong account immediately and retains the invitation destination 
   const { navigate } = card({ status: "wrong-account", email: "other@example.test", userId: "other" });
   await click("Use another account");
   expect(navigate).toHaveBeenCalledExactlyOnceWith("/login?returnTo=%2Finvite%2Ffixture-invite");
-  expect(api.atom.data).toBeNull(); expect(api.signout).not.toHaveBeenCalled();
+  expect(api.atom.data).toBeNull(); expect(api.signout).not.toHaveBeenCalled(); expect(screen.queryByText("Signed in as other@example.test")).toBeNull();
 });
 it("disables responses when an open invitation expires", async () => {
   vi.useFakeTimers(); const initial = pending(); initial.invitation.expiresAt = Date.now() + 1000;
