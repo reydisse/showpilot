@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import type { useShowDeletions } from "@/hooks/useShowDeletions";
 
@@ -36,7 +37,7 @@ export function ShowDeletionProgress({
                     role="alert"
                     className="mt-2 text-sm leading-6 text-red-300"
                   >
-                    {work.message} This change needs attention.</p>
+                    {plainFailure((work.message) ?? "")}</p>
                   <button
                     className={`${buttonClass} mt-3`}
                     onClick={() => void controller.retry(work.target.showId)}
@@ -51,7 +52,7 @@ export function ShowDeletionProgress({
                     role="alert"
                     className="mt-2 text-sm leading-6 text-red-300"
                   >
-                    Deletion was not accepted. {work.message}
+                    {plainFailure((work.message) ?? "")}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
@@ -88,7 +89,7 @@ export function ShowDeletionProgress({
                       role="alert"
                       className="mt-2 text-sm leading-6 text-red-300"
                     >
-                      {work.message} </p>
+                      {plainFailure((work.message) ?? "")} </p>
                   )}
                   <button
                     className={`${buttonClass} mt-3`}

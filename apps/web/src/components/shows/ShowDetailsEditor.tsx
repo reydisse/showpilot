@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import type { ReactNode } from "react";
 import { useShowDetails, type ShowDetailsDraft } from "@/hooks/useShowDetails";
@@ -121,7 +122,7 @@ export function ShowDetailsEditor({
         {attempt?.kind === "unconfirmed" ? (
           <div className="space-y-3">
             <p role="alert" className="text-sm leading-5 text-red-300">
-              {attempt.message} Your draft and original save are retained.
+              {plainFailure((attempt.message) ?? "")}
             </p>
             <div className="flex flex-wrap gap-2">
               <button
@@ -187,7 +188,7 @@ export function ShowDetailsEditor({
             ) : null}
             {settled.message ? (
               <p role="alert" className="text-sm text-red-300">
-                {settled.message} </p>
+                {plainFailure((settled.message) ?? "")} </p>
             ) : null}
             {snapshot ? (
               <div className="flex flex-wrap gap-2">

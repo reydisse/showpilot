@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import {
   EquipmentRequestError,
@@ -25,7 +26,7 @@ export function EquipmentRecovery({
           role="alert"
           className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200"
         >
-          <p>{control.read.error?.message ?? "Inventory could not refresh."}</p>
+          <p>{plainFailure((control.read.error?.message ?? "Inventory could not refresh.") ?? "")}</p>
           <p>
             </p>
           {control.read.error instanceof EquipmentRequestError && (
@@ -60,9 +61,9 @@ export function EquipmentRecovery({
           ) : current.status === "error" ? (
             <>
               <p role="alert">
-                {current.error instanceof Error
+                {plainFailure((current.error instanceof Error
                   ? current.error.message
-                  : "This change needs attention."}
+                  : "This change needs attention.") ?? "")}
               </p>
               <p>
                 Your draft is kept. Retry checks for a saved result. Review

@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { workspaceChangeMessage } from "@showpilot/shared/workspace-change";
 import type { WorkspaceWork } from "@/hooks/useWorkspaceWork";
@@ -6,7 +7,7 @@ export function WorkspaceChangeNotice({ work }: { work: WorkspaceWork }) {
   const button = "min-h-11 rounded-lg border border-board-border px-4 py-2";
   return <div className="space-y-2 text-sm" aria-live="polite">
     {work.loading && <QuietActivity label="Loading current workspace settings…" />}
-    {work.error && <div role="alert"><p>{work.error}</p><button className={button} onClick={work.load}>Reload workspace</button></div>}
+    {work.error && <div role="alert"><p>{plainFailure((work.error) ?? "")}</p><button className={button} onClick={work.load}>Reload workspace</button></div>}
     {a?.kind === "pending" && <QuietActivity label="Saving workspace change…" />}
     {a?.kind === "unknown" && <div role="alert" className="space-y-2">
       <p>This change needs attention.</p>

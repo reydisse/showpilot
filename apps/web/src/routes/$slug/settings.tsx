@@ -1582,7 +1582,7 @@ function LowerThirdsSection({ orgId, slug, role, org, getSetting, editSetting, s
             </div>
             <div className="text-xs text-board-muted space-y-2">
               <p>Paste this link into OBS/vMix for clean output, or scan the QR code to open that display on another device. The monitor view adds connection status and Retry. This link expires in 8 hours.</p>
-              {overlayLink.error && <p role="alert" className="text-red-300">{overlayLink.error}</p>}
+              {overlayLink.error && <p role="alert" className="text-red-300">{plainFailure((overlayLink.error) ?? "")}</p>}
               <button type="button" disabled={overlayLink.pending} onClick={overlayLink.refresh} className="min-h-11 underline">Create a fresh link</button>
               {overlayLink.errorAt !== null && null}
               {overlayLink.monitorUrl && <a href={overlayLink.monitorUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center px-3 text-sm text-fire-500 underline outline-none focus-visible:ring-2 focus-visible:ring-fire-500">Open overlay monitor</a>}

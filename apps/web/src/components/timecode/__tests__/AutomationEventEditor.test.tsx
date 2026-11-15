@@ -34,7 +34,7 @@ it("does not show stale targets after a keyed show change or a failed refresh", 
   fireEvent.change(screen.getByLabelText("Action"), { target: { value: "rundown-goto-item" } });
   view.rerender(<AutomationEventEditor key="second-show" connected format={format} onAdd={onAdd} loadTargets={newLoad} />);
   fireEvent.change(screen.getByLabelText("Action"), { target: { value: "rundown-goto-item" } });
-  await screen.findByText("Target list unavailable");
+  await screen.findByText("Target list unavailable.");
   await act(async () => release([{ id: "old", label: "Old show" }]));
   expect(screen.queryByRole("option", { name: /Old show/ })).toBeNull();
   expect(screen.getByRole("button", { name: "Add Event" })).toHaveProperty("disabled", true);

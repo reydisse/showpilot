@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState } from "react";
 import { useShowInventory } from "@/hooks/useShowInventory";
@@ -70,7 +71,7 @@ export function ShowInventoryEditor({
           )}
           {attempt.kind === "unconfirmed" && (
             <>
-              <p role="alert">{attempt.message}</p>
+              <p role="alert">{plainFailure((attempt.message) ?? "")}</p>
               <p>
                 This change needs attention.</p>
               <div className="flex flex-wrap gap-2">
@@ -100,7 +101,7 @@ export function ShowInventoryEditor({
                   {attempt.result.item.archivedAt ? "Archived" : "Active"}
                 </p>
               )}
-              {attempt.message && <p role="alert">{attempt.message}</p>}
+              {attempt.message && <p role="alert">{plainFailure((attempt.message) ?? "")}</p>}
               <button
                 type="button"
                 className={button}

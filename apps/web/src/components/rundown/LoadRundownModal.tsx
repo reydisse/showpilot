@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useRef, useState } from "react";
 import { Calendar, FileText, FolderOpen, X } from "lucide-react";
@@ -119,7 +120,7 @@ function LoadRundownSession({ orgId, timeZone, currentItemCount, playing, revisi
       </div>
       <div className="space-y-3 px-6 pb-5">
         {operation.kind === "error" && <div role="alert" className="space-y-2 rounded-xl border border-red-400/40 p-3 text-sm text-red-300">
-          <p>{operation.message} {errorTime(operation.occurredAt)}</p>
+          <p>{plainFailure((operation.message) ?? "")} {errorTime(operation.occurredAt)}</p>
           {operation.canRetry ? <Button variant="outline" onClick={() => void load(operation.selection)}>Retry load</Button> : <Button variant="outline" onClick={onClose}>Review current rundown</Button>}
         </div>}
         {operation.kind === "reading" && <p role="status" className="text-sm text-board-muted">Reading rundown…</p>}

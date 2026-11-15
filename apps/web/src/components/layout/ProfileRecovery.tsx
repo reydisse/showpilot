@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { Button } from "@/components/ui/button";
 import type { useAccountProfile } from "@/hooks/useAccountProfile";
@@ -42,7 +43,7 @@ export function ProfileRecovery({
           role="alert"
           className="space-y-2 rounded-lg border border-red-500/25 bg-red-500/10 p-3 text-red-400"
         >
-          <p>{attempt.message}</p>
+          <p>{plainFailure((attempt.message) ?? "")}</p>
 
           <Button
             variant="outline"

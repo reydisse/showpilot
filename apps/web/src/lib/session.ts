@@ -378,7 +378,9 @@ export const getInvitationDetails = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(idSchema, data))
   .handler(async ({ data }) => {
     setResponseHeader("Cache-Control", "private, no-store");
-    const session = await withPrimaryDatabase(() => getAuth().api.getSession({ headers: getRequestHeaders(), query: { disableCookieCache: true } }));
+    const headers = getRequestHeaders();
+    const session = accountExitRequested(headers.get("cookie") ?? "") ? null
+      : await withPrimaryDatabase(() => getAuth().api.getSession({ headers, query: { disableCookieCache: true } }));
     const { readInvitationView } = await import("./invitation-response.server");
     return readInvitationView(getD1(), session?.user ?? null, data);
   });

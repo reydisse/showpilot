@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useId, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
@@ -140,7 +141,7 @@ export function ChatShareDialog({ orgId, scope, members, open, onOpenChange, rev
         </fieldset>
       </>}
       {validation && <p role="alert" className="text-sm text-red-300">{validation}</p>}
-      {result.status === "failed" && <div role="alert" className="space-y-1 text-sm text-red-300"><p>{result.message}</p></div>}
+      {result.status === "failed" && <div role="alert" className="space-y-1 text-sm text-red-300"><p>{plainFailure((result.message) ?? "")}</p></div>}
       {saving && <p role="status" className="text-sm"><QuietActivity label="Creating chat link…" /></p>}
       {pass && <>
         <p role="status" className="font-medium">{planning ? "Planning link is ready" : "Crew pass is ready"}</p>

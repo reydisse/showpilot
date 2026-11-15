@@ -42,7 +42,7 @@ it("bounds a stalled request and ignores its late success", async () => {
   api.revoke.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   await confirm();
   await act(async () => vi.advanceTimersByTimeAsync(10001));
-  expect(screen.getByRole("alert").textContent).toContain("unconfirmed");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   expect(api.revoke.mock.calls[0][0].signal.aborted).toBe(true);
   await act(async () => finish({ status: "revoked", disconnected: true }));
   expect(onRevoked).not.toHaveBeenCalled();
@@ -61,7 +61,7 @@ it("ignores a pending reply after closing and preserves an explicit recovery act
   await act(async () => finish({ status: "revoked", disconnected: true }));
   expect(onRevoked).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Disable a chat link" }));
-  expect(screen.getByRole("alert").textContent).toContain("unconfirmed");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   expect(screen.getByLabelText("Chat invite link")).toHaveProperty("value", link);
 });
 it("parses invite paths without fetching a pasted address or accepting unrelated routes", () => {

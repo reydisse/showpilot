@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { useQuery } from "@tanstack/react-query";
 import { Redirect, router } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
@@ -33,9 +34,9 @@ function StreamWorkspace(scope: { orgId: string; userId: string }) {
     {inputs.isPending ? <OperationsEmpty></OperationsEmpty> : null}
     {inputs.isError ? <><OperationsError message={inputs.data ? "Input details could not be updated." : "Input health could not load. Retry to check the live inputs."} /><AppButton label="Retry stream inputs" variant="secondary" loading={inputs.isFetching} onPress={() => void inputs.refetch()} /></> : null}
     {inputs.data ? <>
-      <View style={styles.stats}><OperationsStat label="Inputs confirmed active" value={`${active}/${inputs.data.inputs.length}`} tone={inputs.isError ? "warning" : active ? "good" : "warning"} /></View>
-      <OperationsPanel title="Live inputs" detail={inputs.isError ? "Input details" : "Provider state refreshes every five seconds while this screen is open."}>
-        {inputs.data.inputs.length ? inputs.data.inputs.map(input => <OperationsRow key={input.id} title={input.name} detail={input.error || `${input.srtUrl ? "RTMP + SRT" : "RTMP"} ingest · provider ${input.providerStatus ?? "pending"}`} status={input.status} />) : <OperationsEmpty>No live input is configured. Add one from the web streaming controls before the show.</OperationsEmpty>}
+      <View style={styles.stats}><OperationsStat label="Active inputs" value={`${active}/${inputs.data.inputs.length}`} tone={inputs.isError ? "warning" : active ? "good" : "warning"} /></View>
+      <OperationsPanel title="Live inputs" detail={inputs.isError ? "Input details" : "Input details"}>
+        {inputs.data.inputs.length ? inputs.data.inputs.map(input => <OperationsRow key={input.id} title={input.name} detail={input.error ? plainFailure(input.error, "Input details could not be loaded.") : `${input.srtUrl ? "RTMP + SRT" : "RTMP"} ingest · provider ${input.providerStatus ?? "pending"}`} status={input.status} />) : <OperationsEmpty>No live input is configured. Add one from the web streaming controls before the show.</OperationsEmpty>}
       </OperationsPanel>
     </> : null}
     {outputs.isPending ? <OperationsEmpty></OperationsEmpty> : null}

@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { UseTimecodeReturn } from "@/hooks/useTimecode";
@@ -200,7 +201,7 @@ export function MidiControllerProvider({ timecode, showId, children }: { timecod
   return <ControllerContext.Provider value={controller}>{children}
     {controller.armed && <aside aria-label="MIDI controller status" className="fixed bottom-3 right-3 z-40 max-w-[calc(100vw-1.5rem)] rounded-xl border border-board-border bg-board-card p-3 shadow-lg">
       <div className="flex flex-wrap items-center gap-3 text-sm text-board-text"><span>MIDI armed · Bank {controller.bank + 1}{!controller.inputConnected ? " · Input disconnected" : ""}</span><button className={button} onClick={controller.disarm}>Disarm MIDI</button></div>
-      {(controller.error || timecode.lastError) && <p role="alert" className="mt-2 max-w-md text-sm text-red-300">{controller.error || timecode.lastError}</p>}
+      {(controller.error || timecode.lastError) && <p role="alert" className="mt-2 max-w-md text-sm text-red-300">{plainFailure((controller.error || timecode.lastError) ?? "")}</p>}
     </aside>}
     <ConfirmDialog open={Boolean(review)} onOpenChange={open => { if (!open) controller.closeReview(); }}
       title={review?.kind === "reset" ? "Reset the clock to zero?" : "Re-arm the mapped cue?"}
@@ -257,7 +258,7 @@ export function MidiControllerPanel({ timecode }: { timecode: UseTimecodeReturn 
     <div className="flex flex-wrap items-center justify-between gap-3"><h3 className="text-sm font-semibold text-board-text">MIDI controller</h3>
       <button type="button" className={button} disabled={controller.connecting || controller.ready} onClick={() => void controller.connect()} aria-label={controller.connecting ? "Opening MIDI…" : controller.ready ? "MIDI available" : "Connect controller"}>{controller.connecting ? <QuietActivity label="Opening MIDI…" /> : controller.ready ? "MIDI available" : "Connect controller"}</button></div>
     <p role="status" className="text-sm text-board-muted">{controller.armed ? "Controller armed for this show." : "Controller disarmed. Saved mappings do not activate automatically."} {controller.ready && (controller.inputConnected ? "Input connected." : "Selected input disconnected.")} {saved.config.output && (controller.outputConnected ? "Feedback connected." : "Feedback output disconnected.")}</p>
-    {(controller.error || saveError) && <p role="alert" className="text-sm text-red-300">{saveError || controller.error}</p>}
+    {(controller.error || saveError) && <p role="alert" className="text-sm text-red-300">{plainFailure((saveError || controller.error) ?? "")}</p>}
     <div className="grid gap-3 sm:grid-cols-2">
       <label className="min-w-0 space-y-1 text-sm text-board-muted">Controller input<select aria-label="Controller input" className={field} disabled={!canEdit || saving} value={draft.config.input?.id ?? ""} onChange={event => edit({ ...draft.config, input: selectPort(controller.inputs, event.target.value) })}><option value="">Choose an input</option>{draft.config.input && !controller.inputs.some(port => port.id === draft.config.input?.id) && <option value={draft.config.input.id}>{draft.config.input.name} (saved)</option>}{controller.inputs.map(port => <option key={port.id} value={port.id}>{port.name || port.id}</option>)}</select></label>
       <label className="min-w-0 space-y-1 text-sm text-board-muted">Feedback output<select aria-label="Controller output" className={field} disabled={!canEdit || saving} value={draft.config.output?.id ?? ""} onChange={event => edit({ ...draft.config, output: selectPort(controller.outputs, event.target.value) })}><option value="">No output</option>{draft.config.output && !controller.outputs.some(port => port.id === draft.config.output?.id) && <option value={draft.config.output.id}>{draft.config.output.name} (saved)</option>}{controller.outputs.map(port => <option key={port.id} value={port.id}>{port.name || port.id}</option>)}</select></label>

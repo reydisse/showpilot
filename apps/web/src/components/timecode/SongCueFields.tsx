@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { getSong, listSongs } from "@/lib/songs";
@@ -26,7 +27,7 @@ export function SongCueFields({ orgId, proPresenter, initial, onChange, loadSong
       </select></div>
     {song && <SongSectionFields key={`${orgId}:${song.id}:${proPresenter}`} orgId={orgId} songId={song.id} proPresenter={proPresenter} initial={initial} onChange={onChange} loadSong={loadSong} />}
     {choices.status === "loading" && <QuietActivity label="Loading songs…" />}
-    {choices.status === "error" && <p role="alert" className="text-xs text-red-300">{choices.message}</p>}
+    {choices.status === "error" && <p role="alert" className="text-xs text-red-300">{plainFailure((choices.message) ?? "")}</p>}
     {choices.status === "ready" && songs.length === 0 && <p className="text-xs text-board-muted">{proPresenter ? "Import a presentation from ProPresenter in Songs first." : "Create a song with sections in Songs first."}</p>}
     <button type="button" disabled={choices.status === "loading"} onClick={() => { onChange({ status: "invalid", message: "Review the refreshed song list." }); retry(); }} className="min-h-11 rounded-lg border border-board-border px-3 text-xs">Refresh songs</button>
   </div>;
@@ -63,8 +64,8 @@ function SongSectionFields({ orgId, songId, proPresenter, initial, onChange, loa
       <input id={`${id}-target`} className={inputClass} value={target} onChange={event => setTarget(event.target.value)} placeholder="propresenter:192.168.1.20:50001" />
       <p className="text-xs text-board-muted">Leave blank when only one ProPresenter is connected.</p></div>}
     {choices.status === "loading" && <QuietActivity label="Loading sections…" />}
-    {choices.status === "error" && <p role="alert" className="text-xs text-red-300">{choices.message}</p>}
-    {section && details.status === "invalid" && <p role="alert" className="text-xs text-red-300">{details.message}</p>}
+    {choices.status === "error" && <p role="alert" className="text-xs text-red-300">{plainFailure((choices.message) ?? "")}</p>}
+    {section && details.status === "invalid" && <p role="alert" className="text-xs text-red-300">{plainFailure((details.message) ?? "")}</p>}
     {song?.sections.length === 0 && <p className="text-xs text-board-muted">Add sections to this song first.</p>}
     <button type="button" disabled={choices.status === "loading"} onClick={retry} className="min-h-11 rounded-lg border border-board-border px-3 text-xs">Refresh sections</button>
   </div>;

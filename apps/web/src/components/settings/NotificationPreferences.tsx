@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import type { NotificationCategory } from "@showpilot/shared";
 import { useNotificationPreferences } from "@/hooks/useNotificationPreferences";
@@ -43,7 +44,7 @@ export function NotificationPreferences({
         <div role="alert" className="space-y-2 text-sm text-amber-300">
           <p>
             Notification choices could not be refreshed.{" "}
-            {query.error instanceof Error ? query.error.message : "Try again."}
+            {plainFailure((query.error instanceof Error ? query.error.message : "Try again.") ?? "")}
           </p>
           <button
             className={buttonClass}
@@ -61,9 +62,9 @@ export function NotificationPreferences({
         <div role="alert" className="space-y-2 text-sm text-amber-300">
           <p>
             Your alert change needs attention.{" "}
-            {unfinished.error instanceof Error
+            {plainFailure((unfinished.error instanceof Error
               ? unfinished.error.message
-              : "Check your connection."}{" "}
+              : "Check your connection.") ?? "")}{" "}
             </p>
 
           <button className={buttonClass} onClick={controls.retry}>

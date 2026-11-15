@@ -13,7 +13,7 @@ export function SetupRundownResult({ seed, onDone }: { seed: ReturnType<typeof u
     {seed.failure && <div role="alert" className="space-y-2 rounded-xl border border-red-400/40 p-4 text-sm text-red-200">
       <p>{plainFailure(seed.failure.message)}</p>
     </div>}
-    {snapshot?.status === "review" && <p role="alert" className="rounded-xl border border-amber-400/40 p-4 text-sm text-amber-200">{snapshot.message}</p>}
+    {snapshot?.status === "review" && <p role="alert" className="rounded-xl border border-amber-400/40 p-4 text-sm text-amber-200">{plainFailure((snapshot.message) ?? "")}</p>}
     {different && <p role="status" className="rounded-xl border border-amber-400/40 p-4 text-sm text-amber-200">Another setup choice was saved first. Your latest choice was not applied. The saved result is shown below.</p>}
     {saved && <>
       <p className="text-slate-300">{saved.template === "blank" ? saved.showId ? "Existing rundown kept. No template was added." : "No rundown was added. You can create one in your workspace later."

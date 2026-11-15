@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState } from "react";
 import {
@@ -191,9 +192,9 @@ export function DeleteOrganization({
       {unfinished && !pending ? (
         <div role="alert" className="space-y-2 text-sm text-amber-200">
           <p>
-            {latest?.error instanceof Error
+            {plainFailure((latest?.error instanceof Error
               ? latest.error.message
-              : "This change needs attention."}{" "}
+              : "This change needs attention.") ?? "")}{" "}
             Retry continues cleanup for this organization. It does not affect your account or other organizations.
           </p>
           {latest ? (

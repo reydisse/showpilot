@@ -163,7 +163,7 @@ export function MediaCueFields({
           )}
           {choices.kind === "error" && (
             <p role="alert" className="text-xs text-red-300">
-              {choices.message}
+              {plainFailure((choices.message) ?? "")}
             </p>
           )}
           {choices.kind === "ready" && choices.page.assets.length === 0 && (

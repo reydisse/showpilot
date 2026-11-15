@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import {
   useMutation,
@@ -204,9 +205,9 @@ function ScopedKioskDisplayControl({
           className="space-y-2 text-sm text-amber-200"
         >
           <p>
-            {state.error instanceof Error
+            {plainFailure((state.error instanceof Error
               ? state.error.message
-              : "Display state could not be read."}
+              : "Display state could not be read.") ?? "")}
           </p>
 
           <Button
@@ -230,9 +231,9 @@ function ScopedKioskDisplayControl({
           className="space-y-2 text-sm text-amber-200"
         >
           <p>
-            {latest?.error instanceof Error
+            {plainFailure((latest?.error instanceof Error
               ? latest.error.message
-              : "This change needs attention."}{" "}
+              : "This change needs attention.") ?? "")}{" "}
             Retry checks the original command and will not overwrite a later
             controller change.
           </p>

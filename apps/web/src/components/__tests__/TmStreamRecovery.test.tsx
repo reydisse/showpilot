@@ -197,7 +197,7 @@ it("reports partial failures by destination and retries the original request", a
   await view();
   await confirm();
   expect(screen.getByRole("alert").textContent).toContain(
-    "Main destination: Output not confirmed",
+    "Main destination: This action needs attention.",
   );
   fireEvent.click(
     screen.getByRole("button", { name: "Retry streaming command" }),

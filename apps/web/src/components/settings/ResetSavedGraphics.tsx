@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { useState } from "react";
 import {
   useMutation,
@@ -186,9 +187,9 @@ export function ResetSavedGraphics({
       {unfinished && !pending ? (
         <div role="alert" className="space-y-2 text-sm text-amber-200">
           <p>
-            {latest?.error instanceof Error
+            {plainFailure((latest?.error instanceof Error
               ? latest.error.message
-              : "This change needs attention."}{" "}
+              : "This change needs attention.") ?? "")}{" "}
             Retry checks the same request and keeps graphics saved after the reset.
           </p>
           {latest ? (

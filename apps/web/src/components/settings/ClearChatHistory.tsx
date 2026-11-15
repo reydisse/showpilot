@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState } from "react";
 import {
@@ -186,17 +187,10 @@ export function ClearChatHistory({
       {unfinished && !pending ? (
         <div role="alert" className="space-y-2 text-sm text-amber-200">
           <p>
-            {latest?.error instanceof Error
+            {plainFailure((latest?.error instanceof Error
               ? latest.error.message
-              : "Some chat rooms could not be cleared."}{" "}
-            Retry continues the same request and keeps newer messages.
+              : "Some chat rooms could not be cleared.") ?? "")}
           </p>
-          {latest?.result ? (
-            <p>
-              {latest.result.rooms.filter((room) => room.cleared).length} of{" "}
-              {latest.result.rooms.length} rooms confirmed.
-            </p>
-          ) : null}
           {latest ? (
             null
           ) : null}
@@ -210,12 +204,7 @@ export function ClearChatHistory({
           </Button>
         </div>
       ) : null}
-      {!unfinished && latest?.result ? (
-        <p role="status" className="text-sm text-board-muted">
-          Chat history cleared. All {latest.result.rooms.length} rooms
-          confirmed. Newer messages are kept.
-        </p>
-      ) : null}
+
     </section>
   );
 }

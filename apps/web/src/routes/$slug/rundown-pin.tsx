@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { PageBreadcrumb } from "@/components/ui/PageBreadcrumb";
 import {
   createFileRoute,
@@ -128,7 +129,7 @@ export function RundownPinForm({
             >
               <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" />
               <div>
-                <p>{state.message}</p>
+                <p>{plainFailure((state.message) ?? "")}</p>
 
               </div>
             </div>

@@ -27,12 +27,12 @@ it("keeps exact recovery intent after the section closes, with account and org i
   const foreign=view(client,"user","other-org");expect(screen.queryByRole("button",{name:"Retry clearing chat history"})).toBeNull();foreign.unmount();
   view(client);rpc.clear.mockResolvedValueOnce(response(original.requestId));
   fireEvent.click(screen.getByRole("button",{name:"Retry clearing chat history"}));await settle();
-  expect(rpc.clear.mock.calls[1][0].data).toEqual(original);expect(screen.getByRole("status").textContent).toContain("All 2 rooms confirmed");
+  expect(rpc.clear.mock.calls[1][0].data).toEqual(original);expect(screen.queryByRole("status")).toBeNull();expect(screen.getByRole("button",{name:"Clear chat history"}).hasAttribute("disabled")).toBe(false);
 });
 it("reports incomplete room acknowledgements and retries the original clear",async()=>{
   rpc.clear.mockImplementationOnce(({data})=>Promise.resolve(response(data.requestId,false)));
   view();confirm();await settle();
-  expect(screen.getByRole("alert").textContent).toContain("1 of 2 rooms confirmed");
+  expect(screen.getByRole("alert").textContent).toContain("Some chat rooms could not be cleared.");
   expect(screen.getByRole("button",{name:"Clear chat history"}).hasAttribute("disabled")).toBe(true);
   const original=rpc.clear.mock.calls[0][0].data;rpc.clear.mockResolvedValueOnce(response(original.requestId));
   fireEvent.click(screen.getByRole("button",{name:"Retry clearing chat history"}));await settle();
@@ -44,5 +44,5 @@ it("bounds unconfirmed clears and ignores their late reply after retry",async()=
   const original=rpc.clear.mock.calls[0][0].data;
   expect(rpc.clear.mock.calls[0][0].signal.aborted).toBe(true);
   rpc.clear.mockResolvedValueOnce(response(original.requestId));fireEvent.click(screen.getByRole("button",{name:"Retry clearing chat history"}));await settle();
-  release(response(original.requestId,false));await settle();expect(screen.queryByRole("alert")).toBeNull();expect(screen.getByRole("status").textContent).toContain("All 2 rooms confirmed");
+  release(response(original.requestId,false));await settle();expect(screen.queryByRole("alert")).toBeNull();expect(screen.queryByRole("status")).toBeNull();expect(screen.getByRole("button",{name:"Clear chat history"}).hasAttribute("disabled")).toBe(false);
 });

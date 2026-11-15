@@ -629,7 +629,7 @@ function SongStudioPage() {
         </div>}
         {write.state.status === "failed" && <div role="alert" className="space-y-2 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
           <p>{write.state.label}: {write.state.saved ? "Saved, but the view could not be refreshed. Retry will not repeat the write." : "This change needs attention."}</p>
-          <p>{write.state.message}</p>
+          <p>{plainFailure((write.state.message) ?? "")}</p>
           {reviewError && <p>{plainFailure(reviewError)}</p>}
           {reviewBusy && <p role="status">Reading the stored song before editing…</p>}
 

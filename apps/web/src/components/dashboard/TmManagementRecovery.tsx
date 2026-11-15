@@ -138,13 +138,7 @@ export function TmManagementRecovery({
       {control.read.data.pendingNotifications > 0 ||
       control.notifications.isError ? (
         <div role="status" className="py-2">
-          <p>
-            Incident changes are saved. {control.read.data.pendingNotifications}{" "}
-            notification deliveries still need confirmation.
-          </p>
-          {control.notifications.isError ? (
-            <p role="alert">{plainFailure(control.notifications.error.message)}</p>
-          ) : null}
+          <p role="alert">Crew alerts could not be sent.</p>
           <button
             className={buttonClass}
             disabled={

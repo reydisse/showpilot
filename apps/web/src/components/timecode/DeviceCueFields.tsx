@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { getAutomationDeviceTargets, getAutomationHomeAssistantActions } from "@/lib/automation-targets";
@@ -61,15 +62,15 @@ export function DeviceCueFields({ orgId, lighting, initial, onChange, loadDevice
       </div>;
     })}
     {choices.status === "loading" && <QuietActivity label="Loading devices…" />}
-    {choices.status === "error" && <p role="alert" className="text-xs text-red-300">{choices.message}</p>}
+    {choices.status === "error" && <p role="alert" className="text-xs text-red-300">{plainFailure((choices.message) ?? "")}</p>}
     {choices.status === "ready" && devices.length === 0 && <p className="text-xs text-board-muted">Add an enabled device with supported actions in Devices first.</p>}
     {discoveryDeviceId && <div className="space-y-2">
       {discovery.choices.status === "loading" && <p role="status" className="text-sm text-board-muted">Discovering Home Assistant actions…</p>}
-      {discovery.choices.status === "error" && <p role="alert" className="text-sm text-red-300">{discovery.choices.message}</p>}
+      {discovery.choices.status === "error" && <p role="alert" className="text-sm text-red-300">{plainFailure((discovery.choices.message) ?? "")}</p>}
       <button type="button" disabled={discovery.choices.status === "loading"} onClick={discovery.retry} className="min-h-11 rounded-lg border border-board-border px-3 text-sm">Refresh actions</button>
     </div>}
     {device && actions.length === 0 && (!discoveryDeviceId || discovery.choices.status === "ready") && <p className="text-sm text-board-muted">{lighting ? "This device has no supported scene recall action." : "This device has no supported actions available."}</p>}
-    {device && action && details.status === "invalid" && <p role="alert" className="text-xs text-red-300">{details.message}</p>}
+    {device && action && details.status === "invalid" && <p role="alert" className="text-xs text-red-300">{plainFailure((details.message) ?? "")}</p>}
     <button type="button" disabled={choices.status === "loading"} onClick={retry} className="min-h-11 rounded-lg border border-board-border px-3 text-xs">Refresh devices</button>
   </div>;
 }

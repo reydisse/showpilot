@@ -118,7 +118,7 @@ export function SongCreateModal({ orgId, open, onClose, onCreate, onOpenSong }: 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
           {write.state.status === "failed" && <div role="alert" className="space-y-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
             <p>{write.state.saved ? "The song could not be opened." : "Your song needs attention."}</p>
-            <p>{write.state.message}</p>
+            <p>{plainFailure((write.state.message) ?? "")}</p>
 
           </div>}
           <fieldset disabled={locked} className="min-w-0 space-y-5">

@@ -536,7 +536,7 @@ function GraphicsPage() {
             Add this URL as a Browser Source in OBS/vMix to display live
             graphics on your stream. This link expires in 8 hours.
           </p>
-          {overlayLink.error && <p role="alert" className="mt-2 text-sm text-red-300">{overlayLink.error}</p>}
+          {overlayLink.error && <p role="alert" className="mt-2 text-sm text-red-300">{plainFailure((overlayLink.error) ?? "")}</p>}
           <button type="button" disabled={overlayLink.pending} onClick={overlayLink.refresh} className="mt-2 min-h-11 text-xs text-board-muted">Create a fresh link</button>
           {overlayLink.errorAt !== null && null}
           {overlayLink.monitorUrl && <a href={overlayLink.monitorUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center px-3 text-sm text-fire-500 underline outline-none focus-visible:ring-2 focus-visible:ring-fire-500">Open overlay monitor</a>}

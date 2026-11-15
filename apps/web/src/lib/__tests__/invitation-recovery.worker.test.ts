@@ -224,3 +224,12 @@ it("converts a reserved invitation slot into membership when the free workspace 
   expect(await f.prisma.member.count({ where: { organizationId: f.orgId } })).toBe(2);
   expect(await f.prisma.invitation.count({ where: { organizationId: f.orgId, status: "pending" } })).toBe(3);
 });
+
+it("keeps a locally exited account signed out on a public invitation while revocation is pending", async () => {
+  const f = await fixture();
+  const cookie = request.cookie;
+  request.cookie = `${cookie}; showpilot-account-exit=1`;
+  expect(await getInvitationDetails({ data: f.invitationId })).toEqual({ status: "signed-out" });
+  request.cookie = cookie;
+  expect(await getInvitationDetails({ data: f.invitationId })).toMatchObject({ status: "pending" });
+});

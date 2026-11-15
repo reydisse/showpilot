@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { Button } from "@/components/ui/button";
 import type { useDutyRoster } from "@/hooks/useDutyRoster";
@@ -35,9 +36,9 @@ export function DutyRosterFeedback({
       {unfinished && !pending ? (
         <div role="alert" className="space-y-2 text-amber-200">
           <p>
-            {latest?.error instanceof Error
+            {plainFailure((latest?.error instanceof Error
               ? latest.error.message
-              : "This change needs attention."}{" "}
+              : "This change needs attention.") ?? "")}{" "}
             The original command is for {unfinished.weekStart}; your selections
             are retained.
           </p>

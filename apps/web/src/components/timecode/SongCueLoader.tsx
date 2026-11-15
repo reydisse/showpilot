@@ -92,7 +92,7 @@ export function SongCueLoader({ orgId, format, defaultTarget, connected, running
               {song?.cueMaps.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.cues.length} cues</option>)}
             </select>
           </label>
-          {parsedFormat && "error" in parsedFormat && <p role="alert" className="text-xs text-amber-200">{parsedFormat.error}</p>}
+          {parsedFormat && "error" in parsedFormat && <p role="alert" className="text-xs text-amber-200">{plainFailure((parsedFormat.error) ?? "")}</p>}
           <div className="grid grid-cols-2 gap-3">
             <label className="text-xs text-board-muted">Output<select value={target} onChange={(event) => { const value = event.target.value; if (value === "native" || value === "propresenter" || value === "both") setTarget(value); }} className={inputClass}><option value="native">Native display</option><option value="propresenter">ProPresenter</option><option value="both">Both</option></select></label>
             <label className="text-xs text-board-muted">Offset frames<input type="number" min="0" step="1" required value={offset} onChange={(event) => setOffset(event.target.value)} className={inputClass} /></label>

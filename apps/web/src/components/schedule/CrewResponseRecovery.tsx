@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState } from "react";
 import type {
@@ -49,7 +50,7 @@ export function CrewResponseRecovery({
       {attempt?.kind === "unknown" ? (
         <>
           <p role="alert" className="text-red-300">
-            Your response could not be confirmed. {attempt.message}
+            Your response could not be confirmed. {plainFailure((attempt.message) ?? "")}
           </p>
           <p className="text-board-muted">
             It may already have saved. Retry sends the same response. Review
@@ -74,7 +75,7 @@ export function CrewResponseRecovery({
           {attempt.refresh === "failed" || attempt.refresh === "idle" ? (
             <>
               <p role="alert" className="text-red-300">
-                {attempt.message ?? "Refresh this page to finish."} </p>
+                {plainFailure((attempt.message ?? "Refresh this page to finish.") ?? "")} </p>
               <button className={button} onClick={() => work.refresh(id)}>
                 Refresh assignments only
               </button>

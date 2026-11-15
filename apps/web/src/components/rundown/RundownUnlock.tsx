@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -89,7 +90,7 @@ export function RundownUnlock({
             />
             {state.status === "error" && (
               <div role="alert" className="text-sm text-red-400">
-                <p>{state.message}</p>
+                <p>{plainFailure((state.message) ?? "")}</p>
 
               </div>
             )}

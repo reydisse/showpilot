@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useState } from "react";
 import { useConfirmedWrite } from "@/hooks/useConfirmedWrite";
@@ -235,7 +236,7 @@ export function ManagerReportNotes({
             >
               <p>
                 Your note needs attention.</p>
-              <p>{write.state.message}</p>
+              <p>{plainFailure((write.state.message) ?? "")}</p>
 
               <button className={action} onClick={() => void write.retry()}>
                 Retry note save

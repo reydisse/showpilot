@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -298,8 +299,8 @@ function StreamControls({
                     className="break-words text-amber-200"
                   >
                     {latest.review?.names[result.id] ?? "Destination"}:{" "}
-                    {result.error ??
-                      "This action needs attention."}
+                    {plainFailure((result.error ??
+                      "This action needs attention.") ?? "")}
                   </p>
                 ))}
             </>

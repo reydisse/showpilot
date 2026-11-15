@@ -141,7 +141,7 @@ export function InternalGeneratorStart({
         {pending === "starting"
           ? <QuietActivity label="Starting…" />
           : pending === "stopping"
-            ? "Stopping…"
+            ? <QuietActivity label="Stopping" />
             : custom
               ? chosen
                 ? `Start at ${chosen}`

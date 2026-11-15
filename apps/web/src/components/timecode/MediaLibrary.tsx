@@ -263,7 +263,7 @@ export function MediaLibrary({ orgId }: { orgId: string }) {
       {load.kind === "loading" && <QuietActivity label="Loading media…" />}
       {load.kind === "error" && (
         <div role="alert" className="space-y-2 text-red-300">
-          <p>{load.message}</p>
+          <p>{plainFailure((load.message) ?? "")}</p>
           <Button
             type="button"
             variant="outline"
