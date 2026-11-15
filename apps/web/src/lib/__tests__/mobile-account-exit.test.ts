@@ -52,3 +52,21 @@ it("removes push delivery using the captured account before revocation", async (
   f.api.exitMobileAccount(f.queries, "fixture-org"); await flush();
   expect(fetch.mock.calls[0][0]).toBe("https://fixture.invalid/api/mobile/v1/push-token"); expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ orgId: "fixture-org", token: "fixture-push", enabled: false }); expect(fetch.mock.calls[0][1].headers.cookie).toBe("fixture-session-cookie"); expect(fetch.mock.calls[1][0]).toBe("https://fixture.invalid/api/auth/sign-out");
 });
+
+it("reports a credential-read failure once while still clearing local credentials and allowing a new sign-in", async () => {
+  const f = fixture(), fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+  f.getCookie.mockRejectedValueOnce(new Error("Fixture secure-store read failure"));
+  f.api.exitMobileAccount(f.queries, "fixture-org"); await flush();
+  expect(f.session.data).toBeNull(); expect(f.api.mobileAccountIsLocked()).toBe(true);
+  expect(f.api.mobileSignOutRecovery.getSnapshot()).toBe(true); expect(fetch).not.toHaveBeenCalled();
+  expect(f.values.get("showpilot_cookie")).toBe("{}");
+  await f.api.prepareMobileSignIn(); expect(f.api.mobileSignOutRecovery.getSnapshot()).toBe(false);
+});
+it("retries failed local cleanup before accepting new credentials without repeating a server request", async () => {
+  const f = fixture(), fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+  f.storage.setItemAsync.mockRejectedValueOnce(new Error("Fixture storage failure"));
+  f.api.exitMobileAccount(f.queries, "fixture-org"); await flush();
+  expect(f.api.mobileSignOutRecovery.getSnapshot()).toBe(true); expect(f.api.mobileAccountIsLocked()).toBe(true);
+  await f.api.prepareMobileSignIn(); expect(f.values.get("showpilot_cookie")).toBe("{}");
+  expect(f.values.get("showpilot_session_data")).toBe("{}"); expect(fetch).not.toHaveBeenCalled();
+});

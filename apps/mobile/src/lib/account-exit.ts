@@ -17,11 +17,17 @@ export const mobileSignOutRecovery = {
 };
 export function retryMobileSignOut() { retry?.(); }
 export function mobileAccountIsLocked() { try { return locked || authStorage.getItem("showpilot_signed_out") === "1"; } catch { return true; } }
+async function clearStoredSession() {
+  await authStorage.setItemAsync("showpilot_cookie", "{}");
+  await authStorage.setItemAsync("showpilot_session_data", "{}");
+}
 /** Only local storage is awaited before accepting new credentials. */
 export async function prepareMobileSignIn() {
   generation++; pending?.abort(); pending = null; retry = null; publish(false);
+  clearing = clearing.catch(clearStoredSession);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try { await Promise.race([clearing, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("This device could not open your account.")), 8_000); })]); }
+  catch { throw new Error("This device could not open your account."); }
   finally { clearTimeout(timer); }
 }
 export function finishMobileSignIn() {
@@ -47,10 +53,10 @@ export function exitMobileAccount(queryClient: QueryClient, organizationId?: str
   if (activeMemberRole) activeMemberRole.set({ ...activeMemberRole.get(), data: null, error: null, isPending: false, isRefetching: false });
   void queryClient.cancelQueries(); queryClient.clear();
   try { authStorage.setItem("showpilot_signed_out", "1"); } catch { publish(true); }
-  clearing = cookie.then(async () => {
-    await authStorage.setItemAsync("showpilot_cookie", "{}");
-    await authStorage.setItemAsync("showpilot_session_data", "{}");
-  });
+  clearing = cookie.catch(() => undefined).then(clearStoredSession);
+  // Revocation reports failure once; a second storage promise must not raise
+  // an unhandled error or restore the account while cleanup is in the background.
+  void clearing.catch(() => undefined);
   const start = () => {
     if (owner !== generation || pending) return;
     const controller = new AbortController(); pending = controller;
