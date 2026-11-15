@@ -1,4 +1,5 @@
 import { proPresenterOutputCommandSchema } from "@showpilot/shared/propresenter-output";
+import { attendanceTimestamp } from "./attendance-timestamp";
 import { readMemberProPresenterOutput, writeProPresenterOutput, ProPresenterOutputAccessError } from "./propresenter-output.server";
 import { notifyProPresenterOutput } from "./propresenter-output-notify.server";
 import { listTimecodeShows } from "./timecode-shows.server";
@@ -314,8 +315,8 @@ interface MobileCheckInMemberRow {
   role: string;
   photoUrl: string;
   isOnline: number | boolean;
-  lastCheckIn: string | null;
-  lastCheckOut: string | null;
+  lastCheckIn: string | number | null;
+  lastCheckOut: string | number | null;
 }
 
 interface MobileOrganizationMemberRow {
@@ -4334,7 +4335,12 @@ async function createIncident(
 }
 
 function serializeCheckInMember(member: MobileCheckInMemberRow) {
-  return { ...member, isOnline: Boolean(member.isOnline) };
+  return {
+    ...member,
+    isOnline: Boolean(member.isOnline),
+    lastCheckIn: attendanceTimestamp(member.lastCheckIn),
+    lastCheckOut: attendanceTimestamp(member.lastCheckOut),
+  };
 }
 
 function serializeMobileRundownItem(item: MobileRundownItemRow) {
@@ -4888,8 +4894,8 @@ async function setCheckInStatus(
     .prepare(
       `UPDATE crew_member
      SET isOnline = ?,
-         lastCheckIn = CASE WHEN ? = 1 AND isOnline = 0 THEN CURRENT_TIMESTAMP ELSE lastCheckIn END,
-         lastCheckOut = CASE WHEN ? = 0 AND isOnline = 1 THEN CURRENT_TIMESTAMP ELSE lastCheckOut END
+         lastCheckIn = CASE WHEN ? = 1 AND isOnline = 0 THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE lastCheckIn END,
+         lastCheckOut = CASE WHEN ? = 0 AND isOnline = 1 THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE lastCheckOut END
      WHERE id = ? AND orgId = ?`,
     )
     .bind(

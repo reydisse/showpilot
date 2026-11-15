@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { checkInSchema } from "../../../../mobile/src/lib/checkin-contract";
 import {
   handleMobileApi,
   type MobileApiDatabase,
@@ -53,6 +54,7 @@ function fakeDatabase(input: {
   reportNote?: Record<string, unknown> | null;
   currentAsset?: Record<string, unknown> | null;
   changes?: number;
+  crew?: Record<string, unknown>[];
 }): MobileApiDatabase {
   function statement(sql: string, params: unknown[]): MobileApiStatement {
     return {
@@ -91,6 +93,7 @@ function fakeDatabase(input: {
       },
       async all<T>() {
         input.calls.push({ sql, params, operation: "all" });
+        if (sql.includes("FROM crew_member WHERE orgId = ?")) return { results: (input.crew ?? []) as T[] };
         if (sql.startsWith("SELECT id, name, status, rtmpUrl")) {
           return {
             results: [
@@ -159,6 +162,15 @@ async function request(
 }
 
 describe("mobile operations API", () => {
+  it("Show Workspace normalizes legacy web attendance for its shared mobile crew schema", async () => {
+    mocks.getSession.mockResolvedValue({ user: { id: "operator-1", name: "Ada", email: "ada@example.com" } });
+    mocks.resolveAccess.mockResolvedValue({ role: "admin", permissions: ["show:view"], today: "2026-11-15" });
+    const crew = [{ id: "crew-1", memberId: "CREW001", name: "Ada", role: "Director", photoUrl: "", isOnline: 1, lastCheckIn: 1794744000123, lastCheckOut: null }];
+    const response = await request(fakeDatabase({ calls: [], crew }), "/api/mobile/v1/show-workspace?orgId=org-1", "GET");
+    expect(response.status).toBe(200);
+    const payload = await response.json() as { crew: unknown[] };
+    expect(checkInSchema.parse({ members: payload.crew }).members[0]).toMatchObject({ isOnline: true, lastCheckIn: "2026-11-15T12:00:00.123Z", lastCheckOut: null });
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getSession.mockResolvedValue({
