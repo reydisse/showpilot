@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Modal, StyleSheet, Text, TextInput, View } from "react-native";
@@ -57,12 +58,12 @@ export function RundownUnlock({ orgId, showId, userId, pinAccess }: {
   return <View style={styles.container}>
     <AppButton variant="secondary" label={pinAccess === "unlocked" ? "Lock changes" : "Unlock changes"} disabled={busy}
       onPress={() => pinAccess === "unlocked" ? void changeLock(false) : setOpen(true)} />
-    {!open && error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+    {!open && error ? <FailureText accessibilityRole="alert" style={styles.error}>{error}</FailureText> : null}
     <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpen(false)}>
       <Page title="Unlock changes" subtitle="Enter the organization PIN to edit the rundown and use live controls.">
         <TextInput accessibilityLabel="Rundown PIN" autoFocus secureTextEntry keyboardType="number-pad" autoCorrect={false}
           value={pin} onChangeText={setPin} placeholder="PIN" placeholderTextColor={colors.textFaint} style={styles.input} />
-        {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+        {error ? <FailureText accessibilityRole="alert" style={styles.error}>{error}</FailureText> : null}
         <AppButton label={busy ? "Checking…" : "Unlock changes"} disabled={busy || !pin.trim()} onPress={() => void changeLock(true)} />
         <AppButton variant="secondary" label="Continue viewing" disabled={busy} onPress={() => setOpen(false)} />
       </Page>

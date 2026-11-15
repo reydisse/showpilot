@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/quiet-activity";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import AlertTriangle from "lucide-react-native/icons/triangle-alert";
@@ -96,7 +97,7 @@ export default function InboxScreen() {
   }
 
   return (
-    <Page eyebrow="ACTIVITY" title="Inbox" subtitle={`${unreadCount} unread notifications`} scroll={false} action={unreadCount > 0 ? <Pressable accessibilityRole="button" accessibilityLabel="Mark all notifications read" onPress={markAllRead} style={({ pressed }) => [styles.markAll, pressed && styles.pressed]}><CheckCheck color={colors.amberText} size={18} /><Text style={styles.markAllText}>Read all</Text></Pressable> : null}>
+    <Page eyebrow="ACTIVITY" title="Inbox" scroll={false} action={unreadCount > 0 ? <Pressable accessibilityRole="button" accessibilityLabel="Mark all notifications read" onPress={markAllRead} style={({ pressed }) => [styles.markAll, pressed && styles.pressed]}><CheckCheck color={colors.amberText} size={18} /><Text style={styles.markAllText}>Read all</Text></Pressable> : null}>
       <FlatList
         contentContainerStyle={styles.list}
         data={visibleNotifications}
@@ -104,7 +105,7 @@ export default function InboxScreen() {
         keyExtractor={(notification) => notification.id}
         ListHeaderComponent={(
           <View style={styles.listHeader}>
-            {isPending ? <Text style={styles.muted}>Syncing notifications…</Text> : null}
+            {isPending ? <QuietActivity /> : null}
             {error ? <Text onPress={() => refetch()} style={styles.error}>{error.message} · Tap to retry</Text> : null}
           </View>
         )}

@@ -18,7 +18,7 @@ it("retains a timed-out creation and draft after closing the editor, then retrie
  fireEvent.change(screen.getByLabelText("Input Name"),{target:{value:"New input"}});
  fireEvent.click(screen.getByRole("button",{name:"Create"}));await settle();
  const sent=api.create.mock.calls[0][0].data;expect(sent.requestId).toEqual(expect.any(String));
- await act(()=>vi.advanceTimersByTimeAsync(10_001));expect(screen.getByRole("alert",{name:"Input change"}).textContent).toContain("not confirmed");
+ await act(()=>vi.advanceTimersByTimeAsync(10_001));expect(screen.getByRole("alert",{name:"Input change"}).textContent).toContain("This change needs attention.");
  fireEvent.click(screen.getByRole("button",{name:"Close live input editor"}));await act(()=>vi.advanceTimersByTimeAsync(300));
  fireEvent.click(screen.getByRole("button",{name:"Review input draft"}));expect(screen.getByLabelText("Input Name").getAttribute("value")).toBe("New input");
  fireEvent.click(screen.getByRole("button",{name:"Retry change"}));await settle();
@@ -30,7 +30,7 @@ it("retries only the list after acknowledged creation and never repeats the writ
  fireEvent.click(screen.getByRole("button",{name:"Add Input"}));fireEvent.change(screen.getByLabelText("Input Name"),{target:{value:"New input"}});
  api.list.mockReturnValueOnce(new Promise(()=>{})).mockResolvedValueOnce([row]);
  fireEvent.click(screen.getByRole("button",{name:"Create"}));await settle();await act(()=>vi.advanceTimersByTimeAsync(8_001));
- expect(screen.getByRole("alert",{name:"Input change"}).textContent).toContain("Change saved.");
+ expect(screen.getByRole("alert",{name:"Input change"}).textContent).toContain("This view could not be updated.");
  fireEvent.click(screen.getByRole("button",{name:"Retry refresh"}));await settle();expect(api.create).toHaveBeenCalledTimes(1);expect(screen.queryByRole("dialog")).toBeNull();
 });
 
@@ -53,7 +53,7 @@ it("offers Resume for setup left pending after reload",async()=>{
 it("bounds health reads, retains last confirmed values and ignores their late replies",async()=>{
  vi.useFakeTimers();mount();await settle();expect(screen.getByText("Streaming")).toBeTruthy();
  let release:(value:unknown)=>void=()=>{};api.health.mockReturnValueOnce(new Promise(resolve=>{release=resolve;}));
- await act(()=>vi.advanceTimersByTimeAsync(18_001));expect(screen.getByRole("alert",{name:"Retry input health"})).toBeTruthy();expect(screen.queryByText("Streaming")).toBeNull();expect(screen.getByText(/Last confirmed:/)).toBeTruthy();
+ await act(()=>vi.advanceTimersByTimeAsync(18_001));expect(screen.getByRole("alert",{name:"Retry input health"})).toBeTruthy();expect(screen.queryByText("Streaming")).toBeNull();expect(screen.queryByText(/Last confirmed:/)).toBeNull();
  api.health.mockResolvedValue({inputId:row.id,status:"idle",providerStatus:"client_disconnect",checkedAt:new Date().toISOString()});fireEvent.click(screen.getByRole("button",{name:"Retry input health"}));await settle();
  await act(async()=>release({inputId:row.id,status:"streaming",providerStatus:"connected",checkedAt:new Date().toISOString()}));expect(screen.getByText("Idle")).toBeTruthy();expect(screen.queryByText("Streaming")).toBeNull();
 });

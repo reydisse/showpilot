@@ -501,7 +501,7 @@ function SchedulePage() {
                     className="min-h-11 rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
                   >
                     <option value="all">All responses</option>
-                    <option value="confirmed">Confirmed</option>
+                    <option value="confirmed">Complete</option>
                     <option value="assigned">Awaiting</option>
                     <option value="closed">Closed</option>
                     <option value="declined">Declined</option>

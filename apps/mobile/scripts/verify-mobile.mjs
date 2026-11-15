@@ -141,7 +141,7 @@ const sourceContract = [
   ["src/app/_layout.tsx", "<Stack.Protected guard={!session}>"],
   ["src/app/_layout.tsx", "<Stack.Protected guard={Boolean(session)}>"],
   ["src/app/_layout.tsx", "!session && error"],
-  ["src/components/session-recovery-view.tsx", "Your sign-in is still stored safely on this device"],
+  ["src/components/session-recovery-view.tsx", "ShowPilot could not be opened."],
   ["src/app/(app)/chat.tsx", "memo(function MessageCard"],
   ["src/app/(app)/chat.tsx", "PanResponder.create"],
   ["src/app/(app)/chat.tsx", "Swipe right to reply"],

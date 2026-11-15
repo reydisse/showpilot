@@ -33,7 +33,7 @@ it("keeps a failed draft and shows the failure so the operator can retry", async
   const input = screen.getByLabelText("Fixture password") as HTMLInputElement;
   fireEvent.change(input, { target: { value: "new-credential" } });
   fireEvent.click(screen.getByRole("button", { name: "Save credential" }));
-  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Encryption unavailable");
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "This action needs attention.");
   expect(input.value).toBe("new-credential");
   fireEvent.click(screen.getByRole("button", { name: "Save credential" }));
   await waitFor(() => expect(input.value).toBe(""));

@@ -49,7 +49,7 @@ it("bounds preflight, supports read-only Retry, and ignores late valid responses
   vi.useFakeTimers(); const old = pending<{ valid: boolean }>(); fixture.check.mockReturnValueOnce(old.promise);
   render(<Page />); const signal = fixture.check.mock.calls[0][0].signal;
   await act(() => vi.advanceTimersByTimeAsync(8_000));
-  expect(signal.aborted).toBe(true); expect(screen.getByRole("alert").textContent).toContain("Last attempt:");
+  expect(signal.aborted).toBe(true); expect(screen.getByRole("alert").textContent).not.toContain("Last attempt:");
   fixture.check.mockResolvedValueOnce({ valid: false });
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Retry link check" })));
   await act(async () => old.resolve({ valid: true }));
@@ -85,7 +85,7 @@ it("rejects a token that expires or is consumed after preflight", async () => {
 });
 it.each([null, { data: { status: false }, error: null }, { error: { status: 500 } }])("never claims success without a positive acknowledgement: %j", async result => {
   fixture.resetPassword.mockResolvedValueOnce(result); render(<Page />); await submit();
-  await screen.findByRole("heading", { name: "Reset not confirmed" });
+  await screen.findByRole("heading", { name: "Password reset needs attention" });
   expect(screen.getByRole("link", { name: "Try signing in" }).getAttribute("href")).toBe("/login");
   expect(screen.queryByLabelText("New Password")).toBeNull();
 });
@@ -97,7 +97,7 @@ it("times out a write once, prevents duplicate submits and ignores its late ackn
   const signal = fixture.resetPassword.mock.calls[0][0].fetchOptions.signal;
   await act(() => vi.advanceTimersByTimeAsync(8_000));
   expect(signal.aborted).toBe(true);
-  expect(screen.getByRole("heading", { name: "Reset not confirmed" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Password reset needs attention" })).toBeTruthy();
   await act(async () => old.resolve(saved));
   expect(screen.queryByRole("heading", { name: "Password reset!" })).toBeNull();
   expect(fixture.resetPassword).toHaveBeenCalledTimes(1);

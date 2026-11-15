@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { getMyDutyRoster } from "@/lib/personal-duty";
 import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
@@ -152,7 +154,7 @@ function MyAssignmentsPage() {
             role="alert"
             className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-300"
           >
-            {error}
+            {plainFailure(error)}
           </p>
         ) : null}
 
@@ -296,9 +298,11 @@ function MyAssignmentsPage() {
                           disabled={responding === assignment.id}
                           onClick={() => void respond(assignment, "declined")}
                           className="min-h-11 rounded-xl bg-red-500 px-4 py-2 text-sm font-bold text-white disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
-                        >
-                          {responding === assignment.id
+                         aria-label={responding === assignment.id
                             ? "Saving…"
+                            : "Confirm decline"}>
+                          {responding === assignment.id
+                            ? <QuietActivity label="Saving…" />
                             : "Confirm decline"}
                         </button>
                       </div>

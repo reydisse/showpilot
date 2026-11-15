@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { WORKSPACE_TYPES, WORKSPACE_DEFINITIONS } from "@showpilot/shared";
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
@@ -341,7 +342,7 @@ function SuperAdminDashboard() {
                                   className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-fire-500/10 text-fire-500 border border-fire-500/20 hover:bg-fire-500/20 transition-colors disabled:opacity-50 min-h-11 min-w-11"
                                 >
                                   <Send className="w-3 h-3" />
-                                  {sendingInvite === signup.id ? "Sending..." : "Send Invite"}
+                                  {sendingInvite === signup.id ? <QuietActivity label="Sending..." /> : "Send Invite"}
                                 </button>
                               )}
                               <button
@@ -468,8 +469,8 @@ function SuperAdminDashboard() {
                   onClick={() => launchDateInput && handleSaveLaunchDate(launchDateInput)}
                   disabled={savingLaunchDate || !launchDateInput}
                   className="min-h-11 min-w-11 text-xs font-medium px-3 py-2 rounded-lg bg-fire-500/10 text-fire-500 border border-fire-500/20 hover:bg-fire-500/20 transition-colors disabled:opacity-50"
-                >
-                  {savingLaunchDate ? "Saving..." : "Set date"}
+                 aria-label={savingLaunchDate ? "Saving..." : "Set date"}>
+                  {savingLaunchDate ? <QuietActivity label="Saving..." /> : "Set date"}
                 </button>
                 {publicLaunchDate && (
                   <button
@@ -563,7 +564,7 @@ function SuperAdminDashboard() {
                     }`}
                   >
                     {togglingBeta === org.id
-                      ? "Saving..."
+                      ? <QuietActivity label="Saving..." />
                       : org.betaTester
                         ? "Revoke beta"
                         : "Grant beta"}

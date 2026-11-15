@@ -19,14 +19,14 @@ beforeEach(()=>{vi.useFakeTimers();vi.resetAllMocks();api.read.mockResolvedValue
 afterEach(()=>{cleanup();vi.useRealTimers();});
 it("coalesces relay hydration and the page read and never confirms a timed-out snapshot",async()=>{
  api.read.mockImplementationOnce(()=>new Promise(()=>{}));render(<IncidentsWorkspace initial={initial} slug="org"/>);await tick();
- const relay=api.refresh(new AbortController().signal);const failure=expect(relay).rejects.toThrow("not confirmed");await tick(8000);await failure;
- expect(api.read).toHaveBeenCalledOnce();expect(screen.getByRole("alert",{name:"Retry incidents"}).querySelector("time")).not.toBeNull();expect(screen.getByText("Line lost")).toBeTruthy();
+ const relay=api.refresh(new AbortController().signal);const failure=expect(relay).rejects.toThrow("This change needs attention.");await tick(8000);await failure;
+ expect(api.read).toHaveBeenCalledOnce();expect(screen.getByRole("alert",{name:"Retry incidents"}).querySelector("time")).toBeNull();expect(screen.getByText("Line lost")).toBeTruthy();
  fireEvent.click(screen.getByRole("button",{name:"Retry incidents"}));await tick();expect(api.write).not.toHaveBeenCalled();
 });
 it("hides the old discussion during another show's load and never combines loading with empty",async()=>{
  render(<IncidentsWorkspace initial={initial} slug="org"/>);await tick();let finish:(value:unknown)=>void=()=>{};
  api.read.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));fireEvent.click(screen.getByRole("button",{name:"Other show"}));await tick();
- expect(screen.queryByText("Line lost")).toBeNull();expect(screen.queryByText("No incidents for this date")).toBeNull();expect(screen.getByText(/Loading incidents for/)).toBeTruthy();
+ expect(screen.queryByText("Line lost")).toBeNull();expect(screen.queryByText("No incidents for this date")).toBeNull();expect(screen.getByRole("progressbar")).toBeTruthy();
  await tick(8000);expect(screen.queryByText(/Loading incidents for/)).toBeNull();expect(screen.queryByText("No incidents for this date")).toBeNull();
  await act(async()=>finish(snapshot));expect(screen.queryByText("Line lost")).toBeNull();
  api.read.mockResolvedValue({...snapshot,incidents:[],comments:[]});fireEvent.click(screen.getByRole("button",{name:"Retry incidents"}));await tick();expect(screen.getByText("No incidents for this date")).toBeTruthy();

@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { preferenceMutationSnapshot, preferenceMutationOptions } from "@/lib/notification-preference-recovery";
 import { createLocalRequestUuid } from "@/lib/request-id";
 import { WorkspaceSettings } from "@/components/workspace-settings";
@@ -249,12 +251,12 @@ export default function SettingsScreen() {
           ) : null}
         </View>
         ) : null}
-        {preferenceUnfinished?.status === "pending" ? <Text accessibilityRole="alert" style={styles.cardDescription}>Saving your alert choice… Waiting for confirmation.</Text> : null}
+        {preferenceUnfinished?.status === "pending" ? <QuietActivity /> : null}
         {preferenceUnfinished?.status === "error" ? <View>
-          <Text accessibilityRole="alert" style={styles.preferenceError}>Your alert choice was not confirmed. {preferenceUnfinished.error instanceof Error ? preferenceUnfinished.error.message : "Try again."}</Text>
+          <FailureText accessibilityRole="alert" style={styles.preferenceError}>Your alert change needs attention.{preferenceUnfinished.error instanceof Error ? preferenceUnfinished.error.message : "Try again."}</FailureText>
           <AppButton label="Retry preference save" variant="secondary" onPress={() => { if (preferenceUnfinished.command) preferenceMutation.mutate(preferenceUnfinished.command); }} />
         </View> : null}
-        {!preferenceUnfinished && preferenceLatest?.receipt ? <Text accessibilityRole="alert" style={styles.cardDescription}>{preferenceLatest.receipt.outcome === "applied" ? "Alert choice saved." : preferenceLatest.receipt.outcome === "conflict" ? "This choice changed elsewhere. Review the saved choice before changing it again." : "A newer alert choice is in effect. Retrying did not replace it."}</Text> : null}
+        {!preferenceUnfinished && preferenceLatest?.receipt ? <FailureText accessibilityRole="alert" style={styles.cardDescription}>{preferenceLatest.receipt.outcome === "applied" ? "Alert choice saved." : preferenceLatest.receipt.outcome === "conflict" ? "This choice changed elsewhere. Review the saved choice before changing it again." : "Your alert preference was changed elsewhere."}</FailureText> : null}
         <View style={styles.preferenceCard}>
           <View style={styles.preferenceHeader}>
             <View style={styles.preferenceHeaderSpacer} />
@@ -263,7 +265,7 @@ export default function SettingsScreen() {
           {notificationPreferences.isPending ? (
             <View style={styles.preferenceLoading}>
               <ActivityIndicator color={colors.amberText} />
-              <Text style={styles.cardDescription}>Loading your alert choices…</Text>
+              <QuietActivity />
             </View>
           ) : notificationPreferences.isError ? (
             <Pressable accessibilityRole="button" onPress={() => void notificationPreferences.refetch()} style={styles.preferenceLoading}>

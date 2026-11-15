@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useId, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -139,20 +141,20 @@ export function ChatShareDialog({ orgId, scope, members, open, onOpenChange, rev
         </fieldset>
       </>}
       {validation && <p role="alert" className="text-sm text-red-300">{validation}</p>}
-      {result.status === "failed" && <div role="alert" className="space-y-1 text-sm text-red-300"><p>{result.message}</p><p className="text-xs">Last attempt: {new Date(result.at).toLocaleTimeString()}</p></div>}
-      {saving && <p role="status" className="text-sm">Creating chat link…</p>}
+      {result.status === "failed" && <div role="alert" className="space-y-1 text-sm text-red-300"><p>{plainFailure((result.message) ?? "")}</p></div>}
+      {saving && <p role="status" className="text-sm"><QuietActivity label="Creating chat link…" /></p>}
       {pass && <>
         <p role="status" className="font-medium">{planning ? "Planning link is ready" : "Crew pass is ready"}</p>
         {qrFits ? <div className="mx-auto rounded-xl bg-white p-3"><QRCodeSVG role="img" aria-label="Chat join QR code" value={link} size={190} level="M" /></div>
           : <p className="text-sm text-board-muted">This link is too long for a QR code. Copy the link to share it.</p>}
         <label htmlFor={`${fieldId}-link`} className="text-sm font-medium">{planning ? "Planning invite link" : "Crew join link"}</label>
         <textarea id={`${fieldId}-link`} readOnly value={link} rows={3} onFocus={event => event.currentTarget.select()} className="min-w-0 w-full resize-y rounded-lg border border-board-border bg-board-bg p-3 text-xs [overflow-wrap:anywhere]" />
-        <button type="button" disabled={copy === "copying"} onClick={() => void copyLink()} className={control}>{copy === "copying" ? "Copying…" : copy === "copied" ? "Copied" : copy === "failed" ? "Retry copy" : "Copy link"}</button>
+        <button type="button" disabled={copy === "copying"} onClick={() => void copyLink()} className={control} aria-label={copy === "copying" ? "Copying…" : copy === "copied" ? "Copied" : copy === "failed" ? "Retry copy" : "Copy link"}>{copy === "copying" ? <QuietActivity label="Copying…" /> : copy === "copied" ? "Copied" : copy === "failed" ? "Retry copy" : "Copy link"}</button>
         {copy === "failed" && <p role="alert" className="text-sm text-red-300">Could not copy. Select the link above and copy it manually, or retry.</p>}
         <p className="text-xs text-board-muted">Expires {new Date(pass.expiresAt).toLocaleString()}{planning ? ` · ${pass.targetCount} selected members` : ""}</p>
-        {pass.notifications.status === "saved" && <p className="text-sm">Inbox notifications saved for {pass.notifications.recipients} members. Device push delivery is not confirmed.</p>}
+
         {pass.notifications.status === "pending" && <div role="alert" className="space-y-2 text-sm text-amber-300">
-          <p>The link is ready, but {pass.notifications.missing} inbox notification(s) could not be confirmed.</p>
+          <p>Crew alerts could not be sent.</p>
           {result.status === "ready" && <button type="button" onClick={() => void create(result.command)} className={control}>Retry notifications</button>}
         </div>}
       </>}

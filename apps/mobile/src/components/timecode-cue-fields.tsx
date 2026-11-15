@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/quiet-activity";
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { z } from "zod";
@@ -21,7 +22,7 @@ function parsePayload(value: string): Record<string, unknown> {
 function ChoiceStatus({ query, noun }: { query: { isFetching: boolean; error: Error | null; refetch: () => unknown }; noun: string }) {
   const styles = useStyles();
   return <View style={styles.group}>
-    {query.isFetching ? <Text style={styles.text}>Loading {noun}…</Text> : null}
+    {query.isFetching ? <QuietActivity /> : null}
     {query.error ? <OperationsError message={query.error.message} /> : null}
     <AppButton label={`${query.error ? "Retry loading" : "Refresh"} ${noun}`} disabled={query.isFetching} variant="secondary" onPress={() => void query.refetch()} />
   </View>;

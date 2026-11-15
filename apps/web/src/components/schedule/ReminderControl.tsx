@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { refreshRetainedResult } from "@/lib/retained-refresh";
 import {
   useQuery,
@@ -204,8 +205,8 @@ export function ReminderControl({
       {pending && (
         <p role="status" className="text-board-muted">
           {attempt?.kind === "pending"
-            ? "Checking reminder delivery…"
-            : "Delivery checked. Refreshing Schedule…"}
+            ? <QuietActivity label="Checking reminder delivery…" />
+            : ""}
         </p>
       )}
       {attempt?.kind === "failed" && (
@@ -214,9 +215,7 @@ export function ReminderControl({
           className="space-y-2 rounded-lg border border-amber-500/30 p-2"
         >
           <p>
-            Reminder delivery was not confirmed. Some emails may have been
-            accepted. Retry checks the same recipients and emails.
-          </p>
+            Some reminders could not be sent.</p>
           <Time at={attempt.at} />
           <button
             type="button"
@@ -230,7 +229,7 @@ export function ReminderControl({
       {result && (
         <div className="space-y-2" role="status">
           <p>
-            {attempt?.kind !== "confirmed" ? "Previous confirmed result: " : ""}
+            {attempt?.kind !== "confirmed" ? "Previous result:" : ""}
             {result.items.length
               ? `${result.items.filter((item) => item.email === "accepted").length} of ${result.items.length} emails accepted.`
               : "No pending assignments in this selection."}
@@ -249,9 +248,7 @@ export function ReminderControl({
       {attempt?.kind === "confirmed" && attempt.refresh === "failed" && (
         <div role="alert" className="space-y-2">
           <p>
-            Delivery was checked, but Schedule could not refresh. Retry
-            refreshes the view without sending emails.
-          </p>
+            Schedule could not be updated.</p>
           <button
             type="button"
             className={button}
@@ -303,13 +300,8 @@ export function ReminderControl({
     </div>
   );
 }
-function Time({ at }: { at: number }) {
+function Time(_props: { at: number }) {
   return (
-    <p className="text-board-muted">
-      Last checked:{" "}
-      <time dateTime={new Date(at).toISOString()}>
-        {new Date(at).toLocaleTimeString()}
-      </time>
-    </p>
+    null
   );
 }

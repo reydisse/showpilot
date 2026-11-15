@@ -25,6 +25,8 @@ const appState = {
 };
 const authenticate = vi.fn(async () => { const socket = new Socket(); sockets.push(socket); return socket; });
 const modules = {
+  "@/components/quiet-activity": { QuietActivity: () => jsx.jsx("span", { role: "progressbar", "aria-label": "Loading" }) },
+  "@/components/failure-text": { FailureText: ({ children, accessibilityRole }) => React.createElement("p", { role: accessibilityRole }, children) },
   react: React,
   "@showpilot/shared": shared,
   "react-native": { AppState: appState },

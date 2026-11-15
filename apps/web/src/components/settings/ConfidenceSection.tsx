@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useCallback, useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ConfidenceSlide } from "@/components/confidence/ConfidenceSlide";
@@ -411,7 +412,7 @@ export function ConfidenceSection({
       </details>
       <div className="flex flex-wrap items-center gap-3">
         <Button className="min-h-11" disabled={!dirty || writes.saveState.kind !== "saved"} onClick={() => void apply()}>
-          {saving ? "Applying…" : "Apply to screens"}
+          {saving ? <QuietActivity label="Applying…" /> : "Apply to screens"}
         </Button>
         <Button
           className="min-h-11"

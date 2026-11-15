@@ -139,10 +139,10 @@ it("times out a held reply and retries the original request after navigation", a
   await act(async () => {
     await vi.advanceTimersByTimeAsync(15000);
   });
-  expect(screen.getByRole("alert").textContent).toMatch(/retained/);
+  expect(screen.getByRole("alert").textContent).toMatch(/needs attention/);
   expect(mocks.save.mock.calls[0][0].signal.aborted).toBe(true);
   expect(screen.getByRole("alert").textContent).toMatch(
-    /save response timed out/,
+    /This action needs attention/,
   );
   await act(async () => {
     click("Retry original save");
@@ -209,7 +209,7 @@ it("bounds refresh and ignores late completion", async () => {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(12000);
   });
-  expect(screen.getByRole("alert").textContent).toMatch(/timed out/);
+  expect(screen.getByRole("alert").textContent).toMatch(/This action needs attention/);
   await act(async () => {
     held.resolve();
   });

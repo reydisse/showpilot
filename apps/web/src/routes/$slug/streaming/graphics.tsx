@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useGraphicLibraryMutation } from "@/hooks/useGraphicLibraryMutation";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { LibraryMutationNotice } from "@/components/graphics/LibraryMutationNotice";
@@ -271,8 +273,8 @@ function GraphicsPage() {
         <ReadFailureNotice error={library.error} refreshing={library.refreshing} retry={library.retry} label="Refresh graphics library" />
         <LibraryMutationNotice mutation={mutation} onConfirmed={() => { refreshLibrary(); output.retry(); }} />
         <ReadFailureNotice error={output.readFailure} refreshing={output.refreshing} retry={output.retry} label="Refresh graphics output" />
-        {output.failure && <div role="alert" aria-label="Graphics change confirmation" className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{output.failure.message} <time dateTime={new Date(output.failure.occurredAt).toISOString()}>{new Date(output.failure.occurredAt).toLocaleTimeString()}</time></div>}
-        {!output.fresh && <p role="status" aria-live="polite" className="text-sm text-amber-200">{output.pending ? "Updating graphics output…" : "Refreshing graphics output. Showing the last confirmed state."}</p>}
+        {output.failure && <div role="alert" aria-label="Graphics change confirmation" className="rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{plainFailure(output.failure.message)} </div>}
+        {!output.fresh && <p role="status" aria-live="polite" className="text-sm text-amber-200">{<QuietActivity />}</p>}
         {/* ProPresenter slide import */}
         {canConfigureGraphics && (
           <section className="rounded-xl border border-board-border bg-board-card/60 p-4">
@@ -283,14 +285,14 @@ function GraphicsPage() {
                   <h2 className="text-sm font-semibold text-board-text">ProPresenter import</h2>
                   <span className="text-xs uppercase tracking-wider text-board-muted/60">
                     {proPresenter.status === "connected"
-                      ? "Connected through venue Bridge"
+                      ? ""
                       : proPresenter.error
-                        ? "Reconnecting, showing last confirmed slide"
+                        ? ""
                         : proPresenterEnabled && bridgeOnline
-                          ? "Bridge online · waiting for slide"
+                          ? ""
                           : proPresenterEnabled
-                            ? "Waiting for connection"
-                            : "Not connected"}
+                            ? <QuietActivity label="Waiting for connection" />
+                            : ""}
                   </span>
                 </div>
                 <p className="text-xs text-board-muted mt-1">
@@ -315,7 +317,7 @@ function GraphicsPage() {
               <div className="mt-3 rounded-lg border border-board-border bg-board-bg p-3">
                 <div className="flex flex-col items-start justify-between gap-3 sm:flex-row">
                   <div className="min-w-0 w-full sm:flex-1">
-                    <p className="text-xs uppercase tracking-widest text-board-muted/60">{proPresenterConnected ? "Current slide" : "Last confirmed slide"}</p>
+                    <p className="text-xs uppercase tracking-widest text-board-muted/60">{proPresenterConnected ? "Current slide" : "Slide preview"}</p>
                     <p aria-label="ProPresenter slide text" className="mt-1 break-words text-sm text-board-text whitespace-pre-wrap line-clamp-4">{currentProPresenterSlide.text}</p>
                     {(currentProPresenterSlide.notes || currentProPresenterSlide.presentationName) && (
                       <p className="mt-1 text-xs text-board-muted truncate">
@@ -343,7 +345,7 @@ function GraphicsPage() {
               <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-fire-500 animate-pulse" />
               <span className="text-sm font-medium text-fire-500">
-                {output.fresh ? (activeIds.length === 0 ? "No graphics on air" : activeIds.length === 1 ? "1 graphic on air" : `${activeIds.length} graphics on air`) : (activeIds.length === 0 ? "Last confirmed: no graphics on air" : `${activeIds.length} last confirmed on air`)}
+                {output.fresh ? (activeIds.length === 0 ? "No graphics on air" : activeIds.length === 1 ? "1 graphic on air" : `${activeIds.length} graphics on air`) : (activeIds.length === 0 ? "No graphics on air" : `${activeIds.length} graphics on air`)}
               </span>
             </div>
               {canTriggerGraphics && (
@@ -445,7 +447,7 @@ function GraphicsPage() {
                         </span>
                         {isActive && (
                           <span className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-fire-500">
-                            <Eye className="w-2.5 h-2.5" /> {output.fresh ? "On Air" : "Last confirmed on air"}
+                            <Eye className="w-2.5 h-2.5" /> {output.fresh ? "On Air" : "Program"}
                           </span>
                         )}
                       </div>
@@ -511,7 +513,7 @@ function GraphicsPage() {
           </p>
           <div className="flex items-center gap-2">
             <code className="flex-1 text-xs text-board-muted bg-board-bg px-3 py-2 rounded-lg truncate">
-              {overlayLink.url || (overlayLink.pending ? "Creating display link…" : "Display link unavailable")}
+              {overlayLink.url || (overlayLink.pending ? <QuietActivity label="Creating display link…" /> : "Display link unavailable")}
             </code>
             <button
               disabled={!overlayLink.url}
@@ -534,9 +536,9 @@ function GraphicsPage() {
             Add this URL as a Browser Source in OBS/vMix to display live
             graphics on your stream. This link expires in 8 hours.
           </p>
-          {overlayLink.error && <p role="alert" className="mt-2 text-sm text-red-300">{overlayLink.error}</p>}
+          {overlayLink.error && <p role="alert" className="mt-2 text-sm text-red-300">{plainFailure((overlayLink.error) ?? "")}</p>}
           <button type="button" disabled={overlayLink.pending} onClick={overlayLink.refresh} className="mt-2 min-h-11 text-xs text-board-muted">Create a fresh link</button>
-          {overlayLink.errorAt !== null && <p className="text-xs text-board-muted">Last error <time dateTime={new Date(overlayLink.errorAt).toISOString()}>{new Date(overlayLink.errorAt).toLocaleTimeString()}</time></p>}
+          {overlayLink.errorAt !== null && null}
           {overlayLink.monitorUrl && <a href={overlayLink.monitorUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center px-3 text-sm text-fire-500 underline outline-none focus-visible:ring-2 focus-visible:ring-fire-500">Open overlay monitor</a>}
         </div>
 
@@ -856,8 +858,8 @@ function GraphicFormModal({
               type="submit"
               disabled={mutation.locked || !title.trim()}
               className="min-h-11 flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-white font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
-            >
-              {saving ? "Saving..." : existing ? "Update" : "Create"}
+             aria-label={saving ? "Saving..." : existing ? "Update" : "Create"}>
+              {saving ? <QuietActivity label="Saving..." /> : existing ? "Update" : "Create"}
             </button>
           </div>
         </form>

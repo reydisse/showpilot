@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import type { NotificationCategory } from "@showpilot/shared";
 import { useNotificationPreferences } from "@/hooks/useNotificationPreferences";
 
@@ -36,15 +38,13 @@ export function NotificationPreferences({
         the organization's notification policy.
       </p>
       {query.isPending && !query.isError && (
-        <p role="status" className="text-sm text-board-muted">
-          Loading your alert choices…
-        </p>
+        <QuietActivity label="Loading your alert choices…" />
       )}
       {query.isError && (
         <div role="alert" className="space-y-2 text-sm text-amber-300">
           <p>
             Notification choices could not be refreshed.{" "}
-            {query.error instanceof Error ? query.error.message : "Try again."}
+            {plainFailure((query.error instanceof Error ? query.error.message : "Try again.") ?? "")}
           </p>
           <button
             className={buttonClass}
@@ -56,25 +56,17 @@ export function NotificationPreferences({
         </div>
       )}
       {unfinished?.status === "pending" && (
-        <p role="status" className="text-sm text-board-muted">
-          Saving your alert choice…
-        </p>
+        <QuietActivity label="Saving your alert choice…" />
       )}
       {unfinished?.status === "error" && (
         <div role="alert" className="space-y-2 text-sm text-amber-300">
           <p>
-            Your alert choice was not confirmed.{" "}
-            {unfinished.error instanceof Error
+            Your alert change needs attention.{" "}
+            {plainFailure((unfinished.error instanceof Error
               ? unfinished.error.message
-              : "Check your connection."}{" "}
-            The saved choice is shown until confirmation.
-          </p>
-          <p>
-            Last attempt{" "}
-            <time dateTime={new Date(unfinished.at).toISOString()}>
-              {new Date(unfinished.at).toLocaleTimeString()}
-            </time>
-          </p>
+              : "Check your connection.") ?? "")}{" "}
+            </p>
+
           <button className={buttonClass} onClick={controls.retry}>
             Retry preference save
           </button>
@@ -86,7 +78,7 @@ export function NotificationPreferences({
             ? "Alert choice saved."
             : result.outcome === "conflict"
               ? "This choice changed elsewhere. The saved value is shown. Review it before changing it again."
-              : "A newer alert choice is in effect. Retrying did not replace it."}
+              : "Your alert preference was changed elsewhere."}
         </p>
       )}
       {query.data?.map((preference) => (

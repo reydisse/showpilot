@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { useQuery } from "@tanstack/react-query";
 import { Redirect, router } from "expo-router";
 import { StyleSheet, Text, View } from "react-native";
@@ -30,17 +31,17 @@ function StreamWorkspace(scope: { orgId: string; userId: string }) {
   }, signal, 10_000), enabled: foregroundInterval !== false, retry: false, networkMode: "always", refetchInterval: pollingInterval });
   const active = inputs.data?.inputs.filter(input => input.status === "connected" || input.status === "streaming").length ?? 0;
   return <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="LIVE SIGNAL" title="Stream Health" onRefresh={() => { void inputs.refetch(); void outputs.refetch(); }}>
-    {inputs.isPending ? <OperationsEmpty>Loading stream inputs…</OperationsEmpty> : null}
-    {inputs.isError ? <><OperationsError message={inputs.data ? "Input health could not refresh. Last confirmed input values are shown." : "Input health could not load. Retry to check the live inputs."} /><AppButton label="Retry stream inputs" variant="secondary" loading={inputs.isFetching} onPress={() => void inputs.refetch()} /></> : null}
+    {inputs.isPending ? <OperationsEmpty></OperationsEmpty> : null}
+    {inputs.isError ? <><OperationsError message={inputs.data ? "Input details could not be updated." : "Input health could not load. Retry to check the live inputs."} /><AppButton label="Retry stream inputs" variant="secondary" loading={inputs.isFetching} onPress={() => void inputs.refetch()} /></> : null}
     {inputs.data ? <>
-      <View style={styles.stats}><OperationsStat label="Inputs confirmed active" value={`${active}/${inputs.data.inputs.length}`} tone={inputs.isError ? "warning" : active ? "good" : "warning"} /></View>
-      <OperationsPanel title="Live inputs" detail={inputs.isError ? "Last confirmed input state" : "Provider state refreshes every five seconds while this screen is open."}>
-        {inputs.data.inputs.length ? inputs.data.inputs.map(input => <OperationsRow key={input.id} title={input.name} detail={input.error || `${input.srtUrl ? "RTMP + SRT" : "RTMP"} ingest · provider ${input.providerStatus ?? "pending"}`} status={input.status} />) : <OperationsEmpty>No live input is configured. Add one from the web streaming controls before the show.</OperationsEmpty>}
+      <View style={styles.stats}><OperationsStat label="Active inputs" value={`${active}/${inputs.data.inputs.length}`} tone={inputs.isError ? "warning" : active ? "good" : "warning"} /></View>
+      <OperationsPanel title="Live inputs" detail={inputs.isError ? "Input details" : "Input details"}>
+        {inputs.data.inputs.length ? inputs.data.inputs.map(input => <OperationsRow key={input.id} title={input.name} detail={input.error ? plainFailure(input.error, "Input details could not be loaded.") : `${input.srtUrl ? "RTMP + SRT" : "RTMP"} ingest · provider ${input.providerStatus ?? "pending"}`} status={input.status} />) : <OperationsEmpty>No live input is configured. Add one from the web streaming controls before the show.</OperationsEmpty>}
       </OperationsPanel>
     </> : null}
-    {outputs.isPending ? <OperationsEmpty>Loading destination status…</OperationsEmpty> : null}
-    {outputs.isError ? <><OperationsError message={outputs.data ? "Destination status could not refresh. Last confirmed values are shown." : "Destination status could not load. Retry to check distribution."} /><AppButton label="Retry destination status" variant="secondary" loading={outputs.isFetching} onPress={() => void outputs.refetch()} /></> : null}
-    {outputs.data ? <OperationsPanel title="Distribution health" detail={outputs.isError ? "Last confirmed provider state" : "An enabled provider output does not prove that the encoder is sending a live input."}>
+    {outputs.isPending ? <OperationsEmpty></OperationsEmpty> : null}
+    {outputs.isError ? <><OperationsError message={outputs.data ? "Destinations could not be updated." : "Destination status could not load. Retry to check distribution."} /><AppButton label="Retry destination status" variant="secondary" loading={outputs.isFetching} onPress={() => void outputs.refetch()} /></> : null}
+    {outputs.data ? <OperationsPanel title="Distribution health" detail={outputs.isError ? "Destinations" : "An enabled provider output does not prove that the encoder is sending a live input."}>
       {outputs.data.destinations.length ? outputs.data.destinations.map(destination => <View key={destination.id} style={styles.destination}>
         <Text style={styles.title}>{destination.name}</Text><Text style={styles.text}>{destination.selected ? "Selected for Go Live" : "Not selected"} · {destinationStatusLabels[destination.status]}</Text>
         {destination.error ? <OperationsError message={destination.error} /> : null}

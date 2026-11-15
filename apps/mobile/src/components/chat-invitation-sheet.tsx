@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { useEffect, useState } from "react";
 import { Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { AppButton } from "./app-button";
@@ -51,7 +53,7 @@ export function ChatInvitationSheet(props: {
             <Text style={styles.label}>Members · {draft.targetUserIds.length} selected (maximum 50)</Text>
             {draft.targetUserIds.length > 0 && <AppButton label="Clear selected members" variant="secondary" disabled={!editable} onPress={() => state.setFields({ targetUserIds: [] })} />}
             <AppField label="Search invite members" value={search} onChangeText={setSearch} />
-            {props.membersLoading ? <Text style={styles.copy}>Loading members…</Text> : props.membersError ? <View style={styles.group}><Text accessibilityRole="alert" style={styles.error}>{props.membersError}</Text><AppButton label="Retry invite members" variant="secondary" onPress={props.retryMembers} /></View> : <>
+            {props.membersLoading ? <QuietActivity /> : props.membersError ? <View style={styles.group}><FailureText accessibilityRole="alert" style={styles.error}>{props.membersError}</FailureText><AppButton label="Retry invite members" variant="secondary" onPress={props.retryMembers} /></View> : <>
               {members.filter(member => member.name.toLowerCase().includes(search.toLowerCase())).map(member => {
                 const checked = draft.targetUserIds.includes(member.userId);
                 return <Pressable key={member.userId} accessibilityRole="checkbox" accessibilityLabel={member.name} aria-checked={checked} accessibilityState={{ checked, disabled: !editable }} disabled={!editable} onPress={() => state.setFields({ targetUserIds: checked ? draft.targetUserIds.filter(id => id !== member.userId) : [...draft.targetUserIds, member.userId] })} style={[styles.member, checked && styles.selected]}><Text style={styles.copy}>{checked ? "✓ " : "○ "}{member.name}</Text><Text style={styles.detail}>{member.role}</Text></Pressable>;
@@ -60,17 +62,17 @@ export function ChatInvitationSheet(props: {
             </>}
           </>}
         </>}
-        {draft.error && <Text accessibilityRole="alert" style={styles.error}>{draft.error}</Text>}
-        {pending && <Text accessibilityRole="text" style={styles.copy}>Confirming link and notifications…</Text>}
-        {attempt?.kind === "failed" && <View style={styles.group}><Text accessibilityRole="alert" style={styles.error}>{attempt.message}</Text><AppButton label="Retry original invite" disabled={!active} onPress={state.retry} /></View>}
+        {draft.error && <FailureText accessibilityRole="alert" style={styles.error}>{draft.error}</FailureText>}
+        {pending && <QuietActivity />}
+        {attempt?.kind === "failed" && <View style={styles.group}><FailureText accessibilityRole="alert" style={styles.error}>{attempt.message}</FailureText><AppButton label="Retry original invite" disabled={!active} onPress={state.retry} /></View>}
         {pass && <View style={styles.group}>
           <Text style={styles.label}>{expired ? "This link has expired" : planning ? "Planning link is ready" : "Crew pass is ready"}</Text>
           <AppField label="Chat invitation link" value={pass.joinUrl} editable={false} selectTextOnFocus multiline style={styles.link} />
           <Text style={styles.copy}>Expires {new Date(pass.expiresAt).toLocaleString()}{planning ? ` · ${pass.targetCount ?? 0} selected ${pass.targetCount === 1 ? "member" : "members"}` : ""}</Text>
-          {pass.notifications.status === "saved" && <Text style={styles.copy}>Inbox notifications saved for {pass.notifications.recipients} {pass.notifications.recipients === 1 ? "member" : "members"}. Device push delivery is not confirmed.</Text>}
-          {pass.notifications.status === "pending" && <View style={styles.group}><Text accessibilityRole="alert" style={styles.error}>The link is ready, but {pass.notifications.missing} inbox {pass.notifications.missing === 1 ? "notification" : "notifications"} could not be confirmed.</Text><AppButton label="Retry invite notifications" variant="secondary" disabled={pending || expired || !active} onPress={state.retry} /></View>}
+
+          {pass.notifications.status === "pending" && <View style={styles.group}><FailureText accessibilityRole="alert" style={styles.error}>Crew alerts could not be sent.</FailureText><AppButton label="Retry invite notifications" variant="secondary" disabled={pending || expired || !active} onPress={state.retry} /></View>}
           <AppButton label={sharing.kind === "failed" ? "Retry sharing invite" : sharing.kind === "pending" ? "Opening share sheet…" : "Share invite link"} disabled={expired || sharing.kind === "pending" || !active} onPress={() => void sharing.open()} />
-          {sharing.kind === "failed" && <Text accessibilityRole="alert" style={styles.error}>{sharing.error} Select the link above to copy it manually.</Text>}
+          {sharing.kind === "failed" && <FailureText accessibilityRole="alert" style={styles.error}>{sharing.error} Select the link above to copy it manually.</FailureText>}
           {sharing.kind === "dismissed" && <Text style={styles.copy}>Sharing was cancelled. Your link is still available.</Text>}
           {sharing.kind === "shared" && <Text style={styles.copy}>Share sheet completed. Your link is still available.</Text>}
         </View>}

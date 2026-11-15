@@ -28,6 +28,8 @@ const code = ts.transpileModule(
 const host = ({ children, accessibilityRole }) =>
   React.createElement("div", { role: accessibilityRole }, children);
 const modules = {
+  "@/components/failure-text": { FailureText: ({ children, accessibilityRole }) => React.createElement("p", { role: accessibilityRole }, children) },
+  "@/components/quiet-activity": { QuietActivity: () => jsx.jsx("span", { role: "progressbar", "aria-label": "Loading" }) },
   "react/jsx-runtime": jsx,
   "react-native": {
     View: host,
@@ -129,7 +131,7 @@ it("refresh failure keeps the delivery result and offers only a read retry", () 
 });
 it("retains previous delivery details while a retry is unconfirmed", () => {
   setup({ kind: "failed", emails: ["accepted", "uncertain"] });
-  expect(screen.getByText(/Previous confirmed result: 1 of 2/)).toBeTruthy();
+  expect(screen.getByText(/Previous result:1 of 2/)).toBeTruthy();
   expect(
     screen.getByText(/Some emails may already have been accepted/),
   ).toBeTruthy();
@@ -159,6 +161,6 @@ it("keeps results visible when the original target is absent and disables fresh 
 });
 it("pending work offers no second send action", () => {
   setup({ kind: "pending" });
-  expect(screen.getByText(/Checking reminder delivery/)).toBeTruthy();
+  expect(screen.getByRole("progressbar")).toBeTruthy();
   expect(screen.queryAllByRole("button")).toHaveLength(0);
 });

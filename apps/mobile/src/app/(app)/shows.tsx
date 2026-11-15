@@ -70,7 +70,7 @@ export default function ShowsScreen() {
           <View style={styles.listHeader}>
             {drafts[0] ? <AppButton variant="secondary" label={`Resume show: ${drafts[0].name || "Untitled show"} (${drafts[0].serviceDate})`} onPress={() => setCreating(true)} /> : null}
             {canViewLiveShow ? (
-              <FeatureLink icon={RadioTower} title="Open Live Show" description="One synchronized workspace for the live timer, cues, crew, chat, and full rundown." badge="LIVE" onPress={() => router.push("/live-show")} />
+              <FeatureLink icon={RadioTower} title="Open Live Show" description="Timer, cues, crew, chat, and the full rundown in one workspace." badge="LIVE" onPress={() => router.push("/live-show")} />
             ) : null}
             {isPending ? (
               <ActivityIndicator color={colors.amberText} size="large" />

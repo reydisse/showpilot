@@ -60,7 +60,7 @@ it("keeps lookup errors visible with a timestamp and bounded Retry, ignoring the
   vi.mocked(getPublicCrewMemberByMemberId).mockReturnValueOnce(old.promise);
   page(); enter(); await flush();
   await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
-  const alert = screen.getByRole("alert"); expect(alert.querySelector("time")).not.toBeNull();
+  const alert = screen.getByRole("alert"); expect(alert.querySelector("time")).toBeNull();
   await act(async () => { await vi.advanceTimersByTimeAsync(5000); old.resolve(member); });
   expect(screen.getByRole("alert")).toBe(alert);
   expect(screen.queryByText("Is this you, Fixture person?")).toBeNull();

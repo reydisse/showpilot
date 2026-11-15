@@ -31,7 +31,7 @@ describe("Bridge installation settings", () => {
     expect(api.takeover).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Take control" }));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Take control" }));
-    expect((await screen.findByRole("alert")).textContent).toContain("Active Bridge changed");
+    expect((await screen.findByRole("alert")).textContent).toContain("This action needs attention.");
     expect(api.takeover).toHaveBeenCalledExactlyOnceWith({ data: { orgId: "org-1", installationId: "standby", expectedActiveInstallationId: "installation-1", confirmed: true } });
     expect(screen.getByText("Active: Main room · Connected")).toBeTruthy();
     api.selection.mockResolvedValue({ activeInstallation: { installationId: installation.id, label: installation.label }, connections: [] });

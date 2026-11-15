@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,7 @@ type Props = LocalShowTarget & {
 };
 
 /** Key by org/show/date at the route boundary so confirmations cannot cross shows. */
-export function DesktopLocalShowPanel(props: Props) {
+export function OfflineShowPreparation(props: Props) {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const alive = useRef(true);
@@ -70,7 +71,7 @@ export function DesktopLocalShowPanel(props: Props) {
         setError(
           cause instanceof Error
             ? cause.message
-            : "Local show action failed. Refresh its saved state before retrying.",
+            : "The saved show could not be opened.",
         );
     } finally {
       busyRef.current = false;
@@ -139,7 +140,7 @@ export function DesktopLocalShowPanel(props: Props) {
               () =>
                 reject(
                   new Error(
-                    "Preparation has not been confirmed. Refresh saved status before trying again.",
+                    "This change needs attention.",
                   ),
                 ),
               20000,
@@ -225,12 +226,12 @@ export function DesktopLocalShowPanel(props: Props) {
     });
   return (
     <section
-      aria-label="Local show"
+      aria-label="Offline preparation"
       className="shrink-0 border-b border-board-border bg-board-card px-4 py-3 text-sm text-board-text"
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0 flex-1">
-          <h2 className="font-semibold">Local show</h2>
+          <h2 className="font-semibold">Offline preparation</h2>
           {disabled && <p>Local control is off. Saved progress is kept on this computer; use “Use this computer” in the Desktop toolbar to enable local control.</p>}
           {!status && !local.error && (
             <p>Reading this computer's saved show…</p>
@@ -246,7 +247,7 @@ export function DesktopLocalShowPanel(props: Props) {
               {matching.mode === "active"
                 ? "Local control active"
                 : matching.mode === "finished"
-                  ? "Local session awaiting review"
+                  ? "Saved show needs review"
                   : matching.mode === "reconciled"
                     ? "Local session synced"
                     : "Prepared on this computer"}{" "}
@@ -271,7 +272,7 @@ export function DesktopLocalShowPanel(props: Props) {
               onClick={() => void prepare()}
             >
               {busy
-                ? "Working…"
+                ? <QuietActivity label="Working…" />
                 : matching
                   ? "Refresh preparation"
                   : "Prepare this show"}
@@ -399,9 +400,9 @@ export function DesktopLocalShowPanel(props: Props) {
                       </span>
                       <span className="shrink-0">
                         {result.result === "acknowledged"
-                          ? "Confirmed"
+                          ? "Complete"
                           : result.result === "sent"
-                            ? "Sent, unconfirmed"
+                            ? "Needs attention"
                             : result.result === "failed"
                               ? "Failed"
                               : "Unknown"}
@@ -452,10 +453,10 @@ export function DesktopLocalShowPanel(props: Props) {
         )}
       {(error || engineError || local.error || status?.storageError) && (
         <p role="alert" className="mt-2 break-words text-red-300">
-          {error || engineError || local.error || status?.storageError}
+          This saved show needs attention.
         </p>
       )}
-      {notice && (
+      {notice && /conflict|differs|changed|could not/i.test(notice) && (
         <p role="status" className="mt-2 break-words">
           {notice}
         </p>

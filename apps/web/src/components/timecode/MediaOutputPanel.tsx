@@ -1,6 +1,8 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { connectionLabel, type ConnectionStatus } from "@/lib/connection-state";
+import { type ConnectionStatus } from "@/lib/connection-state";
 import {
   mediaOutputNameSchema,
   mediaOutputUrl,
@@ -63,7 +65,7 @@ export function MediaOutputPanel({
       </div>
       {!connected && (
         <p role="status" className="text-amber-300">
-          {connectionLabel[connectionStatus]}. Media output status is unconfirmed.
+          {connectionStatus === "error" ? "Media output could not be updated." : <QuietActivity label="Loading output" />}
         </p>
       )}
       {outputs.length === 0 ? connected && (
@@ -86,7 +88,7 @@ export function MediaOutputPanel({
               {output.mediaName && <p>{output.mediaName}</p>}
               {output.error && (
                 <p role="alert" className="text-red-300">
-                  {output.error}
+                  {plainFailure((output.error) ?? "")}
                 </p>
               )}
             </li>

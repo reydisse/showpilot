@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useCallback, useEffect, useState } from "react";
 import { getOrgInvitations } from "@/lib/session";
 import type { TeamInvitation } from "@/lib/team-invitation-contract";
@@ -85,9 +86,7 @@ export function SettingsTeamInvitations({
         label="Retry invitations"
       />
       {read.refreshing && (
-        <p role="status" className="text-sm text-board-muted">
-          Refreshing invitations…
-        </p>
+        <QuietActivity label="Refreshing invitations…" />
       )}
       <TeamInvitations
         orgId={orgId}

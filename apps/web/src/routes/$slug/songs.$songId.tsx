@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { PageBreadcrumb } from "@/components/ui/PageBreadcrumb";
 import {
   createFileRoute,
@@ -434,7 +436,7 @@ function SongStudioPage() {
       await live.replaceEventGroup(sourceKey, events);
       if (!controller.signal.aborted && cueLoad.current === controller) setNotice(`${events.length} lyric automation events confirmed by Timecode. Loading this map again will replace them.`);
     } catch (error) {
-      if (!controller.signal.aborted && cueLoad.current === controller) setLoadError(error instanceof Error ? error.message : "Cue loading could not be confirmed. Retry Load cues.");
+      if (!controller.signal.aborted && cueLoad.current === controller) setLoadError(error instanceof Error ? error.message : "This change needs attention.");
     } finally {
       controller.abort();
       if (cueLoad.current === controller) { cueLoad.current = null; setLoadingCues(false); }
@@ -575,16 +577,16 @@ function SongStudioPage() {
                 <span
                   className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${dirty ? "border-amber-400/30 bg-amber-400/10 text-amber-300" : "border-board-border text-board-muted"}`}
                 >
-                  {loadingCues ? "Waiting for Timecode…" : busy ? "Saving changes…" : locked ? "Change needs review" : dirty ? "Unsaved changes" : "All changes saved"}
+                  {loadingCues ? <QuietActivity label="Waiting for Timecode…" /> : busy ? <QuietActivity label="Saving changes…" /> : locked ? "Change needs review" : dirty ? "Unsaved changes" : "All changes saved"}
                 </span>
                 {dirty && <button
                   type="button"
                   disabled={locked}
                   onClick={() => void saveAll()}
                   className="inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-fire-500 px-3 text-xs font-bold text-black disabled:opacity-40"
-                >
+                 aria-label={busy ? "Saving…" : "Save all changes"}>
                   <Save className="h-3.5 w-3.5" />
-                  {busy ? "Saving…" : "Save all changes"}
+                  {busy ? <QuietActivity label="Saving…" /> : "Save all changes"}
                 </button>}
               </>
             ) : null}
@@ -623,14 +625,14 @@ function SongStudioPage() {
           </div>
         </header>
         {loadError && <div role="alert" className="space-y-2 rounded-xl border border-red-500/30 p-4 text-sm text-red-300">
-          <p>{loadError}</p><button type="button" disabled={locked} onClick={() => void loadCues()} className="min-h-11 rounded-lg border border-red-400/40 px-3 disabled:opacity-40">Retry Load cues</button>
+          <p>{plainFailure(loadError)}</p><button type="button" disabled={locked} onClick={() => void loadCues()} className="min-h-11 rounded-lg border border-red-400/40 px-3 disabled:opacity-40">Retry Load cues</button>
         </div>}
         {write.state.status === "failed" && <div role="alert" className="space-y-2 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
-          <p>{write.state.label}: {write.state.saved ? "Saved, but the view could not be refreshed. Retry will not repeat the write." : "Result unconfirmed. Retry the same request to recover its result."}</p>
-          <p>{write.state.message}</p>
-          {reviewError && <p>{reviewError}</p>}
+          <p>{write.state.label}: {write.state.saved ? "Saved, but the view could not be refreshed. Retry will not repeat the write." : "This change needs attention."}</p>
+          <p>{plainFailure((write.state.message) ?? "")}</p>
+          {reviewError && <p>{plainFailure(reviewError)}</p>}
           {reviewBusy && <p role="status">Reading the stored song before editing…</p>}
-          <p className="text-xs">Last attempt: {new Date(write.state.at).toLocaleTimeString()}</p>
+
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={reviewBusy} onClick={() => void write.retry()} className="min-h-11 rounded-lg border border-red-400/40 px-3">Retry {write.state.label.toLowerCase()}</button>
             <button type="button" disabled={reviewBusy} onClick={() => void abandonWrite()} className="min-h-11 rounded-lg border border-board-border px-3">Keep drafts and edit</button>
@@ -1100,8 +1102,8 @@ function SongStudioPage() {
                   disabled={locked}
                   onClick={() => void saveMap()}
                   className="mt-2 w-full rounded-xl border border-board-border p-2.5 text-sm font-semibold text-board-text"
-                >
-                  {busy ? "Saving…" : "Save cue map"}
+                 aria-label={busy ? "Saving…" : "Save cue map"}>
+                  {busy ? <QuietActivity label="Saving…" /> : "Save cue map"}
                 </button>
               </fieldset>
             ) : (
@@ -1196,8 +1198,8 @@ function SongStudioPage() {
                   });
                 }}
                 className="rounded-xl bg-fire-500 px-4 py-2 text-sm font-bold text-black disabled:opacity-40"
-              >
-                {busy ? "Saving…" : "Save and leave"}
+               aria-label={busy ? "Saving…" : "Save and leave"}>
+                {busy ? <QuietActivity label="Saving…" /> : "Save and leave"}
               </button>
             </DialogFooter>
           </DialogContent>

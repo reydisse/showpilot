@@ -1,6 +1,10 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Eye, EyeOff, LoaderCircle } from "lucide-react";
+import { SignOutRecovery } from "@/components/auth/SignOutRecovery";
+import { stopSignOutReconciliation } from "@/lib/sign-out-reconciliation";
+import { unlockLocalAccount } from "@/lib/local-account-exit";
 import { SignInShell } from "@/components/auth/SignInShell";
 import { getSignInDesign } from "@showpilot/shared";
 import { authClient } from "@/lib/auth-client";
@@ -38,6 +42,7 @@ function LoginPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (request.current) return;
+    stopSignOutReconciliation();
     const signingUp = isSignUp;
     // HTTP redirects cannot see a fragment. Browsers carry it onto the login
     // URL; put it back on the app destination before navigating or emailing.
@@ -70,6 +75,7 @@ function LoginPage() {
         throw new Error("Authentication outcome unavailable.");
       }
       if (!result.data?.user || !result.data.token) throw new Error("Authentication acknowledgement missing.");
+      unlockLocalAccount();
       setPassword("");
       window.location.href = signingUp || verifyAfterSignIn ? verificationHref(destination) : destination ?? (createOrgAfterSignIn ? "/setup?mode=new" : "/");
     } catch {
@@ -91,6 +97,7 @@ function LoginPage() {
 
   return (
     <SignInShell initialDesign={design}>
+      <SignOutRecovery />
       <div className="eyebrow">YOUR NEXT SHOW STARTS HERE</div>
       <h1>
         {isSignUp ? (
@@ -179,7 +186,7 @@ function LoginPage() {
         </div>
         {error && (
           <p className="signin-error" id="signin-error" role="alert">
-            {error.message}<span className="block">Last attempt: {new Date(error.at).toLocaleTimeString()}</span>
+            {plainFailure(error.message)}
           </p>
         )}
         {existingAccount && <button type="button" className="mb-4 min-h-11 underline underline-offset-4" onClick={() => recoverBySigningIn(false)}>Sign in to create an organization</button>}
@@ -189,14 +196,14 @@ function LoginPage() {
           className="submit"
           disabled={loading}
           aria-busy={loading}
-        >
-          {loading
+         aria-label={loading
             ? isSignUp
               ? "Creating account…"
               : "Signing in…"
             : isSignUp
               ? uncertainSignup ? "Retry creating account" : "Create account"
-              : error ? "Retry sign-in" : "Sign in"}
+              : error ? "Retry sign-in" : "Sign in"}>
+          {!loading && (isSignUp ? uncertainSignup ? "Retry creating account" : "Create account" : error ? "Retry sign-in" : "Sign in")}
           {loading ? (
             <LoaderCircle
               size={16}

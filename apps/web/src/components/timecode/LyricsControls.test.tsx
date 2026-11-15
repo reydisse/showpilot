@@ -33,5 +33,5 @@ it("blocks buttons and shortcuts while pending or disconnected and displays the 
   fireEvent.click(screen.getByRole("button", { name: "Clear lyrics" }));
   fireEvent.keyDown(document.body, { key: "ArrowRight" });
   expect(change).not.toHaveBeenCalled();
-  expect(screen.getByRole("alert").textContent).toBe("Connection lost");
+  expect(screen.getByRole("alert").textContent).toBe("Connection lost.");
 });

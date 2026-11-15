@@ -32,6 +32,8 @@ const code = ts.transpileModule(
 ).outputText;
 const container = ({ children }) => React.createElement("div", null, children);
 const modules = {
+  "@/components/failure-text": { FailureText: ({ children, accessibilityRole }) => React.createElement("p", { role: accessibilityRole }, children) },
+  "@/components/quiet-activity": { QuietActivity: () => jsx.jsx("span", { role: "progressbar", "aria-label": "Loading" }) },
   react: React,
   "react/jsx-runtime": jsx,
   "react-native": {

@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/quiet-activity";
 import { useEffect, useState } from "react";
 import { Redirect, router } from "expo-router";
 import { Modal, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -31,17 +32,17 @@ function DestinationWorkspace(scope: { orgId: string; userId: string }) {
   const recoveryReady = attempt?.kind === "failed" || (attempt?.kind === "confirmed" && attempt.refresh === "done");
   return <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="STREAM DESTINATIONS" title="Multi-Platform" onRefresh={() => void state.refetch()}>
     <Text style={styles.text}>Select destinations for the next Go Live from the web streaming controls. Selecting one does not start a broadcast. Disconnecting a destination stops forwarding to it; your encoder keeps running.</Text>
-    {state.isPending ? <OperationsEmpty>Loading destinations…</OperationsEmpty> : null}
-    {state.isError ? <><OperationsError message={data ? "Destinations could not refresh. Last confirmed values are shown; changes are paused." : "Destinations could not load. Retry to check their configuration and provider status."} /><AppButton label="Retry destinations" variant="secondary" loading={state.isFetching} onPress={() => void state.refetch()} /></> : null}
+    {state.isPending ? <OperationsEmpty></OperationsEmpty> : null}
+    {state.isError ? <><OperationsError message={data ? "Destinations could not be updated." : "Destinations could not load. Retry to check their configuration and provider status."} /><AppButton label="Retry destinations" variant="secondary" loading={state.isFetching} onPress={() => void state.refetch()} /></> : null}
     {error ? <OperationsError message={error} /> : null}
     {attempt ? <OperationsPanel title="Destination change" detail={attempt.label}>
-      {attempt.kind === "pending" ? <Text style={styles.text}>Waiting for confirmation…</Text> : retryable ? <>
-        <OperationsError message={attempt.kind === "failed" ? attempt.message : attempt.kind === "confirmed" ? attempt.result.message ?? "This destination change is still unconfirmed." : "Waiting for confirmation…"} />
+      {attempt.kind === "pending" ? <QuietActivity /> : retryable ? <>
+        <OperationsError message={attempt.kind === "failed" ? attempt.message : attempt.kind === "confirmed" ? attempt.result.message ?? "This destination change needs attention." : "This change needs attention."} />
         <AppButton label="Retry original request" disabled={!recoveryReady} onPress={control.retry} />
         <AppButton label="Review current result" variant="secondary" disabled={!recoveryReady} onPress={control.review} />
-        <Text style={styles.detail}>Review checks the original result and cancels an unsent request. An admitted provider command stays unconfirmed until it is reconciled.</Text>
-      </> : attempt.kind === "confirmed" ? <Text style={styles.text}>{attempt.result.outcome === "applied" ? "Original change confirmed. Current destinations are shown below." : attempt.result.outcome === "conflict" ? "The destination changed before this request arrived. Review the current values before trying again." : attempt.result.outcome === "expired" ? "The request expired before it was admitted. Review the current destination before sending a new change." : attempt.result.outcome === "superseded" ? "A newer output command replaced this request. Review the current provider status before continuing." : "The request was cancelled before it was admitted. Your draft is retained."}</Text> : null}
-      {attempt.kind === "confirmed" ? attempt.refresh === "done" ? !retryable ? <AppButton label="Dismiss result" variant="secondary" onPress={control.dismiss} /> : null : attempt.refresh === "pending" ? <Text style={styles.detail}>Refreshing destinations…</Text> : <><OperationsError message={attempt.message ?? "Refresh current destinations before continuing."} /><AppButton label="Retry destination refresh" onPress={control.refresh} /></> : null}
+        <Text style={styles.detail}></Text>
+      </> : attempt.kind === "confirmed" ? <Text style={styles.text}>{attempt.result.outcome === "applied" ? "" : attempt.result.outcome === "conflict" ? "The destination changed before this request arrived. Review the current values before trying again." : attempt.result.outcome === "expired" ? "The request expired before it was admitted. Review the current destination before sending a new change." : attempt.result.outcome === "superseded" ? "A newer output command replaced this request. Review the current provider status before continuing." : "The request was cancelled before it was admitted. Your draft is retained."}</Text> : null}
+      {attempt.kind === "confirmed" ? attempt.refresh === "done" ? !retryable ? <AppButton label="Dismiss result" variant="secondary" onPress={control.dismiss} /> : null : attempt.refresh === "pending" ? <QuietActivity /> : <><OperationsError message={attempt.message ?? "Refresh current destinations before continuing."} /><AppButton label="Retry destination refresh" onPress={control.refresh} /></> : null}
     </OperationsPanel> : null}
     {draft ? <OperationsPanel title={draft.base ? "Edit destination" : "Add destination"} detail="Stream keys stay hidden. This draft stays in the current app session when you leave the screen.">
       <AppField label="Name" maxLength={200} editable={control.settled} value={draft.fields.name} onChangeText={name => control.change({ ...draft.fields, name })} />
@@ -57,11 +58,11 @@ function DestinationWorkspace(scope: { orgId: string; userId: string }) {
       <AppButton label="Discard draft" variant="secondary" disabled={!control.settled} onPress={() => setReview("discard")} />
       {control.draftCurrent ? <AppButton label="Delete destination" variant="danger" disabled={!control.canStart} onPress={() => { if (control.draftCurrent) setReview(control.prepare("delete", control.draftCurrent)); }} /> : null}
     </OperationsPanel> : data?.canManage ? <AppButton label="Add destination" disabled={!control.canStart} onPress={() => control.edit()} /> : null}
-    {data ? <OperationsPanel title="Destinations" detail={state.isError ? "Last confirmed configuration and provider status" : "Selection and provider status are shown separately."}>
+    {data ? <OperationsPanel title="Destinations" detail={state.isError ? "Destinations" : "Selection and provider status are shown separately."}>
       {data.destinations.length ? data.destinations.map(destination => <View key={destination.id} style={styles.destination}>
         <Text style={styles.title}>{destination.name}</Text><Text style={styles.detail}>{destination.platform} · {destination.hasStreamKey ? "Key stored" : "Key missing"}</Text>
         <Text style={styles.text}>{destination.selected ? "Selected for Go Live" : "Not selected"}</Text>
-        <Text style={styles.detail}>{destinationStatusLabels[destination.status]}{state.isError ? " · last confirmed" : ""}</Text>
+        <Text style={styles.detail}>{destinationStatusLabels[destination.status]}{state.isError ? "" : ""}</Text>
         {destination.error ? <OperationsError message={destination.error} /> : null}
         {destination.status === "unknown" ? <AppButton label={`Retry status for ${destination.name}`} variant="secondary" loading={state.isFetching} onPress={() => void state.refetch()} /> : null}
         {data.canManage ? <>

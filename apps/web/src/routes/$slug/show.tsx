@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
@@ -821,7 +822,7 @@ function ShowPageWithNative({
       const rundown = await getShowRundownState({ data: { orgId, serviceDate: opening.serviceDate, showId: opening.showId }, signal });
       return { serviceDate: opening.serviceDate, showId: opening.showId, rundown };
     }, [orgId, today]),
-    errorMessage: "The active show could not be confirmed. Showing the last confirmed rundown.",
+    errorMessage: "This change needs attention.",
   });
   const syncTarget = targetRead.value;
 
@@ -937,7 +938,7 @@ function ShowPageWithNative({
           <Square className="w-3.5 h-3.5 text-board-muted" />
         )}
         <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
-          {!liveRundown && "Last confirmed: "}
+          {!liveRundown && ""}
           {timer.playback === "stop"
             ? "Stopped"
             : isPlaying
@@ -1100,7 +1101,7 @@ function ShowPageWithNative({
       <ShowPageLayout
         notices={<>{crewNotice}<ReadFailureNotice {...targetRead} label="Retry show selection" />
           <ReadFailureNotice error={syncError && syncErrorAt !== null ? { message: syncError, occurredAt: syncErrorAt } : null} refreshing={false} retry={retryConnection} label="Reconnect show" />
-          {!liveRundown && <p role="status" aria-live="polite" className="px-4 py-2 text-sm text-amber-200">{syncHydrated ? "Reconnecting, showing last known rundown state." : "Connecting to the live rundown…"}</p>}
+          {!liveRundown && <p role="status" aria-live="polite" className="px-4 py-2 text-sm text-amber-200">{syncHydrated ? "" : <QuietActivity label="Loading show" />}</p>}
         </>}
         activeTab={activeTab}
         onTabChange={setActiveTab}
@@ -1111,7 +1112,7 @@ function ShowPageWithNative({
               className={`w-1.5 h-1.5 rounded-full ${!liveRundown ? "bg-amber-400" : isPlaying ? "bg-green-500 animate-pulse" : "bg-green-500"}`}
             />
             <span className="text-xs text-board-muted">
-              {!liveRundown ? syncHydrated ? "Reconnecting" : "Connecting" : isPlaying ? "Live" : "Ready"}
+              {!liveRundown ? syncHydrated ? <QuietActivity label="Reconnecting" /> : <QuietActivity label="Loading show" /> : isPlaying ? "Live" : "Ready"}
             </span>
           </div>
         }
@@ -1194,7 +1195,7 @@ function ShowPageWithOntime({
           <Square className="w-3.5 h-3.5 text-board-muted" />
         )}
         <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
-          {timerRead.error && "Last confirmed: "}
+          {timerRead.error && ""}
           {ontime.timer.playback === "stop"
             ? "Stopped"
             : ontime.timer.playback === "armed"
@@ -1330,7 +1331,7 @@ function ShowPageWithOntime({
               <WifiOff className="w-3.5 h-3.5 text-red-400" />
             )}
             <span className="text-xs text-board-muted">
-              {timerRead.error ? "Reconnecting" : isPlaying ? "Live" : "Ready"}
+              {timerRead.error ? <QuietActivity label="Reconnecting" /> : isPlaying ? "Live" : "Ready"}
             </span>
           </div>
         }

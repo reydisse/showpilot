@@ -88,15 +88,15 @@ it("never claims a default before a confirmed read and ignores a late initial re
   expect(
     screen.getByRole("button", { name: "Alert timezone needs attention" }),
   ).toBeTruthy();
-  expect(document.querySelector("[role=alert] time")).toBeTruthy();
+  expect(document.querySelector("[role=alert] time")).toBeFalsy();
   expect(api.read.mock.calls[0][0].signal.aborted).toBe(true);
   held.resolve({ timeZone: otherZone, revision: 7 });
   await tick();
-  expect(screen.queryByText(/Last confirmed timezone/)).toBeNull();
+  expect(screen.queryByText("Timezone:")).toBeNull();
   expect(api.save).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Retry timezone check" }));
   await tick();
-  expect(screen.getByText(/Last confirmed timezone/).textContent).toContain(
+  expect(screen.getByText(/Timezone:/).textContent).toContain(
     deviceZone,
   );
   expect(screen.queryByRole("alert")).toBeNull();
@@ -160,8 +160,8 @@ it("retains an uncertain command across closing and scope changes, then retries 
   await tick();
   expect(commandAt(1)).toEqual(original);
   expect(api.save).toHaveBeenCalledTimes(2);
-  expect(screen.getByText(/A newer timezone is in effect/)).toBeTruthy();
-  expect(screen.getByText(/Last confirmed timezone/).textContent).toContain(
+  expect(screen.getByText("Your timezone was changed elsewhere.")).toBeTruthy();
+  expect(screen.getByText(/Timezone:/).textContent).toContain(
     otherZone,
   );
   api.read.mockResolvedValue({ timeZone: deviceZone, revision: 7 });
@@ -197,7 +197,7 @@ it("retries only the read when refresh fails after a confirmed save", async () =
   expect(
     screen.queryByRole("button", { name: "Retry timezone save" }),
   ).toBeNull();
-  expect(screen.getByText(/Last confirmed timezone/).textContent).toContain(
+  expect(screen.getByText(/Timezone:/).textContent).toContain(
     deviceZone,
   );
   api.read.mockResolvedValue({ timeZone: deviceZone, revision: 2 });

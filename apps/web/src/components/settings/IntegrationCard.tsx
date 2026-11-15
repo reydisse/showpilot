@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { useState } from "react";
 import {
   CheckCircle,
@@ -144,7 +145,7 @@ export function IntegrationCard({
           {/* Test error message */}
           {testError && (
             <div className="mb-2 px-2.5 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20">
-              <p className="text-[11px] text-red-300 break-all">{testError}</p>
+              <p className="text-[11px] text-red-300 break-all">{plainFailure(testError)}</p>
             </div>
           )}
 

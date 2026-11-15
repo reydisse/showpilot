@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { AppButton } from "./app-button";
@@ -52,21 +54,19 @@ export function RundownItemRecovery({
         rundown.
       </Text>
       {!canEdit ? (
-        <Text accessibilityRole="alert" style={error}>
+        <FailureText accessibilityRole="alert" style={error}>
           Reconnect with editing access before submitting or retrying. Your
           draft is retained.
-        </Text>
+        </FailureText>
       ) : null}
       {attempt?.kind === "pending" ? (
-        <Text accessibilityLiveRegion="polite" style={text}>
-          Confirming {attempt.label.toLowerCase()}…
-        </Text>
+        <QuietActivity />
       ) : null}
       {attempt?.kind === "failed" ? (
         <>
-          <Text accessibilityRole="alert" style={error}>
+          <FailureText accessibilityRole="alert" style={error}>
             {attempt.message}
-          </Text>
+          </FailureText>
           <AppButton
             label="Retry original item edit"
             disabled={!canEdit}
@@ -85,14 +85,14 @@ export function RundownItemRecovery({
           </Text>
           {attempt.refresh !== "done" ? (
             <>
-              <Text
+              <FailureText
                 accessibilityRole={
                   attempt.refresh === "failed" ? "alert" : undefined
                 }
                 style={text}
               >
-                {attempt.message ?? "Refreshing the rundown…"}
-              </Text>
+                {attempt.message ?? ""}
+              </FailureText>
               <AppButton
                 label="Refresh item edit result"
                 disabled={!canEdit || attempt.refresh === "pending"}
@@ -110,10 +110,10 @@ export function RundownItemRecovery({
       {settled && (changed || attempt) ? (
         <>
           {missing ? (
-            <Text accessibilityRole="alert" style={error}>
+            <FailureText accessibilityRole="alert" style={error}>
               This item was removed. Your draft remains available to read or
               copy.
-            </Text>
+            </FailureText>
           ) : (
             <>
               <Text style={text}>
@@ -121,9 +121,7 @@ export function RundownItemRecovery({
                 retained fields. Reviewing does not send an edit.
               </Text>
               {!snapshotReady ? (
-                <Text style={text}>
-                  Waiting for the live rundown to reach the confirmed revision.
-                </Text>
+                <QuietActivity />
               ) : null}
               <AppButton
                 label="Review current rundown for item"
@@ -178,9 +176,9 @@ export function RundownItemRecovery({
           </Text>
           {review.revision !== revision ||
           review.serviceDate !== serviceDate ? (
-            <Text accessibilityRole="alert" style={error}>
+            <FailureText accessibilityRole="alert" style={error}>
               The rundown changed again. Review it again before continuing.
-            </Text>
+            </FailureText>
           ) : null}
           <AppButton
             label="Keep previous review"

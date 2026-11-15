@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { useState } from "react";
 import { Modal, ScrollView, Text, View } from "react-native";
 import { AppButton } from "./app-button";
@@ -64,19 +65,19 @@ export function RundownResetConfirmation({
               in place. This cannot be undone.
             </Text>
             {playing ? (
-              <Text
+              <FailureText
                 accessibilityRole="alert"
                 style={{ ...text, color: colors.red }}
               >
                 Pause or stop the show before resetting timing.
-              </Text>
+              </FailureText>
             ) : null}
             {changed ? (
               <>
-                <Text accessibilityRole="alert" style={text}>
+                <FailureText accessibilityRole="alert" style={text}>
                   The rundown changed. Review its current timing before
                   resetting.
-                </Text>
+                </FailureText>
                 <AppButton
                   label="Review current timing"
                   variant="secondary"
@@ -86,10 +87,10 @@ export function RundownResetConfirmation({
               </>
             ) : null}
             {!active ? (
-              <Text accessibilityRole="alert" style={text}>
+              <FailureText accessibilityRole="alert" style={text}>
                 Reconnect with rundown control access and resolve any previous
                 rundown action first.
-              </Text>
+              </FailureText>
             ) : null}
             <AppButton
               label="Keep timing"

@@ -77,7 +77,7 @@ it("bounds an unanswered read rather than hiding it indefinitely", async () => {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(8_001);
   });
-  expect(screen.getByRole("alert").textContent).toContain("Last failed read");
+  expect(screen.getByRole("alert").textContent).not.toContain("Last failed read");
   expect(api.read.mock.calls[0][0].signal.aborted).toBe(true);
 });
 
@@ -92,7 +92,7 @@ it("does not dismiss on failure and retains the exact retry across remount", asy
     fireEvent.click(screen.getByRole("button", { name: "Dismiss checklist" })),
   );
   await flush();
-  expect(screen.getByRole("alert").textContent).toContain("not confirmed");
+  expect(screen.getByRole("alert").textContent).toContain("Your checklist change needs attention.");
   const original = api.write.mock.calls[0][0].data;
   view!.unmount();
   await act(async () => {

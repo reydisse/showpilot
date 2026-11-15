@@ -18,7 +18,7 @@ it("shows a timestamped list error, never an empty state, and reloads on retry",
   vi.mocked(listRundownDates).mockRejectedValueOnce(new Error("offline"));
   render(<LoadRundownModal {...props()} />);
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("Could not load rundowns"));
-  expect(screen.getByRole("alert").querySelector("time")?.dateTime).toBeTruthy();
+  expect(screen.getByRole("alert").querySelector("time")?.dateTime).toBeFalsy();
   expect(screen.queryByText("No previous rundowns found")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Retry list" }));
   expect(await screen.findByRole("button", { name: /Earlier show/ })).toBeTruthy();
@@ -42,7 +42,7 @@ it("explains a template removed since listing instead of silently doing nothing"
   const input = props(); render(<LoadRundownModal {...input} />);
   fireEvent.click(screen.getByRole("button", { name: "Saved Templates" }));
   fireEvent.click(await screen.findByRole("button", { name: /^Sunday template/ }));
-  expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("refresh the list"));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("Could not read the selected rundown."));
   expect(input.onLoad).not.toHaveBeenCalled();
 });
 
@@ -100,7 +100,7 @@ it("requires replacement confirmation and rejects a stale revision or a newly ru
 it("shows an uncertain apply failure without offering an unsafe duplicate retry", async () => {
   const input = props(); input.onLoad.mockRejectedValueOnce(new Error("write failed"));
   render(<LoadRundownModal {...input} />); await selectDate();
-  expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("Could not confirm"));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("This action needs attention."));
   expect(screen.queryByRole("button", { name: "Retry load" })).toBeNull();
   expect(screen.getByRole("button", { name: "Refresh list" })).toHaveProperty("disabled", true);
   expect(screen.getByRole("button", { name: /Earlier show/ })).toHaveProperty("disabled", true);

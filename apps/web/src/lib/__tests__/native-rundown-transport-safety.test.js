@@ -39,6 +39,8 @@ const authenticate = vi.fn(async () => {
   return socket;
 });
 const modules = {
+  "@/components/quiet-activity": { QuietActivity: () => jsx.jsx("span", { role: "progressbar", "aria-label": "Loading" }) },
+  "@/components/failure-text": { FailureText: ({ children, accessibilityRole }) => React.createElement("p", { role: accessibilityRole }, children) },
   react: React,
   "react-native": { AppState: appState },
   "@/lib/auth-transport": { createAuthenticatedWebSocket: authenticate },

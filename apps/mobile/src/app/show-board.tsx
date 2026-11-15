@@ -197,7 +197,7 @@ export default function ShowBoardScreen() {
         keyExtractor={(member) => member.id}
         ListEmptyComponent={
           !query.isPending && !query.error ? (
-            <View style={styles.emptyCard}><UsersRound color={colors.textFaint} size={34} /><Text style={styles.emptyTitle}>No crew members yet</Text><Text style={styles.emptyCopy}>Add your crew and they will appear here automatically as they check in.</Text><AppButton label="Open crew roster" onPress={() => router.push("/team-crew")} /><View style={styles.emptySpacer}><UserPlus color={colors.amberText} size={16} /><Text style={styles.emptyHint}>Names, roles, photos, and live status stay synchronized.</Text></View></View>
+            <View style={styles.emptyCard}><UsersRound color={colors.textFaint} size={34} /><Text style={styles.emptyTitle}>No crew members yet</Text><Text style={styles.emptyCopy}>Add your crew and they will appear here automatically as they check in.</Text><AppButton label="Open crew roster" onPress={() => router.push("/team-crew")} /><View style={styles.emptySpacer}><UserPlus color={colors.amberText} size={16} /><Text style={styles.emptyHint}>Names, roles, photos, and attendance.</Text></View></View>
           ) : null
         }
         ListHeaderComponent={header}

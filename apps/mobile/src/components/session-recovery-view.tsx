@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import WifiOff from "lucide-react-native/icons/wifi-off";
 import { StyleSheet, Text, View } from "react-native";
 import { AppButton } from "@/components/app-button";
@@ -5,7 +6,7 @@ import { BrandMark } from "@/components/brand-mark";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
 
 export function SessionRecoveryView({
-  error,
+  error: _error,
   retrying,
   onRetry,
 }: {
@@ -21,8 +22,8 @@ export function SessionRecoveryView({
         <BrandMark size={58} />
         <View style={styles.icon}><WifiOff color={colors.amberText} size={22} /></View>
         <Text style={styles.title}>Connection interrupted</Text>
-        <Text style={styles.copy}>ShowPilot could not verify your session. Your sign-in is still stored safely on this device.</Text>
-        {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+
+        <FailureText accessibilityRole="alert" style={styles.error}>ShowPilot could not be opened.</FailureText>
         <AppButton label="Try again" loading={retrying} onPress={onRetry} />
       </View>
     </View>

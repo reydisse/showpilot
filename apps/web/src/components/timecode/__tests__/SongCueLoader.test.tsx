@@ -44,7 +44,7 @@ it("keeps the selection after a failed save and disables loads when the clock st
   const { rerender } = render(<SongCueLoader {...props} connected running={false} />);
   await select();
   fireEvent.click(screen.getByRole("button", { name: "Load 1 mapped cues" }));
-  await screen.findByText("Relay did not confirm");
+  await screen.findByText("This action needs attention.");
   expect(close).not.toHaveBeenCalled();
   expect(screen.getByLabelText("Song")).toHaveProperty("value", "song-1");
   rerender(<SongCueLoader {...props} connected running />);

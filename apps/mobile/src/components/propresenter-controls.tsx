@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { AppButton } from "./app-button";
@@ -70,15 +72,15 @@ export function ProPresenterControls({
         </View>
       ) : null}
       {!ready ? (
-        <Text accessibilityRole="alert" style={{ color: colors.amberText }}>
+        <FailureText accessibilityRole="alert" style={{ color: colors.amberText }}>
           Slide controls are unavailable until live sync and the Bridge are
           ready.
-        </Text>
+        </FailureText>
       ) : null}
       {attempt ? (
         <View accessibilityLiveRegion="polite" style={{ gap: 8 }}>
           <Text style={{ color: colors.text }}>{attempt.label}</Text>
-          <Text
+          {attempt.kind === "pending" ? <QuietActivity /> : <FailureText
             accessibilityRole={
               attempt.kind === "failed" || result?.status === "uncertain"
                 ? "alert"
@@ -86,12 +88,10 @@ export function ProPresenterControls({
             }
             style={{ color: colors.textMuted }}
           >
-            {attempt.kind === "pending"
-              ? "Waiting for confirmation…"
-              : attempt.kind === "failed"
+            {attempt.kind === "failed"
                 ? attempt.message
                 : attempt.result.message}
-          </Text>
+          </FailureText>}
           {attempt.kind === "failed" ||
           (result &&
             result.status !== "confirmed" &&
@@ -106,9 +106,7 @@ export function ProPresenterControls({
           {result &&
           (result.status === "uncertain" || result.status === "rejected") ? (
             <>
-              <Text style={{ color: colors.textMuted }}>
-                Checking status does not send another slide command.
-              </Text>
+              <QuietActivity />
               <AppButton
                 label="I checked the output"
                 variant="secondary"

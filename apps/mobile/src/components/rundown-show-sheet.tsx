@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { useEffect, useState } from "react";
 import {
   Modal,
@@ -115,14 +117,12 @@ export function RundownShowSheet(props: {
             signed in. Saved details synchronize with connected operators.
           </Text>
           {state.error ? (
-            <Text accessibilityRole="alert" style={styles.error}>
+            <FailureText accessibilityRole="alert" style={styles.error}>
               {state.error}
-            </Text>
+            </FailureText>
           ) : null}
           {state.reading ? (
-            <Text accessibilityLiveRegion="polite" style={styles.hint}>
-              Loading current rundown details…
-            </Text>
+            <QuietActivity />
           ) : null}
           {!draft && !state.reading ? (
             <AppButton
@@ -195,17 +195,15 @@ export function RundownShowSheet(props: {
             </>
           ) : null}
           {attempt?.kind === "pending" ? (
-            <Text accessibilityLiveRegion="polite" style={styles.hint}>
-              Confirming the original details save…
-            </Text>
+            <QuietActivity />
           ) : null}
           {attempt?.kind === "failed" ? (
             <>
-              <Text accessibilityRole="alert" style={styles.error}>
+              <FailureText accessibilityRole="alert" style={styles.error}>
                 {attempt.message} The save may already have applied. Retry sends
                 the same request; Review checks it or cancels it before a
                 delayed save can apply.
-              </Text>
+              </FailureText>
               <AppButton
                 label="Retry original details save"
                 disabled={!active}
@@ -225,14 +223,14 @@ export function RundownShowSheet(props: {
                 {outcomeText[outcome]}
               </Text>
               {attempt.refresh === "pending" ? (
-                <Text style={styles.hint}>Refreshing the show…</Text>
+                <QuietActivity />
               ) : null}
               {attempt.refresh === "idle" || attempt.refresh === "failed" ? (
                 <>
-                  <Text accessibilityRole="alert" style={styles.error}>
+                  <FailureText accessibilityRole="alert" style={styles.error}>
                     {attempt.message ?? "Refresh the show to finish."} The
                     result above is confirmed.
-                  </Text>
+                  </FailureText>
                   <AppButton
                     label="Refresh show only"
                     disabled={!active}

@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import type { ReactNode } from "react";
 import { useShowDetails, type ShowDetailsDraft } from "@/hooks/useShowDetails";
 import { formatTimeInput } from "@/lib/utils";
@@ -112,7 +114,7 @@ export function ShowDetailsEditor({
         {attempt?.kind === "saving" || attempt?.kind === "reviewing" ? (
           <p role="status" className="text-sm leading-5">
             {attempt.kind === "saving"
-              ? "Saving show details…"
+              ? <QuietActivity label="Saving show details…" />
               : "Reviewing the original save…"}{" "}
             You can close this form and return.
           </p>
@@ -120,7 +122,7 @@ export function ShowDetailsEditor({
         {attempt?.kind === "unconfirmed" ? (
           <div className="space-y-3">
             <p role="alert" className="text-sm leading-5 text-red-300">
-              {attempt.message} Your draft and original save are retained.
+              {plainFailure((attempt.message) ?? "")}
             </p>
             <div className="flex flex-wrap gap-2">
               <button
@@ -186,9 +188,7 @@ export function ShowDetailsEditor({
             ) : null}
             {settled.message ? (
               <p role="alert" className="text-sm text-red-300">
-                {settled.message} The save is confirmed; refreshing will not
-                save again.
-              </p>
+                {plainFailure((settled.message) ?? "")} </p>
             ) : null}
             {snapshot ? (
               <div className="flex flex-wrap gap-2">
@@ -199,9 +199,11 @@ export function ShowDetailsEditor({
                     className={buttonClass}
                     disabled={disabled || settled.refresh === "pending"}
                     onClick={() => void work.refreshSaved()}
-                  >
-                    {settled.refresh === "pending"
+                   aria-label={settled.refresh === "pending"
                       ? "Refreshing…"
+                      : "Refresh show"}>
+                    {settled.refresh === "pending"
+                      ? <QuietActivity label="Refreshing…" />
                       : "Refresh show"}
                   </button>
                 ) : null}

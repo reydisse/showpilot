@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/quiet-activity";
 import { useEffect, useState } from "react";
 import { Redirect } from "expo-router";
 import { Modal, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -40,18 +41,18 @@ function GraphicsWorkspace(scope: { orgId: string; userId: string }) {
     : review?.operation.kind === "delete" ? "Delete this graphic?" : "Change this live graphic?";
   const changed = review !== null && review !== "discard" && !control.matches(review);
   return <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="ON-AIR GRAPHICS" title="Lower Thirds" refreshing={state.isFetching} onRefresh={() => void state.refetch()}>
-    {state.isPending ? <OperationsEmpty>Loading graphics…</OperationsEmpty> : null}
-    {state.isError ? <><OperationsError message={data ? "Graphics could not refresh. Last confirmed state is shown; live controls are paused." : "Graphics could not load. Retry to check the library and live output."} /><AppButton label="Retry graphics" variant="secondary" loading={state.isFetching} onPress={() => void state.refetch()} /></> : null}
+    {state.isPending ? <OperationsEmpty></OperationsEmpty> : null}
+    {state.isError ? <><OperationsError message={data ? "Graphics could not be updated." : "Graphics could not load. Retry to check the library and live output."} /><AppButton label="Retry graphics" variant="secondary" loading={state.isFetching} onPress={() => void state.refetch()} /></> : null}
     {error ? <OperationsError message={error} /> : null}
     {data && !data.cloudEnabled ? <OperationsError message="Cloud graphics are disabled for this organization. Enable them in organization settings before going live." /> : null}
     {data?.unknownProgram ? <OperationsError message="Current program graphics could not be fully identified. Refresh, or review Clear program graphics to take them off air." /> : null}
     {attempt ? <OperationsPanel title="Graphics change" detail={attempt.label}>
-      {attempt.kind === "pending" ? <Text style={styles.text}>Waiting for confirmation…</Text> : attempt.kind === "failed" ? <>
+      {attempt.kind === "pending" ? <QuietActivity /> : attempt.kind === "failed" ? <>
         <OperationsError message={attempt.message} /><AppButton label="Retry original request" onPress={control.retry} /><AppButton label="Review current graphics" variant="secondary" onPress={control.review} />
         <Text style={styles.detail}>Review checks the original result and cancels it if it has not arrived. Your draft stays here.</Text>
       </> : <>
-        <Text style={styles.text}>{attempt.result.outcome === "applied" ? "Original change confirmed. Current graphics are shown below." : attempt.result.outcome === "conflict" ? "Graphics changed before this request arrived. Review the current state before trying again." : attempt.result.outcome === "expired" ? "The output request expired before it arrived. Review the current state before sending a new change." : "The request was cancelled before it arrived. Your draft is retained."}</Text>
-        {attempt.refresh === "done" ? <AppButton label="Dismiss result" variant="secondary" onPress={control.dismiss} /> : attempt.refresh === "pending" ? <Text style={styles.detail}>Refreshing current graphics…</Text> : <><OperationsError message={attempt.message ?? "Refresh current graphics before continuing."} /><AppButton label="Retry graphics refresh" onPress={control.refresh} /></>}
+        <Text style={styles.text}>{attempt.result.outcome === "applied" ? "" : attempt.result.outcome === "conflict" ? "Graphics changed before this request arrived. Review the current state before trying again." : attempt.result.outcome === "expired" ? "The output request expired before it arrived. Review the current state before sending a new change." : "The request was cancelled before it arrived. Your draft is retained."}</Text>
+        {attempt.refresh === "done" ? <AppButton label="Dismiss result" variant="secondary" onPress={control.dismiss} /> : attempt.refresh === "pending" ? <QuietActivity /> : <><OperationsError message={attempt.message ?? "Refresh current graphics before continuing."} /><AppButton label="Retry graphics refresh" onPress={control.refresh} /></>}
       </>}
     </OperationsPanel> : null}
     {draft ? <OperationsPanel title={draft.base ? "Edit lower third" : "Create lower third"} detail="Your draft stays here when you leave this screen.">
@@ -63,11 +64,11 @@ function GraphicsWorkspace(scope: { orgId: string; userId: string }) {
       <AppButton label="Discard draft" variant="secondary" disabled={!control.settled} onPress={() => setReview("discard")} />
       {control.draftCurrent ? <AppButton label="Delete template" variant="danger" disabled={!control.canStart || !data?.canConfigure} onPress={() => setReview(control.prepare("delete", control.draftCurrent ?? undefined))} /> : null}
     </OperationsPanel> : data?.canConfigure ? <AppButton label="Add graphic" disabled={!control.canStart} onPress={() => control.edit()} /> : null}
-    {data ? <OperationsPanel title="Graphics library" detail={data.unknownProgram ? "Program state needs review" : `${data.activeIds.length} live${state.isError ? " · last confirmed" : ""}`}>
+    {data ? <OperationsPanel title="Graphics library" detail={data.unknownProgram ? "Program state needs review" : `${data.activeIds.length} live${state.isError ? "" : ""}`}>
       {data.canTrigger && (data.activeIds.length > 0 || data.unknownProgram) ? <AppButton label="Clear program graphics" variant="danger" disabled={!control.canStart} onPress={() => setReview(control.prepare("clear"))} /> : null}
       {data.templates.length ? data.templates.map(graphic => <View key={graphic.id} style={styles.graphic}>
         <Text style={styles.title}>{graphic.title}</Text><Text style={styles.detail}>{graphic.name}{graphic.subtitle ? ` · ${graphic.subtitle}` : ""}</Text>
-        <Text style={styles.status}>{data.unknownProgram ? "State unknown" : data.activeIds.includes(graphic.id) ? "Live" : "Ready"}{state.isError ? " · last confirmed" : ""}</Text>
+        <Text style={styles.status}>{data.unknownProgram ? "State unknown" : data.activeIds.includes(graphic.id) ? "Live" : "Ready"}{state.isError ? "" : ""}</Text>
         {data.canConfigure ? <AppButton label={`Edit ${graphic.name}`} variant="secondary" disabled={!control.canStart || !!draft} onPress={() => control.edit(graphic)} /> : null}
         {data.canTrigger ? <AppButton label={data.activeIds.includes(graphic.id) ? "Take off air" : "Take live"} variant={data.activeIds.includes(graphic.id) ? "danger" : "primary"} disabled={!control.canStart || data.unknownProgram} onPress={() => setReview(control.prepare(data.activeIds.includes(graphic.id) ? "hide" : "show", graphic))} /> : null}
       </View>) : <OperationsEmpty>No lower-third templates are available.</OperationsEmpty>}

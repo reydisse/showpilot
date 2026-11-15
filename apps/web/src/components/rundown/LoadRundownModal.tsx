@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useRef, useState } from "react";
 import { Calendar, FileText, FolderOpen, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -66,7 +68,7 @@ function LoadRundownSession({ orgId, timeZone, currentItemCount, playing, revisi
     const request = ++attempt.current;
     setOperation({ kind: "applying", selection });
     try {
-      await withOperationTimeout(Promise.resolve().then(() => { if (alive.current && request === attempt.current) return latest.current.onLoad(loaded); }), READ_TIMEOUT_MS, "Rundown application was not confirmed");
+      await withOperationTimeout(Promise.resolve().then(() => { if (alive.current && request === attempt.current) return latest.current.onLoad(loaded); }), READ_TIMEOUT_MS, "This change needs attention.");
       if (alive.current && request === attempt.current) setOperation({ kind: "idle" });
     } catch {
       if (alive.current && request === attempt.current) setOperation({ kind: "error", selection, canRetry: false, occurredAt: Date.now(),
@@ -102,7 +104,7 @@ function LoadRundownSession({ orgId, timeZone, currentItemCount, playing, revisi
     if (alive.current) setList(previous => previous.kind === "ready" ? { ...previous, saved: previous.saved.filter(item => item.id !== id) } : previous);
   }
   const dateLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString("en-CA", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-  const errorTime = (occurredAt: number) => <time dateTime={new Date(occurredAt).toISOString()} className="whitespace-nowrap">{new Date(occurredAt).toLocaleTimeString()}</time>;
+  const errorTime = (_occurredAt: number) => null;
   const reviewChanged = operation.kind === "review" && operation.revision !== revision;
 
   return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
@@ -118,12 +120,12 @@ function LoadRundownSession({ orgId, timeZone, currentItemCount, playing, revisi
       </div>
       <div className="space-y-3 px-6 pb-5">
         {operation.kind === "error" && <div role="alert" className="space-y-2 rounded-xl border border-red-400/40 p-3 text-sm text-red-300">
-          <p>{operation.message} {errorTime(operation.occurredAt)}</p>
+          <p>{plainFailure((operation.message) ?? "")} {errorTime(operation.occurredAt)}</p>
           {operation.canRetry ? <Button variant="outline" onClick={() => void load(operation.selection)}>Retry load</Button> : <Button variant="outline" onClick={onClose}>Review current rundown</Button>}
         </div>}
         {operation.kind === "reading" && <p role="status" className="text-sm text-board-muted">Reading rundown…</p>}
-        {operation.kind === "applying" && <p role="status" className="text-sm text-board-muted">Applying rundown…</p>}
-        {list.kind === "loading" ? <p role="status" className="py-8 text-sm text-board-muted">Loading rundowns…</p> : list.kind === "error" ? <div role="alert" className="space-y-2 rounded-xl border border-red-400/40 p-3 text-sm text-red-300">
+        {operation.kind === "applying" && <QuietActivity />}
+        {list.kind === "loading" ? <QuietActivity label="Loading rundowns…" /> : list.kind === "error" ? <div role="alert" className="space-y-2 rounded-xl border border-red-400/40 p-3 text-sm text-red-300">
           <p>Could not load rundowns. Check your connection and retry. {errorTime(list.occurredAt)}</p>
           <Button variant="outline" onClick={() => setRefresh(value => value + 1)}>Retry list</Button>
         </div> : tab === "dates" ? list.dates.length === 0 ? <p className="py-8 text-sm text-board-muted">No previous rundowns found</p> : list.dates.map(date => <Button key={date.showId} variant="ghost" disabled={busy || (operation.kind === "error" && !operation.canRetry)}

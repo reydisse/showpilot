@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState } from "react";
 import {
   useDutyRoster,
@@ -177,9 +178,7 @@ export function KioskDutyRoster({
       </div>
       <DutyRosterFeedback roster={roster} />
       {!snapshot && !roster.read.isError ? (
-        <p role="status" className="text-sm text-board-muted">
-          Loading roster week…
-        </p>
+        <QuietActivity label="Loading roster week…" />
       ) : null}
       {snapshot && draft ? (
         <>

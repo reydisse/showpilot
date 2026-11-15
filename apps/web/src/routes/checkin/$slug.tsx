@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { createFileRoute, useBlocker } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, KeyRound, LoaderCircle } from "lucide-react";
@@ -86,7 +88,7 @@ export function CheckInKiosk({ slug, orgName }: { slug: string; orgName: string 
     setState({ kind: "write", attempt });
     void run(async signal => {
       const result = await publicCheckInByMemberId({ data: attempt, signal });
-      if (result.requestId !== attempt.requestId || (result.outcome !== "applied" && result.outcome !== "conflict")) throw new Error("Attendance was not confirmed. Retry the same change.");
+      if (result.requestId !== attempt.requestId || (result.outcome !== "applied" && result.outcome !== "conflict")) throw new Error("This change needs attention.");
       return result;
     }, result => setState({ kind: "done", attempt, result }), failure => setState({ kind: "write-error", attempt, failure }));
   }
@@ -111,7 +113,7 @@ export function CheckInKiosk({ slug, orgName }: { slug: string; orgName: string 
         <button type="submit" disabled={!code.trim()} className={`${buttonClass} w-full bg-fire-500 text-white`}>Find my name</button>
         <p className="text-xs text-board-muted">Shared station: your identity is cleared when you finish. Enter your own ID each time.</p>
       </form>}
-      {(state.kind === "lookup" || state.kind === "write") && <p role="status" className="flex items-center gap-3"><LoaderCircle className="size-5 animate-spin" aria-hidden="true" />{state.kind === "lookup" ? "Finding your name…" : "Confirming attendance…"}</p>}
+      {(state.kind === "lookup" || state.kind === "write") && <p role="status" className="flex items-center gap-3"><LoaderCircle className="size-5 animate-spin" aria-hidden="true" />{state.kind === "lookup" ? "Finding your name…" : <QuietActivity label="Confirming attendance…" />}</p>}
       {state.kind === "lookup" && <button className={buttonClass} onClick={reset}>Cancel lookup</button>}
       {state.kind === "confirm" && <section aria-label="Confirm your identity" className="space-y-4 rounded-2xl border border-board-border bg-board-card p-5">
         {state.member.photoUrl && <img src={state.member.photoUrl} alt="" className="size-20 rounded-full object-cover" />}
@@ -124,10 +126,10 @@ export function CheckInKiosk({ slug, orgName }: { slug: string; orgName: string 
         <button className={`${buttonClass} w-full`} onClick={reset}>Not me · use another ID</button>
       </section>}
       {failure && <section role="alert" className="space-y-4 rounded-xl border border-red-400/30 bg-red-500/5 p-4">
-        <h2 className="text-lg font-medium">{state.kind === "write-error" ? "Attendance not confirmed" : "Could not find your name"}</h2>
-        <p className="break-words">{failure.message}</p>
+        <h2 className="text-lg font-medium">{state.kind === "write-error" ? "Attendance needs attention" : "Could not find your name"}</h2>
+        <p className="break-words">{plainFailure(failure.message)}</p>
         {state.kind === "write-error" && <p className="text-sm text-board-muted">The change may have arrived. Retry checks the same request without changing a later attendance update.</p>}
-        <p className="text-xs text-board-muted">Last error <time dateTime={new Date(failure.occurredAt).toISOString()}>{new Date(failure.occurredAt).toLocaleTimeString()}</time></p>
+
         <button className={buttonClass} onClick={() => { if (state.kind === "lookup-error") lookup(state.memberId); else if (state.kind === "write-error") write(state.attempt); }}>{state.kind === "write-error" ? "Retry attendance" : "Retry lookup"}</button>
         <button className={`${buttonClass} ml-2`} onClick={() => void startOver()}>Start over</button>
       </section>}

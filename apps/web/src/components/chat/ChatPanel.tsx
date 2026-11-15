@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { composerFields } from "@showpilot/shared/chat-composer";
 import type { WebChatComposer } from "@/lib/chat-composer";
 import type { WebChatAttachmentDraft } from "@/lib/chat-attachment-draft";
@@ -65,11 +67,8 @@ const MESSAGE_TYPES: { value: ComposedMessageType; label: string; icon: React.Re
 const MESSAGE_REACTIONS = QUICK_REACTION_EMOJIS;
 
 function ExternalDeliveryStatus({ delivery, alignRight = false }: { delivery: ChatMessage["externalDelivery"]; alignRight?: boolean }) {
-  if (!delivery) return null;
-  return <p role={delivery.status === "failed" ? "alert" : "status"} className={cn("mt-1 px-2 text-xs", alignRight && "text-right", delivery.status === "failed" ? "text-red-300" : "text-board-muted")}>
-    {delivery.status === "failed" ? `Not delivered to ${delivery.platform}: ${delivery.error ?? "gateway unavailable"}`
-      : delivery.status === "pending" ? `Sending to ${delivery.platform}…` : `Delivered to ${delivery.platform}`}
-  </p>;
+  if (!delivery || delivery.status !== "failed") return null;
+  return <p role="alert" className={cn("mt-1 px-2 text-xs text-red-300", alignRight && "text-right")}>Your message could not reach {delivery.platform}.</p>;
 }
 
 function MessageTypeSelector({
@@ -110,7 +109,7 @@ function MessageTypeSelector({
 function ConnectionDot({ status }: { status: ConnectionStatus }) {
   return (
     <span
-      title={`Chat: ${connectionLabel[status]}`}
+      aria-label={`Chat: ${connectionLabel[status]}`}
       className={cn(
         "w-2 h-2 rounded-full shrink-0 transition-colors",
         status === "connected" && "bg-green-500",
@@ -351,7 +350,7 @@ function ChatMessageRow({
           {isSeen ? <span className="font-medium text-sky-300/75">· Seen</span> : null}
         </div>
         <ExternalDeliveryStatus delivery={message.externalDelivery} alignRight={isOwn} />
-        {message.delivery ? <div role={message.delivery === "failed" ? "alert" : "status"} className={cn("mt-1 flex flex-wrap items-center gap-2 px-2 text-xs", isOwn && "justify-end", message.delivery === "failed" ? "text-red-300" : "text-board-muted")}><span>{message.delivery === "waiting" ? "Waiting for connection" : message.delivery === "sending" ? "Sending…" : message.deliveryError ?? "Not sent"}</span>{message.delivery === "failed" && onRetryQueued ? <button type="button" onClick={() => onRetryQueued(message.id)} className="min-h-11 rounded-lg border border-board-border px-3 font-semibold text-fire-300 hover:underline">Retry send</button> : null}{onCancelQueued ? <button type="button" onClick={() => onCancelQueued(message.id)} className="min-h-11 rounded-lg border border-board-border px-3 hover:text-board-text hover:underline">Remove local copy</button> : null}</div> : null}
+        {message.delivery ? <div role={message.delivery === "failed" ? "alert" : "status"} className={cn("mt-1 flex flex-wrap items-center gap-2 px-2 text-xs", isOwn && "justify-end", message.delivery === "failed" ? "text-red-300" : "text-board-muted")}><span>{message.delivery === "waiting" ? <QuietActivity label="Waiting for connection" /> : message.delivery === "sending" ? <QuietActivity label="Sending…" /> : plainFailure(message.deliveryError ?? "Message could not be sent.")}</span>{message.delivery === "failed" && onRetryQueued ? <button type="button" onClick={() => onRetryQueued(message.id)} className="min-h-11 rounded-lg border border-board-border px-3 font-semibold text-fire-300 hover:underline">Retry send</button> : null}{onCancelQueued ? <button type="button" onClick={() => onCancelQueued(message.id)} className="min-h-11 rounded-lg border border-board-border px-3 hover:text-board-text hover:underline">Remove local copy</button> : null}</div> : null}
         {!message.deletedAt && !message.delivery && <div className={cn(
           "relative z-10 mt-1 flex max-w-full shrink-0 self-start rounded-md border border-board-border bg-board-card text-board-muted shadow-sm",
           isOwn && "self-end",
@@ -469,7 +468,7 @@ export function ChatPanel({
   focusedMessageId,
   gatewayStatus,
   hydrated = true,
-  connectionUpdatedAt,
+  connectionUpdatedAt: _connectionUpdatedAt,
   onReconnect,
   onReadThrough,
   hasOlderMessages = false,
@@ -497,11 +496,11 @@ export function ChatPanel({
   const blockedMessages = new Set(mutations.filter(item => item.state !== "settled" || item.result.cleanup !== "complete").map(item => item.command.messageId));
   const voteSafely: NonNullable<ChatPanelProps["onVotePoll"]> = async (...args) => {
     try { await onVotePoll?.(...args); setMessageActionError(null); }
-    catch (error) { setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "Vote was not confirmed. Recover the original change."); }
+    catch (error) { setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "This change needs attention."); }
   };
   const reactSafely: NonNullable<ChatPanelProps["onSetReaction"]> = async (...args) => {
     try { await onSetReaction?.(...args); setMessageActionError(null); }
-    catch (error) { setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "Reaction was not confirmed. Recover the original change."); }
+    catch (error) { setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "This change needs attention."); }
   };
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -936,17 +935,14 @@ export function ChatPanel({
         className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto py-2 modern-scrollbar"
       >
         <div ref={messagesContentRef}>
-          {connectionStatus !== "connected" && connectionStatus !== "disabled" && <div role={connectionStatus === "connecting" ? "status" : "alert"} className="space-y-2 border-b border-board-border px-4 py-3 text-xs text-amber-200">
-            <p>{connectionStatus === "connecting" ? "Connecting to chat…" : "Chat has not confirmed this room. Last received messages remain visible; new messages stay queued."}</p>
-            {connectionStatus !== "connecting" && <>
-              {connectionUpdatedAt ? <time dateTime={new Date(connectionUpdatedAt).toISOString()}>Checked {new Date(connectionUpdatedAt).toLocaleTimeString()}</time> : null}
-              {onReconnect && <button type="button" onClick={onReconnect} className="ml-2 min-h-11 rounded-lg border border-board-border px-3">Reconnect chat</button>}
-            </>}
+          {connectionStatus === "error" && <div role="alert" className="space-y-2 border-b border-board-border px-4 py-3 text-xs text-amber-200">
+            <p>Chat is offline.</p>
+            {onReconnect && <button type="button" onClick={onReconnect} className="min-h-11 rounded-lg border border-board-border px-3">Retry chat</button>}
           </div>}
           {(hasOlderMessages || loadingOlderMessages || olderMessagesError) && (
             <div className="flex flex-col items-center gap-1 px-4 py-2">
-              {(hasOlderMessages || loadingOlderMessages) && <button type="button" onClick={() => void loadOlder()} disabled={loadingOlderMessages} className="min-h-11 rounded-full border border-board-border bg-board-card px-3 py-1 text-xs font-semibold text-board-muted hover:text-board-text disabled:opacity-50">{loadingOlderMessages ? "Loading older messages…" : olderMessagesError ? "Retry older messages" : "Load older messages"}</button>}
-              {olderMessagesError && <p role="alert" className="text-[10px] text-red-300">{olderMessagesError}</p>}
+              {(hasOlderMessages || loadingOlderMessages) && <button type="button" onClick={() => void loadOlder()} disabled={loadingOlderMessages} className="min-h-11 rounded-full border border-board-border bg-board-card px-3 py-1 text-xs font-semibold text-board-muted hover:text-board-text disabled:opacity-50" aria-label={loadingOlderMessages ? "Loading older messages…" : olderMessagesError ? "Retry older messages" : "Load older messages"}>{loadingOlderMessages ? <QuietActivity label="Loading older messages…" /> : olderMessagesError ? "Retry older messages" : "Load older messages"}</button>}
+              {olderMessagesError && <p role="alert" className="text-[10px] text-red-300">{plainFailure(olderMessagesError)}</p>}
             </div>
           )}
           {displayMessages.length === 0 && hydrated && connectionStatus === "connected" && (
@@ -1005,18 +1001,18 @@ export function ChatPanel({
         </div>
       )}
 
-      {(pollOpen || mutations.some(item => item.state !== "sending") || notifications.some(item => item.status === "failed") || (attachmentWork.length > 0 && !editingMessage)) && <div aria-label="Chat recovery" className={cn("min-h-20 shrink overflow-x-hidden overflow-y-auto", pollOpen ? "max-h-[50%]" : "max-h-48")}>
+      {(pollOpen || mutations.some(item => item.state === "unknown" || item.state === "settled" && (item.result.outcome !== "applied" || item.result.cleanup !== "complete")) || notifications.some(item => item.status === "failed") || (attachmentWork.length > 0 && !editingMessage)) && <div aria-label="Chat recovery" className={cn("min-h-20 shrink overflow-x-hidden overflow-y-auto", pollOpen ? "max-h-[50%]" : "max-h-48")}>
       {pollOpen && <section aria-label="Poll draft" className="space-y-2 rounded-xl border border-board-border bg-board-card p-3">
         <div className="flex items-center gap-2"><BarChart3 className="h-4 w-4 text-sky-300" /><p className="text-sm font-semibold text-board-text">Create a poll</p><button type="button" onClick={() => setPollOpen(false)} className="ml-auto min-h-11 min-w-11 text-board-muted" aria-label="Close poll composer"><X className="mx-auto h-4 w-4" /></button></div>
         <label className="block text-xs text-board-muted">Question<input maxLength={240} value={pollQuestion} onChange={event => setPollQuestion(event.target.value)} placeholder="Ask a question" className="mt-1 min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm text-board-text" /></label>
         {pollOptions.map((option, index) => <label key={index} className="block text-xs text-board-muted">Option {index + 1}<input maxLength={120} value={option} onChange={event => setPollOptions(items => items.map((item, itemIndex) => itemIndex === index ? event.target.value : item))} placeholder={`Option ${index + 1}`} className="mt-1 min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm text-board-text" /></label>)}
         <div className="flex items-center gap-2"><button type="button" disabled={pollOptions.length >= 6} onClick={() => setPollOptions(items => [...items, ""])} className="flex min-h-11 items-center gap-1 text-xs text-board-muted"><Plus className="h-3 w-3" />Add option</button><button type="button" disabled={!pollQuestion.trim() || pollOptions.filter(item => item.trim()).length < 2} onClick={sendPoll} className="ml-auto min-h-11 rounded-lg bg-sky-400 px-3 text-xs font-semibold text-black disabled:opacity-40">Send poll</button></div>
       </section>}
-      {mutations.some(item => item.state !== "sending") && <section aria-label="Message changes" className="border-t border-board-border">
-        {mutations.map(item => <div key={item.command.requestId} hidden={item.state === "sending"} role={item.state === "sending" ? "status" : "alert"} className="space-y-2 border-b border-board-border px-4 py-3 text-sm text-amber-200">
-          <p className="break-words">{item.state === "sending" ? "Saving message change…" : item.state === "unknown" ? item.error : chatMutationOutcomeMessage(item.result)}</p>
+      {mutations.some(item => item.state === "unknown" || item.state === "settled" && (item.result.outcome !== "applied" || item.result.cleanup !== "complete")) && <section aria-label="Message changes" className="border-t border-board-border">
+        {mutations.filter(item => item.state === "unknown" || item.state === "settled" && (item.result.outcome !== "applied" || item.result.cleanup !== "complete")).map(item => <div key={item.command.requestId} hidden={item.state === "sending"} role={item.state === "sending" ? "status" : "alert"} className="space-y-2 border-b border-board-border px-4 py-3 text-sm text-amber-200">
+          <p className="break-words">{item.state === "sending" ? <QuietActivity label="Saving message change…" /> : item.state === "unknown" ? "This message change needs attention." : item.result.cleanup !== "complete" ? "An attachment needs attention." : plainFailure(chatMutationOutcomeMessage(item.result))}</p>
           <p className="break-words text-xs text-board-muted">{chatMutationSummary(item.command.operation).slice(0, 140)}</p>
-          <time dateTime={new Date(item.at).toISOString()}>{new Date(item.at).toLocaleTimeString()}</time>
+
           {item.state !== "sending" && (item.state === "unknown" || item.result.cleanup !== "complete") && onRetryMutation && <button type="button" disabled={connectionStatus !== "connected"} className="ml-2 min-h-11 rounded-lg border border-board-border px-3 disabled:opacity-50" onClick={() => onRetryMutation(item.command.requestId)}>{item.state === "settled" ? "Retry attachment cleanup" : "Recover original change"}</button>}
           {item.state === "settled" && item.result.cleanup === "complete" && onDismissMutation && <button type="button" className="ml-2 min-h-11 rounded-lg border border-board-border px-3" onClick={() => onDismissMutation(item.command.requestId)}>Dismiss result</button>}
         </div>)}
@@ -1024,9 +1020,9 @@ export function ChatPanel({
 
       {notifications.some(item => item.status === "failed") && <section aria-label="Crew notification delivery" className="border-t border-board-border">
           {notifications.map(item => <div key={item.command.requestId} hidden={item.status === "pending"} role={item.status === "failed" ? "alert" : "status"} className="space-y-2 border-b border-board-border px-4 py-3 text-sm text-amber-200">
-            <p className="break-words">{item.command.kind === "message" ? "Message delivered." : "Reaction saved."} {item.status === "pending" ? "Sending crew notifications…" : "Crew notifications were not confirmed. Retry notifications without repeating the chat action."}</p>
+            <p className="break-words">Crew alerts could not be sent.</p>
             <p className="break-words text-xs text-board-muted">{item.label.slice(0, 120)}</p>
-            <time dateTime={new Date(item.at).toISOString()}>{new Date(item.at).toLocaleTimeString()}</time>
+
             {item.status === "failed" && onRetryNotifications && <button type="button" className="ml-2 min-h-11 rounded-lg border border-board-border px-3" onClick={() => onRetryNotifications(item.command.requestId)}>Retry notifications</button>}
           </div>)}
       </section>}
@@ -1036,8 +1032,8 @@ export function ChatPanel({
               {attachmentWork.map(work => (
                 <div key={work.id} data-testid={`chat-attachment-${work.id}`} className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-board-border bg-board-card p-2 text-xs">
                   <FileText className="h-4 w-4 shrink-0 text-fire-300" />
-                  <div className="min-w-0 flex-1"><p className="break-all text-board-text">{work.name}</p><p className="text-board-muted">{attachmentStateLabel(work)} · {new Date(work.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p></div>
-                  {(work.state === "upload-failed" || work.state === "remove-failed") && <p role="alert" className="w-full break-words text-red-300">{work.error}</p>}
+                  <div className="min-w-0 flex-1"><p className="break-all text-board-text">{work.name}</p><p className="text-board-muted">{["uploading", "removing", "sending"].includes(work.state) ? <QuietActivity label={attachmentStateLabel(work)} /> : null}</p></div>
+                  {(work.state === "upload-failed" || work.state === "remove-failed") && <p role="alert" className="w-full break-words text-red-300">This attachment needs attention.</p>}
                   {(work.state === "upload-failed" || work.state === "remove-failed") && <button type="button" className="min-h-11 rounded-lg border border-board-border px-3 text-board-text" aria-label={`${work.state === "remove-failed" ? "Retry removing" : "Retry uploading"} ${work.name}`} onClick={() => attachmentDraft?.retry(work.id)}>{work.state === "remove-failed" ? "Retry removal" : "Retry upload"}</button>}
                   {work.state !== "removing" && work.state !== "remove-failed" && work.state !== "sending" && <button type="button" className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-board-border text-board-muted hover:text-board-text" aria-label={`Remove ${work.name}`} onClick={() => attachmentDraft?.remove(work.id)}><X className="h-4 w-4" /></button>}
                 </div>

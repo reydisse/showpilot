@@ -1,0 +1,632 @@
+[
+  {
+    "screen": "account-menu",
+    "before": "before/account-menu.png",
+    "after": "after/account-menu.png"
+  },
+  {
+    "screen": "admin-1440",
+    "before": "before/admin-1440.png",
+    "after": "after/admin-1440.png"
+  },
+  {
+    "screen": "admin-320",
+    "before": "before/admin-320.png",
+    "after": "after/admin-320.png"
+  },
+  {
+    "screen": "admin-access",
+    "before": "before/admin-access.png",
+    "after": "after/admin-access.png"
+  },
+  {
+    "screen": "admin-crew",
+    "before": "before/admin-crew.png",
+    "after": "after/admin-crew.png"
+  },
+  {
+    "screen": "admin-reports",
+    "before": "before/admin-reports.png",
+    "after": "after/admin-reports.png"
+  },
+  {
+    "screen": "assignments-1440",
+    "before": "before/assignments-1440.png",
+    "after": "after/assignments-1440.png"
+  },
+  {
+    "screen": "assignments-320",
+    "before": "before/assignments-320.png",
+    "after": "after/assignments-320.png"
+  },
+  {
+    "screen": "board-1440",
+    "before": "before/board-1440.png",
+    "after": "after/board-1440.png"
+  },
+  {
+    "screen": "board-320",
+    "before": "before/board-320.png",
+    "after": "after/board-320.png"
+  },
+  {
+    "screen": "chat-1440",
+    "before": "before/chat-1440.png",
+    "after": "after/chat-1440.png"
+  },
+  {
+    "screen": "chat-320",
+    "before": "before/chat-320.png",
+    "after": "after/chat-320.png"
+  },
+  {
+    "screen": "checkin-1440",
+    "before": "before/checkin-1440.png",
+    "after": "after/checkin-1440.png"
+  },
+  {
+    "screen": "checkin-320",
+    "before": "before/checkin-320.png",
+    "after": "after/checkin-320.png"
+  },
+  {
+    "screen": "crew-chat-1440",
+    "before": "before/crew-chat-1440.png",
+    "after": "after/crew-chat-1440.png"
+  },
+  {
+    "screen": "crew-chat-320",
+    "before": "before/crew-chat-320.png",
+    "after": "after/crew-chat-320.png"
+  },
+  {
+    "screen": "dashboard-audio-1440",
+    "before": "before/dashboard-audio-1440.png",
+    "after": "after/dashboard-audio-1440.png"
+  },
+  {
+    "screen": "dashboard-audio-320",
+    "before": "before/dashboard-audio-320.png",
+    "after": "after/dashboard-audio-320.png"
+  },
+  {
+    "screen": "dashboard-devices-1440",
+    "before": "before/dashboard-devices-1440.png",
+    "after": "after/dashboard-devices-1440.png"
+  },
+  {
+    "screen": "dashboard-devices-320",
+    "before": "before/dashboard-devices-320.png",
+    "after": "after/dashboard-devices-320.png"
+  },
+  {
+    "screen": "dashboard-prod-manager-1440",
+    "before": "before/dashboard-prod-manager-1440.png",
+    "after": "after/dashboard-prod-manager-1440.png"
+  },
+  {
+    "screen": "dashboard-prod-manager-320",
+    "before": "before/dashboard-prod-manager-320.png",
+    "after": "after/dashboard-prod-manager-320.png"
+  },
+  {
+    "screen": "dashboard-tech-manager-1440",
+    "before": "before/dashboard-tech-manager-1440.png",
+    "after": "after/dashboard-tech-manager-1440.png"
+  },
+  {
+    "screen": "dashboard-tech-manager-320",
+    "before": "before/dashboard-tech-manager-320.png",
+    "after": "after/dashboard-tech-manager-320.png"
+  },
+  {
+    "screen": "desktop-rundown-active",
+    "before": "before/desktop-rundown-active.png",
+    "after": "after/desktop-rundown-active.png"
+  },
+  {
+    "screen": "desktop-rundown-off",
+    "before": "before/desktop-rundown-off.png",
+    "after": "after/desktop-rundown-off.png"
+  },
+  {
+    "screen": "desktop-rundown-unreachable",
+    "before": "before/desktop-rundown-unreachable.png",
+    "after": "after/desktop-rundown-unreachable.png"
+  },
+  {
+    "screen": "desktop-settings-api",
+    "before": "before/desktop-settings-api.png",
+    "after": "after/desktop-settings-api.png"
+  },
+  {
+    "screen": "device-detail",
+    "before": "before/device-detail.png",
+    "after": "after/device-detail.png"
+  },
+  {
+    "screen": "graphics-disabled",
+    "before": "before/graphics-disabled.png",
+    "after": "after/graphics-disabled.png"
+  },
+  {
+    "screen": "graphics-preview",
+    "before": "before/graphics-preview.png",
+    "after": "after/graphics-preview.png"
+  },
+  {
+    "screen": "media-output",
+    "before": "before/media-output.png",
+    "after": "after/media-output.png"
+  },
+  {
+    "screen": "mobile-asset-inventory",
+    "before": "before/mobile-asset-inventory.png",
+    "after": "after/mobile-asset-inventory.png"
+  },
+  {
+    "screen": "mobile-audio",
+    "before": "before/mobile-audio.png",
+    "after": "after/mobile-audio.png"
+  },
+  {
+    "screen": "mobile-chat",
+    "before": "before/mobile-chat.png",
+    "after": "after/mobile-chat.png"
+  },
+  {
+    "screen": "mobile-checkin",
+    "before": "before/mobile-checkin.png",
+    "after": "after/mobile-checkin.png"
+  },
+  {
+    "screen": "mobile-checklist",
+    "before": "before/mobile-checklist.png",
+    "after": "after/mobile-checklist.png"
+  },
+  {
+    "screen": "mobile-cue-sheets",
+    "before": "before/mobile-cue-sheets.png",
+    "after": "after/mobile-cue-sheets.png"
+  },
+  {
+    "screen": "mobile-devices",
+    "before": "before/mobile-devices.png",
+    "after": "after/mobile-devices.png"
+  },
+  {
+    "screen": "mobile-home",
+    "before": "before/mobile-home.png",
+    "after": "after/mobile-home.png"
+  },
+  {
+    "screen": "mobile-inbox",
+    "before": "before/mobile-inbox.png",
+    "after": "after/mobile-inbox.png"
+  },
+  {
+    "screen": "mobile-incidents-history",
+    "before": "before/mobile-incidents-history.png",
+    "after": "after/mobile-incidents-history.png"
+  },
+  {
+    "screen": "mobile-incidents",
+    "before": "before/mobile-incidents.png",
+    "after": "after/mobile-incidents.png"
+  },
+  {
+    "screen": "mobile-live-show",
+    "before": "before/mobile-live-show.png",
+    "after": "after/mobile-live-show.png"
+  },
+  {
+    "screen": "mobile-loading",
+    "before": "before/mobile-loading.png",
+    "after": "after/mobile-loading.png"
+  },
+  {
+    "screen": "mobile-login-pending",
+    "before": "before/mobile-login-pending.png",
+    "after": "after/mobile-login-pending.png"
+  },
+  {
+    "screen": "mobile-login",
+    "before": "before/mobile-login.png",
+    "after": "after/mobile-login.png"
+  },
+  {
+    "screen": "mobile-lower-thirds",
+    "before": "before/mobile-lower-thirds.png",
+    "after": "after/mobile-lower-thirds.png"
+  },
+  {
+    "screen": "mobile-multi-platform",
+    "before": "before/mobile-multi-platform.png",
+    "after": "after/mobile-multi-platform.png"
+  },
+  {
+    "screen": "mobile-organizations",
+    "before": "before/mobile-organizations.png",
+    "after": "after/mobile-organizations.png"
+  },
+  {
+    "screen": "mobile-profile",
+    "before": "before/mobile-profile.png",
+    "after": "after/mobile-profile.png"
+  },
+  {
+    "screen": "mobile-reports",
+    "before": "before/mobile-reports.png",
+    "after": "after/mobile-reports.png"
+  },
+  {
+    "screen": "mobile-schedule",
+    "before": "before/mobile-schedule.png",
+    "after": "after/mobile-schedule.png"
+  },
+  {
+    "screen": "mobile-settings",
+    "before": "before/mobile-settings.png",
+    "after": "after/mobile-settings.png"
+  },
+  {
+    "screen": "mobile-show-board",
+    "before": "before/mobile-show-board.png",
+    "after": "after/mobile-show-board.png"
+  },
+  {
+    "screen": "mobile-show-smoke-show",
+    "before": "before/mobile-show-smoke-show.png",
+    "after": "after/mobile-show-smoke-show.png"
+  },
+  {
+    "screen": "mobile-shows",
+    "before": "before/mobile-shows.png",
+    "after": "after/mobile-shows.png"
+  },
+  {
+    "screen": "mobile-stream",
+    "before": "before/mobile-stream.png",
+    "after": "after/mobile-stream.png"
+  },
+  {
+    "screen": "mobile-team-crew",
+    "before": "before/mobile-team-crew.png",
+    "after": "after/mobile-team-crew.png"
+  },
+  {
+    "screen": "mobile-team-members",
+    "before": "before/mobile-team-members.png",
+    "after": "after/mobile-team-members.png"
+  },
+  {
+    "screen": "mobile-team",
+    "before": "before/mobile-team.png",
+    "after": "after/mobile-team.png"
+  },
+  {
+    "screen": "mobile-timecode",
+    "before": "before/mobile-timecode.png",
+    "after": "after/mobile-timecode.png"
+  },
+  {
+    "screen": "notification-panel",
+    "before": "before/notification-panel.png",
+    "after": "after/notification-panel.png"
+  },
+  {
+    "screen": "offline-active",
+    "before": "before/offline-active.png",
+    "after": "after/offline-active.png"
+  },
+  {
+    "screen": "offline-boot",
+    "before": "before/offline-boot.png",
+    "after": "after/offline-boot.png"
+  },
+  {
+    "screen": "offline-failed",
+    "before": "before/offline-failed.png",
+    "after": "after/offline-failed.png"
+  },
+  {
+    "screen": "offline-off",
+    "before": "before/offline-off.png",
+    "after": "after/offline-off.png"
+  },
+  {
+    "screen": "onboarding",
+    "before": "before/onboarding.png",
+    "after": "after/onboarding.png"
+  },
+  {
+    "screen": "production-assets-1440",
+    "before": "before/production-assets-1440.png",
+    "after": "after/production-assets-1440.png"
+  },
+  {
+    "screen": "production-assets-320",
+    "before": "before/production-assets-320.png",
+    "after": "after/production-assets-320.png"
+  },
+  {
+    "screen": "production-checklist-1440",
+    "before": "before/production-checklist-1440.png",
+    "after": "after/production-checklist-1440.png"
+  },
+  {
+    "screen": "production-checklist-320",
+    "before": "before/production-checklist-320.png",
+    "after": "after/production-checklist-320.png"
+  },
+  {
+    "screen": "production-cue-sheets-1440",
+    "before": "before/production-cue-sheets-1440.png",
+    "after": "after/production-cue-sheets-1440.png"
+  },
+  {
+    "screen": "production-cue-sheets-320",
+    "before": "before/production-cue-sheets-320.png",
+    "after": "after/production-cue-sheets-320.png"
+  },
+  {
+    "screen": "production-incidents-1440",
+    "before": "before/production-incidents-1440.png",
+    "after": "after/production-incidents-1440.png"
+  },
+  {
+    "screen": "production-incidents-320",
+    "before": "before/production-incidents-320.png",
+    "after": "after/production-incidents-320.png"
+  },
+  {
+    "screen": "production-incidents-history-1440",
+    "before": "before/production-incidents-history-1440.png",
+    "after": "after/production-incidents-history-1440.png"
+  },
+  {
+    "screen": "production-incidents-history-320",
+    "before": "before/production-incidents-history-320.png",
+    "after": "after/production-incidents-history-320.png"
+  },
+  {
+    "screen": "profile",
+    "before": "before/profile.png",
+    "after": "after/profile.png"
+  },
+  {
+    "screen": "public-checkin-missing-fixture",
+    "before": "before/public-checkin-missing-fixture.png",
+    "after": "after/public-checkin-missing-fixture.png"
+  },
+  {
+    "screen": "public-crew-schedule",
+    "before": "before/public-crew-schedule.png",
+    "after": "after/public-crew-schedule.png"
+  },
+  {
+    "screen": "public-delete-account",
+    "before": "before/public-delete-account.png",
+    "after": "after/public-delete-account.png"
+  },
+  {
+    "screen": "public-forgot-password",
+    "before": "before/public-forgot-password.png",
+    "after": "after/public-forgot-password.png"
+  },
+  {
+    "screen": "public-invite-missing-fixture",
+    "before": "before/public-invite-missing-fixture.png",
+    "after": "after/public-invite-missing-fixture.png"
+  },
+  {
+    "screen": "public-join-chat-missing-fixture",
+    "before": "before/public-join-chat-missing-fixture.png",
+    "after": "after/public-join-chat-missing-fixture.png"
+  },
+  {
+    "screen": "public-login",
+    "before": "before/public-login.png",
+    "after": "after/public-login.png"
+  },
+  {
+    "screen": "public-reset-password",
+    "before": "before/public-reset-password.png",
+    "after": "after/public-reset-password.png"
+  },
+  {
+    "screen": "public-verify-email",
+    "before": "before/public-verify-email.png",
+    "after": "after/public-verify-email.png"
+  },
+  {
+    "screen": "reports-1440",
+    "before": "before/reports-1440.png",
+    "after": "after/reports-1440.png"
+  },
+  {
+    "screen": "reports-320",
+    "before": "before/reports-320.png",
+    "after": "after/reports-320.png"
+  },
+  {
+    "screen": "rundown-1440",
+    "before": "before/rundown-1440.png",
+    "after": "after/rundown-1440.png"
+  },
+  {
+    "screen": "rundown-320",
+    "before": "before/rundown-320.png",
+    "after": "after/rundown-320.png"
+  },
+  {
+    "screen": "rundown-pin-1440",
+    "before": "before/rundown-pin-1440.png",
+    "after": "after/rundown-pin-1440.png"
+  },
+  {
+    "screen": "rundown-pin-320",
+    "before": "before/rundown-pin-320.png",
+    "after": "after/rundown-pin-320.png"
+  },
+  {
+    "screen": "schedule-1440",
+    "before": "before/schedule-1440.png",
+    "after": "after/schedule-1440.png"
+  },
+  {
+    "screen": "schedule-320",
+    "before": "before/schedule-320.png",
+    "after": "after/schedule-320.png"
+  },
+  {
+    "screen": "settings-1440",
+    "before": "before/settings-1440.png",
+    "after": "after/settings-1440.png"
+  },
+  {
+    "screen": "settings-320",
+    "before": "before/settings-320.png",
+    "after": "after/settings-320.png"
+  },
+  {
+    "screen": "settings-api",
+    "before": "before/settings-api.png",
+    "after": "after/settings-api.png"
+  },
+  {
+    "screen": "settings-billing",
+    "before": "before/settings-billing.png",
+    "after": "after/settings-billing.png"
+  },
+  {
+    "screen": "settings-companion",
+    "before": "before/settings-companion.png",
+    "after": "after/settings-companion.png"
+  },
+  {
+    "screen": "settings-danger",
+    "before": "before/settings-danger.png",
+    "after": "after/settings-danger.png"
+  },
+  {
+    "screen": "settings-integrations",
+    "before": "before/settings-integrations.png",
+    "after": "after/settings-integrations.png"
+  },
+  {
+    "screen": "settings-kiosk",
+    "before": "before/settings-kiosk.png",
+    "after": "after/settings-kiosk.png"
+  },
+  {
+    "screen": "settings-lowerthirds",
+    "before": "before/settings-lowerthirds.png",
+    "after": "after/settings-lowerthirds.png"
+  },
+  {
+    "screen": "settings-notifications",
+    "before": "before/settings-notifications.png",
+    "after": "after/settings-notifications.png"
+  },
+  {
+    "screen": "settings-organization",
+    "before": "before/settings-organization.png",
+    "after": "after/settings-organization.png"
+  },
+  {
+    "screen": "settings-people",
+    "before": "before/settings-people.png",
+    "after": "after/settings-people.png"
+  },
+  {
+    "screen": "settings-production",
+    "before": "before/settings-production.png",
+    "after": "after/settings-production.png"
+  },
+  {
+    "screen": "settings-team",
+    "before": "before/settings-team.png",
+    "after": "after/settings-team.png"
+  },
+  {
+    "screen": "show-1440",
+    "before": "before/show-1440.png",
+    "after": "after/show-1440.png"
+  },
+  {
+    "screen": "show-320",
+    "before": "before/show-320.png",
+    "after": "after/show-320.png"
+  },
+  {
+    "screen": "song-detail",
+    "before": "before/song-detail.png",
+    "after": "after/song-detail.png"
+  },
+  {
+    "screen": "songs-1440",
+    "before": "before/songs-1440.png",
+    "after": "after/songs-1440.png"
+  },
+  {
+    "screen": "songs-320",
+    "before": "before/songs-320.png",
+    "after": "after/songs-320.png"
+  },
+  {
+    "screen": "streaming-graphics-1440",
+    "before": "before/streaming-graphics-1440.png",
+    "after": "after/streaming-graphics-1440.png"
+  },
+  {
+    "screen": "streaming-graphics-320",
+    "before": "before/streaming-graphics-320.png",
+    "after": "after/streaming-graphics-320.png"
+  },
+  {
+    "screen": "streaming-health-1440",
+    "before": "before/streaming-health-1440.png",
+    "after": "after/streaming-health-1440.png"
+  },
+  {
+    "screen": "streaming-health-320",
+    "before": "before/streaming-health-320.png",
+    "after": "after/streaming-health-320.png"
+  },
+  {
+    "screen": "streaming-platforms-1440",
+    "before": "before/streaming-platforms-1440.png",
+    "after": "after/streaming-platforms-1440.png"
+  },
+  {
+    "screen": "streaming-platforms-320",
+    "before": "before/streaming-platforms-320.png",
+    "after": "after/streaming-platforms-320.png"
+  },
+  {
+    "screen": "superadmin",
+    "before": "before/superadmin.png",
+    "after": "after/superadmin.png"
+  },
+  {
+    "screen": "team-1440",
+    "before": "before/team-1440.png",
+    "after": "after/team-1440.png"
+  },
+  {
+    "screen": "team-320",
+    "before": "before/team-320.png",
+    "after": "after/team-320.png"
+  },
+  {
+    "screen": "timecode-1440",
+    "before": "before/timecode-1440.png",
+    "after": "after/timecode-1440.png"
+  },
+  {
+    "screen": "timecode-320",
+    "before": "before/timecode-320.png",
+    "after": "after/timecode-320.png"
+  }
+]

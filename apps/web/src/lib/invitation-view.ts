@@ -8,5 +8,5 @@ export type InvitationView =
   | { status: "signed-out" }
   | { status: "unavailable" }
   | { status: "unverified"; email: string }
-  | { status: "wrong-account"; email: string }
+  | { status: "wrong-account"; email: string; userId: string }
   | { status: "pending" | "accepted" | "declined" | "canceled" | "expired" | "access-removed"; email: string; invitation: InvitationSummary };

@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import type { useShowDeletions } from "@/hooks/useShowDeletions";
 
 const buttonClass =
@@ -27,10 +29,7 @@ export function ShowDeletionProgress({
                 {work.target.name || "Untitled show"}
               </h2>
               {work.kind === "deleting" && (
-                <p role="status" className="mt-2 text-sm leading-6">
-                  Deleting show… You can leave Schedule and return to check the
-                  result.
-                </p>
+                <QuietActivity />
               )}
               {work.kind === "unconfirmed" && (
                 <>
@@ -38,10 +37,7 @@ export function ShowDeletionProgress({
                     role="alert"
                     className="mt-2 text-sm leading-6 text-red-300"
                   >
-                    {work.message} Deletion is not confirmed. The original
-                    request is retained; retrying finishes or confirms that
-                    deletion.
-                  </p>
+                    {plainFailure((work.message) ?? "")}</p>
                   <button
                     className={`${buttonClass} mt-3`}
                     onClick={() => void controller.retry(work.target.showId)}
@@ -56,7 +52,7 @@ export function ShowDeletionProgress({
                     role="alert"
                     className="mt-2 text-sm leading-6 text-red-300"
                   >
-                    Deletion was not accepted. {work.message}
+                    {plainFailure((work.message) ?? "")}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
@@ -65,9 +61,11 @@ export function ShowDeletionProgress({
                       onClick={() =>
                         void controller.refresh(work.target.showId)
                       }
-                    >
-                      {work.refresh === "pending"
+                     aria-label={work.refresh === "pending"
                         ? "Refreshing…"
+                        : "Refresh Schedule"}>
+                      {work.refresh === "pending"
+                        ? <QuietActivity label="Refreshing…" />
                         : "Refresh Schedule"}
                     </button>
                     <button
@@ -84,16 +82,14 @@ export function ShowDeletionProgress({
                 <>
                   <p role="status" className="mt-2 text-sm leading-6">
                     Show deleted.
-                    {work.refresh === "pending" ? " Refreshing Schedule…" : ""}
+                    {work.refresh === "pending" ? <QuietActivity label=" Refreshing Schedule…" /> : ""}
                   </p>
                   {work.message && (
                     <p
                       role="alert"
                       className="mt-2 text-sm leading-6 text-red-300"
                     >
-                      {work.message} Deletion is confirmed; refresh will not
-                      delete again.
-                    </p>
+                      {plainFailure((work.message) ?? "")} </p>
                   )}
                   <button
                     className={`${buttonClass} mt-3`}
@@ -103,11 +99,15 @@ export function ShowDeletionProgress({
                         ? controller.dismiss(work.target.showId)
                         : void controller.refresh(work.target.showId)
                     }
-                  >
-                    {work.refresh === "done"
+                   aria-label={work.refresh === "done"
                       ? "Dismiss"
                       : work.refresh === "pending"
                         ? "Refreshing…"
+                        : "Refresh Schedule"}>
+                    {work.refresh === "done"
+                      ? "Dismiss"
+                      : work.refresh === "pending"
+                        ? <QuietActivity label="Refreshing…" />
                         : "Refresh Schedule"}
                   </button>
                 </>

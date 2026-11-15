@@ -1,6 +1,5 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect, router } from "expo-router";
-import BellRing from "lucide-react-native/icons/bell-ring";
 import UserRound from "lucide-react-native/icons/user-round";
 import Radio from "lucide-react-native/icons/radio";
 import ShieldCheck from "lucide-react-native/icons/shield-check";
@@ -26,8 +25,7 @@ export default function HomeScreen() {
     }>
       {error ? (
         <View style={styles.errorCard}>
-          <Text style={styles.errorTitle}>Could not sync ShowPilot</Text>
-          <Text style={styles.errorCopy}>{error.message}</Text>
+          <Text style={styles.errorTitle}>ShowPilot could not be opened.</Text>
           <Text onPress={() => refetch()} style={styles.retry}>Try again</Text>
         </View>
       ) : null}
@@ -36,7 +34,6 @@ export default function HomeScreen() {
         <>
           <View style={styles.stats}>
             <View style={styles.stat}><Radio size={18} color={liveShow ? colors.green : colors.textFaint} /><Text style={styles.statValue}>{liveShow ? "Live" : "Standby"}</Text><Text style={styles.statLabel}>show state</Text></View>
-            <View style={styles.stat}><BellRing size={18} color={data.unreadNotifications ? colors.amberText : colors.textFaint} /><Text style={styles.statValue}>{data.unreadNotifications}</Text><Text style={styles.statLabel}>unread</Text></View>
             <View style={styles.stat}><ShieldCheck size={18} color={colors.amberText} /><Text numberOfLines={1} style={styles.statValue}>{data.identity.role}</Text><Text style={styles.statLabel}>your role</Text></View>
           </View>
           <View style={styles.section}>

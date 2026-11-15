@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { Modal, ScrollView, Text, View } from "react-native";
 import { AppButton } from "./app-button";
 import { useAppTheme } from "@/theme/tokens";
@@ -16,9 +17,9 @@ export function TimecodeCueConfirmation({ review, showName, changed, active, err
           <Text style={text}>Show: {showName}</Text>
           <Text style={text}>{review.label}</Text>
           <Text style={text}>{review.detail}</Text>
-          {changed ? <><Text accessibilityRole="alert" style={text}>The cue, timeline, clock or automation state changed. Review the current state before confirming.</Text><AppButton label="Review current cues" variant="secondary" disabled={!active} onPress={onReview} /></> : null}
-          {error ? <Text accessibilityRole="alert" style={text}>{error}</Text> : null}
-          {!active ? <Text accessibilityRole="alert" style={text}>Connect and claim control before confirming.</Text> : null}
+          {changed ? <><FailureText accessibilityRole="alert" style={text}>The cue, timeline, clock or automation state changed. Review the current state before confirming.</FailureText><AppButton label="Review current cues" variant="secondary" disabled={!active} onPress={onReview} /></> : null}
+          {error ? <FailureText accessibilityRole="alert" style={text}>{error}</FailureText> : null}
+          {!active ? <FailureText accessibilityRole="alert" style={text}>Connect and claim control before confirming.</FailureText> : null}
           <AppButton label="Keep current cues" variant="secondary" onPress={onCancel} />
           <AppButton label={`Confirm ${cueControlLabels[review.command.operation].toLowerCase()}`} variant="danger" disabled={!active || changed} onPress={onConfirm} />
         </View>

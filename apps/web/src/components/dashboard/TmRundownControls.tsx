@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
@@ -73,7 +74,7 @@ const controls: Array<{
   },
 ];
 const outcomes = {
-  applied: "Command confirmed.",
+  applied: "",
   "revision-conflict":
     "The rundown changed before this command could be confirmed. Review the latest feedback before trying again.",
   expired:
@@ -194,32 +195,28 @@ export function TmRundownControls({
           </h2>
           <p className="break-words text-sm text-board-muted">
             {state?.currentItem?.title ??
-              (state ? "No active item" : "Waiting for rundown feedback")}
+              (state ? "No active item" : <QuietActivity label="Waiting for rundown feedback" />)}
           </p>
         </div>
         <span className="text-sm text-board-muted">
           {read.isError || stale
-            ? "Last confirmed state"
+            ? ""
             : state
               ? state.timer.playback === "play"
                 ? "Running"
                 : state.timer.playback === "pause"
                   ? "Paused"
                   : "Stopped"
-              : "Not confirmed"}
+              : "Needs attention"}
         </span>
-        <p className="basis-full text-xs text-board-muted">
-          {read.dataUpdatedAt
-            ? `Checked ${new Date(read.dataUpdatedAt).toLocaleTimeString()}`
-            : "No confirmed check"}
-        </p>
+
       </header>
       <ReadFailureNotice
         error={
           readFailure
             ? {
                 message:
-                  read.error?.message ?? "Rundown feedback is unavailable.",
+                  read.error?.message ?? "The rundown could not be updated.",
                 occurredAt: read.errorUpdatedAt,
               }
             : null
@@ -273,19 +270,14 @@ export function TmRundownControls({
       <div className="space-y-2 border-t border-board-border p-4 text-sm">
         <p className="text-board-muted">
           Next: {state?.nextItem?.title ?? "—"} · Lyrics:{" "}
-          {state ? (state.lyricsEnabled ? "On" : "Off") : "Not confirmed"}
+          {state ? (state.lyricsEnabled ? "On" : "Off") : "Needs attention"}
         </p>
         <div aria-live="polite">
           {control.pending ? (
-            "Sending command…"
+            <QuietActivity label="Sending command…" />
           ) : control.latest?.status === "error" ? (
-            <div role="alert" className="text-amber-200">
-              <p>
-                {control.latest.error instanceof Error
-                  ? control.latest.error.message
-                  : "Command was not confirmed."}{" "}
-                Checked {new Date(control.latest.at).toLocaleTimeString()}
-              </p>
+            <div role="alert" className="text-amber-200"><p>This rundown change needs attention.</p>
+
               <button
                 type="button"
                 className="mt-2 min-h-11 rounded-lg border px-3"

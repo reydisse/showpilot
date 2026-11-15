@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { approveBridgeDestination, getBridgeTargetPolicy, removeBridgeDestination } from "@/lib/bridge-target-settings";
@@ -52,7 +54,7 @@ function Targets({ orgId }: { orgId: string }) {
   return <section className="space-y-4 rounded-xl border border-board-border bg-board-card p-4">
     <div><h3 className="text-sm font-semibold text-board-text">Approved Bridge destinations</h3>
       <p className="mt-1 text-xs text-board-muted">Approve the host, port and protocol for each venue device. Only API-key or integration administrators can change this list.</p></div>
-    {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+    {error && <p role="alert" className="text-sm text-red-300">{plainFailure(error, "This destination needs attention.")}</p>}
     <form className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2" onSubmit={event => { event.preventDefault(); void change("approve"); }}>
       <label className="min-w-0 text-xs text-board-muted">Destination name<input required maxLength={80} value={label} onChange={event => setLabel(event.target.value)} placeholder="Main room OBS" className={fieldClass} /></label>
       <label className="min-w-0 text-xs text-board-muted">Host or IP address<input required maxLength={253} value={host} onChange={event => setHost(event.target.value)} placeholder="192.168.1.20" className={fieldClass} /></label>
@@ -64,7 +66,7 @@ function Targets({ orgId }: { orgId: string }) {
       {protocol === "wol" && <p className="text-xs text-board-muted sm:col-span-2">Wake-on-LAN sends to broadcast address 255.255.255.255 on port 9.</p>}
       <button type="submit" disabled={busy || loading} className="min-h-11 rounded-lg border border-board-border px-3 text-sm text-board-text disabled:opacity-40 sm:col-span-2">Approve destination</button>
     </form>
-    {loading ? <p className="text-xs text-board-muted">Loading approved destinations…</p> : targets.length === 0
+    {loading ? <QuietActivity label="Loading approved destinations…" /> : targets.length === 0
       ? <p className="text-xs text-board-muted">No Bridge destinations approved yet.</p>
       : <ul className="divide-y divide-board-border">{targets.map(target => <li key={target.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
         <div className="min-w-0"><p className="break-words text-sm text-board-text">{target.label}</p><p className="break-all text-xs text-board-muted">{target.host}:{target.port} · {protocolNames[target.protocol]}</p></div>

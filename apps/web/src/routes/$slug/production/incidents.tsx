@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { RelaySyncNotice } from "@/components/RelaySyncNotice";
 import { parseIncidentTimestamp } from "@/lib/incident-time";
 import { createFileRoute, Link, useBlocker } from "@tanstack/react-router";
@@ -201,7 +202,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
   }, [openIncidentId, loadingIncidents, snapshotRead.confirmedAt]);
   const { publish: publishIncident, syncError, syncErrorAt, status: syncStatus, retrySync } = useCueSheetSync({
     orgId, scope: scopeKey, onNote: () => {},
-    onRefresh: async signal => { if (!await snapshotRead.refresh() || signal.aborted) throw new Error("Incident refresh was not confirmed. Retry to reconnect."); },
+    onRefresh: async signal => { if (!await snapshotRead.refresh() || signal.aborted) throw new Error("This change needs attention."); },
     onIncident: event => { if (event.showId === showId) snapshotRead.invalidate(); },
   });
   const save = async (operation?: IncidentOperation) => {
@@ -235,7 +236,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
   const writeNotice = writes.state.kind === "uncertain" || writes.state.kind === "conflict" ?
     <ReadFailureNotice error={writes.state.failure} refreshing={writes.state.kind === "conflict" && (snapshotRead.refreshing || !!snapshotRead.error)}
       retry={() => writes.state.kind === "conflict" ? writes.clearConflict() : void save()} label={writes.state.kind === "conflict" ? "I reviewed the incident log" : "Retry incident save"} />
-    : writes.state.kind === "pending" ? <p role="status" className="p-3 text-sm text-board-muted">Saving incident change…</p> : null;
+    : writes.state.kind === "pending" ? <QuietActivity label="Saving incident change…" /> : null;
 
   return (
     <div className="h-full overflow-auto">
@@ -310,7 +311,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
         {savedNotice && <p role="status" className="py-3 text-sm text-emerald-400">{savedNotice}</p>}
         {loadingIncidents && (
           <p className="mb-3 text-xs text-board-muted">
-            Loading incidents for {formatDisplayDate(serviceDate)}...
+            {<QuietActivity />}{formatDisplayDate(serviceDate)}...
           </p>
         )}
         {incidents.length > 0 ? (

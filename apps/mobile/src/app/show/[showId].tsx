@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { ProPresenterOutputControl } from "@/components/propresenter-output-control";
 import { ProPresenterControls } from "../../components/propresenter-controls";
 import { StageMessageCard } from "@/components/stage-message-card";
@@ -299,11 +300,6 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
     });
   }
 
-  const connectionText = relay.status === "connected"
-    ? liveReady ? "Live sync" : "Waiting for live state"
-    : relay.status === "offline"
-      ? "Paused in background"
-      : "Reconnecting";
 
   return (
     <Page
@@ -330,22 +326,20 @@ function RundownContent({ detail, orgId, orgSlug, userId, refreshError, refreshi
               setResetOpen(false);
             }}/> : null}
             {clearOpen ? <RundownClearConfirmation title={showTitle} count={items.length} revision={relay.revision} playing={timer.playback !== "stop"} active={canRemove} onClose={() => setClearOpen(false)} onConfirm={revision => { if (!canRemove || revision !== relay.revision) return; changes.confirm({action:"clear-all"}, revision, showTitle); setClearOpen(false); }}/> : null}
-            {refreshError ? <View><Text accessibilityRole="alert" style={styles.syncError}>{refreshError} The last loaded show is still displayed.</Text><AppButton label="Refresh show" loading={refreshing} onPress={onRefresh} /></View> : null}
+            {refreshError ? <View><FailureText accessibilityRole="alert" style={styles.syncError}>{refreshError} The last loaded show is still displayed.</FailureText><AppButton label="Refresh show" loading={refreshing} onPress={onRefresh} /></View> : null}
             {templateDeletions.length ? <AppButton label="Resume template deletion" variant="secondary" onPress={()=>setTemplatesOpen(true)}/>:null}
             {replacementDraft ? <AppButton label="Resume rundown replacement" variant="secondary" onPress={()=>setTemplatesOpen(true)}/>:null}
             {templateDraft?.name ? <AppButton label="Resume template draft" variant="secondary" onPress={() => setTemplatesOpen(true)}/> : null}
             {itemEditor.draft ? <View style={{gap:8}}><AppButton accessibilityLabel={`Resume item draft: ${itemDraftTitle}`} label={`Resume item draft: ${itemDraftTitle.length > 80 ? itemDraftTitle.slice(0, 77) + "…" : itemDraftTitle}`} variant="secondary" onPress={()=>setEditorOpen(true)}/><Text style={styles.observerCopy}>Finish or discard this draft before editing another item.</Text></View> : null}
             {detailsDraft ? <AppButton label="Resume rundown details" variant="secondary" onPress={() => setShowDetailsOpen(true)} /> : null}
             <View style={styles.connectionRow}>
-              {liveReady ? <Wifi size={15} color={colors.green} /> : <WifiOff size={15} color={colors.amberText} />}
-              <Text style={[styles.connectionText, liveReady && styles.connected]}>{connectionText}{relay.unconfirmedCount ? ` · ${relay.unconfirmedCount} changes awaiting confirmation` : ""}</Text>
               <View style={styles.permissionBadge}>
                 <Text style={styles.permissionText}>{detail.canControl ? "OPERATOR" : canAuthor ? "EDITOR" : "VIEW ONLY"}</Text>
               </View>
               <Pressable accessibilityLabel="Share stage display link" accessibilityRole="button" onPress={shareKioskLink} style={styles.connectionAction}><ScreenShare color={colors.textMuted} size={15} /></Pressable>
               {canAuthor ? <Pressable accessibilityLabel="Edit show details" accessibilityRole="button" disabled={!editControlsEnabled} onPress={() => setShowDetailsOpen(true)} style={[styles.connectionAction, !editControlsEnabled && styles.disabled]}><Pencil color={colors.textMuted} size={15} /></Pressable> : null}
             </View>
-            {relay.lastError ? <Text accessibilityRole="alert" style={styles.syncError}>{relay.lastError}</Text> : null}
+            {relay.lastError ? <FailureText accessibilityRole="alert" style={styles.syncError}>{relay.lastError}</FailureText> : null}
             {relay.commandError ? <AppButton label="Dismiss rundown notice" variant="secondary" onPress={relay.dismissCommandError}/> : null}
             {!liveReady ? <AppButton label="Retry live connection" variant="secondary" onPress={relay.retryConnection} /> : null}
             <RundownUnlock userId={userId} orgId={orgId} showId={detail.show.id} pinAccess={detail.pinAccess} />

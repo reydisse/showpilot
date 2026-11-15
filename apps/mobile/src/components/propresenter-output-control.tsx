@@ -1,3 +1,5 @@
+import { QuietActivity } from "@/components/quiet-activity";
+import { FailureText } from "@/components/failure-text";
 import { useState } from "react";
 import { Text, View } from "react-native";
 import { useAppTheme } from "@/theme/tokens";
@@ -32,7 +34,7 @@ export function ProPresenterOutputControl({
           ? state.isError
             ? "Stage output state is unavailable."
             : "Reading stage output…"
-          : `${state.isError ? "Last confirmed: " : ""}ProPresenter slides are ${state.data.enabled ? "enabled" : "disabled"} on stage displays.`}
+          : `${state.isError ? "" : ""}ProPresenter slides are ${state.data.enabled ? "enabled" : "disabled"} on stage displays.`}
       </Text>
       <Text style={{ color: colors.textMuted }}>
         This changes ProPresenter lyrics and scripture on stage displays across
@@ -40,10 +42,10 @@ export function ProPresenterOutputControl({
       </Text>
       {state.isError ? (
         <>
-          <Text accessibilityRole="alert" style={{ color: colors.amberText }}>
+          <FailureText accessibilityRole="alert" style={{ color: colors.amberText }}>
             Could not read current output.{" "}
             {new Date(state.errorUpdatedAt).toLocaleTimeString()}
-          </Text>
+          </FailureText>
           <AppButton
             label={state.isFetching ? "Reading output…" : "Retry output state"}
             variant="secondary"
@@ -70,10 +72,10 @@ export function ProPresenterOutputControl({
               : "Hide ProPresenter slides from all stage displays?"}
           </Text>
           {!control.matches(review) ? (
-            <Text accessibilityRole="alert" style={{ color: colors.amberText }}>
+            <FailureText accessibilityRole="alert" style={{ color: colors.amberText }}>
               The output state or access changed. Cancel and review the latest
               state.
-            </Text>
+            </FailureText>
           ) : null}
           <AppButton
             label={
@@ -96,7 +98,7 @@ export function ProPresenterOutputControl({
       {attempt ? (
         <View accessibilityLiveRegion="polite" style={{ gap: 8 }}>
           <Text style={{ color: colors.text }}>{attempt.label}</Text>
-          <Text
+          {attempt.kind === "pending" ? <QuietActivity /> : <FailureText
             accessibilityRole={
               attempt.kind === "failed" ||
               (result && result.outcome !== "applied")
@@ -105,9 +107,7 @@ export function ProPresenterOutputControl({
             }
             style={{ color: colors.textMuted }}
           >
-            {attempt.kind === "pending"
-              ? "Waiting for output confirmation…"
-              : attempt.kind === "failed"
+            {attempt.kind === "failed"
                 ? attempt.message
                 : result?.outcome === "applied"
                   ? "Output change saved."
@@ -116,10 +116,10 @@ export function ProPresenterOutputControl({
                     : result?.outcome === "expired"
                       ? "This command expired without changing output. Review the current state before starting another."
                       : "The output changed after your review. Your command did not overwrite it."}
-          </Text>
+          </FailureText>}
           {attempt.kind === "confirmed" ? (
             <Text style={{ color: colors.textMuted }}>
-              {new Date(attempt.at).toLocaleTimeString()}
+
             </Text>
           ) : null}
           {attempt.kind === "failed" ? (
@@ -131,7 +131,7 @@ export function ProPresenterOutputControl({
           ) : null}
           {attempt.kind === "confirmed" && attempt.refresh !== "done" ? (
             <>
-              <Text
+              <FailureText
                 accessibilityRole={
                   attempt.refresh === "failed" ? "alert" : undefined
                 }
@@ -139,9 +139,9 @@ export function ProPresenterOutputControl({
               >
                 {attempt.message ??
                   (attempt.refresh === "pending"
-                    ? "Refreshing current output state…"
+                    ? ""
                     : "Command result saved. Refresh the current output state.")}
-              </Text>
+              </FailureText>
               <AppButton
                 label="Refresh output state"
                 variant="secondary"

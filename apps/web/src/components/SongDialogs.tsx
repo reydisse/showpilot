@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useRef, useState } from "react";
 import { ClipboardPaste, Plus, Trash2, X } from "lucide-react";
 import { useConfirmedWrite } from "@/hooks/useConfirmedWrite";
@@ -115,9 +117,9 @@ export function SongCreateModal({ orgId, open, onClose, onCreate, onOpenSong }: 
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-5">
           {write.state.status === "failed" && <div role="alert" className="space-y-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
-            <p>{write.state.saved ? "The song was created, but its page could not be opened. Retry opening it." : "Creation is unconfirmed. Retry the same request to recover the song without creating it twice."}</p>
-            <p>{write.state.message}</p>
-            <p className="text-xs">Last attempt: {new Date(write.state.at).toLocaleTimeString()}</p>
+            <p>{write.state.saved ? "The song could not be opened." : "Your song needs attention."}</p>
+            <p>{plainFailure((write.state.message) ?? "")}</p>
+
           </div>}
           <fieldset disabled={locked} className="min-w-0 space-y-5">
           <section>
@@ -188,7 +190,7 @@ export function SongCreateModal({ orgId, open, onClose, onCreate, onOpenSong }: 
           {write.state.status === "failed" ? <>
             {!write.state.saved && <button type="button" onClick={() => void editDraft()} className="min-h-11 rounded-xl border border-board-border px-3 text-sm">Edit draft</button>}
             <button type="button" onClick={() => void write.retry()} className="min-h-11 flex-1 rounded-xl bg-fire-500 p-2.5 text-sm font-bold text-black">{write.state.saved ? "Retry opening song" : "Retry creation"}</button>
-          </> : <button type="submit" disabled={!canSubmit || locked} className="min-h-11 flex-1 rounded-xl bg-fire-500 p-2.5 text-sm font-bold text-black disabled:opacity-40">{write.state.status === "saving" ? write.state.saved ? "Opening song…" : "Creating…" : "Create song"}</button>}
+          </> : <button type="submit" disabled={!canSubmit || locked} className="min-h-11 flex-1 rounded-xl bg-fire-500 p-2.5 text-sm font-bold text-black disabled:opacity-40" aria-label={write.state.status === "saving" ? write.state.saved ? "Opening song…" : "Creating…" : "Create song"}>{write.state.status === "saving" ? write.state.saved ? <QuietActivity label="Opening song…" /> : <QuietActivity label="Creating…" /> : "Create song"}</button>}
         </footer>
       </form>
       </DialogContent>
@@ -204,11 +206,11 @@ export function DeleteSongModal({ title, sectionCount, cueMapCount, busy, saved 
       <DialogContent showCloseButton={false} className="max-w-md gap-0 border-red-500/30 bg-board-card p-5 text-board-text">
         <div className="flex h-11 w-11 items-center justify-center rounded-full bg-red-500/10 text-red-400"><Trash2 className="h-5 w-5" /></div>
         <DialogTitle className="mt-4 text-lg font-semibold text-board-text">{saved ? `"${title}" was deleted` : `Delete "${title}"?`}</DialogTitle>
-        <DialogDescription className="mt-2 text-sm leading-6 text-board-muted">{saved ? "Deletion is confirmed. Open the library to continue." : <>This permanently removes the song, its {sectionCount} {sectionCount === 1 ? "section" : "sections"}, and {cueMapCount} cue {cueMapCount === 1 ? "map" : "maps"}.</>}</DialogDescription>
-        {error ? <p role="alert" className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p> : null}
+        <DialogDescription className="mt-2 text-sm leading-6 text-board-muted">{saved ? "" : <>This permanently removes the song, its {sectionCount} {sectionCount === 1 ? "section" : "sections"}, and {cueMapCount} cue {cueMapCount === 1 ? "map" : "maps"}.</>}</DialogDescription>
+        {error ? <p role="alert" className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{plainFailure(error)}</p> : null}
         <div className="mt-5 flex gap-2">
           <button type="button" disabled={busy} onClick={onClose} className="flex-1 rounded-xl border border-board-border p-2.5 text-sm font-semibold text-board-text disabled:opacity-40">{saved ? "Close" : "Keep song"}</button>
-          <button type="button" disabled={busy} onClick={onDelete} className="flex-1 rounded-xl bg-red-500 p-2.5 text-sm font-bold text-white disabled:opacity-40">{saved ? busy ? "Opening library…" : "Retry opening library" : busy ? "Deleting…" : error ? "Retry delete" : "Delete song"}</button>
+          <button type="button" disabled={busy} onClick={onDelete} className="flex-1 rounded-xl bg-red-500 p-2.5 text-sm font-bold text-white disabled:opacity-40" aria-label={saved ? busy ? "Opening library…" : "Retry opening library" : busy ? "Deleting…" : error ? "Retry delete" : "Delete song"}>{saved ? busy ? <QuietActivity label="Opening library…" /> : "Retry opening library" : busy ? <QuietActivity label="Deleting…" /> : error ? "Retry delete" : "Delete song"}</button>
         </div>
       </DialogContent>
     </Dialog>

@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { useRef, useState } from "react";
 import { FileUp, Upload, CheckCircle2, AlertTriangle } from "lucide-react";
 import { importMembersCsv, type ImportSummary } from "@/lib/import-members";
@@ -112,7 +113,7 @@ export function CsvImportSection({
         {error && (
           <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3">
             <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
-            <p className="text-sm text-red-300">{error}</p>
+            <p className="text-sm text-red-300">{plainFailure(error)}</p>
           </div>
         )}
 

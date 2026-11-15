@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
@@ -39,8 +41,7 @@ export const Route = createFileRoute("/media/$orgSlug")({
     ),
   pendingComponent: () => (
     <main className="min-h-dvh bg-black p-6 text-white" role="status">
-      Checking workspace access…
-    </main>
+      {<QuietActivity />}</main>
   ),
   errorComponent: () => (
     <main className="min-h-dvh space-y-4 bg-black p-6 text-white">
@@ -206,7 +207,7 @@ function Player({
             {preparation}
           </p>
         )}
-        {fullscreenError && <p role="alert">{fullscreenError}</p>}
+        {fullscreenError && <p role="alert">{plainFailure(fullscreenError)}</p>}
         <p className="text-xs text-white/70">
           Keep this window open. Disconnecting stops playback and requires
           Enable output again. Fullscreen shows only the media.

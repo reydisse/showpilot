@@ -28,7 +28,7 @@ it("does not delete a template before confirmation and exposes a failed deletion
   expect(onDelete).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Delete Sunday template" }));
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete template" }));
-  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Template could not be deleted");
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Template could not be deleted.");
   fireEvent.click(screen.getByRole("button", { name: "Delete Sunday template" }));
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete template" }));
   await waitFor(() => expect(screen.queryByRole("status")).toBeNull());

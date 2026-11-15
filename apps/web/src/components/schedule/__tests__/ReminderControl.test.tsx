@@ -104,7 +104,7 @@ it("retains a stalled reminder across navigation and retries exactly once withou
   await tick(15_100);
   view.show(true);
   await tick();
-  expect(screen.getByText(/Some emails may have been accepted/)).toBeTruthy();
+  expect(screen.getByText("Some reminders could not be sent.")).toBeTruthy();
   held.resolve(result(command));
   await tick();
   expect(api.refresh).not.toHaveBeenCalled();
@@ -135,7 +135,7 @@ it("retries a failed Schedule refresh without sending more emails", async () => 
   mount();
   click("Remind awaiting crew");
   await tick();
-  expect(screen.getByText(/Schedule could not refresh/)).toBeTruthy();
+  expect(screen.getByText("Schedule could not be updated.")).toBeTruthy();
   click("Retry refresh");
   await tick();
   expect(api.send).toHaveBeenCalledTimes(1);

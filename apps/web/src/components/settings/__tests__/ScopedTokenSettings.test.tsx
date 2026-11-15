@@ -124,7 +124,7 @@ it.each(["kiosk", "companion"] as const)(
       }),
     );
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    api.create.mockRejectedValue(new Error("Could not store token"));
+    api.create.mockRejectedValue(new Error("Could not store token."));
     fireEvent.change(screen.getByPlaceholderText(/Token label/), {
       target: { value: "Retain this label" },
     });
@@ -136,7 +136,7 @@ it.each(["kiosk", "companion"] as const)(
     );
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "Could not store token",
+      "Could not store token.",
     );
     expect(
       (screen.getByPlaceholderText(/Token label/) as HTMLInputElement).value,

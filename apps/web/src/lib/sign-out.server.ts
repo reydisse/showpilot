@@ -55,7 +55,9 @@ export const confirmedSignOut = {
           }
         }
         // A failed deletion must leave the cookie available for a safe retry.
-        deleteSessionCookie(ctx);
+        // Local exit has already locked the UI. Revoke the same session, but
+        // never let a late background response erase a newer login's cookies.
+        if (ctx.headers?.get("X-ShowPilot-Local-Exit") !== "1") deleteSessionCookie(ctx);
         return ctx.json({ success: true });
       },
     ),

@@ -61,7 +61,6 @@ import { useTmManagement } from "@/hooks/useTmManagement";
 import { TmManagementRecovery } from "@/components/dashboard/TmManagementRecovery";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
-import { useNow } from "@/components/dashboard/widget";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 
 const PHASE_CHIP: Record<ServicePhase, string> = {
@@ -110,7 +109,6 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
   const { management, ...snapshot } = initial;
   const load = useCallback((signal: AbortSignal) => getTmDashboard({ data: { orgId: initial.orgId, serviceDate: search.date, showId: search.show }, signal }), [initial.orgId, search.date, search.show]);
   const read = useOperatorRead({ key: JSON.stringify(snapshot), initialValue: snapshot, read: load, intervalMs: 10_000, errorMessage: "Technical dashboard could not refresh. Last confirmed values are shown. Retry before changing incidents." });
-  const now = useNow(1_000);
   const {
     model,
     orgId,
@@ -275,10 +273,6 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
               <LayoutDashboard className="w-3.5 h-3.5" />
               {editingLayout ? "Done arranging" : "Arrange widgets"}
             </button>
-            <div className="hidden w-36 shrink-0 items-center gap-1.5 whitespace-nowrap text-xs tabular-nums text-board-muted md:flex">
-              <Clock3 className="w-3 h-3" />
-              {read.confirmedAt === null ? "Loaded dashboard" : `Confirmed ${formatFreshness(read.confirmedAt, now)}`}
-            </div>
             <button
               type="button"
               aria-label="Refresh dashboard"
@@ -684,9 +678,4 @@ function FaultToolbar({
       </label>
     </div>
   );
-}
-
-function formatFreshness(timestamp: number, now: number | null): string {
-  const seconds = Math.max(0, Math.round(((now ?? timestamp) - timestamp) / 1000));
-  return seconds < 5 ? "just now" : `${seconds}s ago`;
 }

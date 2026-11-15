@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { Trash2 } from "lucide-react";
@@ -9,8 +11,8 @@ export function DeleteSavedTemplateButton({ name, onDelete, disabled = false }: 
   const [error, setError] = useState("");
   return <div className="shrink-0">
     <Button variant="ghost" type="button" disabled={busy || disabled} onClick={() => setOpen(true)} aria-label={`Delete ${name} template`} className="flex min-h-11 min-w-11 items-center justify-center rounded text-board-muted hover:text-red-400 disabled:opacity-50"><Trash2 className="h-4 w-4" /></Button>
-    {busy && <span role="status" className="text-xs text-board-muted">Deleting…</span>}
-    {error && <p role="alert" className="max-w-48 text-xs text-red-400">{error}</p>}
+    {busy && <QuietActivity />}
+    {error && <p role="alert" className="max-w-48 text-xs text-red-400">{plainFailure(error)}</p>}
     <ConfirmDialog open={open} onOpenChange={setOpen} title={`Delete ${name}?`} description="This permanently deletes the saved template. Rundowns already created from it remain available." confirmLabel="Delete template" confirmDisabled={disabled || busy} onConfirm={() => {
       if (disabled || busy) return;
       setBusy(true); setError("");

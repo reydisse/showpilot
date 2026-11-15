@@ -1,3 +1,5 @@
+import { QuietActivity } from "@/components/quiet-activity";
+import { FailureText } from "@/components/failure-text";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -215,12 +217,12 @@ function AccessWorkspace({ orgId, userId }: { orgId: string; userId: string }) {
               <ActivityIndicator color={colors.amberText} size="large" />
             ) : null}
             {query.error ? (
-              <View><Text accessibilityRole="alert" style={styles.error}>{query.error.message}</Text><AppButton label="Retry access refresh" variant="secondary" onPress={() => void query.refetch()} /></View>
+              <View><FailureText accessibilityRole="alert" style={styles.error}>{query.error.message}</FailureText><AppButton label="Retry access refresh" variant="secondary" onPress={() => void query.refetch()} /></View>
             ) : null}
-            {unfinished && <View><Text accessibilityRole="alert" style={styles.error}>{unfinished.status === "pending" ? "Waiting for access confirmation…" : `Access request unconfirmed. ${unfinished.error instanceof Error ? unfinished.error.message : "Retry the same request."}`}</Text>
+            {unfinished && <View>{unfinished.status === "pending" ? <QuietActivity /> : <FailureText accessibilityRole="alert" style={styles.error}>{`Access request unconfirmed. ${unfinished.error instanceof Error ? unfinished.error.message : "Retry the same request."}`}</FailureText>}
               {unfinished.status === "error" && <><AppButton label="Retry access change" onPress={() => { if (unfinished.command.success) mutation.mutate(unfinished.command.data); }} /><AppButton label="Review stored access" variant="secondary" onPress={review} /></>}
             </View>}
-            {!!notice && <Text accessibilityRole="alert" style={styles.authorityText}>{notice}</Text>}
+            {!!notice && <FailureText accessibilityRole="alert" style={styles.authorityText}>{notice}</FailureText>}
             {query.data?.notices.map(item => <View key={item.requestId}><Text style={styles.authorityText}>{item.message}</Text><AppButton label="Retry member notification" variant="secondary" disabled={locked} onPress={() => mutation.mutate({ kind: "notice", orgId, requestId: item.requestId })} /></View>)}
             {authority ? (
               <View style={[styles.authorityCard, canManage ? styles.authorityCardActive : null]}>
@@ -314,9 +316,9 @@ function AccessWorkspace({ orgId, userId }: { orgId: string; userId: string }) {
               <Pressable accessibilityLabel="Close grant form" accessibilityRole="button" hitSlop={10} onPress={() => setGrantOpen(false)} style={styles.closeButton}><X color={colors.textMuted} size={20} /></Pressable>
             </View>
             <ScrollView contentContainerStyle={styles.form} keyboardShouldPersistTaps="handled">
-              {unfinished && <View><Text accessibilityRole="alert" style={styles.error}>An access request is unconfirmed. Close this form to use its retry controls.</Text></View>}
+              {unfinished && <View><FailureText accessibilityRole="alert" style={styles.error}>This access change needs attention.</FailureText></View>}
               {reviewedWeek && <Text style={styles.description}>Reviewed duty week: {weekLabel(reviewedWeek.weekStart, reviewedWeek.weekEndExclusive)}</Text>}
-              {reviewedWeek && authority?.weekStart !== reviewedWeek.weekStart && <Text accessibilityRole="alert" style={styles.error}>The duty week changed. Discard this draft and review a new grant.</Text>}
+              {reviewedWeek && authority?.weekStart !== reviewedWeek.weekStart && <FailureText accessibilityRole="alert" style={styles.error}>The duty week changed. Discard this draft and review a new grant.</FailureText>}
               <Text style={styles.label}>MEMBER</Text>
               <View accessibilityRole="radiogroup" style={styles.choices}>
                 {eligibleMembers.map((member) => (

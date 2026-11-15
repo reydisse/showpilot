@@ -134,7 +134,7 @@ describe("NotificationInbox", () => {
       />,
     );
 
-    expect(await screen.findByText("Nothing waiting for you.")).not.toBe(
+    expect(await screen.findByText("No notifications yet.")).not.toBe(
       undefined,
     );
     expect(
@@ -415,8 +415,8 @@ it("bounds the initial read, never claims empty on failure, and ignores its late
     screen.getByRole("button", { name: "Retry notifications" }),
   ).toBeTruthy();
   expect(screen.queryByLabelText("Loading notifications")).toBeNull();
-  expect(screen.queryByText("Nothing waiting for you.")).toBeNull();
-  expect(document.querySelector("[role=alert] time")).toBeTruthy();
+  expect(screen.queryByText("No notifications yet.")).toBeNull();
+  expect(document.querySelector("[role=alert] time")).toBeFalsy();
   expect(mocks.getNotifications.mock.calls.at(-1)?.[0].signal.aborted).toBe(
     true,
   );
@@ -501,7 +501,7 @@ it("retains an uncertain mark-all across panel close and retries its original re
   await act(async () => {
     await vi.advanceTimersByTimeAsync(10);
   });
-  expect(screen.getByText(/Mark all read was not confirmed/)).toBeTruthy();
+  expect(screen.getByText(/Read status could not be saved/)).toBeTruthy();
   await act(async () => {
     held.resolve({
       ok: true,

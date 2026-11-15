@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { TeamInvitations, type InvitationChange } from "@/components/admin/TeamInvitations";
 import { createFileRoute, useBlocker } from "@tanstack/react-router";
 import { RouteError } from "@/components/ui/RouteRecovery";
@@ -356,9 +357,7 @@ export function TeamWorkspace({ initial }: { initial: TeamInitial }) {
         label="Retry team"
       />
       {read.refreshing && (
-        <p role="status" className="text-sm text-board-muted">
-          Refreshing team… Previously confirmed details are shown.
-        </p>
+        <QuietActivity />
       )}
       <div
         ref={tabList}

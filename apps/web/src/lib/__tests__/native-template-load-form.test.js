@@ -35,6 +35,8 @@ function loadSheet(alert, read, send, deleting) {
   const container = ({ children }) =>
     React.createElement("div", null, children);
   const modules = {
+  "@/components/quiet-activity": { QuietActivity: () => jsx.jsx("span", { role: "progressbar", "aria-label": "Loading" }) },
+  "@/components/failure-text": { FailureText: ({ children, accessibilityRole }) => React.createElement("p", { role: accessibilityRole }, children) },
     "@/components/template-save-form": { TemplateSaveForm: () => null },
     "@/hooks/use-rundown-replacement": managementHook,
     "@/hooks/use-template-delete": deletionHook,

@@ -175,7 +175,7 @@ it("reveals invitation details only to the current verified recipient, even with
   await f.prisma.user.update({ where: { id: f.id }, data: { emailVerified: false } });
   expect(await getInvitationDetails({ data: f.invitationId })).toEqual({ status: "unverified", email: `${f.id}@example.test` });
   await f.prisma.user.update({ where: { id: f.id }, data: { emailVerified: true, email: `changed-${f.id}@example.test` } });
-  expect(await getInvitationDetails({ data: f.invitationId })).toEqual({ status: "wrong-account", email: `changed-${f.id}@example.test` });
+  expect(await getInvitationDetails({ data: f.invitationId })).toEqual({ status: "wrong-account", email: `changed-${f.id}@example.test`, userId: f.id });
   await f.prisma.session.deleteMany({ where: { userId: f.id } });
   expect(await getInvitationDetails({ data: f.invitationId })).toEqual({ status: "signed-out" });
 });
@@ -223,4 +223,13 @@ it("converts a reserved invitation slot into membership when the free workspace 
   await acceptInvitation({ data: f.invitationId });
   expect(await f.prisma.member.count({ where: { organizationId: f.orgId } })).toBe(2);
   expect(await f.prisma.invitation.count({ where: { organizationId: f.orgId, status: "pending" } })).toBe(3);
+});
+
+it("keeps a locally exited account signed out on a public invitation while revocation is pending", async () => {
+  const f = await fixture();
+  const cookie = request.cookie;
+  request.cookie = `${cookie}; showpilot-account-exit=1`;
+  expect(await getInvitationDetails({ data: f.invitationId })).toEqual({ status: "signed-out" });
+  request.cookie = cookie;
+  expect(await getInvitationDetails({ data: f.invitationId })).toMatchObject({ status: "pending" });
 });

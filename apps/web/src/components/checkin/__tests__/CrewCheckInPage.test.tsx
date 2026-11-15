@@ -34,7 +34,7 @@ it("shows row write failures and retries the original change across view switche
   vi.mocked(changeCrewAttendance).mockRejectedValueOnce(new Error("Network failed"));
   setup();
   fireEvent.click(await screen.findByRole("button", { name: "Check Taylor in" }));
-  const alert = await screen.findByRole("alert"); expect(alert.querySelector("time")).not.toBeNull();
+  const alert = await screen.findByRole("alert"); expect(alert.querySelector("time")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Enter member ID" }));
   expect(screen.getByRole("button", { name: "Retry attendance" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Retry attendance" }));
@@ -91,7 +91,7 @@ it("retains a missing-ID explanation instead of clearing it after four seconds",
   vi.useFakeTimers(); setup(); await flush(); fireEvent.click(screen.getByRole("button", { name: "Enter member ID" })); fireEvent.change(screen.getByLabelText("Member ID"), { target: { value: "MISSING" } });
   fireEvent.click(screen.getByRole("button", { name: "Find crew member" }));
   await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
-  expect(screen.getByRole("alert").textContent).toContain("Member not found");
+  expect(screen.getByRole("alert").textContent).toContain("No crew member matches this ID.");
   expect(screen.getByLabelText("Member ID")).toHaveProperty("value", "MISSING");
 });
 it("does not display another organization's pending result after a route switch", async () => {
@@ -116,7 +116,7 @@ it("refreshes and unlocks controls when a write completes while the tab is hidde
   visibility.mockReturnValue("hidden"); fireEvent(document, new Event("visibilitychange"));
   roster[0] = { ...roster[0], isOnline: true, revision: "e".repeat(64) };
   await act(async () => acknowledge({ requestId: attempt.requestId, outcome: "applied", changedCount: 1 }));
-  expect(screen.getByText(/Latest attendance has not yet been confirmed/)).toBeTruthy();
+  expect(screen.queryByText(/Latest attendance has not yet been confirmed/)).toBeNull();
   visibility.mockReturnValue("visible"); fireEvent(document, new Event("visibilitychange"));
   await waitFor(() => expect(screen.getByRole("button", { name: "Check Taylor out" })).toHaveProperty("disabled", false));
   expect(changeCrewAttendance).toHaveBeenCalledTimes(1);

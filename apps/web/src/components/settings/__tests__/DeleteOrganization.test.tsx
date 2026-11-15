@@ -27,7 +27,7 @@ it("keeps exact recovery intent after the section closes, with account and org i
   const foreign=view(client,"user","other-org");expect(screen.queryByRole("button",{name:"Retry organization deletion"})).toBeNull();foreign.unmount();
   view(client);rpc.clear.mockResolvedValueOnce(response());
   fireEvent.click(screen.getByRole("button",{name:"Retry organization deletion"}));await settle();
-  expect(rpc.clear.mock.calls[1][0].data).toEqual(original);expect(screen.getByRole("status").textContent).toContain("Organization deletion confirmed.");
+  expect(rpc.clear.mock.calls[1][0].data).toEqual(original);expect(screen.queryByText("Organization deletion confirmed.")).toBeNull();
 });
 it("bounds unconfirmed clears and ignores their late reply after retry",async()=>{
   let release=(_:unknown)=>{};rpc.clear.mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
@@ -35,7 +35,7 @@ it("bounds unconfirmed clears and ignores their late reply after retry",async()=
   expect(rpc.navigate).not.toHaveBeenCalled();
   expect(rpc.clear.mock.calls[0][0].signal.aborted).toBe(true);
   rpc.clear.mockResolvedValueOnce(response());fireEvent.click(screen.getByRole("button",{name:"Retry organization deletion"}));await settle();
-  release(response());await settle();expect(rpc.navigate).toHaveBeenCalledTimes(1);expect(screen.queryByRole("alert")).toBeNull();expect(screen.getByRole("status").textContent).toContain("Organization deletion confirmed.");
+  release(response());await settle();expect(rpc.navigate).toHaveBeenCalledTimes(1);expect(screen.queryByRole("alert")).toBeNull();expect(screen.queryByText("Organization deletion confirmed.")).toBeNull();
 });
 
 it("bounds navigation after confirmed deletion and retries without repeating confirmation",async()=>{

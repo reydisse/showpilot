@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { StyleSheet, Text, View } from "react-native";
 import { AppButton } from "./app-button";
 import { LyricsTextPreview } from "./lyrics-text-preview";
@@ -32,10 +34,10 @@ export function TimecodeLyricsPreview({ lyrics, controls, showName, connected }:
     </View> : null}
     {attempt ? <View style={styles.review}>
       <Text accessibilityRole="header" style={styles.title}>{attempt.label}</Text>
-      <Text accessibilityRole="alert" style={styles.text}>{attempt.kind === "pending" ? "Waiting for the relay to confirm…" : attempt.kind === "failed" ? attempt.message
-        : attempt.result.outcome === "applied" ? "Lyrics change confirmed. Later display changes are preserved." : attempt.result.message ?? "The lyrics change was not applied."}</Text>
+      {attempt.kind === "pending" ? <QuietActivity /> : <FailureText accessibilityRole="alert" style={styles.text}>{attempt.kind === "failed" ? attempt.message
+        : attempt.result.outcome === "applied" ? "" : attempt.result.message ?? "The lyrics change was not applied."}</FailureText>}
       {attempt.kind === "failed" ? <AppButton label="Retry original lyrics change" disabled={!controls.canRecover} onPress={controls.retry} /> : null}
-      {attempt.kind === "confirmed" && attempt.refresh === "pending" ? <Text style={styles.text}>Refreshing current lyrics…</Text> : null}
+      {attempt.kind === "confirmed" && attempt.refresh === "pending" ? <QuietActivity /> : null}
       {attempt.kind === "confirmed" && (attempt.refresh === "failed" || attempt.refresh === "idle") ? <><OperationsError message={attempt.message ?? "Refresh the current lyrics."} /><AppButton label="Retry lyrics refresh" disabled={!connected} onPress={controls.refresh} /></> : null}
       {attempt.kind === "confirmed" && attempt.refresh === "done" ? <AppButton label="Continue with current lyrics" variant="secondary" onPress={controls.finish} /> : null}
     </View> : null}

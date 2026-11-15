@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronDown, Plus, Check } from "lucide-react";
@@ -100,9 +101,7 @@ export function OrgSwitcher({ currentOrg, collapsed }: OrgSwitcherProps) {
           }`}
         >
           {loading ? (
-            <div className="px-3 py-4 text-center text-xs text-board-muted">
-              Loading...
-            </div>
+            <QuietActivity label="Loading..." />
           ) : (
             <>
               <div className="px-2.5 py-1.5">

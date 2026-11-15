@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState } from "react";
 import { useProPresenterOutput } from "@/hooks/useProPresenterOutput";
 import { Button } from "@/components/ui/button";
@@ -40,10 +41,10 @@ function ScopedOutputControl(props: Props) {
           <p className="font-medium text-board-text">Stage display output</p>
           <p className="text-board-muted">
             {output.state.data
-              ? `${output.state.isError ? "Last confirmed: " : ""}ProPresenter slides ${output.state.data.enabled ? "enabled" : "disabled"}.`
+              ? `${output.state.isError ? "" : ""}ProPresenter slides ${output.state.data.enabled ? "enabled" : "disabled"}.`
               : output.state.isError
-                ? "Output state unavailable."
-                : "Reading output state…"}
+                ? "Output details could not be loaded."
+                : <QuietActivity label="Loading output" />}
           </p>
           <p className="mt-1 text-xs text-board-muted">
             Shared across this workspace’s stage displays.
@@ -101,15 +102,12 @@ function ScopedOutputControl(props: Props) {
         </div>
       )}
       {attempt?.kind === "pending" && (
-        <p role="status" className="text-sm text-board-muted">
-          Updating output…
-        </p>
+        <QuietActivity />
       )}
       {attempt?.kind === "unknown" && (
         <div role="alert" className="space-y-2 text-sm text-amber-200">
           <p>
-            Output change was not confirmed. Recover the original request before
-            changing it again. <Timestamp at={attempt.at} />
+            The output change needs attention.<Timestamp at={attempt.at} />
           </p>
           <Button
             type="button"
@@ -138,7 +136,7 @@ function ScopedOutputControl(props: Props) {
             <>
               <p>
                 {attempt.refresh === "pending"
-                  ? "Refreshing current output…"
+                  ? <QuietActivity label="Refreshing current output…" />
                   : "Command result saved. Current output could not refresh. Retry the read."}
               </p>
               <Button
@@ -169,10 +167,4 @@ function ScopedOutputControl(props: Props) {
     </section>
   );
 }
-function Timestamp({ at }: { at: number }) {
-  return (
-    <time dateTime={new Date(at).toISOString()}>
-      {new Date(at).toLocaleTimeString()}
-    </time>
-  );
-}
+function Timestamp(_props: { at: number }) { return null; }

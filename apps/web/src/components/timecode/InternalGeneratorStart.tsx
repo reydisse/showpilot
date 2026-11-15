@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useId, useState } from "react";
 import { Play } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -125,12 +126,22 @@ export function InternalGeneratorStart({
             });
         }}
         className="flex min-h-11 w-full items-center gap-2 rounded-lg bg-fire-500/10 border border-fire-500/20 px-4 py-2.5 text-sm font-medium text-fire-500 hover:bg-fire-500/20 disabled:opacity-50 transition-colors"
-      >
-        <Play className="h-4 w-4 shrink-0" />
-        {pending === "starting"
+       aria-label={pending === "starting"
           ? "Starting…"
           : pending === "stopping"
             ? "Stopping…"
+            : custom
+              ? chosen
+                ? `Start at ${chosen}`
+                : "Start at timecode"
+              : clock.totalFrames > 0
+                ? "Resume Internal Generator"
+                : "Start Internal Generator"}>
+        <Play className="h-4 w-4 shrink-0" />
+        {pending === "starting"
+          ? <QuietActivity label="Starting…" />
+          : pending === "stopping"
+            ? <QuietActivity label="Stopping" />
             : custom
               ? chosen
                 ? `Start at ${chosen}`

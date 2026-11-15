@@ -28,7 +28,7 @@ it("retains the exact create request and credential draft across a lost reply an
   fireEvent.click(screen.getByRole("button", { name: "Add destination" })); await settle();
   const sent = api.add.mock.calls[0][0].data;
   await act(() => vi.advanceTimersByTimeAsync(10_000));
-  expect(screen.getByRole("alert", { name: "Destination change" }).textContent).toContain("was not confirmed");
+  expect(screen.getByRole("alert", { name: "Destination change" }).textContent).toContain("This change needs attention.");
   fireEvent.click(screen.getByRole("button", { name: "Close destination editor" }));
   await act(() => vi.advanceTimersByTimeAsync(300));
   fireEvent.click(screen.getByRole("button", { name: "Review destination draft" }));
@@ -50,7 +50,7 @@ it("retries only the list read after a save is acknowledged and retains a blank 
   api.read.mockReturnValueOnce(new Promise(() => {})).mockResolvedValueOnce([{ ...row, name: "Edited stream" }]);
   fireEvent.click(screen.getByRole("button", { name: "Update destination" })); await settle();
   await act(() => vi.advanceTimersByTimeAsync(8_000));
-  expect(screen.getByRole("alert", { name: "Destination change" }).textContent).toContain("Change saved.");
+  expect(screen.getByRole("alert", { name: "Destination change" }).textContent).toContain("This view could not be updated.");
   fireEvent.click(screen.getByRole("button", { name: "Retry refresh" })); await settle();
   expect(api.update).toHaveBeenCalledTimes(1);
   expect(api.update.mock.calls[0][0].data).toMatchObject({ orgId: "fixture", id: row.id, updates: { name: "Edited stream", streamKey: "" } });
@@ -105,7 +105,7 @@ it("confirms the named destinations and retries an exact Go Live request after a
   const sent=api.live.mock.calls[0][0].data;
   expect(sent).toMatchObject({orgId:"fixture",liveInputId:input.id,requestId:expect.any(String),targets:[{id:row.id,version:""}]});
   await act(()=>vi.advanceTimersByTimeAsync(10_000));
-  expect(screen.getByRole("alert",{name:"Output change"}).textContent).toContain("was not confirmed");
+  expect(screen.getByRole("alert",{name:"Output change"}).textContent).toContain("This change needs attention.");
   fireEvent.click(screen.getByRole("button",{name:"Retry change"}));await settle();
   expect(api.live.mock.calls[1][0].data).toEqual(sent);
 });
@@ -126,7 +126,7 @@ it("lets confirmed Disconnect all destinations supersede a held Go Live and igno
 it("keeps partial Disconnect all destinations results retryable and retains the original target set", async () => {
   api.stop.mockResolvedValueOnce([{id:row.id,success:false,error:"Provider outcome unconfirmed"}]).mockResolvedValueOnce([{id:row.id,success:true}]);
   await renderOutputs();fireEvent.click(screen.getByRole("button",{name:"Disconnect all destinations"}));await confirmOutput("Disconnect all destinations");
-  expect(screen.getByRole("alert",{name:"Output change"}).textContent).toContain("Fixture stream: Provider outcome unconfirmed");
+  expect(screen.getByRole("alert",{name:"Output change"}).textContent).toContain("This change needs attention.");
   const sent=api.stop.mock.calls[0][0].data;
   fireEvent.click(screen.getByRole("button",{name:"Retry change"}));await settle();expect(api.stop.mock.calls[1][0].data).toEqual(sent);
 });

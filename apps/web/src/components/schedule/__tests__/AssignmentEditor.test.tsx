@@ -150,7 +150,7 @@ it("keeps the draft and exact create request across navigation, a timeout and a 
   await tick(15_100);
   view.show(true);
   await tick();
-  expect(screen.getByText(/Save not confirmed/)).toBeTruthy();
+  expect(screen.getByText("Your changes need attention.")).toBeTruthy();
   held.resolve(response(command));
   await tick();
   expect(api.refresh).not.toHaveBeenCalled();
@@ -172,7 +172,7 @@ it("retries only the unconfirmed team row and preserves the successful position"
   await tick();
   const second = sent(1);
   expect(screen.getByText(/Audio: Assignment saved/)).toBeTruthy();
-  expect(screen.getByText(/Camera: Save not confirmed/)).toBeTruthy();
+  expect(screen.getByText(/Camera: Your changes need attention/)).toBeTruthy();
   click("Retry unconfirmed saves or invitations");
   await tick();
   expect(api.save).toHaveBeenCalledTimes(3);
@@ -240,7 +240,7 @@ it("retries a failed view refresh without saving the assignment again", async ()
   change("Position", "Lighting");
   click("Add position");
   await tick(12_100);
-  expect(screen.getByText(/Schedule could not refresh/)).toBeTruthy();
+  expect(screen.getByText("Schedule could not be updated.")).toBeTruthy();
   held.resolve();
   await tick();
   click("Retry refresh");

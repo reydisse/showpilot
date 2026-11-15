@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { ClockAlert } from "lucide-react";
 import { useNotificationTimeZone } from "@/hooks/useNotificationTimeZone";
 import { Button } from "@/components/ui/button";
@@ -34,12 +35,12 @@ export function NotificationTimeZone(props: Props) {
       <p className="font-medium text-board-text">Alert timezone</p>
       {query.data ? (
         <p>
-          Last confirmed timezone: {query.data.timeZone ?? "workspace default"}.
+          Timezone:{query.data.timeZone ?? "workspace default"}.
           Assignment emails use your saved timezone.
         </p>
       ) : null}
       {query.isPending && !readFailed ? (
-        <p role="status">Checking alert timezone…</p>
+        <QuietActivity label="Checking alert timezone…" />
       ) : null}
       {readFailed ? (
         <div
@@ -47,27 +48,20 @@ export function NotificationTimeZone(props: Props) {
           className="space-y-2 text-amber-700 dark:text-amber-300"
         >
           <p>
-            Alert timezone could not be checked. Retry to check the current
-            saved timezone.
-          </p>
-          <p>
-            Last failed read{" "}
-            <time dateTime={new Date(query.errorUpdatedAt).toISOString()}>
-              {new Date(query.errorUpdatedAt).toLocaleTimeString()}
-            </time>
-          </p>
+            Alert timezone could not be loaded.</p>
+
           <Button
             className="min-h-11"
             variant="outline"
             disabled={query.isFetching || unfinished?.status === "pending"}
             onClick={() => void query.refetch()}
           >
-            {query.isFetching ? "Retrying…" : "Retry timezone check"}
+            {query.isFetching ? <QuietActivity label="Retrying…" /> : "Retry timezone check"}
           </Button>
         </div>
       ) : null}
       {unfinished?.status === "pending" ? (
-        <p role="status">Saving alert timezone…</p>
+        <QuietActivity label="Saving alert timezone…" />
       ) : null}
       {unfinished?.status === "error" ? (
         <div
@@ -75,15 +69,8 @@ export function NotificationTimeZone(props: Props) {
           className="space-y-2 text-amber-700 dark:text-amber-300"
         >
           <p>
-            Timezone save was not confirmed and may have saved. Retry confirms
-            the same update.
-          </p>
-          <p>
-            Last attempt{" "}
-            <time dateTime={new Date(unfinished.at).toISOString()}>
-              {new Date(unfinished.at).toLocaleTimeString()}
-            </time>
-          </p>
+            Your timezone change needs attention.</p>
+
           <Button
             className="min-h-11"
             variant="outline"
@@ -95,8 +82,7 @@ export function NotificationTimeZone(props: Props) {
       ) : null}
       {!unfinished && result?.outcome !== "applied" && result ? (
         <p role="status">
-          A newer timezone is in effect. Retrying did not replace it.
-        </p>
+          Your timezone was changed elsewhere.</p>
       ) : null}
       {query.data && query.data.timeZone !== deviceZone ? (
         <Button

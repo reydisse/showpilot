@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { loadMediaPage } from "@/lib/media-library-client";
@@ -157,13 +159,11 @@ export function MediaCueFields({
             </select>
           </div>
           {choices.kind === "loading" && (
-            <p role="status" className="text-xs text-board-muted">
-              Loading media clips…
-            </p>
+            <QuietActivity label="Loading media clips…" />
           )}
           {choices.kind === "error" && (
             <p role="alert" className="text-xs text-red-300">
-              {choices.message}
+              {plainFailure((choices.message) ?? "")}
             </p>
           )}
           {choices.kind === "ready" && choices.page.assets.length === 0 && (
@@ -195,7 +195,7 @@ export function MediaCueFields({
           </div>
           {moreError && (
             <p role="alert" className="text-xs text-red-300">
-              {moreError} Use Load more clips to retry.
+              {plainFailure(moreError)} Use Load more clips to retry.
             </p>
           )}
           <div>

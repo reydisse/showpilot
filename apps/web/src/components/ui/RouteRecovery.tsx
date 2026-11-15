@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useId, useRef, useState } from "react";
 import { useRouter, useRouterState, type ErrorComponentProps } from "@tanstack/react-router";
 import { ArrowRight, ArrowUpRight, RotateCcw } from "lucide-react";
@@ -34,18 +35,12 @@ export function RouteRecovery(props: RecoveryProps) {
                 ? "The link may have changed, or this page is no longer available. Your workspace is a click away."
                 : "We couldn't load this page. Try again, or return to your workspace to continue."}
             </p>
-            {props.kind === "error" && props.failedAt !== null && (
-              <p role="alert" className="mt-3 max-w-sm text-sm leading-6 text-board-muted">
-                {props.retryFailed ? "Still unable to load. Try again or reload this page." : "Page load failed."}{" "}
-                <time dateTime={new Date(props.failedAt).toISOString()}>{new Date(props.failedAt).toLocaleTimeString()}</time>
-              </p>
-            )}
 
             <div className="mt-7 flex flex-wrap gap-3">
               {props.kind === "error" && (
                 <Button type="button" size="lg" className="min-h-11" onClick={props.retry} disabled={props.retrying} aria-busy={props.retrying}>
                   <RotateCcw aria-hidden="true" className={props.retrying ? "motion-safe:animate-spin" : undefined} />
-                  {props.retrying ? "Trying again…" : "Try again"}
+                  {props.retrying ? <QuietActivity label="Trying again" /> : "Try again"}
                 </Button>
               )}
               <Button asChild size="lg" className="min-h-11" variant={missing ? "default" : "outline"}>

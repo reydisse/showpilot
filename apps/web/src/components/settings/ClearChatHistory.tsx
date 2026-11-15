@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState } from "react";
 import {
   useMutation,
@@ -75,7 +77,7 @@ export function ClearChatHistory({
           await withOperationTimeout(
             clearChatHistory({ data: command, signal: controller.signal }),
             10_000,
-            "The clear request was not fully confirmed. Retry the same request to finish it.",
+            "Some chat rooms could not be cleared.",
           ),
         );
       } finally {
@@ -180,31 +182,17 @@ export function ClearChatHistory({
         </DialogContent>
       </Dialog>
       {pending ? (
-        <p role="status" className="text-sm text-board-muted">
-          Clearing chat history… Waiting for each room to confirm.
-        </p>
+        <QuietActivity />
       ) : null}
       {unfinished && !pending ? (
         <div role="alert" className="space-y-2 text-sm text-amber-200">
           <p>
-            {latest?.error instanceof Error
+            {plainFailure((latest?.error instanceof Error
               ? latest.error.message
-              : "Some chat rooms have not confirmed the clear."}{" "}
-            Retry continues the same request and keeps newer messages.
+              : "Some chat rooms could not be cleared.") ?? "")}
           </p>
-          {latest?.result ? (
-            <p>
-              {latest.result.rooms.filter((room) => room.cleared).length} of{" "}
-              {latest.result.rooms.length} rooms confirmed.
-            </p>
-          ) : null}
           {latest ? (
-            <p>
-              Last attempt{" "}
-              <time dateTime={new Date(latest.at).toISOString()}>
-                {new Date(latest.at).toLocaleTimeString()}
-              </time>
-            </p>
+            null
           ) : null}
           <Button
             type="button"
@@ -216,12 +204,7 @@ export function ClearChatHistory({
           </Button>
         </div>
       ) : null}
-      {!unfinished && latest?.result ? (
-        <p role="status" className="text-sm text-board-muted">
-          Chat history cleared. All {latest.result.rooms.length} rooms
-          confirmed. Newer messages are kept.
-        </p>
-      ) : null}
+
     </section>
   );
 }

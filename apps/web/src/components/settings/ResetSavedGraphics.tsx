@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { useState } from "react";
 import {
   useMutation,
@@ -74,7 +75,7 @@ export function ResetSavedGraphics({
           await withOperationTimeout(
             resetLowerThirdLibrary({ data: command, signal: controller.signal }),
             10_000,
-            "The reset was not confirmed. Retry the same request to check its result.",
+            "This change needs attention.",
           ),
         );
       } finally {
@@ -186,18 +187,13 @@ export function ResetSavedGraphics({
       {unfinished && !pending ? (
         <div role="alert" className="space-y-2 text-sm text-amber-200">
           <p>
-            {latest?.error instanceof Error
+            {plainFailure((latest?.error instanceof Error
               ? latest.error.message
-              : "The graphics reset was not confirmed."}{" "}
+              : "This change needs attention.") ?? "")}{" "}
             Retry checks the same request and keeps graphics saved after the reset.
           </p>
           {latest ? (
-            <p>
-              Last attempt{" "}
-              <time dateTime={new Date(latest.at).toISOString()}>
-                {new Date(latest.at).toLocaleTimeString()}
-              </time>
-            </p>
+            null
           ) : null}
           <Button
             type="button"
@@ -211,7 +207,7 @@ export function ResetSavedGraphics({
       ) : null}
       {!unfinished && latest?.result ? (
         <p role="status" className="text-sm text-board-muted">
-          Saved graphics reset confirmed. {latest.result.deletedCount} saved
+          {latest.result.deletedCount} saved
           {latest.result.deletedCount === 1 ? " graphic was" : " graphics were"} deleted.
           Graphics saved after the reset are kept.
         </p>

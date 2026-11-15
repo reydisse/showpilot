@@ -38,6 +38,8 @@ function loadSheet(alert) {
   const container = ({ children }) =>
     React.createElement("div", null, children);
   const modules = {
+  "@/components/quiet-activity": { QuietActivity: () => jsx.jsx("span", { role: "progressbar", "aria-label": "Loading" }) },
+  "@/components/failure-text": { FailureText: ({ children, accessibilityRole }) => React.createElement("p", { role: accessibilityRole }, children) },
     "@/hooks/use-mobile-inventory": inventoryHook,
     "@/hooks/use-mobile-assignment": assignmentHook,
     "@/hooks/use-mobile-team": teamHook,

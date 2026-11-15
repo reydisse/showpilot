@@ -35,7 +35,7 @@ it("lands confirmed signup on verification with its intended app destination", a
 it("keeps a failed signup draft, offers sign-in recovery and returns to verification", async () => {
   fixture.signUp.mockResolvedValueOnce({ error: { status: 500, message: "SMTP failed: private diagnostic" } });
   render(<Page />); enter(); await act(async () => submit());
-  expect(destination).toBe(""); expect(screen.getByRole("alert").textContent).toContain("Your account may already exist");
+  expect(destination).toBe(""); expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   expect(screen.getByRole("alert").textContent).not.toContain("private diagnostic");
   expect(screen.getByLabelText("Password")).toHaveProperty("value", "Test-password-123!");
   fireEvent.click(screen.getByRole("button", { name: "Sign in to check account" }));
@@ -51,7 +51,7 @@ it("times out signup, prevents duplicate requests and ignores late success", asy
   const signal = fixture.signUp.mock.calls[0][0].fetchOptions.signal;
   expect(screen.getByLabelText("Email address")).toHaveProperty("disabled", true);
   await act(() => vi.advanceTimersByTimeAsync(8_000));
-  expect(signal.aborted).toBe(true); expect(screen.getByRole("alert").textContent).toContain("Last attempt:");
+  expect(signal.aborted).toBe(true); expect(screen.getByRole("alert").textContent).not.toContain("Last attempt:");
   await act(async () => old.resolve(saved)); expect(destination).toBe("");
   expect(screen.getByRole("button", { name: "Sign in to check account" })).toBeTruthy();
 });
@@ -63,7 +63,7 @@ it("aborts on unmount and never navigates on its late reply", async () => {
 });
 it.each([{ data: null }, { data: { user: saved.data.user, token: null } }])("requires a confirmed session before navigating: %j", async value => {
   fixture.signUp.mockResolvedValueOnce(value); render(<Page />); enter(); await act(async () => submit());
-  expect(destination).toBe(""); expect(screen.getByRole("alert").textContent).toContain("couldn't confirm account creation");
+  expect(destination).toBe(""); expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
 });
 it("maps sign-in rejection to human copy and preserves the intended destination on Retry", async () => {
   fixture.signup = undefined; fixture.returnTo = "/venue/timecode?showId=abc";
@@ -78,7 +78,7 @@ it("bounds sign-in, allows explicit Retry and ignores its stale result", async (
   const old = pending<typeof saved>(); fixture.signIn.mockReturnValueOnce(old.promise);
   render(<Page />); enter(); submit();
   await act(() => vi.advanceTimersByTimeAsync(8_000));
-  expect(screen.getByRole("alert").textContent).toContain("couldn't confirm sign-in");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Retry sign-in" })));
   expect(destination).toBe("/"); destination = "";
   await act(async () => old.resolve(saved)); expect(destination).toBe("");

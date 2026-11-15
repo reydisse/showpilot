@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useEffect, useState } from "react";
@@ -81,8 +82,8 @@ function NativeLivePanel({ items, timer, connected }: {
   const [state, setState] = useState<LivePanelState>({
     playback: "stop",
     timerText: "--:--",
-    currentTitle: "Waiting for the first cue",
-    currentMeta: "Waiting for live state",
+    currentTitle: "No cue selected",
+    currentMeta: "",
     nextTitle: null,
     overtime: false,
     progress: 0,
@@ -99,8 +100,8 @@ function NativeLivePanel({ items, timer, connected }: {
         timerText: timer.mode === "clock"
           ? new Date(elapsed).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
           : current ? formatTimer(remaining) : "--:--",
-        currentTitle: current?.title || "Waiting for the first cue",
-        currentMeta: current ? `${formatTimer(current.duration)}${current.assignee ? ` · ${current.assignee}` : ""}` : connected ? "The live state is ready" : "Waiting for live state",
+        currentTitle: current?.title || "No cue selected",
+        currentMeta: current ? `${formatTimer(current.duration)}${current.assignee ? ` · ${current.assignee}` : ""}` : connected ? "The live state is ready" : "",
         nextTitle: next?.title ?? null,
         overtime: Boolean(current && timer.mode === "count-down" && remaining < 0),
         progress:
@@ -139,7 +140,7 @@ function LivePanel({ state, connected = true }: { state: LivePanelState; connect
           <Text numberOfLines={1} style={styles.nextTitle}>Next  ·  <Text style={styles.nextName}>{state.nextTitle}</Text></Text>
         ) : null}
       </View>
-      <View style={styles.liveSource}><RadioTower color={playing ? colors.green : colors.textFaint} size={14} /><Text style={styles.liveSourceText}>{!connected ? "Timing is not live. Reconnect to confirm." : playing ? "Synchronized across operators" : "Following authoritative live state"}</Text></View>
+      <View style={styles.liveSource}><RadioTower color={playing ? colors.green : colors.textFaint} size={14} /><Text style={styles.liveSourceText}>{!connected ? "The show could not be updated." : playing ? "" : "Following authoritative live state"}</Text></View>
     </View>
   );
 }
@@ -243,17 +244,9 @@ function WorkspaceList({ workspace, livePanel, items, showId, title, subtitle, o
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
           <View style={styles.headerContent}>
-            <View style={styles.workspaceStatus}>
-              {(liveConnection ? !liveConnection.ready : workspace.adapterStatus === "fallback") ? (
-                <WifiOff color={colors.red} size={15} />
-              ) : (
-                <Wifi color={colors.green} size={15} />
-              )}
-              <Text accessibilityLiveRegion="polite" style={[styles.workspaceStatusText, (liveConnection ? !liveConnection.ready : workspace.adapterStatus === "fallback") && styles.workspaceStatusFallback]}>{liveConnection?.label ?? (workspace.adapterStatus === "fallback" ? "OnTime unavailable · Native fallback" : `${workspace.runtime.kind === "ontime" ? "OnTime" : "Native"} live source`)}</Text>
-              <Text style={styles.workspaceClock}>{subtitle}</Text>
-            </View>
-            {liveConnection && !liveConnection.ready ? <View style={{ gap: 8 }}>
-              {liveConnection.error ? <Text accessibilityRole="alert" style={{ color: colors.red }}>{liveConnection.error}</Text> : null}
+            <Text style={styles.workspaceClock}>{subtitle}</Text>
+            {liveConnection?.error ? <View style={{ gap: 8 }}>
+              <FailureText accessibilityRole="alert" style={{ color: colors.red }}>The live show could not be updated.</FailureText>
               <AppButton label="Retry live connection" variant="secondary" onPress={liveConnection.retry} />
             </View> : null}
             {livePanel}
@@ -298,7 +291,7 @@ function NativeWorkspace({ workspace, runtime, orgId, onRefresh, refreshing }: {
     ? `${runtime.show.serviceDate} · ${formatServiceTime(runtime.show.scheduledStartTime, workspace.timeZone)}`
     : workspaceCopy("No upcoming service", workspaceTerms);
   return (
-    <WorkspaceList workspace={workspace} liveConnection={runtime.show ? { ready: authoritative, label: authoritative ? "Live sync" : relay.status === "connecting" ? "Connecting, showing last known state" : "Reconnecting, showing last known state", error: relay.lastError, retry: relay.retryConnection } : undefined} livePanel={<NativeLivePanel items={items} timer={timer} connected={authoritative} />} items={sequence} showId={runtime.show?.id ?? null} title={runtime.show?.name || "Live Show"} subtitle={subtitle} onRefresh={onRefresh} refreshing={refreshing} />
+    <WorkspaceList workspace={workspace} liveConnection={runtime.show ? { ready: authoritative, label: authoritative ? "Live sync" : relay.status === "connecting" ? "" : "", error: relay.lastError, retry: relay.retryConnection } : undefined} livePanel={<NativeLivePanel items={items} timer={timer} connected={authoritative} />} items={sequence} showId={runtime.show?.id ?? null} title={runtime.show?.name || "Live Show"} subtitle={subtitle} onRefresh={onRefresh} refreshing={refreshing} />
   );
 }
 
@@ -315,7 +308,7 @@ function OntimeWorkspace({ workspace, runtime, onRefresh, refreshing }: {
   const liveState: LivePanelState = {
     playback: runtime.timer.playback,
     timerText: runtime.timer.current === null ? "--:--" : formatTimer(runtime.timer.current),
-    currentTitle: current?.title || "Waiting for the first cue",
+    currentTitle: current?.title || "No cue selected",
     currentMeta: current ? `${formatOntimeClock(current.timeStart, workspace.clockFormat)} – ${formatOntimeClock(current.timeEnd, workspace.clockFormat)}` : "OnTime is connected",
     nextTitle: runtime.eventNext?.title ?? null,
     overtime: (runtime.timer.current ?? 0) < 0,
@@ -345,7 +338,7 @@ export default function LiveShowScreen() {
   });
   if (organizationPending) return <Page backTo="/(app)/shows" backLabel="Back to shows"><ActivityIndicator accessibilityLabel="Loading workspace" color={colors.amber} size="large" style={styles.loading} /></Page>;
   if (!organization) return <Redirect href="/organizations" />;
-  if (bootstrapError && !bootstrap) return <Page backTo="/(app)/shows" backLabel="Back to shows" title="Could not open Show"><Text accessibilityRole="alert" style={styles.error}>{bootstrapError.message}</Text><AppButton label="Retry workspace access" onPress={() => void refreshBootstrap()} /></Page>;
+  if (bootstrapError && !bootstrap) return <Page backTo="/(app)/shows" backLabel="Back to shows" title="Could not open Show"><FailureText accessibilityRole="alert" style={styles.error}>{bootstrapError.message}</FailureText><AppButton label="Retry workspace access" onPress={() => void refreshBootstrap()} /></Page>;
   if (bootstrapPending || (canView && query.isPending))
     return (
       <Page backTo="/(app)/shows" backLabel="Back to shows"><ActivityIndicator color={colors.amber} size="large" style={styles.loading} /></Page>

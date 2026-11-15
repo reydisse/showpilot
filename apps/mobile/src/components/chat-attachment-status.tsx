@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { ChatAttachmentWork } from "@showpilot/shared/chat-attachment-draft";
 import { createThemedStyles, fontFamily } from "@/theme/tokens";
@@ -10,7 +11,7 @@ export function ChatAttachmentStatus({ items, retry, remove }: {
   return <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">{items.map(item => <View key={item.id} testID={`chat-attachment-${item.id}`} style={styles.row}>
     <Text style={styles.name}>{item.name}</Text>
     <Text style={styles.status}>{label(item)} · {new Date(item.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>
-    {(item.state === "upload-failed" || item.state === "remove-failed") && <Text accessibilityRole="alert" style={styles.error}>{item.error}</Text>}
+    {(item.state === "upload-failed" || item.state === "remove-failed") && <FailureText accessibilityRole="alert" style={styles.error}>{item.error}</FailureText>}
     <View style={styles.buttons}>
       {(item.state === "upload-failed" || item.state === "remove-failed") && <Pressable accessibilityRole="button" accessibilityLabel={`${item.state === "remove-failed" ? "Retry removing" : "Retry uploading"} ${item.name}`} onPress={() => retry(item.id)} style={styles.button}><Text style={styles.buttonText}>{item.state === "remove-failed" ? "Retry removal" : "Retry upload"}</Text></Pressable>}
       {item.state !== "removing" && item.state !== "remove-failed" && item.state !== "sending" && <Pressable accessibilityRole="button" accessibilityLabel={`Remove ${item.name}`} onPress={() => remove(item.id)} style={styles.button}><Text style={styles.buttonText}>Remove</Text></Pressable>}

@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useNavigate } from "@tanstack/react-router";
 import { NotificationPreferences } from "@/components/settings/NotificationPreferences";
 import { BellRing, CheckCheck, ExternalLink, Inbox, Info, SlidersHorizontal, TriangleAlert } from "lucide-react";
@@ -41,18 +42,18 @@ export function NotificationInbox({ orgId, userId, slug, onUnreadChange, onNavig
       </div>
 
       <div data-testid="notification-list" className="modern-scrollbar min-h-0 flex-1 touch-pan-y divide-y divide-board-border/70 overflow-y-auto overscroll-contain">
-        {pending ? <p role="status" className="sr-only">Updating read status…</p> : null}
-        {commands.map(attempt => attempt.status === "uncertain" ? (
+        {pending ? <QuietActivity /> : null}
+        {commands.filter(attempt => attempt.status === "uncertain").slice(0, 1).map(attempt => (
           <div key={attempt.command.requestId} role="alert" className="space-y-2 px-5 py-3 text-sm text-amber-700 dark:text-amber-300">
-            <p>{attempt.command.notificationId === null ? "Mark all read" : "Mark as read"} was not confirmed and may have saved. Retry checks the same action without repeating a saved change.</p>
-            <p>Last failed attempt <time dateTime={new Date(attempt.occurredAt).toISOString()}>{new Date(attempt.occurredAt).toLocaleTimeString()}</time></p>
+            <p>Read status could not be saved.</p>
+
             <Button type="button" variant="outline" className="min-h-11" onClick={() => retryRead(attempt.command)}>Retry read status</Button>
           </div>
-        ) : null)}
-        {readFailed ? <div role="alert" className="space-y-2 px-5 py-3 text-sm text-red-700 dark:text-red-300">
-          <p>{inbox.isFetchNextPageError ? "Older notifications could not be loaded." : "Notifications could not be refreshed."} {inbox.data ? "Showing the last confirmed inbox." : "Retry to check your inbox."}</p>
-          <p>Last failed read <time dateTime={new Date(inbox.errorUpdatedAt).toISOString()}>{new Date(inbox.errorUpdatedAt).toLocaleTimeString()}</time></p>
-          <Button type="button" variant="outline" className="min-h-11" disabled={inbox.isFetching || pending} onClick={() => { void (inbox.isFetchNextPageError ? inbox.fetchNextPage({ cancelRefetch: false }) : inbox.refetch({ cancelRefetch: false })); }}>{inbox.isFetching ? "Retrying…" : "Retry notifications"}</Button>
+        ))}
+        {readFailed && !commands.some(attempt => attempt.status === "uncertain") ? <div role="alert" className="space-y-2 px-5 py-3 text-sm text-red-700 dark:text-red-300">
+          <p>{inbox.isFetchNextPageError ? "Older notifications could not be loaded." : "Notifications could not be refreshed."}</p>
+
+          <Button type="button" variant="outline" className="min-h-11" disabled={inbox.isFetching || pending} onClick={() => { void (inbox.isFetchNextPageError ? inbox.fetchNextPage({ cancelRefetch: false }) : inbox.refetch({ cancelRefetch: false })); }}>{inbox.isFetching ? <QuietActivity label="Retrying…" /> : "Retry notifications"}</Button>
         </div> : null}
         {inbox.isPending && !readFailed ? <NotificationSkeleton /> : null}
         {inbox.data && !readFailed && items.length === 0 ? (
@@ -60,7 +61,7 @@ export function NotificationInbox({ orgId, userId, slug, onUnreadChange, onNavig
             <span className="flex size-12 items-center justify-center rounded-xl border border-board-border bg-board-bg/40 text-board-muted">
               <Inbox className="size-6" />
             </span>
-            <p className="mt-4 text-sm font-medium text-board-text">Nothing waiting for you.</p>
+            <p className="mt-4 text-sm font-medium text-board-text">No notifications yet.</p>
             <p className="mt-1 max-w-64 text-xs leading-5 text-board-muted">Assignments, mentions, and operational alerts will appear here.</p>
           </div>
         ) : null}
@@ -79,7 +80,7 @@ export function NotificationInbox({ orgId, userId, slug, onUnreadChange, onNavig
         {inbox.hasNextPage && !readFailed ? (
           <div className="flex justify-center px-5 py-4 sm:px-6">
             <Button type="button" variant="outline" size="sm" className="min-h-11" disabled={inbox.isFetching || pending} onClick={() => void inbox.fetchNextPage({ cancelRefetch: false })}>
-              {inbox.isFetchingNextPage ? "Loading…" : "Load older notifications"}
+              {inbox.isFetchingNextPage ? <QuietActivity label="Loading…" /> : "Load older notifications"}
             </Button>
           </div>
         ) : null}

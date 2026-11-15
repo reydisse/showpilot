@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { StyleSheet, Text, View } from "react-native";
 import { AppButton } from "./app-button";
 import { createThemedStyles, fontFamily, radii } from "@/theme/tokens";
@@ -27,16 +29,13 @@ export function ScheduleCopyProgress({
           <View key={slot} accessibilityLiveRegion="polite" style={styles.card}>
             <Text style={styles.title}>{attempt.label}</Text>
             {attempt.kind === "pending" ? (
-              <Text style={styles.copy}>
-                Checking team copy… You can leave this screen and return to
-                check the result.
-              </Text>
+              <QuietActivity />
             ) : null}
             {attempt.kind === "failed" ? (
               <>
-                <Text accessibilityRole="alert" style={styles.error}>
+                <FailureText accessibilityRole="alert" style={styles.error}>
                   {attempt.message}
-                </Text>
+                </FailureText>
                 <Text style={styles.copy}>
                   Some positions and invitations may already be saved. Retry
                   checks the original copy without adding positions again.
@@ -50,12 +49,12 @@ export function ScheduleCopyProgress({
             {result ? (
               <>
                 {attempt.kind !== "confirmed" ? (
-                  <Text style={styles.copy}>Previous confirmed result:</Text>
+                  <Text style={styles.copy}>Previous result:</Text>
                 ) : null}
                 {result.reason ? (
-                  <Text accessibilityRole="alert" style={styles.error}>
+                  <FailureText accessibilityRole="alert" style={styles.error}>
                     {copyTeamBlockedMessage(result.reason)}
-                  </Text>
+                  </FailureText>
                 ) : (
                   <>
                     <Text style={styles.copy}>
@@ -80,9 +79,7 @@ export function ScheduleCopyProgress({
             ) : null}
             {attempt.kind === "confirmed" ? (
               <>
-                <Text style={styles.copy}>
-                  Last checked: {new Date(attempt.at).toLocaleString()}
-                </Text>
+                {null}
                 {attempt.refresh === "pending" ? (
                   <Text style={styles.copy}>
                     Copy checked. Refreshing Schedule…
@@ -91,9 +88,9 @@ export function ScheduleCopyProgress({
                 {attempt.refresh === "idle" || attempt.refresh === "failed" ? (
                   <>
                     {attempt.message ? (
-                      <Text accessibilityRole="alert" style={styles.error}>
+                      <FailureText accessibilityRole="alert" style={styles.error}>
                         {attempt.message}
-                      </Text>
+                      </FailureText>
                     ) : null}
                     <Text style={styles.copy}>
                       The copy result is saved. Refresh Schedule to see current

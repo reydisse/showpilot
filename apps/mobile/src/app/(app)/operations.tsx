@@ -111,7 +111,7 @@ export default function OperationsScreen() {
             icon={UserCheck}
             title="Crew check-in"
             module="board"
-            description="Find crew by member ID or roster and keep attendance synchronized for every operator."
+            description="Find crew by name or roster."
             onPress={() => router.push("/checkin")}
           />
         ) : null}
@@ -175,7 +175,7 @@ export default function OperationsScreen() {
             icon={Radio}
             title="Stream health"
             module="streaming"
-            description="Watch live input and distribution state with five-second provider polling."
+            description="View live input and distribution."
             badge="LIVE"
             onPress={() => router.push("/stream")}
           />

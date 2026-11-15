@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import type { NativeTimerState } from "@/types/rundown";
@@ -62,8 +62,7 @@ describe("LiveRundownBar", () => {
     vi.useFakeTimers();
     state = { ...state, connected: false };
     view.rerender(<LiveRundownBar {...props} />);
-    const notice = screen.getByText("Reconnecting · last known state");
-    expect(notice.getAttribute("aria-live")).toBe("polite");
+    expect(screen.queryByText("Reconnecting · last known state")).toBeNull();
     const held = document.querySelector("[data-live-rundown-timer]")?.textContent;
     await act(async () => { vi.advanceTimersByTime(5000); });
     expect(document.querySelector("[data-live-rundown-timer]")?.textContent).toBe(held);
@@ -119,7 +118,7 @@ describe("LiveRundownBar", () => {
     await screen.findByText("Welcome");
     mocks.getTarget.mockRejectedValueOnce(new Error("offline"));
     act(() => window.dispatchEvent(new Event(ACTIVE_RUNDOWN_CHANGED_EVENT)));
-    await screen.findByText("Reconnecting · last known state");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Resume rundown" }).hasAttribute("disabled")).toBe(true));
     expect(screen.getByText("Welcome")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Resume rundown" })).toHaveProperty("disabled", true);
     view.rerender(<LiveRundownBar {...props} />);
@@ -157,7 +156,7 @@ describe("LiveRundownBar", () => {
     state = { ...state, items: [], lastError: "Rundown PIN is locked." };
     render(<LiveRundownBar {...props} />);
     expect(await screen.findByText("Live item unavailable")).toBeTruthy();
-    expect(screen.getByRole("alert").textContent).toContain("PIN is locked");
+    expect(screen.getByRole("alert").textContent).toContain("Live rundown could not be updated.");
     expect(screen.queryByRole("button", { name: "Resume rundown" })).toBeNull();
   });
 
@@ -173,8 +172,8 @@ describe("LiveRundownBar", () => {
     state.lastErrorAt = 123_000;
     render(<LiveRundownBar {...props} />);
     const failure = await screen.findByRole("alert");
-    expect(failure.textContent).toContain("Rundown connection lost");
-    expect(failure.querySelector("time")?.dateTime).toBe(new Date(123_000).toISOString());
+    expect(failure.textContent).toContain("Live rundown could not be updated.");
+    expect(failure.querySelector("time")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Reconnect rundown" }));
     expect(mocks.reconnect).toHaveBeenCalledOnce();
     expect(mocks.sendCommand).not.toHaveBeenCalled();

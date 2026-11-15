@@ -9,9 +9,9 @@ it("times out a stalled request, offers Retry and ignores its late result", asyn
   let finish: (items: AutomationTargetOption[]) => void = () => {};
   const loadOptions = () => new Promise<AutomationTargetOption[]>(resolve => { finish = resolve; });
   render(<AutomationTargetPicker kind="lighting-blackout" loadOptions={loadOptions} selection={null} onSelect={vi.fn()} />);
-  expect(screen.getByRole("status").textContent).toBe("Loading lighting devices…");
+  expect(screen.getByRole("progressbar", { name: "Loading lighting devices…" })).toBeTruthy();
   await act(async () => vi.advanceTimersByTimeAsync(10000));
-  expect(screen.getByRole("alert").textContent).toContain("timed out");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   expect(screen.queryByRole("status")).toBeNull();
   expect(screen.getByRole("button", { name: "Retry loading targets" })).toHaveProperty("disabled", false);
   await act(async () => finish([{ id: "late", label: "Late target" }]));

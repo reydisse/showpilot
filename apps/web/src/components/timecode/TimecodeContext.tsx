@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { RefreshCw } from "lucide-react";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useTimecode, type UseTimecodeReturn } from "@/hooks/useTimecode";
@@ -67,7 +68,7 @@ export function useShowTimecode() {
 
 export function TimecodeShowPicker() {
   const timecode = useShowTimecode();
-  if (timecode.showLoading) return <p role="status" className="text-sm text-board-muted">Loading shows…</p>;
+  if (timecode.showLoading) return <QuietActivity label="Loading shows…" />;
   if (timecode.showError) return <p role="alert" className="text-sm text-red-400">{timecode.showError} <button onClick={timecode.refreshShows}>Retry</button></p>;
   if (!timecode.shows.length) return <p className="text-sm text-board-muted">Create a show in Rundown to use timecode. <button onClick={timecode.refreshShows}>Refresh shows</button></p>;
   return <div className="flex flex-wrap items-center gap-2">
@@ -83,9 +84,7 @@ export function TimecodeControlNotice() {
   const { connected, control, isMaster, generatorPending, claimControl, releaseControl } = useShowTimecode();
   if (!connected || !control) return null;
   return <div className="flex flex-wrap items-center justify-between gap-3 border-b border-board-border py-2 text-xs text-board-muted">
-    <p role="status">{control === "other" ? "Another operator controls this show's timecode. Ask them to release control to make changes."
-      : control === "yours" ? "You have control"
-      : "Controls available"}</p>
+    {control === "other" && <p>Another operator has control.</p>}
     {control === "available" && <button type="button" onClick={claimControl} className="min-h-11 rounded-lg border border-board-border px-3 text-board-text">Take control</button>}
     {control === "yours" && <button type="button" disabled={isMaster || generatorPending !== null} onClick={releaseControl} className="min-h-11 rounded-lg border border-board-border px-3 text-board-text disabled:opacity-50">Release control</button>}
     {control === "yours" && (isMaster || generatorPending !== null) && <p className="w-full text-xs">Stop the local source before releasing control.</p>}

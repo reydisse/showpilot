@@ -28,7 +28,7 @@ export async function readInvitationView(db: Database, user: { id: string; email
       name: string; slug: string; actorId: string | null; decision: InvitationDecision | null; memberId: string | null;
     }>();
   if (!row) return { status: "unavailable" };
-  if (row.email.toLowerCase() !== user.email.toLowerCase() || (row.decision && row.actorId !== user.id)) return { status: "wrong-account", email: user.email };
+  if (row.email.toLowerCase() !== user.email.toLowerCase() || (row.decision && row.actorId !== user.id)) return { status: "wrong-account", email: user.email, userId: user.id };
   const invitation = { id: row.id, role: row.role ?? "member", expiresAt: new Date(row.expiresAt).getTime(), organization: { id: row.organizationId, name: row.name, slug: row.slug } };
   if (!Number.isFinite(invitation.expiresAt)) throw new Error("The invitation expiry could not be read. Ask an administrator for a new invitation.");
   const common = { invitation, email: user.email };

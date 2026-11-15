@@ -83,9 +83,9 @@ describe("ChatPanel conversation flow", () => {
       label: "Stand by", at: 1234, status: "failed",
     }]} />);
     const alert = screen.getByRole("alert");
-    expect(alert.textContent).toContain("Message delivered.");
+    expect(alert.textContent).not.toContain("Message delivered.");
     expect(alert.textContent).toContain("Stand by");
-    expect(alert.querySelector("time")?.dateTime).toBe(new Date(1234).toISOString());
+    expect(alert.querySelector("time")).toBeNull();
     fireEvent.click(within(alert).getByRole("button", { name: "Retry notifications" }));
     expect(onRetryNotifications).toHaveBeenCalledExactlyOnceWith("notification");
     expect(onSendMessage).not.toHaveBeenCalled();
@@ -105,34 +105,34 @@ describe("ChatPanel conversation flow", () => {
     expect(onSendMessage).not.toHaveBeenCalled();
   });
 
-  it("keeps unknown rooms out of the empty state and exposes a timestamped reconnect action", () => {
+  it("keeps unknown rooms out of the empty state silently and offers retry on real failure", () => {
     const reconnect = vi.fn();
     const props = { messages: [], unreadCount: 0, onSendMessage: vi.fn(), hydrated: false, onReconnect: reconnect };
     const view = render(<ChatPanel {...props} connectionStatus="connecting" />);
-    expect(screen.getByText("Connecting to chat…")).toBeTruthy();
+    expect(screen.queryByText("Connecting to chat…")).toBeNull();
     expect(screen.queryByText("No messages yet")).toBeNull();
-    view.rerender(<ChatPanel {...props} connectionStatus="reconnecting" connectionUpdatedAt={1234} />);
-    expect(screen.getByRole("alert").querySelector("time")?.dateTime).toBe(new Date(1234).toISOString());
-    fireEvent.click(screen.getByRole("button", { name: "Reconnect chat" }));
+    view.rerender(<ChatPanel {...props} connectionStatus="error" connectionUpdatedAt={1234} />);
+    expect(screen.getByRole("alert").querySelector("time")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry chat" }));
     expect(reconnect).toHaveBeenCalledOnce();
     expect(screen.queryByText("No messages yet")).toBeNull();
     view.rerender(<ChatPanel {...props} hydrated connectionStatus="connected" />);
     expect(screen.getByText("No messages yet")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Reconnect chat" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry chat" })).toBeNull();
     view.unmount();
   });
   it("shows separate external delivery status on crew cues and preserves their line breaks", () => {
     const cue: ChatMessage = { ...messages[0], id: "crew", type: "cue", text: "Standby cameras\nCamera 2 next", externalDelivery: { platform: "slack", status: "pending" } };
     const props = { connectionStatus: "connected" as const, unreadCount: 0, onSendMessage: vi.fn() };
     const view = render(<ChatPanel {...props} messages={[cue]} />);
-    expect(screen.getByText("Sending to slack…")).toBeTruthy();
+    expect(screen.queryByText("Sending to slack…")).toBeNull();
     const text = view.container.querySelector('[data-chat-message-id="crew"] p');
     expect(text?.textContent).toBe(cue.text);
     expect(text?.classList.contains("whitespace-pre-wrap")).toBe(true);
     view.rerender(<ChatPanel {...props} messages={[{ ...cue, externalDelivery: { platform: "slack", status: "failed", error: "Service unavailable" } }]} />);
-    expect(screen.getByRole("alert").textContent).toBe("Not delivered to slack: Service unavailable");
+    expect(screen.getByRole("alert").textContent).toBe("Your message could not reach slack.");
     view.rerender(<ChatPanel {...props} messages={[{ ...cue, externalDelivery: { platform: "slack", status: "sent" } }]} />);
-    expect(screen.getByText("Delivered to slack")).toBeTruthy();
+    expect(screen.queryByText("Delivered to slack")).toBeNull();
   });
 
   it("loads older messages on request and exposes recoverable queued delivery", async () => {
@@ -192,7 +192,7 @@ describe("ChatPanel conversation flow", () => {
     const input = container.querySelector('input[type="file"]');
     if (!input) throw new Error("Missing upload input");
     fireEvent.change(input, { target: { files: [new File(["draft"], "draft.txt", { type: "text/plain" })] } });
-    await screen.findByText(/Ready to send/);
+    await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Remove draft.txt" }));
     await waitFor(() => expect(onDiscardAttachment).toHaveBeenCalledWith(attachment));
   });
@@ -367,7 +367,7 @@ it("keeps uncertain edits visible and blocks conflicting row actions until recov
   render(<ChatPanel messages={[messages[1]]} connectionStatus="connected" unreadCount={0} currentUserId="me" onSendMessage={vi.fn()} onEditMessage={vi.fn()} onDeleteMessage={vi.fn()} onSetReaction={vi.fn()}
     mutations={[{ command, state: "unknown", error: "Change not confirmed", at: 1000 }]} onRetryMutation={retry} onDismissMutation={dismiss} />);
   const status = screen.getByRole("region", { name: "Message changes" });
-  expect(status.textContent).toContain("My captured draft"); expect(status.textContent).toContain("Change not confirmed");
+  expect(status.textContent).toContain("My captured draft"); expect(status.textContent).toContain("This message change needs attention."); expect(status.querySelector("time")).toBeNull();
   expect(screen.getByRole("button", { name: "Edit message" })).toHaveProperty("disabled", true);
   expect(screen.getByRole("button", { name: "Delete message" })).toHaveProperty("disabled", true);
   expect(screen.getByRole("button", { name: "Choose reaction" })).toHaveProperty("disabled", true);
@@ -376,18 +376,18 @@ it("keeps uncertain edits visible and blocks conflicting row actions until recov
   expect(retry).toHaveBeenCalledWith(command.requestId); expect(dismiss).not.toHaveBeenCalled();
 });
 
-it("offers cleanup recovery for an applied delete and dismissal only after cleanup completes", () => {
+it("offers cleanup recovery for an applied delete and silently hides the completed receipt", () => {
   const command = { orgId: "org", userId: "me", roomId: "production", messageId: "reply", requestId: crypto.randomUUID(), expiresAt: Date.now() + 10000,
     operation: { kind: "delete" as const, expectedEditTime: 2 } };
   const result = { command, outcome: "applied" as const, at: 2000, cleanup: "failed" as const };
   const retry = vi.fn(), dismiss = vi.fn();
   const base = { messages: [], connectionStatus: "connected" as const, unreadCount: 0, onSendMessage: vi.fn(), onRetryMutation: retry, onDismissMutation: dismiss };
   const view = render(<ChatPanel {...base} mutations={[{ command, state: "settled", result, at: 2000 }]} />);
-  expect(screen.getByRole("alert").textContent).toContain("Message deleted");
+  expect(screen.getByRole("alert").textContent).toContain("An attachment needs attention.");
   expect(screen.queryByRole("button", { name: "Dismiss result" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Retry attachment cleanup" })); expect(retry).toHaveBeenCalledWith(command.requestId);
   view.rerender(<ChatPanel {...base} mutations={[{ command, state: "settled", result: { ...result, cleanup: "complete" }, at: 2001 }]} />);
-  fireEvent.click(screen.getByRole("button", { name: "Dismiss result" })); expect(dismiss).toHaveBeenCalledWith(command.requestId);
+  expect(screen.queryByRole("region", { name: "Message changes" })).toBeNull(); expect(dismiss).not.toHaveBeenCalled();
 });
 
 it("submits the captured edit version even when a newer message arrives while typing", async () => {
@@ -411,11 +411,11 @@ it("keeps a failed attachment removal recoverable without sending that attachmen
     attachmentDraft={attachmentFixture(attachment, undefined, remove)} />);
   const input = container.querySelector('input[type="file"]'); if (!input) throw new Error("Missing upload input");
   fireEvent.change(input, { target: { files: [new File(["notes"], "notes.txt", { type: "text/plain" })] } });
-  await screen.findByText(/Ready to send/);
+  await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
   fireEvent.click(screen.getByRole("button", { name: "Remove notes.txt" }));
   await waitFor(() => expect(remove).toHaveBeenCalledWith(attachment));
   const retry = await screen.findByRole("button", { name: "Retry removing notes.txt" });
-  expect(screen.getByRole("alert").textContent).toContain("Storage unavailable");
+  expect(screen.getByRole("alert").textContent).toContain("This attachment needs attention.");
   remove.mockResolvedValue(undefined); fireEvent.click(retry);
   await waitFor(() => expect(remove).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Retry removing notes.txt" })).toBeNull());
@@ -429,12 +429,12 @@ it("does not silently delete an unsent attachment when navigating away", async (
     attachmentDraft={draft} />);
   const input = view.container.querySelector('input[type="file"]'); if (!input) throw new Error("Missing upload input");
   fireEvent.change(input, { target: { files: [new File(["draft"], "draft.txt", { type: "text/plain" })] } });
-  await screen.findByText(/Ready to send/);
+  await waitFor(() => expect(screen.queryByRole("progressbar")).toBeNull());
   view.unmount();
   expect(discard).not.toHaveBeenCalled();
   render(<ChatPanel messages={[]} connectionStatus="connected" unreadCount={0} onSendMessage={vi.fn()} attachmentDraft={draft} />);
   expect(screen.getByRole("button", { name: "Remove draft.txt" })).toBeTruthy();
-  expect(screen.getByText(/Ready to send/)).toBeTruthy();
+  expect(screen.queryByText(/Ready to send/)).toBeNull();
 });
 
 function attachmentFixture(attachment: ChatAttachment, upload: () => Promise<ChatAttachment> = async () => attachment, cancel: (file: ChatAttachment) => Promise<void> = async () => {}) {

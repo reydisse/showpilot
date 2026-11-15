@@ -49,7 +49,7 @@ it("shows loading, error and retry without presenting a failed request as an emp
   expect(screen.getByText("Loading media…")).toBeTruthy();
   expect(screen.queryByText("No media uploaded yet.")).toBeNull();
   await act(async () => fail(new Error("Library timed out")));
-  expect(screen.getByRole("alert").textContent).toContain("Library timed out");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   expect(screen.queryByText("No media uploaded yet.")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Retry loading media" }));
   await screen.findByText("No media uploaded yet.");

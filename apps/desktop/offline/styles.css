@@ -71,3 +71,5 @@ button:focus-visible { outline: 2px solid #ffd452; outline-offset: 3px; }
 .confirm-dialog p { line-height: 1.6; }
 .dialog-actions { display: flex; gap: 12px; justify-content: flex-end; flex-wrap: wrap; }
 @media (max-width: 600px) { .topbar { padding: 12px; } .topbar { display: grid; grid-template-columns: 1fr 1fr; } .topbar .heading, .topbar .offline-pill { grid-column: 1 / -1; } .topbar .offline-pill { justify-self: start; } .topbar .button { min-width: 0; } .workspace { padding: 12px; } .cue { grid-template-columns: 24px minmax(0, 1fr) auto; gap: 6px; } .cue-title { white-space: normal; } .heading p { white-space: normal; } .cue-time { font-size: 12px; } }
+
+.notice:empty { display: none; }

@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useWorkspace } from "@/components/workspace/WorkspaceProvider";
 import { moduleForSurface } from "@showpilot/shared";
 import {
@@ -136,7 +137,7 @@ export function FirstSessionChecklist({
               signal: controller.signal,
             }),
             10_000,
-            "Checklist change was not confirmed. Retry the same change.",
+            "This change needs attention.",
           ),
         );
         if (result.requestId !== command.requestId)
@@ -205,38 +206,24 @@ export function FirstSessionChecklist({
       {readFailure && (
         <div role="alert" className="space-y-2 text-sm text-amber-200">
           <p>The checklist could not be loaded. Saved progress is unchanged.</p>
-          <p>
-            Last failed read{" "}
-            <time dateTime={new Date(state.errorUpdatedAt).toISOString()}>
-              {new Date(state.errorUpdatedAt).toLocaleTimeString()}
-            </time>
-          </p>
+
           <button
             className={actionClass}
             disabled={state.isFetching}
             onClick={() => void state.refetch()}
-          >
-            {state.isFetching ? "Retrying…" : "Retry checklist"}
+           aria-label={state.isFetching ? "Retrying…" : "Retry checklist"}>
+            {state.isFetching ? <QuietActivity label="Retrying…" /> : "Retry checklist"}
           </button>
         </div>
       )}
       {pending && (
-        <p role="status" className="text-sm text-board-muted">
-          Saving checklist…
-        </p>
+        <QuietActivity label="Saving checklist…" />
       )}
       {unfinished && !pending && (
         <div role="alert" className="space-y-2 text-sm text-amber-200">
           <p>
-            Your checklist change was not confirmed and may have saved. Retry
-            checks that same change without undoing newer progress.
-          </p>
-          <p>
-            Last failed change{" "}
-            <time dateTime={new Date(latest!.at).toISOString()}>
-              {new Date(latest!.at).toLocaleTimeString()}
-            </time>
-          </p>
+            Your checklist change needs attention.</p>
+
           <button
             className={actionClass}
             onClick={() => mutation.mutate(unfinished)}

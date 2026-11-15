@@ -96,7 +96,7 @@ it("retains the exact failed save through closing and never retries the inbox in
     await screen.findByRole("button", { name: "Retry preference save" }),
   );
   await screen.findByText(
-    "A newer alert choice is in effect. Retrying did not replace it.",
+    "Your alert preference was changed elsewhere.",
   );
   expect(rpc.write.mock.calls[1][0].data).toEqual(original);
 });
@@ -197,7 +197,7 @@ it("bounds writes, aborts transport and ignores a late reply after recovery", as
   ).toBe("true");
   expect(
     screen.getByText(
-      "A newer alert choice is in effect. Retrying did not replace it.",
+      "Your alert preference was changed elsewhere.",
     ),
   ).toBeTruthy();
 });

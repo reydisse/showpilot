@@ -73,7 +73,7 @@ it("saves the selected file version and volume, and retains them after a failed 
       volume: 0.6,
     },
   });
-  expect(screen.getByRole("alert").textContent).toBe("Save not confirmed");
+  expect(screen.getByRole("alert").textContent).toBe("This action needs attention.");
   expect(screen.getByLabelText("Media clip")).toHaveProperty("value", asset.id);
   expect(screen.getByLabelText("Media volume (%)")).toHaveProperty(
     "value",
@@ -164,17 +164,17 @@ it("pins the output link to the selected show and labels disconnected reports as
   expect(link.getAttribute("href")).toBe(
     "/media/org?showId=show-2&output=Program",
   );
-  expect(screen.getByRole("status").textContent).toContain("unconfirmed");
+  expect(screen.getByRole("progressbar", { name: "Loading output" })).toBeTruthy();
   expect(screen.getByText(/Last reported playing/)).toBeTruthy();
 });
 
 it("does not call an unconfirmed media snapshot disconnected or empty", () => {
   const props = { orgSlug: "org", showId: "show", outputs: [] };
   const view = render(<MediaOutputPanel {...props} connectionStatus="connecting" />);
-  expect(screen.getByRole("status").textContent).toBe("Connecting. Media output status is unconfirmed.");
+  expect(screen.getByRole("progressbar", { name: "Loading output" })).toBeTruthy();
   expect(screen.queryByText("No media output enabled for this show.")).toBeNull();
   view.rerender(<MediaOutputPanel {...props} connectionStatus="reconnecting" />);
-  expect(screen.getByRole("status").textContent).toContain("Reconnecting");
+  expect(screen.getByRole("progressbar", { name: "Loading output" })).toBeTruthy();
   expect(screen.queryByText("No media output enabled for this show.")).toBeNull();
   view.rerender(<MediaOutputPanel {...props} connectionStatus="connected" />);
   expect(screen.queryByRole("status")).toBeNull();

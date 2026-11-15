@@ -1,0 +1,98 @@
+[
+  {
+    "section": "organization",
+    "path": "/showpilot-demo-nov04/settings",
+    "search": "?section=organization",
+    "text": "rope/Paris\nEurope/Podgorica\nEurope/Prague\nEurope/Riga\nEurope/Rome\nEurope/Samara\nEurope/San Marino\nEurope/Sarajevo\nEurope/Saratov\nEurope/Simferopol\nEurope/Skopje\nEurope/Sofia\nEurope/Stockholm\nEurope/Tallinn\nEurope/Tirane\nEurope/Ulyanovsk\nEurope/Vaduz\nEurope/Vatican\nEurope/Vienna\nEurope/Vilnius\nEurope/Volgograd\nEurope/Warsaw\nEurope/Zagreb\nEurope/Zurich\nIndian/Antananarivo\nIndian/Chagos\nIndian/Christmas\nIndian/Cocos\nIndian/Comoro\nIndian/Kerguelen\nIndian/Mahe\nIndian/Maldives\nIndian/Mauritius\nIndian/Mayotte\nIndian/Reunion\nPacific/Apia\nPacific/Auckland\nPacific/Bougainville\nPacific/Chatham\nPacific/Easter\nPacific/Efate\nPacific/Enderbury\nPacific/Fakaofo\nPacific/Fiji\nPacific/Funafuti\nPacific/Galapagos\nPacific/Gambier\nPacific/Guadalcanal\nPacific/Guam\nPacific/Honolulu\nPacific/Kiritimati\nPacific/Kosrae\nPacific/Kwajalein\nPacific/Majuro\nPacific/Marquesas\nPacific/Midway\nPacific/Nauru\nPacific/Niue\nPacific/Norfolk\nPacific/Noumea\nPacific/Pago Pago\nPacific/Palau\nPacific/Pitcairn\nPacific/Ponape\nPacific/Port Moresby\nPacific/Rarotonga\nPacific/Saipan\nPacific/Tahiti\nPacific/Tarawa\nPacific/Tongatapu\nPacific/Truk\nPacific/Wake\nPacific/Wallis\n\nChoose the venue's timezone for show dates and times. Selecting a timezone saves it automatically.\n\nCreated\n\nDate in UTC.\n\nNov 15, 2026\nRundown protection\n\nTechnical Managers can view shows and rundowns freely. The organization PIN unlocks rundown editing and live controls. Owners, administrators, and directors are not prompted.\n\nTechnical Manager PIN\n\nThe existing PIN is never displayed. Enter a new one to turn protection on.\n\nDisabled\nPIN\nConfirm PIN\nEnable PIN",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "section": "team",
+    "path": "/showpilot-demo-nov04/settings",
+    "search": "?section=team",
+    "text": "Skip to rundown\nShowPilot\nL\n\nLong fixture organization for narrow screens\n\nService\nSchedule\nCrew status\nRundown\nTimecode\nChat\nTeam\n\nPRODUCTION\n\nCue Sheets\nChecklist\nCrew Check-in\nIncidents\nAssets\n\nSTREAMING\n\nStream\nMulti-Platform\nLower Thirds\n\nDASHBOARDS\n\nProd Manager\nReports & Notes\nTech Manager\nAudio\nDevices\nUnavailable pages\nFO\n\nFixture operator\n\nOwner\n\nNo live rundown\n\n2026-11-14\n\nBack to Show Flow\nSettings\n\nOrganization, production, and integrations\n\nWorkspace\nOrganization\nTeam & Roles\nImport People\nBilling\nIntegrations\nProduction Defaults\nLower Thirds\nKiosk Displays\nCompanion / Stream Deck\nNotifications\nAPI & Webhooks\nDanger Zone\nTeam & Roles\nInvite Member\nPending invitations\nRefresh invitations\n\npending@showpilot-demo-nov04.invalid\n\nMember \u00b7 expires 12/31/2098, 7:00:00 PM\n\nThe invitation email needs attention.\n\nCopy link\nSend again\nF\n\nFixture operator\n\nreydisse@gmail.com\n\nOWNER",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "section": "people",
+    "path": "/showpilot-demo-nov04/settings",
+    "search": "?section=people",
+    "text": "Skip to rundown\nShowPilot\nL\n\nLong fixture organization for narrow screens\n\nService\nSchedule\nCrew status\nRundown\nTimecode\nChat\nTeam\n\nPRODUCTION\n\nCue Sheets\nChecklist\nCrew Check-in\nIncidents\nAssets\n\nSTREAMING\n\nStream\nMulti-Platform\nLower Thirds\n\nDASHBOARDS\n\nProd Manager\nReports & Notes\nTech Manager\nAudio\nDevices\nUnavailable pages\nFO\n\nFixture operator\n\nOwner\n\nNo live rundown\n\n2026-11-14\n\nBack to Show Flow\nSettings\n\nOrganization, production, and integrations\n\nWorkspace\nOrganization\nTeam & Roles\nImport People\nBilling\nIntegrations\nProduction Defaults\nLower Thirds\nKiosk Displays\nCompanion / Stream Deck\nNotifications\nAPI & Webhooks\nDanger Zone\nImport People\n\nBulk-add crew members from a CSV \u2014 paste below or upload a file\n\nExpected columns: name, email, role (role is optional). Planning Center exports with First Name / Last Name columns work too. Up to 500 rows; people whose email is already on the roster are skipped.\n\nCrew CSV\nUpload .csv\nImport",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "section": "billing",
+    "path": "/showpilot-demo-nov04/settings",
+    "search": "?section=billing",
+    "text": "Skip to rundown\nShowPilot\nL\n\nLong fixture organization for narrow screens\n\nService\nSchedule\nCrew status\nRundown\nTimecode\nChat\nTeam\n\nPRODUCTION\n\nCue Sheets\nChecklist\nCrew Check-in\nIncidents\nAssets\n\nSTREAMING\n\nStream\nMulti-Platform\nLower Thirds\n\nDASHBOARDS\n\nProd Manager\nReports & Notes\nTech Manager\nAudio\nDevices\nUnavailable pages\nFO\n\nFixture operator\n\nOwner\n\nSomething went wrong.\n\nDismiss error\n\nNo live rundown\n\n2026-11-14\n\nBack to Show Flow\nSettings\n\nOrganization, production, and integrations\n\nWorkspace\nOrganization\nTeam & Roles\nImport People\nBilling\nIntegrations\nProduction Defaults\nLower Thirds\nKiosk Displays\nCompanion / Stream Deck\nNotifications\nAPI & Webhooks\nDanger Zone\nBilling\n\nCurrent plan: Free\n\nFeatures available now: Pro\n\nPro beta access is free until public launch.\n\nBeta access\n\nYour team has full Pro access free until public launch on December 31, 2098. Your current plan is shown above; subscribing is a separate purchase.\n\nSubscribe to Founding \u2014 $25/mo\n\nPrices are in USD. Subscriptions are handled securely by Stripe. Downgrades keep your data \u2014 limits apply to new items only.",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "section": "integrations",
+    "path": "/showpilot-demo-nov04/settings",
+    "search": "?section=integrations",
+    "text": "ator\n\nOwner\n\nNo live rundown\n\n2026-11-14\n\nBack to Show Flow\nSettings\n\nOrganization, production, and integrations\n\nWorkspace\nOrganization\nTeam & Roles\nImport People\nBilling\nIntegrations\nProduction Defaults\nLower Thirds\nKiosk Displays\nCompanion / Stream Deck\nNotifications\nAPI & Webhooks\nDanger Zone\nIntegrations\nApproved Bridge destinations\n\nApprove the host, port and protocol for each venue device. Only API-key or integration administrators can change this list.\n\nDestination name\nHost or IP address\nPort\nProtocol\nATEM\nArt-Net\nsACN\nHTTP / HTTPS\nOBS\nOSC\nPJLink\nProPresenter\nTCP\nUDP\nVISCA over IP\nWake-on-LAN\nApprove destination\n\nNo Bridge destinations approved yet.\n\nCHAT GATEWAY\n\nShowPilot Chat is always available. External gateway: None\n\nNo external gateway\n\nKeep the shared ShowPilot conversation on mobile, web, and Desktop without mirroring it to another platform.\n\nSlack\n\nSync one Slack channel with ShowPilot on every client\n\nDISCONNECTED\nConnect\nMattermost\n\nSync one Mattermost channel with ShowPilot on every client\n\nDISCONNECTED\nConnect\nMicrosoft Teams\n\nSend messages to a Teams channel via webhook (send only)\n\nDISCONNECTED\nConnect\nDiscord\n\nSync one Discord channel with ShowPilot on every client\n\nDISCONNECTED\nConnect\n\nRUNDOWN & TIMER INTEGRATION\n\nCurrent: ShowPilot Native\n\nShowPilot Native Rundown\n\nBuilt-in runsheet builder with timers, drag-and-drop, and multi-operator sync\n\nOnTime\n\nConnect to OnTime for professional broadcast rundowns and timers\n\nDISCONNECTED\nConnect\nProPresenter\n\nUse the venue Bridge to connect ProPresenter and share its live slide feed.\n\nDISCONNECTED\nConnect",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "section": "production",
+    "path": "/showpilot-demo-nov04/settings",
+    "search": "?section=production",
+    "text": "ort People\nBilling\nIntegrations\nProduction Defaults\nLower Thirds\nKiosk Displays\nCompanion / Stream Deck\nNotifications\nAPI & Webhooks\nDanger Zone\nProduction Defaults\nDefault crew call lead (minutes)\n\nUsed only when a show does not have its own crew call time.\n\nDefault Countdown Duration (minutes)\nDefault Timer Mode\nCountdown\nCount Up\nTime of Day\nClock Display Format\n12-hour (2:30 PM)\n24-hour (14:30)\nTimezone Display\nLocal timezone\nOrganization timezone\nUTC\nOvertime Behavior\nFlash red on overtime\nContinue counting up (red)\nStop at zero\nConfidence screen\n\nShape the lyrics and scripture your team sees. Preview changes here, then apply them to your screens.\n\nLive content layout\nAutomatic from ProPresenter\nAlways use lyrics\nAlways use scripture\nChoose a fixed layout if your slides do not include a recognizable scripture reference.\nLyrics\nScripture\nSample content \u00b7 Preview only\nAMAZING GRACE\nAmazing grace, how sweet the sound\nThat saved a wretch like me\nI once was lost, but now am found\nWas blind, but now I see\nPreview advance\n\nYour timer and stage-message priority stay as they are.\n\nTypeface\nShowPilot Sans\nSerif\nMonospace\nCurrent text size \u00b7 100%\nAlignment\nLeft\nCenter\nRight\nCurrent text color\nShow upcoming lyric\nUpcoming text size \u00b7 100%\nUpcoming text color\nUpcoming text brightness \u00b7 45%\nShow reference and notes\nScroll upward on advance\nStage message appearance\nApply to screens\nDiscard changes\nReset preview\nConfidence output\n\nChoose where this computer sends the screen.\n\nDisplay and DeckLink assignments are available in ShowPilot Desktop on the output computer.\n\nOpen clean screen",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "section": "lowerthirds",
+    "path": "/showpilot-demo-nov04/settings",
+    "search": "?section=lowerthirds",
+    "text": "ot\nL\n\nLong fixture organization for narrow screens\n\nService\nSchedule\nCrew status\nRundown\nTimecode\nChat\nTeam\n\nPRODUCTION\n\nCue Sheets\nChecklist\nCrew Check-in\nIncidents\nAssets\n\nSTREAMING\n\nStream\nMulti-Platform\nLower Thirds\n\nDASHBOARDS\n\nProd Manager\nReports & Notes\nTech Manager\nAudio\nDevices\nUnavailable pages\nFO\n\nFixture operator\n\nOwner\n\nNo live rundown\n\n2026-11-14\n\nBack to Show Flow\nSettings\n\nOrganization, production, and integrations\n\nWorkspace\nOrganization\nTeam & Roles\nImport People\nBilling\nIntegrations\nProduction Defaults\nLower Thirds\nKiosk Displays\nCompanion / Stream Deck\nNotifications\nAPI & Webhooks\nDanger Zone\nLower Thirds\n\nCloud lower thirds\n\nEnables browser-triggered lower thirds and the Template Studio.\n\nDefault Style\nDefault - Dark bar, lower-left\nMinimal - Name only, thin accent\nScripture - Centered, larger text\nAnimation Speed\nFast (150ms)\nNormal (250ms)\nSlow (400ms)\n\nAuto-clear lower thirds\n\nOVERLAY URL FOR OBS / VMIX\n\nhttp://127.0.0.1:59276/overlay/showpilot-demo-nov04?displayPass=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJwdXJwb3NlIjoic2hvd3BpbG90LWRpc3BsYXktdjEiLCJvcmdJZCI6InNob3dwaWxvdC1kZW1vLW5vdjA0Iiwic3VyZmFjZSI6Im92ZXJsYXkiLCJpYXQiOjE3OTQ3MDQ2ODQsImV4cCI6MTc5NDczMzQ4NCwibm9uY2UiOiI1MzIwOWViMy02MDBlLTQwYTctOWM0Zi00YTljZjMwOTU2ZmMifQ.fqGVaqk3FjQfvRnv1ka4hfPuo6MYIpEr94i80ZeeXEk\n\nPaste this link into OBS/vMix for clean output, or scan the QR code to open that display on another device. The monitor view adds connection status and Retry. This link expires in 8 hours.\n\nCreate a fresh linkOpen overlay monitor\n\nSetup Instructions\n\nOBS Browser Source\nvMix Browser Input",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "section": "kiosk",
+    "path": "/showpilot-demo-nov04/settings",
+    "search": "?section=kiosk",
+    "text": "Skip to rundown\nShowPilot\nL\n\nLong fixture organization for narrow screens\n\nService\nSchedule\nCrew status\nRundown\nTimecode\nChat\nTeam\n\nPRODUCTION\n\nCue Sheets\nChecklist\nCrew Check-in\nIncidents\nAssets\n\nSTREAMING\n\nStream\nMulti-Platform\nLower Thirds\n\nDASHBOARDS\n\nProd Manager\nReports & Notes\nTech Manager\nAudio\nDevices\nUnavailable pages\nFO\n\nFixture operator\n\nOwner\n\nNo live rundown\n\n2026-11-14\n\nBack to Show Flow\nSettings\n\nOrganization, production, and integrations\n\nWorkspace\nOrganization\nTeam & Roles\nImport People\nBilling\nIntegrations\nProduction Defaults\nLower Thirds\nKiosk Displays\nCompanion / Stream Deck\nNotifications\nAPI & Webhooks\nDanger Zone\nKiosk Displays\n\nOrg chart and on-duty roster shown on lobby / booth displays\n\nKiosk displays\n\nDisplays are set to show their content.\n\nConnected kiosks apply this setting on their next poll.\n\nBlank all displays\nOrg Chart\nOn-Duty Roster\nAccess Tokens\nNew team name\nNew team color\nAdd Team\n\nNo teams yet. Add one above to build the org chart.\n\nLive at /api/v1/kiosk/org and /api/v1/kiosk/roster for org showpilot-demo-nov04 (kiosk token required).",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "section": "companion",
+    "path": "/showpilot-demo-nov04/settings",
+    "search": "?section=companion",
+    "text": "earer <cmp_token>. The org (showpilot-demo-nov04) is resolved from the token \u2014 no org id in the URL.\n\nGenerate\n\nShown once \u2014 copy it now and store it safely. Revoke any time.\n\nNo tokens yet \u2014 generate one above for your Stream Deck.\nSTREAM DECK BUTTON RECIPES\nTRANSPORT (1\u20136)\n1\nStart / resume timer\nPOST\nPOST /api/v1/companion/timer/start\n2\nStop timer\nPOST\nPOST /api/v1/companion/timer/stop\n3\nNext item\nPOST\nPOST /api/v1/companion/rundown/next\n4\nPrevious item\nPOST\nPOST /api/v1/companion/rundown/previous\n5\nAdd 1 min\nPOST\nPOST /api/v1/companion/timer/add \u00b7 {\"seconds\":60}\n6\nSubtract 1 min\nPOST\nPOST /api/v1/companion/timer/subtract \u00b7 {\"seconds\":60}\nPROPRESENTER LYRICS (7\u20138)\n7\nLyrics on\nPOST\nPOST /api/v1/companion/propresenter/lyrics \u00b7 {\"enabled\":true}\n8\nLyrics off\nPOST\nPOST /api/v1/companion/propresenter/lyrics \u00b7 {\"enabled\":false}\nKIOSK (9)\n9\nBlank / restore displays\nPOST\nPOST /api/v1/companion/kiosk/blank \u00b7 {\"blanked\":true}\nSTREAM (10)\n10\nGo live (connect destinations)\nPOST\nPOST /api/v1/companion/stream/go-live\n10\nDisconnect all destinations\nPOST\nPOST /api/v1/companion/stream/stop\nLOWER THIRDS (11)\n11\nTrigger lower third\nPOST\nPOST /api/v1/companion/lower-third/trigger \u00b7 {\"payload\":{\"id\":\"lt1\",\"type\":\"freetext\",\"line1\":\"Pastor John\",\"line2\":\"Senior Pastor\",\"style\":\"default\"}}\n11\nClear lower third\nPOST\nPOST /api/v1/companion/lower-third/clear\nFEEDBACK (BUTTON STATE)\n\u00b7\nRead live state (for button feedback)\nGET\nGET /api/v1/companion/state\n\nIn Companion, add a button \u2192 Generic HTTP \u2192 paste the method, URL, header and body above. Lower thirds require Cloud Graphics enabled for this org.",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "section": "notifications",
+    "path": "/showpilot-demo-nov04/settings",
+    "search": "?section=notifications",
+    "text": "i-Platform\nLower Thirds\n\nDASHBOARDS\n\nProd Manager\nReports & Notes\nTech Manager\nAudio\nDevices\nUnavailable pages\nFO\n\nFixture operator\n\nOwner\n\nNo live rundown\n\n2026-11-14\n\nBack to Show Flow\nSettings\n\nOrganization, production, and integrations\n\nWorkspace\nOrganization\nTeam & Roles\nImport People\nBilling\nIntegrations\nProduction Defaults\nLower Thirds\nKiosk Displays\nCompanion / Stream Deck\nNotifications\nAPI & Webhooks\nDanger Zone\nNotifications\nOrganization policy\n\nWorkspace owners can disable chat alerts for everyone. Personal choices still apply to every enabled category.\n\nAllow chat notifications\n\nPermit personal alerts for direct messages, mentions, invitations, and reactions.\n\nYour notification categories\n\nChoose which alerts can interrupt you.\n\nThese choices apply only to your account in this workspace. Everything stays in your inbox. Device alerts also require device permission and the organization's notification policy.\n\nSchedule\n\nAssignments, duty reminders and responses\n\nIncidents\n\nIssues, replies and changes\n\nChat\n\nMessages, mentions and reactions\n\nReports\n\nPost-show note requests\n\nAdmin and safety\n\nWorkspace and safety reviews\n\nDelivery\n\nEvery notification remains available in ShowPilot. Members choose which categories may also interrupt them on a device.\n\nPersonal inbox\n\nAll categories always appear in the ShowPilot inbox.\n\nAlways on\n\nDevice notifications\n\nEach category can send a push or Desktop alert when device permission is enabled.\n\nMember choice\n\nAssignment email\n\nSend or resend a crew member\u2019s assignment email from Schedule when the roster is ready.\n\nFrom Schedule",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "section": "api",
+    "path": "/showpilot-demo-nov04/settings",
+    "search": "?section=api",
+    "text": "Skip to rundown\nShowPilot\nL\n\nLong fixture organization for narrow screens\n\nService\nSchedule\nCrew status\nRundown\nTimecode\nChat\nTeam\n\nPRODUCTION\n\nCue Sheets\nChecklist\nCrew Check-in\nIncidents\nAssets\n\nSTREAMING\n\nStream\nMulti-Platform\nLower Thirds\n\nDASHBOARDS\n\nProd Manager\nReports & Notes\nTech Manager\nAudio\nDevices\nUnavailable pages\nFO\n\nFixture operator\n\nOwner\n\nNo live rundown\n\n2026-11-14\n\nBack to Show Flow\nSettings\n\nOrganization, production, and integrations\n\nWorkspace\nOrganization\nTeam & Roles\nImport People\nBilling\nIntegrations\nProduction Defaults\nLower Thirds\nKiosk Displays\nCompanion / Stream Deck\nNotifications\nAPI & Webhooks\nDanger Zone\nAPI & Webhooks\nBridge installations\n\nGive each computer its own key. Only the active Bridge controls venue devices. A standby never takes over automatically.\n\nNo active Bridge. The first installation to connect becomes active.\n\nRefresh status\nInstallation name\nCreate key\n\nNo Bridge installations yet.\n\nApproved Bridge destinations\n\nApprove the host, port and protocol for each venue device. Only API-key or integration administrators can change this list.\n\nDestination name\nHost or IP address\nPort\nProtocol\nATEM\nArt-Net\nsACN\nHTTP / HTTPS\nOBS\nOSC\nPJLink\nProPresenter\nTCP\nUDP\nVISCA over IP\nWake-on-LAN\nApprove destination\n\nNo Bridge destinations approved yet.\n\nWebhook URL\n\nIncoming webhook endpoint for external triggers\n\nNo credential saved.\n\nSave credential\n\nRECENT WEBHOOK EVENTS\n\nNo recent events",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "section": "danger",
+    "path": "/showpilot-demo-nov04/settings",
+    "search": "?section=danger",
+    "text": "Skip to rundown\nShowPilot\nL\n\nLong fixture organization for narrow screens\n\nService\nSchedule\nCrew status\nRundown\nTimecode\nChat\nTeam\n\nPRODUCTION\n\nCue Sheets\nChecklist\nCrew Check-in\nIncidents\nAssets\n\nSTREAMING\n\nStream\nMulti-Platform\nLower Thirds\n\nDASHBOARDS\n\nProd Manager\nReports & Notes\nTech Manager\nAudio\nDevices\nUnavailable pages\nFO\n\nFixture operator\n\nOwner\n\nNo live rundown\n\n2026-11-14\n\nBack to Show Flow\nSettings\n\nOrganization, production, and integrations\n\nWorkspace\nOrganization\nTeam & Roles\nImport People\nBilling\nIntegrations\nProduction Defaults\nLower Thirds\nKiosk Displays\nCompanion / Stream Deck\nNotifications\nAPI & Webhooks\nDanger Zone\nDanger Zone\n\nReset saved graphics\n\nDelete every saved graphic from this organization.\n\nReset saved graphics\n\nClear chat history\n\nRemove message history from all ShowPilot chat rooms.\n\nClear chat history\n\nExport show data\n\nSelect a saved show, file format, and sections to download.\n\nExport show data\n\nDelete organization\n\nPermanently remove this organization and its shared data.\n\nDelete organization",
+    "width": 1440,
+    "scrollWidth": 1440
+  }
+]

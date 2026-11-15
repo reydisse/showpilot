@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import {
   useMutation,
   useMutationState,
@@ -151,7 +153,7 @@ export function KioskTeamEditor({
           await withOperationTimeout(
             writeKioskTeam({ data: command, signal: controller.signal }),
             10_000,
-            "Team command was not confirmed. Retry the same command to recover its result.",
+            "This change needs attention.",
           ),
         );
       } finally {
@@ -230,24 +232,17 @@ export function KioskTeamEditor({
     <section aria-label="Kiosk org chart" className="space-y-4">
       {ConfirmDialogEl}
       {pending ? (
-        <p role="status" className="text-sm text-board-muted">
-          Saving team…
-        </p>
+        <QuietActivity label="Saving team…" />
       ) : null}
       {unfinished && !pending ? (
         <div role="alert" className="space-y-2 text-sm text-amber-200">
           <p>
-            {latest?.error instanceof Error
+            {plainFailure((latest?.error instanceof Error
               ? latest.error.message
-              : "Team command was not confirmed."}{" "}
+              : "This change needs attention.") ?? "")}{" "}
             Your draft is retained.
           </p>
-          <p>
-            Last attempt{" "}
-            <time dateTime={new Date(latest?.at ?? 0).toISOString()}>
-              {new Date(latest?.at ?? 0).toLocaleTimeString()}
-            </time>
-          </p>
+
           <Button
             className="min-h-11 h-auto whitespace-normal"
             variant="outline"
@@ -264,7 +259,7 @@ export function KioskTeamEditor({
         >
           {latest.result.outcome === "conflict"
             ? "The team or organization membership changed after you reviewed it. Your command was not applied. Review the current team before trying again."
-            : "The original team command was saved. The list shows the latest confirmed teams."}
+            : ""}
         </p>
       ) : null}
       <form

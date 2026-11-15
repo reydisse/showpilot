@@ -25,7 +25,7 @@ vi.mock("@/lib/profile-photo", () => ({
 vi.mock("@/lib/auth-client", () => ({
   authClient: { requestPasswordReset: api.reset },
 }));
-vi.mock("@tanstack/react-router", () => ({ useNavigate: () => api.navigate }));
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => api.navigate, useRouter: () => ({ routesById: {} }) }));
 const state = { userId: "user-1", name: "Fixture", image: null, revision: 1 };
 const user = {
   id: "user-1",
@@ -158,7 +158,7 @@ it("retains an uncertain name across panel closure and retries the exact request
   fireEvent.click(screen.getByRole("button", { name: "Retry profile save" }));
   await tick();
   expect(nameAt(1)).toEqual(original);
-  expect(screen.getByText(/The newer profile was kept/)).toBeTruthy();
+  expect(screen.getByText("Your profile was changed elsewhere.")).toBeTruthy();
   expect(screen.getByText("Saved name: Newer profile")).toBeTruthy();
   expect(screen.getByDisplayValue("My draft")).toBeTruthy();
   expect(api.updated).toHaveBeenLastCalledWith({
@@ -301,7 +301,7 @@ it("retains uncertain reset-email recovery and its cooldown when the profile clo
   await tick();
   fireEvent.click(screen.getByRole("button", { name: "Reset password" }));
   await tick(8_100);
-  expect(screen.getByText(/It may arrive/)).toBeTruthy();
+  expect(screen.getByText("The reset email could not be sent.")).toBeTruthy();
   held.resolve({ data: { status: true }, error: null });
   await tick();
   expect(

@@ -204,7 +204,7 @@ it("retains a creation draft after closing and switching tabs, then retries the 
   await submit("Add crew member");
   expect(
     screen.getByRole("alert", { name: "Team change" }).textContent,
-  ).toContain("Reply lost");
+  ).toContain("This change needs attention.");
   const original = api.createCrew.mock.calls[0][0].data;
   expect(original).toMatchObject({
     memberId: "CAM99",
@@ -234,7 +234,7 @@ it("sends the displayed profile revision and retries only the read after confirm
   });
   expect(
     screen.getByRole("alert", { name: "Team change" }).textContent,
-  ).toContain("Change saved.");
+  ).toContain("This view could not be updated.");
   fireEvent.click(screen.getByRole("button", { name: "Retry refresh" }));
   await act(async () => {});
   expect(api.updateCrew).toHaveBeenCalledTimes(1);
@@ -292,7 +292,7 @@ it("bounds a stalled creation and ignores its late reply after retry succeeds", 
   });
   expect(
     screen.getByRole("alert", { name: "Team change" }).textContent,
-  ).toContain("did not finish");
+  ).toContain("This change needs attention.");
   const original = api.createCrew.mock.calls[0][0].data;
   fireEvent.click(screen.getByRole("button", { name: "Retry change" }));
   await act(async () => {});

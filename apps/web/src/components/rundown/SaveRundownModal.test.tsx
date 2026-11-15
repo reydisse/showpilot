@@ -28,8 +28,8 @@ it("saves the named snapshot once and closes after acknowledgement", async () =>
 it("keeps the same ID and immutable snapshot on retry after the live rundown changes", async () => {
   vi.mocked(saveRundownTemplate).mockRejectedValueOnce(new Error("lost response"));
   const input = props(); const view = render(<SaveRundownModal {...input} />); submit();
-  expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("could not be confirmed"));
-  expect(screen.getByRole("alert").querySelector("time")?.dateTime).toBeTruthy();
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("Your template needs attention."));
+  expect(screen.getByRole("alert").querySelector("time")?.dateTime).toBeFalsy();
   const first = vi.mocked(saveRundownTemplate).mock.calls[0][0];
   view.rerender(<SaveRundownModal {...input} items={[{ ...item, title: "Changed" }]} />);
   expect(screen.getByLabelText("Template Name")).toHaveProperty("disabled", true);

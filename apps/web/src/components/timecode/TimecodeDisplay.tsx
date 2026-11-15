@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { connectionLabel, type ConnectionStatus } from "@/lib/connection-state";
 import type { TimecodeState } from "@/types/timecode";
 import { useTimecodePresentation } from "@/hooks/useTimecodePresentation";
@@ -56,7 +57,7 @@ export function TimecodeDisplay({
           />
           <span>
             {!connected
-              ? connectionLabel[connectionStatus]
+              ? <QuietActivity />
               : mismatch ? "Format mismatch · clock held" : lost ? "Signal lost · clock held" : running
                 ? `Running · ${state?.format.frameRate} fps ${state?.format.dropFrame === "df" ? "DF" : "NDF"}`
                 : paused ? "Paused · position held" : "Stopped · position held"}
@@ -95,7 +96,7 @@ export function TimecodeDisplay({
       >
         {state ? display : "--:--:--:--"}
       </span>
-      {showState && <span className={`text-xs ${connected && !lost && !mismatch ? "text-board-text" : "text-amber-200"}`}>{statusLabel}</span>}
+      {showState && connected && <span className={`text-xs ${connected && !lost && !mismatch ? "text-board-text" : "text-amber-200"}`}>{statusLabel}</span>}
       {!showState && connected && (lost || mismatch) && <span className="text-xs text-amber-400">{mismatch ? "Format mismatch" : "Signal lost"}</span>}
     </div>
   );

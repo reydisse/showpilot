@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useLayoutEffect, useRef, useState } from "react";
 import { NamedTimerClock, formatNamedTimerRemaining, namedTimerKey, type NamedTimerSample } from "@/lib/named-timers";
 
@@ -30,13 +31,13 @@ export function NamedTimers({ sample, connected, mode = "operator", selectedName
     return <main className="flex h-full min-h-0 flex-col items-center justify-center gap-4 bg-black p-[5vw] text-center text-white" data-named-timer-output>
       <h1 className="max-w-full break-words text-[clamp(1rem,4vw,4rem)] font-semibold" style={{ overflowWrap: "anywhere" }}>{timer?.name ?? selectedName}</h1>
       <p data-named-timer-remaining className={`font-mono text-[clamp(2rem,18vw,18rem)] leading-none tabular-nums ${timer?.remainingMs === 0 ? "text-amber-400" : ""}`}>{timer ? formatNamedTimerRemaining(timer.remainingMs) : "—:—"}</p>
-      <p role="status" className="text-[clamp(.75rem,2vw,2rem)] text-white/70">{!connected ? "Reconnecting · timer unconfirmed" : timer ? timer.remainingMs === 0 ? "Complete" : "Countdown" : "Stopped"}</p>
+      <p role="status" className="text-[clamp(.75rem,2vw,2rem)] text-white/70">{!connected ? <QuietActivity label="Reconnecting · timer unconfirmed" /> : timer ? timer.remainingMs === 0 ? "Complete" : "Countdown" : "Stopped"}</p>
     </main>;
   }
   if (!timers.length) return null;
   return <section aria-label="Named timers" className={`shrink-0 border border-white/15 bg-black text-white ${mode === "strip" ? "px-3 py-2" : "rounded-xl p-4"}`}>
     {mode === "operator" && <h2 className="mb-2 text-sm font-semibold">Named timers</h2>}
-    {!connected && <p role="status" className="mb-2 text-xs text-amber-300">Reconnecting · timers held at last known state</p>}
+    {!connected && <QuietActivity />}
     <div role="list" className="grid gap-2" style={{ gridTemplateColumns: mode === "strip" ? "repeat(auto-fit, minmax(min(100%, 7rem), 1fr))" : "repeat(auto-fit, minmax(min(100%, 12rem), 1fr))" }}>
       {timers.map(timer => <div key={namedTimerKey(timer.name)} role="listitem" data-named-timer={timer.name} className="min-w-0 rounded-lg border border-white/15 px-3 py-2" style={{ containerType: "inline-size" }}>
         <p className="line-clamp-2 text-xs text-white/75" title={timer.name} style={{ overflowWrap: "anywhere" }}>{timer.name}</p>

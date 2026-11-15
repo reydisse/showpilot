@@ -19,7 +19,7 @@ it.each([{ completed: true }, { started: false }, { isOwner: false }])("does not
 it("bounds a stalled read and recovers with an explicit read-only retry", async () => {
   vi.useFakeTimers(); read.mockImplementationOnce(() => new Promise(() => {}));
   await act(async () => render(<ResumeSetup orgId="org" />)); await act(async () => vi.advanceTimersByTimeAsync(8_000));
-  expect(screen.getByRole("alert").textContent).toContain("Last attempt:");
+  expect(screen.getByRole("alert").textContent).not.toContain("Last attempt:");
   expect(read.mock.calls[0][0].signal.aborted).toBe(true);
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Check setup progress" })));
   expect(screen.getByRole("link", { name: "Resume setup" })).toBeTruthy(); expect(read).toHaveBeenCalledTimes(2);

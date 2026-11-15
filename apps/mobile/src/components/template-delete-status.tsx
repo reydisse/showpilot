@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { Text, View } from "react-native";
 import { AppButton } from "./app-button";
 import type { useTemplateDelete } from "../hooks/use-template-delete";
@@ -25,22 +27,16 @@ export function TemplateDeleteStatus({
             Delete “{attempt.label}”
           </Text>
           {attempt.kind === "pending" ? (
-            <Text
-              accessibilityLiveRegion="polite"
-              style={{ color: colors.textMuted, fontSize: 14 }}
-            >
-              Confirming template deletion… Closing keeps this request while you
-              remain signed in.
-            </Text>
+            <QuietActivity />
           ) : null}
           {attempt.kind === "failed" ? (
             <>
-              <Text
+              <FailureText
                 accessibilityRole="alert"
                 style={{ color: colors.red, fontSize: 14 }}
               >
                 {attempt.message}
-              </Text>
+              </FailureText>
               <Text style={{ color: colors.textMuted, fontSize: 14 }}>
                 The deletion may have completed. Retrying affects only this
                 saved template. Existing shows are not affected.
@@ -62,7 +58,7 @@ export function TemplateDeleteStatus({
               </Text>
               {attempt.refresh !== "done" ? (
                 <>
-                  <Text
+                  <FailureText
                     accessibilityRole={
                       attempt.refresh === "failed" ? "alert" : undefined
                     }
@@ -74,8 +70,8 @@ export function TemplateDeleteStatus({
                       fontSize: 14,
                     }}
                   >
-                    {attempt.message ?? "Refreshing saved templates…"}
-                  </Text>
+                    {attempt.message ?? ""}
+                  </FailureText>
                   <AppButton
                     label="Refresh saved templates"
                     variant="secondary"

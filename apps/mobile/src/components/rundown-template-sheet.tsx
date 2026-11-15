@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { useTemplateDelete } from "@/hooks/use-template-delete";
 import { TemplateDeleteStatus } from "@/components/template-delete-status";
 import { useQueryClient } from "@tanstack/react-query";
@@ -86,7 +87,7 @@ export function RundownTemplateSheet({
           ) : null}
 
           <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>SAVED TEMPLATES</Text><Text style={styles.sectionCount}>{templates.length}</Text></View>
-          {error ? <View><Text accessibilityRole="alert" style={styles.error}>{error}</Text><AppButton label="Retry saved templates" loading={refreshing} onPress={onRetry}/></View> : null}
+          {error ? <View><FailureText accessibilityRole="alert" style={styles.error}>{error}</FailureText><AppButton label="Retry saved templates" loading={refreshing} onPress={onRetry}/></View> : null}
           {loading ? (
             <ActivityIndicator color={colors.amber} size="large" />
           ) : templates.length === 0 && !error ? (

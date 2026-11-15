@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
@@ -30,12 +31,7 @@ export function OverlayOutput({ orgSlug, monitor, retryAccess }: { orgSlug: stri
   const feed = useOperatorRead({ key: orgSlug, initialValue: EMPTY_FEED, read, intervalMs: 500, pauseWhenHidden: false,
     enabled: !unavailable, errorMessage: "Overlay connection lost. Keeping the last confirmed output while reconnecting." });
   useEffect(() => { if (feed.value.status === "unavailable") setUnavailable(true); }, [feed.value]);
-  const message = unavailable ? "Display unavailable" : feed.error ? "Overlay reconnecting" : feed.confirmedAt === null ? "Connecting overlay" : "Overlay connected";
-  useEffect(() => {
-    const original = document.title;
-    document.title = `${message}${feed.error ? ` · ${new Date(feed.error.occurredAt).toLocaleTimeString()}` : ""} | ShowPilot`;
-    return () => { document.title = original; };
-  }, [message, feed.error]);
+  useEffect(() => { const original = document.title; document.title = "ShowPilot display"; return () => { document.title = original; }; }, []);
 
   if (unavailable || feed.value.status === "unavailable") return <main className="flex min-h-screen items-center justify-center bg-black p-6 text-white">
     <div className="max-w-md space-y-4 text-center"><p role="alert">This display is unavailable. Sign in or ask an operator for a new display link.</p>
@@ -44,11 +40,11 @@ export function OverlayOutput({ orgSlug, monitor, retryAccess }: { orgSlug: stri
   </main>;
   return <div className="fixed inset-0 flex flex-col">
     {monitor && <aside aria-label="Overlay connection" className="z-50 flex shrink-0 flex-wrap items-center gap-3 border-b border-white/20 bg-black/90 p-3 text-sm text-white">
-      <div className="min-w-0 flex-1"><p role={feed.error ? "alert" : "status"}>{feed.error?.message ?? message}</p>
-        {feed.error && <p className="mt-1 text-xs text-white/70">Last error <time dateTime={new Date(feed.error.occurredAt).toISOString()}>{new Date(feed.error.occurredAt).toLocaleTimeString()}</time></p>}
+      <div className="min-w-0 flex-1"><p role={feed.error ? "alert" : "status"}>{feed.error ? "This display could not be updated." : null}</p>
+        {feed.error && null}
         <p className="mt-1 text-xs text-white/70">Monitor view. Use the clean display link in OBS or vMix.</p>
       </div>
-      {feed.error && <button type="button" onClick={feed.retry} disabled={feed.refreshing} className="min-h-11 shrink-0 rounded border border-white/30 px-4 outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60">{feed.refreshing ? "Retrying…" : "Retry overlay"}</button>}
+      {feed.error && <button type="button" onClick={feed.retry} disabled={feed.refreshing} className="min-h-11 shrink-0 rounded border border-white/30 px-4 outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60" aria-label={feed.refreshing ? "Retrying…" : "Retry overlay"}>{feed.refreshing ? <QuietActivity label="Retrying…" /> : "Retry overlay"}</button>}
     </aside>}
     <div className="overlay-container" data-connection-state={feed.error ? "reconnecting" : feed.confirmedAt === null ? "connecting" : "connected"} data-last-error-at={feed.error?.occurredAt}>
       <GraphicLayers graphics={feed.value.graphics} />

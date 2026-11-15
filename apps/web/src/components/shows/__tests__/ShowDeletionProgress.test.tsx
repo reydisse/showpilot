@@ -172,7 +172,7 @@ it("times out, aborts transport and retains the exact deletion through navigatio
     await vi.advanceTimersByTimeAsync(15_000);
   });
   expect(request.signal.aborted).toBe(true);
-  expect(screen.getByRole("alert").textContent).toContain("timed out");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   await act(async () => {
     click("Retry deletion");
     await vi.dynamicImportSettled();
@@ -244,7 +244,7 @@ it("bounds refresh and ignores its late completion", async () => {
     await vi.advanceTimersByTimeAsync(12_000);
   });
   expect(screen.getByRole("alert").textContent).toContain(
-    "Refreshing Schedule timed out",
+    "This action needs attention.",
   );
   expect(refresh.mock.calls[0][0].aborted).toBe(true);
   await act(async () => {
@@ -299,7 +299,7 @@ it("requires a fresh confirmation after an explicit rejection and keeps transpor
   const view = setup({ confirm });
   click("Request deletion");
   await waitFor(() =>
-    expect(screen.getByRole("alert").textContent).toContain("not accepted"),
+    expect(screen.getByRole("alert").textContent).toContain("Stop the show before deleting it."),
   );
   expect(screen.queryByRole("button", { name: "Retry deletion" })).toBeNull();
   const next = { ...target, expectedUpdatedAt: "2026-11-09T00:00:00.000Z" };

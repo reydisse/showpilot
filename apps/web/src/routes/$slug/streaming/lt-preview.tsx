@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { PageBreadcrumb } from "@/components/ui/PageBreadcrumb";
 import { useGraphicsOutput } from "@/hooks/useGraphicsOutput";
 import { restoreGraphicScene, type PreviewSceneLayer } from "@/lib/graphic-scenes";
@@ -568,8 +570,8 @@ function TemplatePreviewPage() {
             <ReadFailureNotice error={sceneLoadFailure} refreshing={sceneRead.refreshing} retry={sceneRead.retry} label="Refresh scene library" />
             <LibraryMutationNotice label="Scene library confirmation" retryLabel="Retry scene change" mutation={sceneMutation} onConfirmed={() => sceneConfirmed(sceneMutation.attempt?.operation)} />
             <ReadFailureNotice error={output.readFailure} refreshing={output.refreshing} retry={output.retry} label="Refresh Program" />
-            {output.failure && <div role="alert" aria-label="Program confirmation" className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm text-amber-200">{output.failure.message} <time dateTime={new Date(output.failure.occurredAt).toISOString()}>{new Date(output.failure.occurredAt).toLocaleTimeString()}</time></div>}
-            {output.pending && <p role="status" className="text-sm text-amber-200">Updating Program…</p>}
+            {output.failure && <div role="alert" aria-label="Program confirmation" className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm text-amber-200">{plainFailure(output.failure.message)} </div>}
+            {output.pending && <QuietActivity />}
             {savedScenes.length > 0 && (
               <section className="rounded-xl border border-board-border bg-board-card/55 p-2.5" aria-label="Saved scenes">
                 <div className="mb-2 flex items-center gap-2"><Layers className="h-3.5 w-3.5 text-fire-400" /><span className="text-[10px] font-semibold uppercase tracking-widest text-board-muted">Saved scenes</span></div>
@@ -713,15 +715,15 @@ function TemplatePreviewPage() {
                   onClick={handleSave}
                   disabled={libraryMutation.locked || (sampleKey === "custom" && !customPrimary.trim())}
                   className="min-h-11 flex items-center gap-1.5 px-4 py-2 rounded-lg border border-board-border text-board-muted text-xs font-medium hover:text-board-text hover:bg-board-border/50 disabled:opacity-50 transition-colors"
-                >
+                 aria-label={saving ? "Saving..." : "Save graphic"}>
                   <Save className="w-3.5 h-3.5" />
-                  {saving ? "Saving..." : "Save graphic"}
+                  {saving ? <QuietActivity label="Saving..." /> : "Save graphic"}
                 </button>
               )}
               {canConfigureGraphics && (
                 <div className="flex min-w-0 w-full flex-1 flex-wrap items-center gap-2 sm:max-w-md">
                   <input aria-label="Scene name" disabled={sceneMutation.locked} value={sceneName} onChange={(event) => setSceneName(event.target.value)} maxLength={200} placeholder="Scene name" className="min-h-11 min-w-24 flex-1 rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none focus:border-fire-500" />
-                  <button type="button" onClick={() => void handleSaveScene()} disabled={sceneMutation.locked || !sceneName.trim() || composedCount === 0} className="min-h-11 flex shrink-0 items-center gap-1.5 rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-text disabled:opacity-40"><Layers className="h-3.5 w-3.5" />{savingScene ? "Saving…" : sceneId ? "Update scene" : "Save scene"}</button>
+                  <button type="button" onClick={() => void handleSaveScene()} disabled={sceneMutation.locked || !sceneName.trim() || composedCount === 0} className="min-h-11 flex shrink-0 items-center gap-1.5 rounded-lg border border-board-border px-3 py-2 text-xs font-medium text-board-text disabled:opacity-40" aria-label={savingScene ? "Saving…" : sceneId ? "Update scene" : "Save scene"}><Layers className="h-3.5 w-3.5" />{savingScene ? <QuietActivity label="Saving…" /> : sceneId ? "Update scene" : "Save scene"}</button>
                 </div>
               )}
               {savedMsg && (
@@ -730,7 +732,7 @@ function TemplatePreviewPage() {
               <div className="flex items-center gap-1.5 ml-auto">
                   <div className={`w-2 h-2 rounded-full ${output.fresh && activeIds.length > 0 ? "bg-fire-500 motion-safe:animate-pulse" : "bg-board-muted"}`} />
                   <span className="text-xs font-medium text-fire-500">
-                    {output.fresh ? (activeIds.length === 1 ? "Program: 1 layer" : `Program: ${activeIds.length} layers`) : `Last confirmed Program: ${activeIds.length} ${activeIds.length === 1 ? "layer" : "layers"}`}
+                    {output.fresh ? (activeIds.length === 1 ? "Program: 1 layer" : `Program: ${activeIds.length} layers`) : `Program: ${activeIds.length} ${activeIds.length === 1 ? "layer" : "layers"}`}
                   </span>
               </div>
             </div>

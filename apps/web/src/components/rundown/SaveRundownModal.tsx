@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useRef, useState } from "react";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms } from "@/components/workspace/WorkspaceProvider";
@@ -43,7 +44,7 @@ function SaveRundownSession({ orgId, items, initialServiceName, initialStartTime
     pending.current = true;
     setState({ kind: "saving", input });
     try {
-      const result = await withOperationTimeout(saveRundownTemplate({ data: input }), 10_000, "Template save was not confirmed");
+      const result = await withOperationTimeout(saveRundownTemplate({ data: input }), 10_000, "This change needs attention.");
       if (!alive.current || request !== current.current) return;
       if (result.ok) onClose();
       else setState({ kind: "error", input, occurredAt: Date.now(), reason: result.reason });
@@ -75,16 +76,16 @@ function SaveRundownSession({ orgId, items, initialServiceName, initialStartTime
             onChange={event => setScheduledStartTime(event.target.value)} className={inputClass} />
         </div>
         <p className="text-xs text-board-muted">Saves {state.kind === "editing" ? items.length : state.input.items.length} rundown items as a reusable template. Saved items start as upcoming.</p>
-        {state.kind === "saving" && <p role="status" className="text-sm text-board-muted">Saving template…</p>}
+        {state.kind === "saving" && <QuietActivity label="Saving template…" />}
         {state.kind === "error" && <div role="alert" className="space-y-2 rounded-xl border border-red-400/40 p-3 text-sm text-red-300">
-          <p>{state.reason === "unconfirmed" ? "Template save could not be confirmed. Check your connection and retry the same save. Retrying will not create a duplicate." : state.reason === "removed" ? "This template was saved and then removed. Close this dialog before creating another copy." : "This save conflicts with an existing template. Close this dialog and review Saved Templates before starting a new save."}</p>
-          <time dateTime={new Date(state.occurredAt).toISOString()}>{new Date(state.occurredAt).toLocaleTimeString()}</time>
+          <p>{state.reason === "unconfirmed" ? "Your template needs attention." : state.reason === "removed" ? "This template was saved and then removed. Close this dialog before creating another copy." : "This save conflicts with an existing template. Close this dialog and review Saved Templates before starting a new save."}</p>
+
           <p>If you close this dialog, check Saved Templates before creating another copy.</p>
         </div>}
         <div className="flex gap-3 pt-1">
           <Button type="button" variant="outline" onClick={onClose} className="flex-1">{state.kind === "error" ? "Close" : "Cancel"}</Button>
           {(state.kind !== "error" || state.reason === "unconfirmed") && <Button type="submit" disabled={!name.trim() || state.kind === "saving"} className="flex-1 bg-fire-500 text-black">
-            {state.kind === "saving" ? "Saving…" : state.kind === "error" ? "Retry save" : "Save"}
+            {state.kind === "saving" ? <QuietActivity label="Saving…" /> : state.kind === "error" ? "Retry save" : "Save"}
           </Button>}
         </div>
       </form>

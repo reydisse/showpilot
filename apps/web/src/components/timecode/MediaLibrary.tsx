@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -234,7 +236,7 @@ export function MediaLibrary({ orgId }: { orgId: string }) {
             disabled={busy || !draft || !!fileProblem}
             onClick={() => void upload()}
           >
-            {operation.kind === "uploading" ? "Uploading…" : "Upload media"}
+            {operation.kind === "uploading" ? <QuietActivity label="Uploading…" /> : "Upload media"}
           </Button>
           {operation.kind === "uploading" && (
             <Button
@@ -250,7 +252,7 @@ export function MediaLibrary({ orgId }: { orgId: string }) {
       </div>
       {error && (
         <p role="alert" className="break-words text-red-300">
-          {error} Use the same action to retry.
+          {plainFailure(error)} Use the same action to retry.
         </p>
       )}
       {notice && (
@@ -258,10 +260,10 @@ export function MediaLibrary({ orgId }: { orgId: string }) {
           {notice}
         </p>
       )}
-      {load.kind === "loading" && <p role="status">Loading media…</p>}
+      {load.kind === "loading" && <QuietActivity label="Loading media…" />}
       {load.kind === "error" && (
         <div role="alert" className="space-y-2 text-red-300">
-          <p>{load.message}</p>
+          <p>{plainFailure((load.message) ?? "")}</p>
           <Button
             type="button"
             variant="outline"
@@ -315,7 +317,7 @@ export function MediaLibrary({ orgId }: { orgId: string }) {
                   onClick={() => void remove(asset)}
                 >
                   {operation.kind === "deleting" && operation.id === asset.id
-                    ? "Deleting…"
+                    ? <QuietActivity label="Deleting…" />
                     : "Delete"}
                 </Button>
               </li>
@@ -330,7 +332,7 @@ export function MediaLibrary({ orgId }: { orgId: string }) {
               onClick={() => void more()}
             >
               {operation.kind === "loading-more"
-                ? "Loading more…"
+                ? <QuietActivity label="Loading more…" />
                 : "Load more media"}
             </Button>
           )}

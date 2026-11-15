@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useState, type ReactNode } from "react";
 import { ensureDisplaySession } from "@/lib/display-access";
 import type { DisplaySurface } from "@/lib/display-access.server";
@@ -130,18 +131,13 @@ function DisplaySession({
       <div className="max-w-md space-y-4 text-center">
         <p role={state.status === "checking" ? "status" : "alert"}>
           {state.status === "checking"
-            ? "Checking display access…"
+            ? <QuietActivity label="Checking display access…" />
             : state.status === "denied"
               ? "This display needs a valid link. Sign in or ask an operator for a new display link."
-              : "Display access could not be checked. Reconnect and try again."}
+              : "This display could not be opened."}
         </p>
         {state.status === "error" && (
-          <p className="text-sm text-white/70">
-            Last checked{" "}
-            <time dateTime={new Date(state.occurredAt).toISOString()}>
-              {new Date(state.occurredAt).toLocaleTimeString()}
-            </time>
-          </p>
+          null
         )}
         {state.status !== "checking" && (
           <button

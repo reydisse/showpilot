@@ -78,15 +78,8 @@ export function ProfilePasswordReset({
       {failed && latest ? (
         <div role="alert" className="space-y-1 text-xs text-red-400">
           <p>
-            Reset email was not confirmed. It may arrive. Retry requests another
-            link.
-          </p>
-          <p>
-            Last attempt{" "}
-            <time dateTime={new Date(latest.at).toISOString()}>
-              {new Date(latest.at).toLocaleTimeString()}
-            </time>
-          </p>
+            The reset email could not be sent.</p>
+
           {remaining ? <p>Retry available in {remaining}s.</p> : null}
         </div>
       ) : null}

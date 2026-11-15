@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import type { ConnectionStatus } from "@/lib/connection-state";
 import { useState } from "react";
 import { Pause, Play, Square, TimerReset } from "lucide-react";
@@ -35,7 +36,7 @@ export function TimecodeTransport({ state, connectionStatus, canControl, isMaste
       </Button>
     </> : <>
       <Button type="button" variant="outline" className={`${buttonClass} text-fire-500`} disabled={!enabled} onClick={() => onStart()}>
-        <Play />{pending === "starting" ? "Starting…" : pending === "stopping" ? "Stopping…" : (state?.totalFrames ?? 0) > 0 ? "Resume Internal Generator" : "Start Internal Generator"}
+        <Play />{pending === "starting" ? <QuietActivity label="Starting…" /> : pending === "stopping" ? "Stopping…" : (state?.totalFrames ?? 0) > 0 ? "Resume Internal Generator" : "Start Internal Generator"}
       </Button>
       <Button type="button" variant="outline" className={buttonClass} disabled={!canChoosePosition} aria-label="Choose start position" title="Choose start position" onClick={() => setPositionOpen(true)}><TimerReset /></Button>
     </>}

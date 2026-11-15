@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { PageBreadcrumb } from "@/components/ui/PageBreadcrumb";
 import { createFileRoute, redirect, Link } from "@tanstack/react-router";
 import { useState } from "react";
@@ -77,7 +78,7 @@ function LowerThirdsDisabledPage() {
           Studio. Turn it on to start triggering lower thirds from any device.
         </p>
 
-        {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
+        {error && <p className="mt-3 text-xs text-red-400">{plainFailure(error)}</p>}
 
         <div className="mt-6 space-y-2">
           {canEnable ? (

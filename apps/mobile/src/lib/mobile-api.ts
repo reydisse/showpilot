@@ -31,7 +31,6 @@ import { accessNoticeSchema, accessReceiptSchema, type AccessCommand } from "./a
 import { crewReceiptSchema, crewReadSchema, type CrewCommand } from "./crew-recovery";
 import { invitationDeliverySchema } from "./invitation-recovery";
 import { workspaceSchema, type MobileWorkspace } from "./workspace-schema";
-export { workspaceSchema, type MobileWorkspace } from "./workspace-schema";
 import {
   type WorkspaceType,
 
@@ -55,6 +54,7 @@ import {
   getStoredRundownPin,
   orgIdFromPinProtectedPath,
 } from "@/lib/rundown-pin";
+export { workspaceSchema, type MobileWorkspace } from "./workspace-schema";
 
 const managedAvatarPath = /^\/api\/user\/avatar\/(?:[^/?#]+\.jpg|[^/?#]+\/[a-f0-9]{64}\.jpg)$/;
 export { rundownItemSchema, timerSchema, mobileRundownSchema } from "./rundown-schema";

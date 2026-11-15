@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Redirect } from "expo-router";
@@ -131,9 +132,9 @@ function CrewWorkspace({
             ) : null}
             {query.error ? (
               <View style={styles.summaryCopy}>
-                <Text accessibilityRole="alert" style={styles.error}>
+                <FailureText accessibilityRole="alert" style={styles.error}>
                   {query.error.message}
-                </Text>
+                </FailureText>
                 <AppButton
                   label="Retry crew roster"
                   loading={query.isFetching}

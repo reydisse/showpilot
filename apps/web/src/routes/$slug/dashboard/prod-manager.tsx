@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { hasPermission } from "@/lib/app-permissions";
 import { RelaySyncNotice } from "@/components/RelaySyncNotice";
 import { useTerms } from "@/components/workspace/WorkspaceProvider";
@@ -187,7 +189,7 @@ function ProdManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
       </header>
 
       <ReadFailureNotice error={read.error} refreshing={read.refreshing} retry={read.retry} label="Retry dashboard" />
-      {read.refreshing && !read.error ? <p role="status" className="px-3 sm:px-6 py-2 text-sm text-board-muted">Refreshing dashboard… Last confirmed values remain visible.</p> : null}
+      {read.refreshing && !read.error ? <QuietActivity /> : null}
       {/* Banners span the width; below them a wide reading column and a
           fixed rail. No spans, so no ragged rows and no dead space. */}
       <div className="px-3 sm:px-6 py-5 w-full max-w-[1500px] space-y-4">
@@ -279,7 +281,7 @@ function ShowReportButton({
           role="alert"
           className="max-w-sm text-sm text-red-400"
         >
-          {error}
+          {plainFailure(error)}
         </span>
       ) : null}
     </div>

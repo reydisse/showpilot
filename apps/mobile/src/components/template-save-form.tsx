@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { useEffect, useState } from "react";
 import { Text, View, StyleSheet } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
@@ -48,9 +50,9 @@ export function TemplateSaveForm(props: {
   if (!draft)
     return (
       <View style={styles.container}>
-        <Text accessibilityRole="alert" style={styles.error}>
-          {state.error ?? "Preparing the reviewed copy…"}
-        </Text>
+        <FailureText accessibilityRole="alert" style={styles.error}>
+          {state.error ?? <QuietActivity label="Preparing the reviewed copy…" />}
+        </FailureText>
         <AppButton
           label="Capture current rundown"
           disabled={!active || !props.canCapture}
@@ -72,9 +74,9 @@ export function TemplateSaveForm(props: {
   return (
     <View style={styles.container}>
       {state.error ? (
-        <Text accessibilityRole="alert" style={styles.error}>
+        <FailureText accessibilityRole="alert" style={styles.error}>
           {state.error}
-        </Text>
+        </FailureText>
       ) : null}
       <Text style={styles.heading}>Save current rundown</Text>
       <Text style={styles.hint}>
@@ -118,15 +120,13 @@ export function TemplateSaveForm(props: {
         </>
       ) : null}
       {attempt?.kind === "pending" ? (
-        <Text accessibilityLiveRegion="polite" style={styles.hint}>
-          Confirming the original template save…
-        </Text>
+        <QuietActivity />
       ) : null}
       {attempt?.kind === "failed" ? (
         <>
-          <Text accessibilityRole="alert" style={styles.error}>
+          <FailureText accessibilityRole="alert" style={styles.error}>
             {attempt.message}
-          </Text>
+          </FailureText>
           <AppButton
             label="Retry original template save"
             disabled={!active}
@@ -147,15 +147,15 @@ export function TemplateSaveForm(props: {
       ) : null}
       {attempt?.kind === "confirmed" && attempt.refresh !== "done" ? (
         <>
-          <Text
+          <FailureText
             accessibilityRole={
               attempt.refresh === "failed" ? "alert" : undefined
             }
             style={attempt.refresh === "failed" ? styles.error : styles.hint}
           >
-            {attempt.message ?? "Refreshing saved templates…"} The save result
+            {attempt.message ?? ""} The save result
             above is confirmed.
-          </Text>
+          </FailureText>
           <AppButton
             label="Refresh templates only"
             loading={attempt.refresh === "pending"}

@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState } from "react";
 import {
   useMutation,
@@ -76,7 +78,7 @@ export function DeleteOrganization({
           await withOperationTimeout(
             deleteOrganization({ data: command, signal: controller.signal }),
             20_000,
-            "Deletion was not confirmed. Some cleanup may already be complete. Retry to finish or confirm the deletion.",
+            "This change needs attention.",
           ),
         );
       } finally {
@@ -185,25 +187,18 @@ export function DeleteOrganization({
         </DialogContent>
       </Dialog>
       {pending ? (
-        <p role="status" className="text-sm text-board-muted">
-          Deleting organization…
-        </p>
+        <QuietActivity />
       ) : null}
       {unfinished && !pending ? (
         <div role="alert" className="space-y-2 text-sm text-amber-200">
           <p>
-            {latest?.error instanceof Error
+            {plainFailure((latest?.error instanceof Error
               ? latest.error.message
-              : "Organization deletion was not confirmed."}{" "}
+              : "This change needs attention.") ?? "")}{" "}
             Retry continues cleanup for this organization. It does not affect your account or other organizations.
           </p>
           {latest ? (
-            <p>
-              Last attempt{" "}
-              <time dateTime={new Date(latest.at).toISOString()}>
-                {new Date(latest.at).toLocaleTimeString()}
-              </time>
-            </p>
+            null
           ) : null}
           <Button
             type="button"
@@ -217,8 +212,7 @@ export function DeleteOrganization({
       ) : null}
       {!unfinished && latest?.result ? (
         <p role="status" className="text-sm text-board-muted">
-          Organization deletion confirmed. Leaving this organization…
-        </p>
+          </p>
       ) : null}
     </section>
   );

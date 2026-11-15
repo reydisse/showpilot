@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { useState } from "react";
 import { Linking, Pressable, Switch, Text, View } from "react-native";
 import {
@@ -49,9 +50,9 @@ export function WorkspaceSettings() {
         {workspace.label || WORKSPACE_DEFINITIONS[workspace.type].label}
       </Text>
       {linkError ? (
-        <Text accessibilityRole="alert" style={{ color: colors.red }}>
+        <FailureText accessibilityRole="alert" style={{ color: colors.red }}>
           {linkError}
-        </Text>
+        </FailureText>
       ) : null}
       {canManage && <WorkspaceChangeNotice work={work} />}
       {canManage ? (

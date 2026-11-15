@@ -244,7 +244,7 @@ it("keeps a grant draft across closing and tabs and retries the exact reviewed w
   });
   expect(
     screen.getByRole("alert", { name: "Team change" }).textContent,
-  ).toContain("Grant reply lost");
+  ).toContain("This change needs attention.");
   fireEvent.click(screen.getByRole("tab", { name: /Workspace members/ }));
   await click("Retry change");
   expect(api.grant.mock.calls[1][0].data).toEqual(original);
@@ -269,8 +269,8 @@ it("retries only the read after confirmed access and reports a pending member no
   await click("Grant access");
   expect(
     screen.getByRole("alert", { name: "Team change" }).textContent,
-  ).toContain("Change saved.");
-  expect(screen.getByText(/The member notification is pending/)).toBeTruthy();
+  ).toContain("This view could not be updated.");
+  expect(screen.getAllByText(/Member alerts could not be sent/)).toHaveLength(1);
   await click("Retry refresh");
   expect(api.grant).toHaveBeenCalledTimes(1);
 });
@@ -337,7 +337,7 @@ it("bounds an unresponsive grant and ignores a late response after exact retry",
   });
   expect(
     screen.getByRole("alert", { name: "Team change" }).textContent,
-  ).toContain("did not finish");
+  ).toContain("This change needs attention.");
   const original = api.grant.mock.calls[0][0].data;
   await click("Retry change");
   expect(api.grant.mock.calls[1][0].data).toEqual(original);

@@ -2,10 +2,13 @@ import { createFileRoute, Outlet, redirect, isRedirect, useRouterState } from "@
 import { getSessionWithOrg, listUserOrgs, setActiveOrg } from "@/lib/session";
 import { safeAuthReturnTo, verificationHref } from "@/lib/auth-navigation";
 import { AuthSkeleton } from "@/components/ui/Skeleton";
+import { localAccountExit } from "@/lib/local-account-exit";
 
 export const Route = createFileRoute("/_auth")({
   pendingComponent: AuthSkeleton,
   beforeLoad: async ({ location, abortController, preload }) => {
+    // Local exit must reach the form even when the session endpoint is offline.
+    if (localAccountExit.getSnapshot()) return { user: null };
     const signal = abortController.signal;
     const result = await getSessionWithOrg({ signal }).catch(() => null);
     signal.throwIfAborted();

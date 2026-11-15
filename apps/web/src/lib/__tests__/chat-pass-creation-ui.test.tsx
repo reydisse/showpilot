@@ -38,7 +38,7 @@ it("times out a hung creation, aborts and ignores a late success", async () => {
   render(<Harness />); await click("Create crew pass");
   await act(async () => vi.advanceTimersByTimeAsync(10_001));
   expect(api.crew.mock.calls[0][0].signal.aborted).toBe(true);
-  expect(screen.getByRole("alert").textContent).toContain("unconfirmed");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   await act(async () => pending.resolve(pass()));
   expect(screen.queryByText("Crew pass is ready")).toBeNull();
   expect(screen.getByRole("button", { name: "Retry link" })).toBeTruthy();
@@ -52,7 +52,7 @@ it("closing cancels waiting, reopening retains recovery and duplicate clicks sen
   await click("Close"); expect(api.crew.mock.calls[0][0].signal.aborted).toBe(true);
   await act(async () => pending.resolve(pass()));
   await click("Open invite");
-  expect(screen.getByRole("alert").textContent).toContain("unconfirmed");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   await click("Retry link");
   expect(api.crew.mock.calls[1][0].data).toEqual(api.crew.mock.calls[0][0].data);
   await click("Close"); await click("Open invite");
@@ -78,11 +78,11 @@ it("keeps a usable Planning link when notifications fail and retries the same se
   const field = screen.getByLabelText("Planning invite link");
   if (!(field instanceof HTMLTextAreaElement)) throw new Error("Invite field missing");
   const link = field.value;
-  expect(screen.getByRole("alert").textContent).toContain("1 inbox notification");
+  expect(screen.getByRole("alert").textContent).toContain("Crew alerts could not be sent");
   await click("Retry notifications");
   expect(api.planning.mock.calls[1][0].data).toEqual(api.planning.mock.calls[0][0].data);
   expect(screen.getByLabelText("Planning invite link")).toHaveProperty("value", link);
-  expect(screen.getByText(/Inbox notifications saved for 1/)).toBeTruthy();
+  expect(screen.queryByText(/Inbox notifications saved for/)).toBeNull(); expect(screen.queryByRole("alert")).toBeNull();
 });
 it("reports clipboard denial, exposes the link and allows copy retry", async () => {
   api.crew.mockResolvedValue(pass());

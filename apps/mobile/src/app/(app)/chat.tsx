@@ -1,3 +1,5 @@
+import { FailureText } from "@/components/failure-text";
+import { QuietActivity } from "@/components/quiet-activity";
 import { attachmentDeadline } from "@showpilot/shared/chat-attachment-draft";
 import { useChatAttachments } from "@/hooks/use-chat-attachments";
 import { ChatAttachmentStatus } from "@/components/chat-attachment-status";
@@ -71,6 +73,7 @@ import {
   type MobileRundown,
 } from "@/lib/mobile-api";
 import { createThemedStyles, fontFamily, radii, spacing, useAppTheme } from "@/theme/tokens";
+import { AppButton } from "@/components/app-button";
 
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
 
@@ -262,8 +265,8 @@ const MessageCard = memo(function MessageCard({
           </> : null}
           {!deleted ? <Pressable accessibilityRole="button" accessibilityLabel={`Message actions: ${readableChatText(message.text).slice(0, 80) || "attachment"}`} onPress={() => onLongPress(message)} style={styles.messageActions}><Ellipsis color={styles.time.color} size={20} /></Pressable> : null}
         </View> : null}
-        {message.externalDelivery?.status === "pending" ? <Text style={styles.deliveryPending}>Sending to {message.externalDelivery.platform}…</Text> : null}
-        {message.externalDelivery?.status === "failed" ? <Text style={styles.deliveryFailed}>Not delivered to {message.externalDelivery.platform}: {message.externalDelivery.error ?? "gateway unavailable"}</Text> : null}
+
+        {message.externalDelivery?.status === "failed" ? <Text style={styles.deliveryFailed}>Your message could not reach {message.externalDelivery.platform}.</Text> : null}
       </View>
       </Pressable>
       </Animated.View>
@@ -279,11 +282,10 @@ function LiveChatStatus({ detail, orgId }: { detail: MobileRundown; orgId: strin
   const relayIsAuthoritative = relay.status === "connected" && relay.hydrated && hasRelayState;
   const timer = hasRelayState ? relay.timer : detail.timer;
   const items = hasRelayState ? relay.items : detail.items;
-  if (!relayIsAuthoritative) return <View style={{ gap: 8 }}>
-    <Text accessibilityLiveRegion="polite" style={styles.liveItem}>Live show unavailable. Showing last known state{timer.currentItemId ? `: ${items.find(item => item.id === timer.currentItemId)?.title ?? "current item"}` : "."}</Text>
-    {relay.lastError ? <Text accessibilityRole="alert" style={styles.error}>{relay.lastError}</Text> : null}
+  if (!relayIsAuthoritative) return relay.lastError ? <View style={{ gap: 8 }}>
+    <FailureText accessibilityRole="alert" style={styles.error}>The show could not be updated.</FailureText>
     <AppButton label="Retry live connection" variant="secondary" onPress={relay.retryConnection} />
-  </View>;
+  </View> : <QuietActivity />;
   if (timer.playback !== "play" || !timer.currentItemId) return null;
   const currentItem = items.find((item) => item.id === timer.currentItemId);
   if (!currentItem) return null;
@@ -312,7 +314,7 @@ export default function ChatScreen() {
   const [mutationError, setMutationError] = useState<{ scope: string; message: string; at: number } | null>(null);
   const mutationFailure = useCallback((error: unknown) => {
     if (currentMutationScope.current !== mutationScope) return;
-    setMutationError(error instanceof ChatMutationTrackedError ? null : { scope: mutationScope, message: error instanceof Error ? error.message : "Message change was not confirmed. Reconnect and retry.", at: Date.now() });
+    setMutationError(error instanceof ChatMutationTrackedError ? null : { scope: mutationScope, message: error instanceof Error ? error.message : "This change needs attention.", at: Date.now() });
   }, [mutationScope]);
   const blockedMessages = useMemo(() => new Set(relay.mutations.filter(item => item.state !== "settled" || item.result.cleanup !== "complete").map(item => item.command.messageId)), [relay.mutations]);
   const bootstrap = useMobileBootstrap();
@@ -739,8 +741,8 @@ export default function ChatScreen() {
             </Pressable>
             {membersQuery.data?.canInvite && !roomId.startsWith("dm:") ? <Pressable accessibilityRole="button" accessibilityLabel={roomId === "planning" ? "Share Planning Room" : "Invite guest crew"} onPress={() => setShareOpen(true)} style={styles.shareButton}><Share2 color={colors.textMuted} size={18} /></Pressable> : null}
         </View>
-        {membersQuery.error ? <View><Text accessibilityRole="alert" style={styles.error}>{membersQuery.error.message}</Text><AppButton label="Retry chat members" variant="secondary" disabled={membersQuery.isFetching} onPress={() => void membersQuery.refetch()} /></View> : null}
-        {relay.lastError ? <Text accessibilityRole="alert" style={styles.error}>{relay.lastError}</Text> : null}
+        {membersQuery.error ? <View><FailureText accessibilityRole="alert" style={styles.error}>{membersQuery.error.message}</FailureText><AppButton label="Retry chat members" variant="secondary" disabled={membersQuery.isFetching} onPress={() => void membersQuery.refetch()} /></View> : null}
+        {relay.lastError ? <FailureText accessibilityRole="alert" style={styles.error}>{relay.lastError}</FailureText> : null}
         {relay.status !== "connected" || relay.lastError ? <AppButton label="Retry chat connection" variant="secondary" onPress={relay.retryConnection} /> : null}
         {relay.gatewayStatus.status === "error" ? <Text style={styles.error}>External chat sync: {relay.gatewayStatus.error ?? "connection failed"}</Text> : null}
         {isScreenFocused && liveRundownQuery.data ? <LiveChatStatus detail={liveRundownQuery.data} orgId={organization.id} /> : null}
@@ -759,12 +761,12 @@ export default function ChatScreen() {
             windowSize={7}
             ListHeaderComponent={<ChatDeliveryStatus key={`${session?.user.id}:${organization.id}:${roomId}`} items={relay.outbox} connected={relay.status === "connected"} retry={relay.retryMessage} retryNotifications={relay.retryNotifications} discard={relay.discardMessage} />}
             ListFooterComponent={relay.hasOlder ? (<View>
-              {relay.historyError ? <Text accessibilityRole="alert" style={styles.error}>{relay.historyError}</Text> : null}
-              <Pressable accessibilityRole="button" accessibilityState={{ busy: relay.loadingOlder, disabled: relay.loadingOlder || relay.status !== "connected" }} disabled={relay.loadingOlder || relay.status !== "connected"} onPress={() => void relay.loadOlder()} style={({ pressed }) => [styles.olderButton, pressed && styles.pressed]}>
-                <Text style={styles.olderText}>{relay.loadingOlder ? "Loading earlier messages…" : relay.status !== "connected" ? "Reconnect to load earlier messages" : relay.historyError ? "Retry loading earlier messages" : "Load earlier messages"}</Text>
+              {relay.historyError ? <FailureText accessibilityRole="alert" style={styles.error}>{relay.historyError}</FailureText> : null}
+              <Pressable accessibilityLabel="Load earlier messages" accessibilityRole="button" accessibilityState={{ busy: relay.loadingOlder, disabled: relay.loadingOlder || relay.status !== "connected" }} disabled={relay.loadingOlder || relay.status !== "connected"} onPress={() => void relay.loadOlder()} style={({ pressed }) => [styles.olderButton, pressed && styles.pressed]}>
+                {relay.loadingOlder ? <QuietActivity /> : <Text style={styles.olderText}>{relay.status !== "connected" ? "Reconnect to load earlier messages" : relay.historyError ? "Retry loading earlier messages" : "Load earlier messages"}</Text>}
               </Pressable>
             </View>) : null}
-            ListEmptyComponent={relay.outbox.length ? null : <Text style={styles.empty}>{relay.status === "connected" && relay.hydrated ? "No messages yet. Start the conversation." : relay.lastError ? "Chat history is unavailable. Retry the connection." : relay.status === "offline" ? "Chat is offline. Reconnect to load messages." : "Loading this room's history…"}</Text>}
+            ListEmptyComponent={relay.outbox.length ? null : <Text style={styles.empty}>{relay.status === "connected" && relay.hydrated ? "No messages yet. Start the conversation." : relay.lastError ? "Chat history is unavailable. Retry the connection." : relay.status === "offline" ? "Chat is offline. Reconnect to load messages." : ""}</Text>}
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             onContentSizeChange={keepLatestMessageVisible}
             onLayout={keepLatestMessageVisible}
@@ -780,7 +782,7 @@ export default function ChatScreen() {
         </View>
         {relay.typingUsers.filter((user) => user.userId !== currentUserId).length ? <Text style={styles.typing}>{relay.typingUsers.filter((user) => user.userId !== currentUserId).map((user) => user.name).join(", ")} typing…</Text> : null}
         <ChatMutationStatus items={relay.mutations} connected={relay.status === "connected"} retry={relay.retryMutation} dismiss={relay.dismissMutation} />
-        {mutationError?.scope === mutationScope ? <View><Text accessibilityRole="alert" style={styles.error}>{mutationError.message}</Text><Text style={styles.error}>Updated {new Date(mutationError.at).toLocaleTimeString()}</Text></View> : null}
+        {mutationError?.scope === mutationScope ? <View><FailureText accessibilityRole="alert" style={styles.error}>{mutationError.message}</FailureText></View> : null}
         {replyingTo || editing ? (
           <View style={styles.composerContext}>
             {editing ? <Pencil color={colors.amberText} size={15} /> : <CornerUpLeft color={colors.amberText} size={15} />}
@@ -788,13 +790,13 @@ export default function ChatScreen() {
             <Pressable accessibilityRole="button" style={styles.composerToolButton} accessibilityLabel="Cancel message action" onPress={() => { if (editing) cancelEdit(); else setReplyingTo(null); }}><X color={colors.textMuted} size={18} /></Pressable>
           </View>
         ) : null}
-        {picker?.scope === mutationScope && picker.error ? <View><Text accessibilityRole="alert" style={styles.error}>{picker.error}</Text><Text style={styles.error}>Updated {new Date(picker.at).toLocaleTimeString()}</Text><Pressable accessibilityRole="button" accessibilityLabel="Retry choosing attachment" style={styles.toolRow} onPress={() => void chooseFile(picker.kind)}><Text style={styles.toolTitle}>Choose attachment again</Text></Pressable></View> : null}
+        {picker?.scope === mutationScope && picker.error ? <View><FailureText accessibilityRole="alert" style={styles.error}>{picker.error}</FailureText><Pressable accessibilityRole="button" accessibilityLabel="Retry choosing attachment" style={styles.toolRow} onPress={() => void chooseFile(picker.kind)}><Text style={styles.toolTitle}>Choose attachment again</Text></Pressable></View> : null}
         {!editing && <ChatAttachmentStatus items={attachments.work} retry={id => attachments.draft?.retry(id)} remove={id => attachments.draft?.remove(id)} />}
         {mentionResults.length ? <View style={styles.mentions}>{mentionResults.map((member) => <Pressable key={member.userId} onPress={() => selectMention(member)} style={styles.mention}><Text style={styles.mentionName}>@{member.name}</Text><Text style={styles.mentionRole}>{member.role}</Text></Pressable>)}</View> : null}
         <View style={styles.composer}>
           {!editing ? <Pressable accessibilityRole="button" accessibilityLabel="Open message tools" onPress={() => setToolsOpen(true)} style={styles.composerToolButton}>{picker?.scope === mutationScope && picker.busy ? <ActivityIndicator color={colors.textMuted} size="small" /> : <Paperclip color={colors.textMuted} size={20} />}</Pressable> : null}
           {messageType !== "text" && !editing ? <View style={[styles.composerTypeBadge, messageType === "alert" && styles.composerTypeBadgeAlert]}><Text style={[styles.composerTypeBadgeText, messageType === "alert" && styles.composerTypeBadgeTextAlert]}>{messageType}</Text></View> : null}
-          <TextInput accessibilityLabel={`Message ${roomTitle}`} multiline maxLength={4000} value={text} onChangeText={updateText} placeholder={relay.status !== "connected" ? "Message will send when reconnected…" : `Message ${roomTitle}…`} placeholderTextColor={colors.textFaint} style={styles.input} />
+          <TextInput accessibilityLabel={`Message ${roomTitle}`} multiline maxLength={4000} value={text} onChangeText={updateText} placeholder={relay.status !== "connected" ? "" : `Message ${roomTitle}…`} placeholderTextColor={colors.textFaint} style={styles.input} />
           <Pressable accessibilityRole="button" accessibilityLabel={editing ? "Save edited message" : "Send message"} accessibilityState={{ disabled: (!text.trim() && !attachment) || (!editing && (attachments.blocked || Boolean(picker?.scope === mutationScope && picker.busy))) || Boolean(editing && blockedMessages.has(editing.id)) }} disabled={(!text.trim() && !attachment) || (!editing && (attachments.blocked || Boolean(picker?.scope === mutationScope && picker.busy))) || Boolean(editing && blockedMessages.has(editing.id))} onPress={() => void submit()} style={({ pressed }) => [styles.send, !text.trim() && !attachment && styles.disabled, pressed && styles.pressed]}><Send color={colors.black} size={19} /></Pressable>
         </View>
       </Page>
@@ -806,8 +808,8 @@ export default function ChatScreen() {
             <View style={styles.imageViewerHeaderSpacer} />
             <Pressable accessibilityRole="button" accessibilityLabel="Share image" disabled={!previewAttachment || previewLoading} onPress={() => previewAttachment && void shareAttachment(previewAttachment)} style={styles.imageViewerButton}><Share2 color={colors.text} size={21} /></Pressable>
           </View>
-          {previewLoading ? <View style={styles.imageViewerLoading}><ActivityIndicator color={colors.amber} size="large" /><Text style={styles.imageViewerLoadingText}>Opening image…</Text></View> : null}
-          {previewError ? <View style={styles.imageViewerLoading}><Text accessibilityRole="alert" style={styles.imageViewerLoadingText}>{previewError.message}</Text><Text style={styles.imageViewerLoadingText}>Updated {new Date(previewError.at).toLocaleTimeString()}</Text><Pressable accessibilityRole="button" accessibilityLabel="Retry loading image" style={styles.imageViewerRetry} onPress={() => { setPreviewAttempt(++previewGeneration.current); setPreviewError(null); setPreviewLoading(true); }}><Text style={styles.imageViewerRetryText}>Retry loading image</Text></Pressable></View> : null}
+          {previewLoading ? <View style={styles.imageViewerLoading}><ActivityIndicator color={colors.amber} size="large" /><QuietActivity /></View> : null}
+          {previewError ? <View style={styles.imageViewerLoading}><FailureText accessibilityRole="alert" style={styles.imageViewerLoadingText}>{previewError.message}</FailureText><Pressable accessibilityRole="button" accessibilityLabel="Retry loading image" style={styles.imageViewerRetry} onPress={() => { setPreviewAttempt(++previewGeneration.current); setPreviewError(null); setPreviewLoading(true); }}><Text style={styles.imageViewerRetryText}>Retry loading image</Text></Pressable></View> : null}
           {previewUri && !previewError ? (
             <ScrollView
               bouncesZoom
@@ -1104,4 +1106,3 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   pollSend: { minHeight: 46, alignItems: "center", justifyContent: "center", borderRadius: radii.medium, backgroundColor: colors.amber },
   pollSendText: { color: colors.black, fontFamily, fontSize: 12, fontWeight: "900" },
 }));
-import { AppButton } from "@/components/app-button";

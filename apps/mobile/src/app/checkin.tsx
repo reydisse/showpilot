@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import CheckCircle2 from "lucide-react-native/icons/circle-check-big";
@@ -176,7 +177,7 @@ export default function CheckInScreen() {
               style={styles.codeInput}
               value={code}
             />
-            {codeError ? <Text accessibilityRole="alert" style={styles.error}>{codeError}</Text> : null}
+            {codeError ? <FailureText accessibilityRole="alert" style={styles.error}>{codeError}</FailureText> : null}
             <AppButton label="Find crew member" disabled={!code.trim()} onPress={findCode} />
           </View>
         )

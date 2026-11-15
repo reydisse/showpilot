@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { Modal, ScrollView, Text, View } from "react-native";
 import { AppButton } from "./app-button";
 import { useAppTheme } from "@/theme/tokens";
@@ -20,8 +21,8 @@ export function TimecodeClockConfirmation({ review, showName, changed, active, o
           <Text style={text}>Show: {showName}</Text>
           <Text style={text}>{command.kind === "seek" ? `${review.from} → ${target}. This changes the shared clock for every operator. Large jumps pause automation for review; fired cues stay fired.`
             : `${command.expected.format.frameRate} fps ${command.expected.format.dropFrame.toUpperCase()} → ${target}. Cue frame positions are recalculated. Automation pauses and fired cues stay fired.`}</Text>
-          {changed ? <><Text accessibilityRole="alert" style={text}>The show, clock position or format changed. Review the current clock before confirming.</Text><AppButton label="Review current clock" variant="secondary" disabled={!active} onPress={onReview} /></> : null}
-          {!active ? <Text accessibilityRole="alert" style={text}>Connect, claim control and stop the source before confirming this change.</Text> : null}
+          {changed ? <><FailureText accessibilityRole="alert" style={text}>The show, clock position or format changed. Review the current clock before confirming.</FailureText><AppButton label="Review current clock" variant="secondary" disabled={!active} onPress={onReview} /></> : null}
+          {!active ? <FailureText accessibilityRole="alert" style={text}>Connect, claim control and stop the source before confirming this change.</FailureText> : null}
           <AppButton label="Keep current clock" variant="secondary" onPress={onCancel} />
           <AppButton label={command.kind === "seek" ? "Confirm clock change" : "Confirm reformat"} variant="danger" disabled={!active || changed} onPress={onConfirm} />
         </View>

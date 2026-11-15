@@ -1,3 +1,5 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { AlertTriangle, ArrowRight, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -32,7 +34,7 @@ function DeleteAccountPage() {
       if (result.error) throw new Error(result.error.message ?? "Account deletion could not be completed");
       window.location.href = "/account-deleted";
     } catch (caught) {
-      setError(`${caught instanceof Error ? caught.message : "Account deletion could not be confirmed"}. Please retry. If cleanup started, some data may already have been removed.`);
+      setError(`${caught instanceof Error ? caught.message : "This change needs attention."}. Please retry. If cleanup started, some data may already have been removed.`);
     } finally {
       setSubmitting(false);
     }
@@ -71,9 +73,9 @@ function DeleteAccountPage() {
               <label className="mt-4 block text-sm font-medium">Type DELETE to confirm
                 <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" className="mt-2 w-full rounded-xl border border-board-border bg-board-bg px-4 py-3 text-base text-board-text outline-none focus:border-red-500/60" />
               </label>
-              {error ? <p role="alert" className="mt-4 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p> : null}
-              <button type="button" onClick={submitDeletion} disabled={submitting || confirmation !== "DELETE" || !password} className="mt-5 w-full rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-45">
-                {submitting ? "Deleting…" : "Permanently delete my account"}
+              {error ? <p role="alert" className="mt-4 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-sm text-red-300">{plainFailure(error)}</p> : null}
+              <button type="button" onClick={submitDeletion} disabled={submitting || confirmation !== "DELETE" || !password} className="mt-5 w-full rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-45" aria-label={submitting ? "Deleting…" : "Permanently delete my account"}>
+                {submitting ? <QuietActivity label="Deleting…" /> : "Permanently delete my account"}
               </button>
             </>
           )}

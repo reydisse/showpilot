@@ -68,7 +68,7 @@ it("bounds a stalled device catalog and exposes retry", async () => {
   vi.useFakeTimers();
   render(<DeviceCueFields lighting={false} initial={{}} onChange={() => {}} loadDevices={() => new Promise(() => {})} />);
   await act(async () => vi.advanceTimersByTime(10000));
-  expect(screen.getByRole("alert").textContent).toContain("timed out");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   expect(screen.getByRole("button", { name: "Refresh devices" })).toHaveProperty("disabled", false);
 });
 
@@ -135,7 +135,7 @@ it("times out discovery without showing an empty catalog and keeps the edit inva
   expect(screen.getByText("Discovering Home Assistant actions…")).toBeTruthy();
   expect(screen.queryByText("This device has no supported actions available.")).toBeNull();
   await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
-  expect(screen.getByRole("alert").textContent).toContain("timed out");
+  expect(screen.getByRole("alert").textContent).toContain("This action needs attention.");
   expect(change.mock.lastCall?.[0].status).toBe("invalid");
   fireEvent.click(screen.getByRole("button", { name: "Refresh actions" }));
   expect(change.mock.lastCall?.[0].status).toBe("invalid");

@@ -34,6 +34,8 @@ function loadSheet(send, focus) {
   const container = ({ children }) =>
     React.createElement("div", null, children);
   const modules = {
+  "@/components/quiet-activity": { QuietActivity: () => jsx.jsx("span", { role: "progressbar", "aria-label": "Loading" }) },
+  "@/components/failure-text": { FailureText: ({ children, accessibilityRole }) => React.createElement("p", { role: accessibilityRole }, children) },
     "@/hooks/use-template-save": managementHook,
     "@/hooks/use-screen-polling": { useScreenFocus: () => focus.active },
     "@/lib/mobile-api": { commandMobileTemplateSave: send },

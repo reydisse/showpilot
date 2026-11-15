@@ -36,7 +36,7 @@ describe('route load deadlines with the real router', () => {
     vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await act(async () => { await vi.advanceTimersByTimeAsync(12_001); });
-    expect(screen.getByRole('button', { name: 'Trying again…' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Trying again' }).hasAttribute('disabled')).toBe(true);
     await act(async () => { await vi.advanceTimersByTimeAsync(200); });
     expect(screen.getByRole('button', { name: 'Try again' }).hasAttribute('disabled')).toBe(false);
     await act(async () => { held.resolve('Late retry result'); });

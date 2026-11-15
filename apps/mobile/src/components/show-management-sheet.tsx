@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/quiet-activity";
 import { useEffect, useState } from "react";
 import {
   Modal,
@@ -196,18 +197,12 @@ export function ShowManagementSheet(props: {
             </Text>
           ) : null}
           {state.reading ? (
-            <Text accessibilityLiveRegion="polite" style={styles.copy}>
-              Loading the current show… Your retained draft stays here if
-              loading fails.
-            </Text>
+            <QuietActivity />
           ) : null}
           {attempt ? (
             <View accessibilityLiveRegion="polite" style={styles.progress}>
               {attempt.kind === "pending" ? (
-                <Text style={styles.copy}>
-                  Confirming the original {editing ? "save" : "deletion"}… You
-                  can close and resume this request.
-                </Text>
+                <QuietActivity />
               ) : null}
               {attempt.kind === "failed" ? (
                 <>
@@ -250,7 +245,7 @@ export function ShowManagementSheet(props: {
                     {resultMessage(attempt.result)}
                   </Text>
                   {attempt.refresh === "pending" ? (
-                    <Text style={styles.copy}>Refreshing Schedule…</Text>
+                    <QuietActivity />
                   ) : null}
                   {attempt.refresh === "failed" ||
                   attempt.refresh === "idle" ? (

@@ -40,7 +40,8 @@
     "./workspace-change": "./src/workspace-change.ts",
     "./workspace-editor": "./src/workspace-editor.ts",
     "./graphic-control": "./src/graphic-control.ts",
-    "./destination-control": "./src/destination-control.ts"
+    "./destination-control": "./src/destination-control.ts",
+    "./ui-feedback": "./src/ui-feedback.ts"
   },
   "dependencies": {
     "zod": "4.4.3"

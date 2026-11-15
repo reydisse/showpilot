@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { useEffect, useId, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -60,7 +61,7 @@ export function ChatPassRevocation({ orgId, onRevoked }: { orgId: string; onRevo
         <DialogHeader><DialogTitle>Disable a chat link</DialogTitle><DialogDescription>Paste a crew pass or Planning invite from this workspace. Other links and member access stay active.</DialogDescription></DialogHeader>
         <label htmlFor={inputId} className="text-sm font-medium">Chat invite link</label>
         <textarea id={inputId} value={link} maxLength={16000} rows={3} disabled={result.status === "saving"} onChange={event => { setLink(event.target.value); setResult({ status: "idle" }); }} className="min-w-0 w-full resize-y rounded-lg border border-board-border bg-board-bg p-3 text-sm [overflow-wrap:anywhere]" />
-        {result.status === "failed" && <div role="alert" className="text-sm text-red-300"><p>{result.message}</p><p className="mt-1 text-xs">Last attempt: {new Date(result.at).toLocaleTimeString()}</p></div>}
+        {result.status === "failed" && <div role="alert" className="text-sm text-red-300"><p>{plainFailure((result.message) ?? "")}</p></div>}
         {result.status === "revoked" && <div role="status" className="text-sm"><p>This link is disabled.</p>{!result.disconnected && <p className="mt-2">New requests are blocked. Existing guest connections may take up to a minute to stop receiving messages. Retry disconnection to check again.</p>}</div>}
         {result.status === "expired" && <p role="status" className="text-sm">This link has already expired and cannot grant access.</p>}
         <div className="flex flex-wrap justify-end gap-2">

@@ -178,7 +178,7 @@ it("retries only the view refresh after an acknowledged write", async () => {
   edit();
   click("Save source");
   await tick();
-  expect(screen.getByText(/Schedule view could not refresh/)).toBeTruthy();
+  expect(screen.getByText("Schedule could not be updated.")).toBeTruthy();
   click("Close Scheduling source");
   await tick();
   expect(screen.getByText(/Scheduling source needs attention/)).toBeTruthy();

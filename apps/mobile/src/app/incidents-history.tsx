@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import AlertTriangle from "lucide-react-native/icons/triangle-alert";
@@ -97,8 +98,8 @@ export default function IncidentHistoryScreen() {
               <Text style={styles.resultValue}>{query.data.total}</Text>
               <Text style={styles.resultText}>matching incidents{query.isError ? " · Last loaded results" : ""}</Text>
             </View> : null}
-            {query.isFetching ? <View accessibilityLiveRegion="polite"><ActivityIndicator color={colors.amber} size="large" /><Text style={styles.resultText}>{query.data ? "Refreshing history…" : "Loading history…"}</Text></View> : null}
-            {query.error ? <View><Text accessibilityRole="alert" style={styles.error}>History could not be loaded. {query.error.message}</Text><AppButton label="Retry history" disabled={query.isFetching} onPress={() => void query.refetch()} /></View> : null}
+            {query.isFetching ? <View accessibilityLiveRegion="polite"><ActivityIndicator color={colors.amber} size="large" /><Text style={styles.resultText}>{query.data ? "" : ""}</Text></View> : null}
+            {query.error ? <View><FailureText accessibilityRole="alert" style={styles.error}>History could not be loaded. {query.error.message}</FailureText><AppButton label="Retry history" disabled={query.isFetching} onPress={() => void query.refetch()} /></View> : null}
           </View>
         )}
         ListEmptyComponent={query.data && !query.isError && !query.isFetching ? <Text style={styles.empty}>No incidents match these filters.</Text> : null}
@@ -149,7 +150,7 @@ export default function IncidentHistoryScreen() {
                 <View style={styles.dateField}><Text style={styles.label}>FROM DATE</Text><TextInput accessibilityLabel="History from date" autoCapitalize="none" maxLength={10} onChangeText={(value) => setDraft((current) => ({ ...current, from: value }))} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textFaint} style={styles.input} value={draft.from ?? ""} /></View>
                 <View style={styles.dateField}><Text style={styles.label}>TO DATE</Text><TextInput accessibilityLabel="History to date" autoCapitalize="none" maxLength={10} onChangeText={(value) => setDraft((current) => ({ ...current, to: value }))} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textFaint} style={styles.input} value={draft.to ?? ""} /></View>
               </View>
-              {filterError ? <Text accessibilityRole="alert" style={styles.error}>{filterError}</Text> : null}
+              {filterError ? <FailureText accessibilityRole="alert" style={styles.error}>{filterError}</FailureText> : null}
               <View style={styles.formActions}>
                 <AppButton label="Reset" variant="secondary" onPress={() => { setDraft(initialFilters); setFilterError(null); }} />
                 <View style={styles.applyButton}><AppButton label="Apply filters" onPress={applyFilters} /></View>

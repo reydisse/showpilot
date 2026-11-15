@@ -1,3 +1,4 @@
+import { QuietActivity } from "@/components/ui/QuietActivity";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Mail } from "lucide-react";
@@ -70,10 +71,10 @@ function VerifyEmailPage() {
       <p className="mt-1 text-sm uppercase tracking-widest text-board-muted">Email verification</p>
     </div>
     <section className="space-y-4 rounded-2xl border border-board-border bg-board-card p-6 text-center shadow-2xl" aria-live="polite">
-      {verification.status === "checking" && <p role="status">Checking email verification…</p>}
+      {verification.status === "checking" && <QuietActivity label="Checking email verification…" />}
       {verification.status === "error" && <>
         <h2 className="text-xl font-semibold">Verification status unavailable</h2>
-        <p role="alert" className="text-sm text-red-300">We couldn't confirm your email verification. Try again. <span className="block">Last attempt: {new Date(verification.at).toLocaleTimeString()}</span></p>
+        <p role="alert" className="text-sm text-red-300">We couldn't confirm your email verification. Try again. </p>
         <button type="button" className={buttonClass} onClick={checkAgain}>Retry verification check</button>
       </>}
       {verification.status === "anonymous" && <>
@@ -88,12 +89,12 @@ function VerifyEmailPage() {
         <p className="break-words text-sm text-board-muted">Your email address, {verification.email}, isn't verified yet. Open the verification link in your inbox, then check again.</p>
         <div className="flex flex-col gap-3">
           <button type="button" className={`${buttonClass} bg-fire-500 text-black`} disabled={delivery.status === "sending"} onClick={checkAgain}>I've verified my email</button>
-          <button type="button" className={buttonClass} disabled={delivery.status === "sending" || (delivery.status === "sent" && delivery.email === verification.email)} onClick={() => void resend()}>
-            {delivery.status === "sending" ? "Sending verification email…" : delivery.status === "error" && delivery.email === verification.email ? "Retry sending verification email" : "Resend verification email"}
+          <button type="button" className={buttonClass} disabled={delivery.status === "sending" || (delivery.status === "sent" && delivery.email === verification.email)} onClick={() => void resend()} aria-label={delivery.status === "sending" ? "Sending verification email…" : delivery.status === "error" && delivery.email === verification.email ? "Retry sending verification email" : "Resend verification email"}>
+            {delivery.status === "sending" ? <QuietActivity label="Sending verification email…" /> : delivery.status === "error" && delivery.email === verification.email ? "Retry sending verification email" : "Resend verification email"}
           </button>
         </div>
         {delivery.status === "sent" && delivery.email === verification.email && <p role="status" className="text-sm">Verification email sent. Check your inbox.</p>}
-        {delivery.status === "error" && delivery.email === verification.email && <p role="alert" className="text-sm text-red-300">We couldn't confirm that the email was sent. Try again. <span className="block">Last attempt: {new Date(delivery.at).toLocaleTimeString()}</span></p>}
+        {delivery.status === "error" && delivery.email === verification.email && <p role="alert" className="text-sm text-red-300">We couldn't confirm that the email was sent. Try again. </p>}
       </>}
       {verification.status === "verified" && <>
         <CheckCircle2 className="mx-auto h-10 w-10 text-green-400" aria-hidden="true" />
