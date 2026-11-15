@@ -1,0 +1,191 @@
+[
+  {
+    "route": "/(app)",
+    "url": "http://127.0.0.1:59275/",
+    "text": "COMMAND CENTER\nShowPilot Demo (local fixture)\nStandby\nshow state\nOwner\nyour role\nNEXT SHOW\nDisplay test show\nSTOPPED\n2026-11-14\n12:54 AM\n0 rundown items\nOne live source of truth\nThis app reads the same organization, rundown, permissions, and notifications as web and desktop.\nHome\nShows\nOperate\nInbox\nChats",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/live-show",
+    "url": "http://127.0.0.1:59275/live-show",
+    "text": "LIVE WORKSPACE\nDisplay test show\n2026-11-14 \u00b7 12:54 AM\nSTANDBY\n--:--\nNo cue selected\nThe live state is ready\nFollowing authoritative live state\nChat\nFull rundown\nCrew status\nACTIVE CREW\n3 OF 6\nFC\nFixture crew member 1\nCamera operator\nFC\nFixture crew member 3\nCamera operator\nFC\nFixture crew member 5\nCamera operator\nRUNDOWN\n0 ITEMS\nNo current or upcoming rundown is available. Create a show from the Shows tab when the next service is ready.",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/show/smoke-show",
+    "url": "http://127.0.0.1:59275/show/smoke-show",
+    "text": "2026-11-14\nDisplay test show\n12:54 AM start \u00b7 12:19 AM call\nNew show\nOPERATOR\nSTANDBY\nSelect an item to begin\n00:00\nCOUNT DOWN\nCountdown\nCount up\nClock\nPrevious\nStart\nNext\n\u221230 sec\n+30 sec\nStop\nReset\nSubtract\nAdd\nSTAGE MESSAGE\nCurrent stage message\nFixture private stage message\nYour draft is separate from the displayed message. It is kept when you leave this screen during this app session.\nStage message\nPriority message: Off\nUses the urgent treatment on confidence displays.\nSend message\nClear stage message\nUse current message in draft\nRUNDOWN\n0 ITEMS\nAdd\nThis show has no rundown items yet.",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/shows",
+    "url": "http://127.0.0.1:59275/shows",
+    "text": "RUNDOWNS\nShows\nUpcoming and active shows for ShowPilot Demo (local fixture).\nOpen Live Show\nLIVE\nTimer, cues, crew, chat, and the full rundown in one workspace.\nDisplay test show\nSTOPPED\n2026-11-14\n12:54 AM\n0 rundown items\nHome\nShows\nOperate\nInbox\nChats",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/schedule",
+    "url": "http://127.0.0.1:59275/schedule",
+    "text": "CREW PLAN\nSchedule\nGo\nRange\n1\nSHOWS\n0\nPOSITIONS\n0\nCONFIRMED\n14\nNOV\nDisplay test show\nSaturday, November 14, 2026\n12:54 AM\n0/0 rundown\n0/0 confirmed\n1 incidents\nEdit\nPosition\nTeam\nDelete\nNo positions yet. Add an open position or build a team.",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/checkin",
+    "url": "http://127.0.0.1:59275/checkin",
+    "text": "CREW STATUS\nCheck-in\nUse member ID\nBrowse crew\n3 checked in\n3 out\nEnter a member ID\nWe\u2019ll show the current status before you confirm, preventing accidental double check-ins.\nFind crew member",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/show-board",
+    "url": "http://127.0.0.1:59275/show-board",
+    "text": "ShowPilot\nCREW STATUS\n12:30:09 AM\nSunday, November 15, 2026\n3 checked in\n3 not checked in\nScan to serve\nCrew can scan this code with their camera and check in from any phone.\nOpen\nShare\nLIVE CREW\n6 team members\nFC\nFixture crew member 1\nCamera operator\nCHECKED IN\nFC\nFixture crew member 3\nCamera operator\nCHECKED IN\nFC\nFixture crew member 5\nCamera operator\nCHECKED IN\nFC\nFixture crew member 0\nCamera operator\nNOT CHECKED IN\nFC\nFixture crew member 2\nCamera operator\nNOT CHECKED IN\nFC\nFixture crew member 4\nCamera operator\nNOT CHECKED IN",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/checklist",
+    "url": "http://127.0.0.1:59275/checklist",
+    "text": "PRE-SHOW\nChecklist\nSmart\nSat, Nov 14, 2026 \u00b7 2026-11-15T00:54:44.000Z \u00b7 Display test show\nCHOOSE SHOW\nADD A CHECK\nAudio\nVideo\nLighting\nStream\nGeneral\nAdd checklist item\nNo checks for this show\nAdd one above or generate a draft from the rundown.",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/cue-sheets",
+    "url": "http://127.0.0.1:59275/cue-sheets",
+    "text": "Cue sheet\nSat, Nov 14 \u00b7 0 cues\nDisplay test show\n12:54 AM \u00b7 Sat, Nov 14\nAll\nShow Caller\nProduction\nPro Ops\nLX\nSound\nNo rundown cues are available for this show.",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/audio",
+    "url": "http://127.0.0.1:59275/audio",
+    "text": "PATCH AND INPUTS\nAudio\nAdd\nDisplay test show\n2026-11-14 \u00b7 12:54 AM \u00b7 0 patched inputs \u00b7 0 mixer devices\nChange show\nInput list\nTap a channel to edit its patch, gain, power, or mute state.\nNo audio inputs are assigned to this show.",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/devices",
+    "url": "http://127.0.0.1:59275/devices",
+    "text": "EQUIPMENT\nDevices\nVenue Bridge offline\nStart the Bridge on a trusted venue computer before using remote controls.\n1\nCONFIGURED\n0\nCONNECTED\n1\nADAPTERS\nRehearsal switcher\nVideo \u00b7 Atem\n8 LIVE CONTROLS\nREADY",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/asset-inventory",
+    "url": "http://127.0.0.1:59275/asset-inventory",
+    "text": "PRODUCTION LIBRARY\nAssets\nAdd\nSearch inventory\nInventory\n0 of 0 assets\nNo assets match this view.",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/incidents",
+    "url": "http://127.0.0.1:59275/incidents",
+    "text": "OPERATIONS LOG\nIncidents\n30\nopen incidents\nFull history\nOPEN\nRESOLVED\nALL\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 1\nReported by Reporter\nOPEN\n0 comments\nClaim\nAssign\nResolve\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 2\nReported by Reporter\nOPEN\n0 comments\nClaim\nAssign\nResolve\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 3\nReported by Reporter\nOPEN\n0 comments\nClaim\nAssign\nResolve\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 4\nReported by Reporter\nOPEN\n0 comments\nClaim\nAssign\nResolve\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 5\nReported by Reporter\nOPEN\n0 comments\nClaim\nAssign\nResolve\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 6\nReported by Reporter\nOPEN\n0 comments\nClaim\nAssign\nResolve\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 7\nReported by Reporter\nOPEN\n0 comments\nClaim\nAssign\nResolve\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 8\nReported by Reporter\nOPEN\n0 comments\nClaim\nAssign\nResolve\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 9\nReported by Reporter\nOPEN\n0 comments\nClaim\nAssign\nResolve\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 10\nReported by Reporter\nOPEN\n0 comments\nClaim\nAssign\nResolve\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 11\nReported by Reporter\nOPEN\n0 comments\nClaim\nAssign\nResolve",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/incidents-history",
+    "url": "http://127.0.0.1:59275/incidents-history",
+    "text": "OPERATIONS LOG\nIncident history\n31\nmatching incidents\nAUDIO\nHIGH\n2026-11-14\nResolved readiness fixture\nReported By Reporter\nResolved\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 1\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 2\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 3\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 4\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 5\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 6\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 7\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 8\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 9\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 10\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 11\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 12\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 13\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 14\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 15\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 16\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 17\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-01\nRecent minor readiness fixture 18\nReported By Reporter\nOpen\nVIDEO\nLOW\n2000-01-",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/stream",
+    "url": "http://127.0.0.1:59275/stream",
+    "text": "LIVE SIGNAL\nStream Health\n0/1\nACTIVE INPUTS\nLive inputs\nInput details\nReadiness encoder\nInput details could not be loaded.\nUNKNOWN\nDistribution health\nAn enabled provider output does not prove that the encoder is sending a live input.\nReadiness destination\nSelected for Go Live \u00b7 Provider status unknown\nThis action needs attention.\nRetry provider status\nManage destinations",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/multi-platform",
+    "url": "http://127.0.0.1:59275/multi-platform",
+    "text": "STREAM DESTINATIONS\nMulti-Platform\nSelect destinations for the next Go Live from the web streaming controls. Selecting one does not start a broadcast. Disconnecting a destination stops forwarding to it; your encoder keeps running.\nAdd destination\nDestinations\nSelection and provider status are shown separately.\nReadiness destination\ncustom \u00b7 Key stored\nSelected for Go Live\nProvider status unknown\nThis action needs attention.\nRetry status for Readiness destination\nEdit Readiness destination\nDisconnect Readiness destination\nOpen Stream health",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/lower-thirds",
+    "url": "http://127.0.0.1:59275/lower-thirds",
+    "text": "ON-AIR GRAPHICS\nLower Thirds\nAdd graphic\nGraphics library\n1 live\nClear program graphics\nFixture overlay title\nFixture \u00b7 Fixture subtitle\nLive\nEdit Fixture\nTake off air",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/team",
+    "url": "http://127.0.0.1:59275/team",
+    "text": "TEAM CONTROL\nAccess grants\nGrant\nPermanent access authority\nYou can grant weekly or ongoing operational access and revoke active grants.\nACTIVE GRANTS\n0\nNo custom access is active\nMembers are using only the permissions included with their normal roles.",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/team-crew",
+    "url": "http://127.0.0.1:59275/team-crew",
+    "text": "TEAM CONTROL\nCrew roster\nAdd\n6 crew \u00b7 3 checked in\nThis production roster drives badges, check-in, assignments, and call-time messages.\nPRODUCTION CREW\n6\nF\nFixture crew member 0\nCREW0\nCamera operator\nF\nFixture crew member 1\nCREW1\nCamera operator\nF\nFixture crew member 2\nCREW2\nCamera operator\nF\nFixture crew member 3\nCREW3\nCamera operator\nF\nFixture crew member 4\nCREW4\nCamera operator\nF\nFixture crew member 5\nCREW5\nCamera operator",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/team-members",
+    "url": "http://127.0.0.1:59275/team-members",
+    "text": "TEAM CONTROL\nWorkspace members\nInvite\nOrganization membership\nInvite sign-in users, assign their base role, or remove their workspace access.\nMEMBERS\n1\nF\nFixture operator\noperator@showpilot-demo-nov04.invalid\nOwner",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/timecode",
+    "url": "http://127.0.0.1:59275/timecode",
+    "text": "Timecode\nChoose a show\nTimecode and automation stay with the show you select.\nRefresh shows\nPrior readiness fixture \u00b7 2000-01-01\nDisplay test show \u00b7 2026-11-14",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/reports",
+    "url": "http://127.0.0.1:59275/reports",
+    "text": "SHOW HISTORY\nReports & notes\nPost-show notes live here\nEveryone can read the show handoff. PMs and TMs can add or update their notes at any time.\nSearch reports\nCompleted and scheduled shows\n2 reports\nDisplay test show\n2026-11-14\nSTOPPED\nPrior readiness fixture\n2000-01-01\nSTOPPED",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/chat",
+    "url": "http://127.0.0.1:59275/chat",
+    "text": "Production Chat\n\u25cf Connected\nNo messages yet. Start the conversation.\nHome\nShows\nOperate\nInbox\nChats",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/inbox",
+    "url": "http://127.0.0.1:59275/inbox",
+    "text": "ACTIVITY\nInbox\nAll quiet\nNew assignments, mentions, alerts, and show activity will appear here.\nProduction Chat\n\u25cf Connected\nNo messages yet. Start the conversation.\nHome\nShows\nOperate\nInbox\nChats",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/profile",
+    "url": "http://127.0.0.1:59275/profile",
+    "text": "ACTIVITY\nInbox\nAll quiet\nNew assignments, mentions, alerts, and show activity will appear here.\nProduction Chat\n\u25cf Connected\nNo messages yet. Start the conversation.\nYOUR ACCOUNT\nProfile\nFixture operator\noperator@showpilot-demo-nov04.invalid\nVerified account\nDISPLAY NAME\nEMAIL ADDRESS\noperator@showpilot-demo-nov04.invalid\nWORKSPACE\nShowPilot Demo (local fixture)\nSwitch workspace\nMove to another organization\nApp settings\nAppearance, notifications, security, and about\nSign out\nHome\nShows\nOperate\nInbox\nChats",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/settings",
+    "url": "http://127.0.0.1:59275/settings",
+    "text": "YOUR APP\nSettings\nWorkspace\nChurch\nChurch\nLive Events\nSchool\nTheatre\nCustom\nCore features stay on. Hidden features keep their content.\nShow \u00b7 Required\nRundown \u00b7 Required\nTeam \u00b7 Required\nSchedule\nCrew status & check-in\nChat\nProduction\nTimecode\nSongs\nStreaming\nLower Thirds\nDashboards\nAppearance\nChoose the canvas that feels best in daylight, backstage, or the control room.\nSystem\nMatch this device\nLight\nWarm, low-glare canvas\nDark\nBuilt for control rooms\nNotifications\nEverything stays in your inbox. These alert choices apply across your connected devices.\nALERT\nSchedule\nAssignments, reminders, confirmations, and declines\nIncidents\nNew issues, assignments, comments, and status changes\nChat\nDirect messages, mentions, invitations, and reactions\nPost-show reports\nRequests to add production and technical notes\nAdmin and safety\nWorkspace administration and content-safety reviews\nAccount & security\nSecurity changes open on ShowPilot\u2019s secure account pages.\nChange password\nSend a secure reset link to operator@showpilot-demo-nov04.invalid\nEmail verification\nVerified\nDelete account\nPermanently remove your ShowPilot account and personal data\nLegal\nSupport\nTerms of Service\nPrivacy Policy\nAbout\nApp\nShowPilot 0.2.0 \u00b7 Web\nService\n127.0.0.1:59275",
+    "width": 390,
+    "scrollWidth": 390
+  },
+  {
+    "route": "/organizations",
+    "url": "http://127.0.0.1:59275/organizations",
+    "text": "WORKSPACE\nChoose your team\nYour shows, crew, and permissions stay isolated inside each organization.\nShowPilot Demo (local fixture)\nshowpilot-demo-nov04",
+    "width": 390,
+    "scrollWidth": 390
+  }
+]

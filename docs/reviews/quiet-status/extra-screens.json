@@ -1,0 +1,58 @@
+[
+  {
+    "name": "song-detail",
+    "path": "/showpilot-demo-nov04/songs/smoke-song",
+    "text": "Skip to rundown\nShowPilot\nL\n\nLong fixture organization for narrow screens\n\nService\nSchedule\nCrew status\nRundown\nTimecode\nChat\nTeam\n\nPRODUCTION\n\nCue Sheets\nChecklist\nCrew Check-in\nIncidents\nAssets\n\nSTREAMING\n\nStream\nMulti-Platform\nLower Thirds\n\nDASHBOARDS\n\nProd Manager\nReports & Notes\nTech Manager\nAudio\nDevices\nUnavailable pages\nFO\n\nFixture operator\n\nOwner\n\nNo live rundown\n\n2026-11-14\n\nSongs is turned off for this workspace.\n\nYour content is still here. Enable this feature to open it.\n\nBack to service\nEnable Songs",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "name": "device-detail",
+    "path": "/showpilot-demo-nov04/dashboard/devices/smoke-switcher",
+    "text": "Skip to rundown\nShowPilot\nL\n\nLong fixture organization for narrow screens\n\nService\nSchedule\nCrew status\nRundown\nTimecode\nChat\nTeam\n\nPRODUCTION\n\nCue Sheets\nChecklist\nCrew Check-in\nIncidents\nAssets\n\nSTREAMING\n\nStream\nMulti-Platform\nLower Thirds\n\nDASHBOARDS\n\nProd Manager\nReports & Notes\nTech Manager\nAudio\nDevices\nUnavailable pages\nFO\n\nFixture operator\n\nOwner\n\nNo live rundown\n\n2026-11-14\n\nDevices\n/\nDevice details\nRehearsal switcher\n\nBlackmagic ATEM\n\nBridge Required\n\nThis action needs attention.\n\nVenue Bridge is offline\n\nBlackmagic ATEM uses TCP on the venue network. Keep ShowPilot Bridge running on a computer connected to that network to control it remotely from the web.\n\nThe Bridge must run at the venue, not on the remote operator\u2019s computer.\nSwitcher\n\nProgram, preview, transitions, keyers and macros\n\nPROGRAM\n\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n\nPREVIEW\n\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\nCUT\nAUTO\nFADE TO BLACK\nTransition progress\n0%\nAll device controls",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "name": "onboarding",
+    "path": "/setup",
+    "text": "19:44:09:00\nSETUP \u00b7 STEP 1 OF 6 \u00b7 ON THE AIR\nExit setup\n\nBack keeps your entries in this tab. You can exit now and resume saved progress later.\n\nCreate another organization\n\nGive your new team its own workspace. Your existing organizations stay available in the switcher.\n\nOrganization name\nCreate organization",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "name": "superadmin",
+    "path": "/superadmin",
+    "text": "ShowPilot Super Admin\n\nPlatform snapshot \u00b7 Nov 15, 2026, 12:44 AM UTC\n\n1\n\nWaitlist\n\n1\n\nUsers\n\n2\n\nOrganizations\n\n1\n\nMembers\n\n2\n\nActive Sessions\n\n1\n\nPending Invites\n\nWaitlist\n1\nUsers\nOrganizations\nSessions\nInvitations\n\n1 signup on the waitlist\n\nNAME\tEMAIL\tROLE\tORGANIZATION\tSIGNED UP\tACTIONS\nWaiting fixture operator\twaiting@showpilot-demo-nov04.invalid\tProduction Manager\tLong fixture production organization for mobile layout checks\tNov 15, 2026, 12:43 AM UTC\t\nSend Invite",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "name": "media-output",
+    "path": "/media/showpilot-demo-nov04",
+    "text": "Long fixture organization for narrow screens \u00b7 Display test show \u00b7 Program\n\nEnable this output on the computer connected to your screen or audio system.\n\nEnable output\nDisable output and stop\nFullscreen output\n\nKeep this window open. Disconnecting stops playback and requires Enable output again. Fullscreen shows only the media.",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "name": "graphics-preview",
+    "path": "/showpilot-demo-nov04/streaming/lt-preview",
+    "text": "r Thirds\n/\nTemplate Studio\nTemplate Studio\nControls\n\nSave graphic stores the selected lower third. Save scene stores the complete Preview composition. Take Live replaces Program with Preview; Clear program graphics removes Program from connected outputs.\n\nTEMPLATE LIBRARY\n\n24 broadcast layouts\n\nPastor James Mensah\n\nLead Pastor\n\nClassic Bar\nBARS\n\nPastor James Mensah\n\nLEAD PASTOR\n\nGradient Slab\nBARS\n\nPastor James Mensah\n\nLead Pastor\n\nGlass Panel\nCARDS\n\nPastor James Mensah\n\nLead Pastor\n\nSplit Two-Tone\nBARS\n\nPASTOR JAMES MENSAH|LEAD PASTOR\n\nCinematic Strip\nBROADCAST\n\nPastor James Mensah\n\nLead Pastor\n\nAccent Line\nMINIMAL\n\n\u201cPastor James Mensah\u201d\n\nLEAD PASTOR\n\nScripture Card\nSCRIPTURE\n\n\u201cPastor James Mensah\u201d\n\nLEAD PASTOR\n\nScripture Ribbon\nSCRIPTURE\n\nPastor James Mensah\n\nLEAD PASTOR\n\nScripture Corner\nSCRIPTURE\nPJ\n\nPastor James Mensah\n\nLead Pastor\n\nCorner Badge\nMINIMAL\n\nPastor James Mensah\n\nLead Pastor\n\nBoxed Highlight\nCARDS\n\nPastor James Mensah\n\nLEAD PASTOR\n\nRevealer\nMINIMAL\n\nLEAD PASTOR\n\nPastor James Mensah\n\nBroadcast News\nBROADCAST\n\nPastor James Mensah\n\nLead Pastor\n\nNeon Pill\nMINIMAL\nLEAD PASTOR\n\nPastor James Mensah\n\nLower Bar\nBROADCAST\n\nPastor James Mensah\n\nLead Pastor\n\nStacked Accent\nCARDS\n\nPastor James Mensah\n\nLEAD PASTOR\n\nSpotlight\nMINIMAL\n\nPastor James Mensah\n\nLead Pastor\n\nRibbon\nBARS\nLEAD PASTOR\n\nPastor James Mensah\n\nKicker Title\nMINIMAL\n\nPastor James Mensah\n\nLEAD PASTOR\n\nTwin Rules\nBROADCAST\n\nPastor James Mensah\n\nLEAD PASTOR\n\nName & Role Chips\nMINIMAL\n\nPastor James Mensah\n\nLEAD PASTOR\n\nThin Frame\nCARDS\n\nPastor James Mensah\n\nLEAD PASTOR\n\nGradient Headline\nMINIMAL\n\nPastor James Mensah\n\nLead Pastor\n\nPortrait Card\nCARDS\nCustom\nPerson\nPerson 2\nScripture\nAnnouncement\nSong\nDraft shown\n1/24\nAdd lower third\nTake Live\nClear program graphics\nSave graphic\nSave scene\nProgram: 1 layer\nPREVIEW \u00b7 16:9\nTitle-safe guides enabled\n\nPastor James Mensah\n\nLead Pastor\n\nDRAFT SHOWN\nClassic Bar\nBARS\n\nDark translucent bar with accent border. Clean broadcast standard.\n\nINSPECTOR\n\nStyle & position\nACCENT COLOR\n+\nBACKGROUND OPACITY\n85%\nPRIMARY TEXT\n46px\nSECONDARY TEXT\n26px\nPOSITION\n5,82\nX\nY\n\nUse the grid or coordinate fields to set position.\n\nANIMATION SPEED\nFast\nNormal\nSlow\nReset to defaults",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "name": "public-crew-schedule",
+    "path": "/crew/schedule/[fixture-token]",
+    "text": "ShowPilot\nNo account needed\n\nLong fixture organization for narrow screens\n\nCan you serve?\n\nHi Fixture crew member 0, please respond to this service request.\n\nCrew schedule fixture show\n\nSunday, November 22, 2026\n\nCall time\n\n1:00 PM\n\nYour role\n\nCamera operator\n\nAccept assignment\nI\u2019m not available\nAdd to calendar\n\nSecure link. This link is unique to you.\n\nPowered by ShowPilot",
+    "width": 1440,
+    "scrollWidth": 1440
+  },
+  {
+    "name": "graphics-disabled",
+    "path": "/showpilot-demo-nov04/streaming/lower-thirds-disabled",
+    "text": "Skip to rundown\nShowPilot\nL\n\nLong fixture organization for narrow screens\n\nService\nSchedule\nCrew status\nRundown\nTimecode\nChat\nTeam\n\nPRODUCTION\n\nCue Sheets\nChecklist\nCrew Check-in\nIncidents\nAssets\n\nSTREAMING\n\nStream\nMulti-Platform\nLower Thirds\n\nDASHBOARDS\n\nProd Manager\nReports & Notes\nTech Manager\nAudio\nDevices\nUnavailable pages\nFO\n\nFixture operator\n\nOwner\n\nNo live rundown\n\n2026-11-14\n\nBack to Show Flow\n/\nLower Thirds unavailable\nCloud lower thirds aren't enabled\n\nThis feature is turned off for this organization.\n\nCloud lower thirds power browser-triggered graphics and the Template Studio. Turn it on to start triggering lower thirds from any device.\n\nEnable cloud lower thirds\nOpen settings",
+    "width": 1440,
+    "scrollWidth": 1440
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "fixture": "local Demo only",
+  "blocked": "GET /api/auth/get-session",
+  "action": "One Sign Out click; login displayed without a server response.",
+  "path": "/login",
+  "login": true,
+  "privatePage": false,
+  "alerts": [
+    "Sign-out could not finish.Retry sign-out"
+  ]
+}
