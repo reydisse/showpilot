@@ -7,7 +7,7 @@ import { applyPublicAttendanceIntent, getPublicAttendanceMember } from "../publi
 import { crewAttendanceWriteSchema, type CrewAttendanceWrite } from "../crew-attendance-writes";
 import { handleMobileApi } from "../mobile-api.server";
 import { checkInSchema, checkInStatusSchema, showBoardSchema } from "../../../../mobile/src/lib/checkin-contract";
-import attendanceRepair from "../../../prisma/pending-migrations/0096_attendance_iso_timestamps.sql?raw";
+import attendanceRepair from "../../../prisma/migrations/0096_attendance_iso_timestamps.sql?raw";
 const auth = vi.hoisted(() => ({ userId: "" }));
 vi.mock("../auth", () => ({ getAuth: () => ({ api: { getSession: async () => auth.userId ? { user: { id: auth.userId, name: "Operator", email: "operator@example.test" } } : null } }) }));
 vi.mock("@tanstack/react-start/server", () => ({ getRequestHeaders: () => new Headers() }));
