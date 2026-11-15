@@ -26,7 +26,7 @@ export async function applyCrewAttendance(db: AttendanceDatabase, input: CrewAtt
   const changedCount = rows.filter(row => Boolean(row.isOnline) !== isOnline).length;
   const applied = JSON.stringify({ fingerprint, token, outcome: "applied", changedCount });
   const conflict = JSON.stringify({ fingerprint, token, outcome: "conflict", changedCount: 0 });
-  const desired = isOnline ? 1 : 0, changedAt = attendanceChangeTime(rows);
+  const desired = isOnline ? 1 : 0, changedAt = new Date(attendanceChangeTime(rows)).toISOString();
   await db.batch([
     db.prepare(`INSERT INTO app_setting(id,orgId,key,value) VALUES (?,?,?,CASE WHEN ?=1 AND NOT EXISTS(
       SELECT 1 FROM json_each(?) expected LEFT JOIN crew_member c ON c.orgId=? AND c.id=json_extract(expected.value,'$.id')

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { checkInSchema, showBoardSchema } from "../../../../mobile/src/lib/checkin-contract";
 import {
   handleMobileApi,
   type MobileApiDatabase,
@@ -26,8 +27,8 @@ interface CrewFixture {
   role: string;
   photoUrl: string;
   isOnline: boolean;
-  lastCheckIn: string | null;
-  lastCheckOut: string | null;
+  lastCheckIn: string | number | null;
+  lastCheckOut: string | number | null;
 }
 
 function createMembers(): CrewFixture[] {
@@ -103,8 +104,8 @@ function fakeDatabase(members: CrewFixture[]): MobileApiDatabase {
           if (!member) return { success: true, meta: { changes: 0 } };
           const nextOnline = Boolean(online);
           if (nextOnline !== member.isOnline) {
-            if (nextOnline) member.lastCheckIn = "2026-08-27 12:00:00";
-            else member.lastCheckOut = "2026-08-27 12:00:00";
+            if (nextOnline) member.lastCheckIn = "2026-08-27T12:00:00.000Z";
+            else member.lastCheckOut = "2026-08-27T12:00:00.000Z";
           }
           member.isOnline = nextOnline;
           return { success: true, meta: { changes: 1 } };
@@ -172,7 +173,7 @@ describe("mobile check-in", () => {
     expect(first.status).toBe(200);
     expect(retry.status).toBe(200);
     expect(members[0].isOnline).toBe(true);
-    expect(members[0].lastCheckIn).toBe("2026-08-27 12:00:00");
+    expect(members[0].lastCheckIn).toBe("2026-08-27T12:00:00.000Z");
     expect(members[0].lastCheckOut).toBeNull();
   });
 
@@ -183,6 +184,20 @@ describe("mobile check-in", () => {
       { checkedIn: false },
     );
     expect(response.status).toBe(404);
+  });
+
+  it.each(["checkin", "show-board"])("normalizes mixed legacy timestamps before the mobile %s schema parses the whole roster", async (route) => {
+    const members = createMembers();
+    members[0].lastCheckIn = 1794744000123;
+    members[0].lastCheckOut = "2026-11-15 12:30:00";
+    members.push({ ...members[0], id: "crew-2", memberId: "CAM002", lastCheckIn: null, lastCheckOut: 1794744000456 });
+    mocks.resolveAccess.mockResolvedValue({ role: "admin", permissions: ["checkin:access", "showboard:view"] });
+    const response = await mobileRequest(fakeDatabase(members), `/api/mobile/v1/${route}?orgId=org-1`);
+    expect(response.status).toBe(200);
+    const payload = (route === "checkin" ? checkInSchema : showBoardSchema).parse(await response.json());
+    expect(payload.members).toHaveLength(2);
+    expect(payload.members[0]).toMatchObject({ lastCheckIn: "2026-11-15T12:00:00.123Z", lastCheckOut: "2026-11-15T12:30:00.000Z" });
+    expect(payload.members[1].lastCheckOut).toBe("2026-11-15T12:00:00.456Z");
   });
 
   it("requires an explicit target status", async () => {

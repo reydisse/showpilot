@@ -138,8 +138,8 @@ export default function ShowBoardScreen() {
       title: `${organization!.name} crew check-in`,
       message: `Check in for ${organization!.name}\n${checkInUrl}`,
       url: checkInUrl,
-    }).catch((error: unknown) => {
-      Alert.alert("Could not share check-in", error instanceof Error ? error.message : "Try again.");
+    }).catch(() => {
+      Alert.alert("Could not share check-in", "The check-in link could not be shared. Try again.");
     });
   }
 
@@ -181,7 +181,7 @@ export default function ShowBoardScreen() {
         </Pressable>
       </View>
       {query.error ? (
-        <Pressable accessibilityRole="button" onPress={() => void query.refetch()} style={styles.errorCard}><Text style={styles.errorText}>{query.error.message}</Text><Text style={styles.retryText}>Tap to retry</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={() => void query.refetch()} style={styles.errorCard}><Text accessibilityRole="alert" style={styles.errorText}>Crew could not load.</Text><Text style={styles.retryText}>Tap to retry</Text></Pressable>
       ) : null}
     </View>
   );

@@ -1,4 +1,5 @@
 import { destinationControlSnapshotSchema, destinationControlResultSchema, type DestinationControlScope, type DestinationControlCommand } from "@showpilot/shared/destination-control";
+import { checkInMemberSchema, checkInSchema, checkInStatusSchema, showBoardSchema } from "./checkin-contract";
 import { graphicControlSnapshotSchema, graphicControlResultSchema, type GraphicControlScope, type GraphicControlCommand } from "@showpilot/shared/graphic-control";
 import { runMobileOperation } from "./request-deadline";
 import type { ChatUploadSpec } from "@showpilot/shared/chat-attachment";
@@ -356,26 +357,6 @@ const incidentHistorySchema = z.object({
   incidents: z.array(incidentSchema),
 });
 
-const checkInMemberSchema = z.object({
-  id: z.string(),
-  memberId: z.string(),
-  name: z.string(),
-  role: z.string(),
-  photoUrl: z.string(),
-  isOnline: z.boolean(),
-  lastCheckIn: z.string().nullable(),
-  lastCheckOut: z.string().nullable(),
-});
-
-const checkInSchema = z.object({
-  members: z.array(checkInMemberSchema),
-});
-
-const showBoardSchema = checkInSchema.extend({
-  clockFormat: z.enum(["12hr", "24hr"]),
-  timeZone: z.string().min(1),
-});
-
 const ontimeEventSchema = z.object({
   id: z.string(),
   type: z.literal("event"),
@@ -435,8 +416,6 @@ const showWorkspaceSchema = z.object({
     }),
   ]),
 });
-
-const checkInStatusSchema = z.object({ member: checkInMemberSchema });
 
 const teamCrewMemberSchema = checkInMemberSchema.extend({ email: z.string(), profileRevision: z.number().int().nonnegative() });
 const teamCrewSchema = z.object({ members: z.array(teamCrewMemberSchema) });

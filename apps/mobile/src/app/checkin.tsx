@@ -12,7 +12,6 @@ import { Redirect } from "expo-router";
 import * as Haptics from "@/lib/haptics";
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Image,
   Pressable,
@@ -80,7 +79,6 @@ export default function CheckInScreen() {
       setSelectedId(member.id);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     },
-    onError: (error) => Alert.alert("Check-in not updated", error.message),
   });
 
   if (organizationPending) return <LoadingView label="Opening crew check-in…" />;
@@ -105,6 +103,17 @@ export default function CheckInScreen() {
     setCodeError("");
     setCode("");
     setSearch("");
+  }
+
+  function attendanceError(member: MobileCheckInMember) {
+    const failed = statusMutation.variables;
+    if (!statusMutation.error || failed?.member.id !== member.id) return null;
+    return (
+      <Pressable accessibilityRole="button" onPress={() => statusMutation.mutate(failed)} style={styles.retryButton}>
+        <Text accessibilityRole="alert" style={styles.error}>Attendance could not be updated.</Text>
+        <Text style={styles.retryText}>Tap to retry</Text>
+      </Pressable>
+    );
   }
 
   const header = (
@@ -136,7 +145,12 @@ export default function CheckInScreen() {
       </View>
 
       {query.isPending ? <ActivityIndicator color={colors.amberText} size="large" /> : null}
-      {query.error ? <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
+      {query.error ? (
+        <Pressable accessibilityRole="button" onPress={() => void query.refetch()} style={styles.retryButton}>
+          <Text accessibilityRole="alert" style={styles.error}>Crew could not load.</Text>
+          <Text style={styles.retryText}>Tap to retry</Text>
+        </Pressable>
+      ) : null}
 
       {mode === "code" && !query.isPending ? (
         selectedMember ? (
@@ -155,6 +169,7 @@ export default function CheckInScreen() {
               disabled={statusMutation.isPending}
               onPress={() => statusMutation.mutate({ member: selectedMember, checkedIn: !selectedMember.isOnline })}
             />
+            {attendanceError(selectedMember)}
             <Pressable onPress={() => setSelectedId(null)} style={styles.secondaryButton}>
               <Text style={styles.secondaryButtonText}>Use another ID</Text>
             </Pressable>
@@ -223,21 +238,24 @@ export default function CheckInScreen() {
         onRefresh={() => void query.refetch()}
         refreshing={query.isRefetching}
         renderItem={({ item: member }) => (
-          <View style={styles.memberCard}>
-            <MemberIdentity member={member} compact />
-            <Pressable
-              accessibilityRole="button"
-              disabled={statusMutation.isPending}
-              onPress={() => statusMutation.mutate({ member, checkedIn: !member.isOnline })}
-              style={[styles.statusButton, member.isOnline && styles.statusButtonOnline]}
-            >
-              {member.isOnline
-                ? <LogOut color={colors.green} size={15} />
-                : <LogIn color={colors.textMuted} size={15} />}
-              <Text style={[styles.statusButtonText, member.isOnline && styles.statusButtonTextOnline]}>
-                {member.isOnline ? "Check out" : "Check in"}
-              </Text>
-            </Pressable>
+          <View>
+            <View style={styles.memberCard}>
+              <MemberIdentity member={member} compact />
+              <Pressable
+                accessibilityRole="button"
+                disabled={statusMutation.isPending}
+                onPress={() => statusMutation.mutate({ member, checkedIn: !member.isOnline })}
+                style={[styles.statusButton, member.isOnline && styles.statusButtonOnline]}
+              >
+                {member.isOnline
+                  ? <LogOut color={colors.green} size={15} />
+                  : <LogIn color={colors.textMuted} size={15} />}
+                <Text style={[styles.statusButtonText, member.isOnline && styles.statusButtonTextOnline]}>
+                  {member.isOnline ? "Check out" : "Check in"}
+                </Text>
+              </Pressable>
+            </View>
+            {attendanceError(member)}
           </View>
         )}
         windowSize={7}
@@ -304,10 +322,12 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   initials: { color: colors.amberText, fontFamily, fontSize: 15, fontWeight: "900" },
   memberName: { color: colors.text, fontFamily, fontSize: 14, fontWeight: "800" },
   memberRole: { color: colors.textMuted, fontFamily, fontSize: 11 },
-  statusButton: { minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 11 },
+  statusButton: { minHeight: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, borderRadius: radii.small, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 11 },
   statusButtonOnline: { borderColor: colors.greenBorder, backgroundColor: colors.greenSoft },
   statusButtonText: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "900" },
   statusButtonTextOnline: { color: colors.green },
   error: { color: colors.red, fontFamily, fontSize: 12, lineHeight: 18, textAlign: "center" },
+  retryButton: { minHeight: 44, justifyContent: "center", alignItems: "center", gap: 4, padding: 8 },
+  retryText: { color: colors.text, fontFamily, fontSize: 12, fontWeight: "800" },
   empty: { color: colors.textMuted, fontFamily, fontSize: 13, textAlign: "center", paddingVertical: spacing.xlarge },
 }));

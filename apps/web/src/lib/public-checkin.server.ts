@@ -31,7 +31,7 @@ export async function applyPublicAttendanceIntent(db: Database, orgId: string, i
   const token = crypto.randomUUID();
   const applied = JSON.stringify({ fingerprint, token, outcome: "applied" });
   const conflict = JSON.stringify({ fingerprint, token, outcome: "conflict" });
-  const changedAt = attendanceChangeTime(row ? [row] : []);
+  const changedAt = new Date(attendanceChangeTime(row ? [row] : [])).toISOString();
   const desiredOnline = intent === "check-in" ? 1 : 0;
   await db.batch([
     db.prepare(`INSERT INTO app_setting(id,orgId,key,value) VALUES (?,?,?,

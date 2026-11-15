@@ -1,4 +1,5 @@
 import type { CrewAttendanceMember } from "./crew-attendance-writes";
+import { attendanceTimestamp } from "./attendance-timestamp";
 export type AttendanceDatabase = Pick<D1Database, "prepare" | "batch">;
 export interface AttendanceRow {
   id: string; memberId: string; name: string; photoUrl: string; role: string;
@@ -24,7 +25,8 @@ export async function attendanceMember(row: AttendanceRow): Promise<CrewAttendan
 }
 export function attendanceChangeTime(rows: readonly AttendanceRow[]) {
   const times = rows.flatMap(row => [row.lastCheckIn, row.lastCheckOut]).map(value => {
-    const time = typeof value === "number" ? value : value ? new Date(value).getTime() : 0;
+    const normalized = attendanceTimestamp(value);
+    const time = normalized === null ? 0 : new Date(normalized).getTime();
     return Number.isFinite(time) ? time + 1 : 0;
   });
   return Math.max(Date.now(), ...times);

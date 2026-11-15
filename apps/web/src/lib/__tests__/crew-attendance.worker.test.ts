@@ -5,6 +5,9 @@ import { applyCrewAttendance } from "../crew-attendance.server";
 import { attendanceMember, readAttendanceRows } from "../attendance-state.server";
 import { applyPublicAttendanceIntent, getPublicAttendanceMember } from "../public-checkin.server";
 import { crewAttendanceWriteSchema, type CrewAttendanceWrite } from "../crew-attendance-writes";
+import { handleMobileApi } from "../mobile-api.server";
+import { checkInSchema, checkInStatusSchema, showBoardSchema } from "../../../../mobile/src/lib/checkin-contract";
+import attendanceRepair from "../../../prisma/pending-migrations/0096_attendance_iso_timestamps.sql?raw";
 const auth = vi.hoisted(() => ({ userId: "" }));
 vi.mock("../auth", () => ({ getAuth: () => ({ api: { getSession: async () => auth.userId ? { user: { id: auth.userId, name: "Operator", email: "operator@example.test" } } : null } }) }));
 vi.mock("@tanstack/react-start/server", () => ({ getRequestHeaders: () => new Headers() }));
@@ -63,6 +66,63 @@ it("preserves existing timestamps when attendance already matches the requested 
   const f = await fixture(); await f.save(await f.request(true)); const times = await timestamps(f.orgId);
   expect(await f.save(await f.request(true))).toMatchObject({ outcome: "applied", changedCount: 0 });
   expect(await timestamps(f.orgId)).toEqual(times);
+});
+async function mobile(f: Awaited<ReturnType<typeof fixture>>, route: string, checkedIn?: boolean) {
+  const response = await handleMobileApi(new Request(`https://app.showpilot.tech/api/mobile/v1/${route}?orgId=${f.orgId}`,
+    checkedIn === undefined ? undefined : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ checkedIn }) }), { DB: env.DB });
+  expect(response?.status).toBe(200);
+  return response!.json();
+}
+it("web attendance then mobile check-in parses the production mobile schema, including an opposite mobile write", async () => {
+  const f = await fixture(1);
+  await f.save(await f.request(true));
+  const first = checkInSchema.parse(await mobile(f, "checkin")).members[0];
+  expect(first.isOnline).toBe(true);
+  expect(first.lastCheckIn).toMatch(/^\d{4}-\d\d-\d\dT.*Z$/);
+  expect((await timestamps(f.orgId))[0].lastCheckIn).toBe(first.lastCheckIn);
+  const next = checkInStatusSchema.parse(await mobile(f, `checkin/members/${f.ids[0]}/status`, false)).member;
+  expect(next.isOnline).toBe(false); expect(next.lastCheckOut).toMatch(/^\d{4}-\d\d-\d\dT.*Z$/);
+  expect(checkInSchema.parse(await mobile(f, "checkin")).members[0]).toEqual(next);
+});
+it("mobile attendance then web attendance parses the production mobile schema in the reverse order", async () => {
+  const f = await fixture(1);
+  const first = checkInStatusSchema.parse(await mobile(f, `checkin/members/${f.ids[0]}/status`, true)).member;
+  expect(first.lastCheckIn).toMatch(/^\d{4}-\d\d-\d\dT.*Z$/);
+  await f.save(await f.request(false));
+  const next = checkInSchema.parse(await mobile(f, "checkin")).members[0];
+  expect(next).toMatchObject({ isOnline: false, lastCheckIn: first.lastCheckIn });
+  expect(next.lastCheckOut).toMatch(/^\d{4}-\d\d-\d\dT.*Z$/);
+  expect((await timestamps(f.orgId))[0]).toMatchObject({ lastCheckIn: first.lastCheckIn, lastCheckOut: next.lastCheckOut });
+});
+it("legacy numeric attendance cannot poison check-in, Show Board or Show Workspace after a kiosk write", async () => {
+  const f = await fixture(1);
+  await env.DB.prepare("UPDATE crew_member SET lastCheckIn=?,lastCheckOut=? WHERE orgId=?")
+    .bind(1794744000123, 1794744000456, f.orgId).run();
+  const member = checkInSchema.parse(await mobile(f, "checkin")).members[0];
+  expect(member).toMatchObject({ lastCheckIn: "2026-11-15T12:00:00.123Z", lastCheckOut: "2026-11-15T12:00:00.456Z" });
+  expect(showBoardSchema.parse(await mobile(f, "show-board")).members[0]).toEqual(member);
+  const workspace = await mobile(f, "show-workspace") as { crew: unknown[] };
+  expect(checkInSchema.parse({ members: workspace.crew }).members[0]).toEqual(member);
+  const kiosk = await getPublicAttendanceMember(env.DB, f.orgId, "CREW0");
+  await applyPublicAttendanceIntent(env.DB, f.orgId, { slug: f.orgId, memberId: "CREW0", intent: "check-in", expectedRevision: kiosk!.revision, requestId: crypto.randomUUID() });
+  const stored = (await timestamps(f.orgId))[0];
+  expect(typeof stored.lastCheckIn).toBe("string");
+  expect(checkInSchema.parse(await mobile(f, "checkin")).members[0].lastCheckIn).toBe(stored.lastCheckIn);
+});
+it("the staged data migration repairs numeric timestamps without changing ISO text, nulls, identity or attendance", async () => {
+  const f = await fixture();
+  await env.DB.prepare("UPDATE crew_member SET lastCheckIn=?,lastCheckOut=?,isOnline=1 WHERE id=?")
+    .bind(1794744000123, 1794744000456, f.ids[0]).run();
+  await env.DB.prepare("UPDATE crew_member SET lastCheckIn=?,lastCheckOut=NULL WHERE id=?")
+    .bind("2026-11-15T12:00:00.789Z", f.ids[1]).run();
+  const apply = () => env.DB.batch(attendanceRepair.split(";").map(sql => sql.trim()).filter(Boolean).map(sql => env.DB.prepare(sql)));
+  const before = await readAttendanceRows(env.DB, f.orgId);
+  await apply();
+  const after = await readAttendanceRows(env.DB, f.orgId);
+  expect(after).toEqual(before.map((row, i) => i === 0 ? { ...row, lastCheckIn: "2026-11-15T12:00:00.123Z", lastCheckOut: "2026-11-15T12:00:00.456Z" } : row));
+  expect(checkInSchema.parse(await mobile(f, "checkin")).members).toHaveLength(3);
+  await apply();
+  expect(await readAttendanceRows(env.DB, f.orgId)).toEqual(after);
 });
 it("rejects a captured identity that was deleted and replaced", async () => {
   const f = await fixture(1); const input = await f.request(true);
