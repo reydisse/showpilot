@@ -111,14 +111,23 @@ once deployed. This work does not close the broad 2.8 / 2.11 umbrella requiremen
 
 ## Verification recorded 2026-11-15 (before review)
 
-- **FAILED — full web suite:** 3,565 unit tests passed (397 files). Worker result:
+**Current evidence:** CI run [43759757414](https://github.com/reydisse/showpilot/actions/runs/43759757414)
+passed both jobs on implementation commit `e62b361661b38f1a305e9ab97fd13367691adea1`.
+All 3,565 unit and 1,883 Worker tests passed with coverage enforcement, including
+the test that timed out locally. This resolves the full-suite blocker for this
+implementation without raising a timeout or changing destination code. It does
+not establish the cause of the earlier local timeout. This evidence update only
+changes documentation; readiness still requires green CI on the current PR head.
+
+
+- **Earlier local full web suite failure (retained history):** 3,565 unit tests passed (397 files). Worker result:
   1,882 passed, 1 failed (164 files). The failing test was
   `destination-control.worker.test.ts` → “legacy native saves acknowledge their
   receipt with destination revision triggers enabled”, which exceeded the existing
   5,000ms deadline. This run does not establish whether it also fails on main.
-  No deadline was raised and no unrelated destination code was changed. The phase
-  is stopped under the finish prompt's failed-gate rule. This PR is a draft,
-  not ready for review/merge, pending resolution and an actually green full gate.
+  No deadline was raised and no unrelated destination code was changed. Phase
+  progression stopped at that failure. The subsequent green CI run above is the
+  observed resolution; the failed local run is not relabeled as a pass.
 - Targeted attendance/public-kiosk Worker tests: 27 passed, including all new
   cross-client and staged-migration cases.
 - Targeted mobile Check-in/timestamp unit tests: 20 passed. Native error-screen
@@ -127,8 +136,15 @@ once deployed. This work does not close the broad 2.8 / 2.11 umbrella requiremen
   Expo checks, iOS/Android/web export and polling-boundary checks (15 lint warnings,
   zero errors; existing parity inventory still reports one missing surface).
 - Production web build passed: 171,349 / 175,000 gzip bytes. Budget unchanged.
-- Ledger remains at 67/79 verified for Phase 2. New evidence is partial for the
-  broad 2.8 and 2.11 requirements; the failed full-suite gate is explicitly recorded.
+- CI also passed web/bridge/shared/mobile typechecks, Bridge tests (158), Desktop
+  offline controls, Bridge updater tests (9), mobile verification, landing tests
+  (31), Desktop Rust tests (24) and Bridge Rust tests (32 passed, one ignored).
+  The CI web bundle was 171,505 / 175,000 gzip bytes.
+- Ledger is now 68/79 verified for Phase 2: the specific full-suite/typecheck/web
+  build gate (line 290) has green CI evidence. Broad 2.8 and 2.11 requirements
+  remain partial. Other Phase 2 acceptance gates and hardware remain incomplete.
 - No production migration applied, no production test, no Demo live test, no native
   release and no hardware rehearsal performed. Chief has not merged this change.
-- Workstreams 2–8 remain unstarted in this run because the full-suite gate failed.
+- Workstreams 2–8 remain unstarted at this evidence update. Workstream 1 still
+  needs Chief review/merge, a green production deploy, repair application and its
+  applied-record PR. No production application is authorized before those gates.
