@@ -344,7 +344,7 @@ export default function LiveShowScreen() {
       <Page backTo="/(app)/shows" backLabel="Back to shows"><ActivityIndicator color={colors.amber} size="large" style={styles.loading} /></Page>
     );
   if (!canView) return <Redirect href="/(app)/shows" />;
-  if (query.error || !query.data)
+  if (!query.data)
     return (
       <Page backTo="/(app)/shows" backLabel="Back to shows" eyebrow="LIVE WORKSPACE" title="Could not open Show"><Text accessibilityRole="alert" style={styles.error}>The live workspace could not load.</Text><AppButton label="Tap to retry" onPress={() => void query.refetch()} /></Page>
     );

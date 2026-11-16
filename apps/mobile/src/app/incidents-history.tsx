@@ -96,13 +96,13 @@ export default function IncidentHistoryScreen() {
           <View style={styles.header}>
             {query.data ? <View style={styles.resultSummary}>
               <Text style={styles.resultValue}>{query.data.total}</Text>
-              <Text style={styles.resultText}>matching incidents{query.isError ? " · Last loaded results" : ""}</Text>
+              <Text style={styles.resultText}>matching incidents</Text>
             </View> : null}
-            {query.isFetching ? <View accessibilityLiveRegion="polite"><ActivityIndicator color={colors.amber} size="large" /><Text style={styles.resultText}>{query.data ? "" : ""}</Text></View> : null}
-            {query.error ? <View><FailureText accessibilityRole="alert" style={styles.error}>History could not be loaded. {query.error.message}</FailureText><AppButton label="Retry history" disabled={query.isFetching} onPress={() => void query.refetch()} /></View> : null}
+            {query.isPending ? <View accessibilityLiveRegion="polite"><ActivityIndicator color={colors.amber} size="large" /><Text style={styles.resultText}>{query.data ? "" : ""}</Text></View> : null}
+            {query.error && !query.data ? <View><FailureText accessibilityRole="alert" style={styles.error}>History could not be loaded. {query.error.message}</FailureText><AppButton label="Retry history" disabled={query.isFetching} onPress={() => void query.refetch()} /></View> : null}
           </View>
         )}
-        ListEmptyComponent={query.data && !query.isError && !query.isFetching ? <Text style={styles.empty}>No incidents match these filters.</Text> : null}
+        ListEmptyComponent={query.data && !query.isPending ? <Text style={styles.empty}>No incidents match these filters.</Text> : null}
         ListFooterComponent={query.data && query.data.total > 0 ? (
           <View style={styles.pagination}>
             <Pressable accessibilityLabel="Previous history page" accessibilityRole="button" disabled={applied.page <= 1} onPress={() => setPage(applied.page - 1)} style={styles.pageButton}><ChevronLeft color={colors.text} size={18} /></Pressable>
