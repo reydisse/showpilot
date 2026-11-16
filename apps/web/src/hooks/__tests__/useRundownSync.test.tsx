@@ -83,6 +83,30 @@ describe("useRundownSync command confirmation", () => {
     globalThis.fetch = OriginalFetch;
   });
 
+  it("characterizes lost acknowledgements across repeated mid-flight reconnects", () => {
+    vi.useFakeTimers();
+    const { result, unmount } = renderHook(() => useRundownSync("org-lost-ack", "2026-09-06", "show-1"));
+    act(() => vi.advanceTimersByTime(0));
+    let socket = MockWebSocket.instances[0];
+    act(() => { socket.open(); hydrate(socket); result.current.sendCommand("update-meta", { serviceName: "Pending" }); });
+    const original = JSON.parse(socket.sent[0]);
+    // Every reconnect occurs before the eight-second acknowledgement timeout.
+    // More than three retries and a minute of elapsed time still do not retire it.
+    for (let i = 0; i < 20; i++) {
+      act(() => vi.advanceTimersByTime(4_000));
+      act(() => result.current.retryConnection());
+      socket = MockWebSocket.instances.at(-1)!;
+      act(() => { socket.open(); hydrate(socket); });
+      expect(JSON.parse(socket.sent[0])).toEqual(original);
+      expect(result.current.unconfirmedCount).toBe(1);
+      expect(result.current.saving).toBe(true);
+    }
+    act(() => socket.receive({ type: "command-result", id: original.id, accepted: true, revision: 5 }));
+    expect(result.current.unconfirmedCount).toBe(0);
+    expect(result.current.saving).toBe(false);
+    unmount();
+  });
+
   it("exposes the confirmed revision and resets it when changing shows", async () => {
     const { result, rerender, unmount } = renderHook(({ show }) => useRundownSync("org-1", "2026-09-06", show), { initialProps: { show: "show-1" } });
     const socket = await waitForSocket();
