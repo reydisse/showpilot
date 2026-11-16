@@ -1,6 +1,6 @@
 # Faithfire Bridge investigation — 2026-11-15
 
-GATE PENDING: real APC/MTC, LTC audio, long run, and final rehearsal. None was exercised here.
+GATE PENDING (Rey-side): APC/MTC, LTC, long run, final rehearsal, booth Bridge evidence capture, Demo Bridge handshake (needs Demo-issued key). None was exercised here.
 
 ## Verdict
 
@@ -50,3 +50,40 @@ The old Desktop alert banner supports investigating stale Desktop contents but d
 - Bridge Vitest suite: 22 files, 158 tests passed (the package command ran the full suite).
 - Worker bridge-settings-delivery and bridge-target-enforcement: 2 files, 22 tests passed.
 - No live Demo handshake run; no live credentials used. No production logs retrieved, no production DB queried or modified. No application code changed.
+
+## Rey-side booth capture receipt (pending)
+
+Before replacing anything, record the incident machine, macOS version, `uname -m`, and the running Bridge path from Activity Monitor → Open Files and Ports. Quit Bridge only after preserving logs. Set `BOOTH_APP` below to that actual app bundle (including a Downloads copy if that is what ran):
+
+```sh
+BOOTH_APP='/Applications/ShowPilot Bridge.app'
+/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$BOOTH_APP/Contents/Info.plist"
+find "$BOOTH_APP/Contents/MacOS" -type f -exec file {} \;
+find "$BOOTH_APP/Contents/MacOS" -type f -exec shasum -a 256 {} \;
+```
+
+Retain every filename and hash: both the main executable and engine sidecar are required. Repeat for the actual Desktop bundle if investigating its alert banner. Mount the architecture-matched verified installer read-only with `hdiutil attach -readonly -nobrowse /path/to/installer.dmg`, then repeat the same commands with `BOOTH_APP` pointing at the mounted app. Compare corresponding files, not ARM versus Intel or ZIP versus executable hashes. Preserve logs securely; redact keys, cookies and authorization headers before sharing.
+
+For Cloudflare historical logs, use November 15, 2026 **13:31:00–13:43:59 UTC** (08:31–08:43 EST), worker `showpilot`, host `www.showpilot.tech`, exact path `/api/bridge/faithfire-production/ws`; include redirect destinations if recorded. Export timestamp, method, host/path without secret query values, HTTP response status, exact retained response body/rejection text, Ray/request/correlation ID, Worker deployment/version, outcome/exception, and correlated BridgeRelay events. Record presence and validity outcomes for policy/settings headers and credential/installation checks if already logged, never their secret values. Cloudflare request logs may not retain response bodies: explicitly mark absent fields unavailable; do not infer a body from status alone. Do not reconnect Production to manufacture evidence.
+
+| Captured result | What it establishes |
+| --- | --- |
+| Installed main or sidecar differs from verified matching artifact | Clears the assumption that the repaired artifact was running; identifies different contents, but does not alone convict the rejection cause. |
+| Both match and running path matches | Clears stale installed contents for that artifact; does not prove historical headers or credential state. |
+| 426 with policy rejection body | Convicts missing/unsupported policy on that request; inspect the identified binary/header path. |
+| 426 with settings recipient rejection body | Convicts missing/invalid SPKI recipient on that request; investigate runtime generation/transport, not stored-key rotation. |
+| 401 plus exact authentication reason | Convicts that named credential, installation, internal-auth or query-key check; status alone cannot distinguish them. |
+| 403 org mismatch, 404 org missing, 400 role, 405 method, or 503 internal secret | Convicts the named routing/binding/configuration check only when the body/correlated event confirms it. |
+| Redirect or edge-generated rejection | Points to host/edge routing before upgrade; does not convict BridgeRelay policy. |
+| 101 for a correlated incident request | Clears pre-upgrade rejection for that request only; investigate subsequent close separately. |
+| Missing historical body/logs or unidentified booth binary | Verdict remains unreproduced; no speculative fix and no acceptance gate closure. |
+
+## Workstream 3 ledger note — November 16, 2026
+
+Workstream 3: **INVESTIGATED — UNREPRODUCED**. No defect convicted; no speculative fix. Ledger remains **68/79**. The investigation record is ready for Chief’s review independently of the remaining acceptance gates; Chief is the merge gate.
+
+- **GATE PENDING — Rey-side booth Bridge evidence capture:** obtain the running-path/main-and-sidecar hash receipt and retained incident HTTP status/body or correlated Cloudflare rejection evidence described above.
+- **GATE PENDING — Rey-side Demo Bridge handshake:** no Demo-issued Bridge credential is available on this Mac. The saved Desktop configuration targets Faithfire Production; its credential was not used, by design. Unblock by issuing a Bridge API key in Demo org `showpilot-demo-nov04` and configuring a Demo Bridge profile on a test machine. Then capture the identified binary’s Demo handshake result with secrets redacted.
+- **GATE PENDING — Rey-side:** APC/MTC, LTC, long run, final rehearsal.
+
+These pending gates do not block landing this diagnosis. No Production configuration, credential, data, or runtime was changed; no tests or authentication policy were weakened.
