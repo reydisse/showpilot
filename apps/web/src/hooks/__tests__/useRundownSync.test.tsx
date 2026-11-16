@@ -101,6 +101,7 @@ describe("useRundownSync command confirmation", () => {
       else expect(socket.sent).toHaveLength(0);
       expect(result.current.unconfirmedCount).toBe(i < 3 ? 1 : 0);
       expect(result.current.saving).toBe(i < 3);
+      if (i === 3) expect(result.current.lastError).toBe("Could not confirm whether that change took effect. Check before trying again.");
     }
     act(() => socket.receive({ type: "command-result", id: original.id, accepted: true, revision: 5 }));
     expect(result.current.unconfirmedCount).toBe(0);
@@ -123,7 +124,7 @@ describe("useRundownSync command confirmation", () => {
     // The timeout must observe the three increments and retire, not requeue.
     act(() => vi.advanceTimersByTime(8_000));
     expect(result.current.unconfirmedCount).toBe(0);
-    expect(result.current.lastError).toContain("did not take effect");
+    expect(result.current.lastError).toBe("Could not confirm whether that change took effect. Check before trying again.");
     unmount();
   });
 

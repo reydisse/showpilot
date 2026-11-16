@@ -302,7 +302,7 @@ export function useRundownSync(
         commandQueue.current.unshift({ ...pending, attempts: pending.attempts + 1 });
       } else {
         confirmCommand(pending.id);
-        setLastError("That rundown change did not take effect. Please try again.");
+        setLastError("Could not confirm whether that change took effect. Check before trying again.");
       }
       dropConnectionRef.current(ws, "Rundown confirmation timed out. Reconnecting to confirm live state.");
     }, 8_000);
@@ -398,7 +398,7 @@ export function useRundownSync(
           commandQueue.current.unshift({ ...pending, attempts: pending.attempts + 1 });
         } else {
           confirmCommand(pending.id);
-          setLastError("That rundown change did not take effect. Please try again.");
+          setLastError("Could not confirm whether that change took effect. Check before trying again.");
         }
         pendingCommandRef.current = null;
       }

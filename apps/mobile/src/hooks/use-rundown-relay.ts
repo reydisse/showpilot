@@ -136,7 +136,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       } else if (pending.attempts < 3) {
         queueRef.current.unshift({ ...pending, attempts: pending.attempts + 1 });
       } else {
-        setCommandError("That control change did not take effect. Please try again.");
+        setCommandError("Could not confirm whether that change took effect. Check before trying again.");
       }
       updateCount();
       if (socketRef.current === socket) {
@@ -225,7 +225,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
         if (pending.attempts < 3) {
           queueRef.current.unshift({ ...pending, attempts: pending.attempts + 1 });
         } else {
-          setCommandError("That control change did not take effect. Please try again.");
+          setCommandError("Could not confirm whether that change took effect. Check before trying again.");
         }
         pendingRef.current = null;
       }
