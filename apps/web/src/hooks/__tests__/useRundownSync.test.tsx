@@ -91,19 +91,39 @@ describe("useRundownSync command confirmation", () => {
     act(() => { socket.open(); hydrate(socket); result.current.sendCommand("update-meta", { serviceName: "Pending" }); });
     const original = JSON.parse(socket.sent[0]);
     // Every reconnect occurs before the eight-second acknowledgement timeout.
-    // More than three retries and a minute of elapsed time still do not retire it.
+    // Three requeues are allowed; the next reconnect retires the command.
     for (let i = 0; i < 20; i++) {
       act(() => vi.advanceTimersByTime(4_000));
       act(() => result.current.retryConnection());
       socket = MockWebSocket.instances.at(-1)!;
       act(() => { socket.open(); hydrate(socket); });
-      expect(JSON.parse(socket.sent[0])).toEqual(original);
-      expect(result.current.unconfirmedCount).toBe(1);
-      expect(result.current.saving).toBe(true);
+      if (i < 3) expect(JSON.parse(socket.sent[0])).toEqual(original);
+      else expect(socket.sent).toHaveLength(0);
+      expect(result.current.unconfirmedCount).toBe(i < 3 ? 1 : 0);
+      expect(result.current.saving).toBe(i < 3);
     }
     act(() => socket.receive({ type: "command-result", id: original.id, accepted: true, revision: 5 }));
     expect(result.current.unconfirmedCount).toBe(0);
     expect(result.current.saving).toBe(false);
+    unmount();
+  });
+
+  it("increments the attempt counter on every reconnect requeue", () => {
+    vi.useFakeTimers();
+    const { result, unmount } = renderHook(() => useRundownSync("org-counter", "2026-09-06", "show-1"));
+    act(() => vi.advanceTimersByTime(0));
+    let socket = MockWebSocket.instances[0];
+    act(() => { socket.open(); hydrate(socket); result.current.sendCommand("update-meta", { serviceName: "Pending" }); });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      act(() => result.current.retryConnection());
+      socket = MockWebSocket.instances.at(-1)!;
+      act(() => { socket.open(); hydrate(socket); });
+      expect(socket.sent).toHaveLength(1);
+    }
+    // The timeout must observe the three increments and retire, not requeue.
+    act(() => vi.advanceTimersByTime(8_000));
+    expect(result.current.unconfirmedCount).toBe(0);
+    expect(result.current.lastError).toContain("did not take effect");
     unmount();
   });
 

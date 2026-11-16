@@ -300,10 +300,9 @@ export function useRundownSync(
       pendingTimerRef.current = null;
       if (pending.attempts < 3) {
         commandQueue.current.unshift({ ...pending, attempts: pending.attempts + 1 });
-        setLastError("ShowPilot is refreshing live state before retrying that rundown change.");
       } else {
         confirmCommand(pending.id);
-        setLastError("That rundown change could not be confirmed. Review live state before trying again.");
+        setLastError("That rundown change did not take effect. Please try again.");
       }
       dropConnectionRef.current(ws, "Rundown confirmation timed out. Reconnecting to confirm live state.");
     }, 8_000);
@@ -394,7 +393,13 @@ export function useRundownSync(
       clearHydrationTimer();
       clearPendingTimer();
       if (pendingCommandRef.current) {
-        commandQueue.current.unshift(pendingCommandRef.current);
+        const pending = pendingCommandRef.current;
+        if (pending.attempts < 3) {
+          commandQueue.current.unshift({ ...pending, attempts: pending.attempts + 1 });
+        } else {
+          confirmCommand(pending.id);
+          setLastError("That rundown change did not take effect. Please try again.");
+        }
         pendingCommandRef.current = null;
       }
       activeSocket = null;
