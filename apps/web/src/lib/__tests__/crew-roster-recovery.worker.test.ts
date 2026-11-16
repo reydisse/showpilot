@@ -796,3 +796,20 @@ it("reads the native profile revision and reviews an edit rejected for a stale v
   expect(result).toMatchObject({ outcome: "cancelled", id: row.id });
   expect((await f.row()).name).toBe("Current name");
 });
+
+
+it("Media Pastor can add, edit and remove crew; role removal and permission revocation deny writes", async () => {
+  const f = await fixture();
+  await env.DB.prepare("INSERT INTO organizationRole(id,organizationId,role,permission,createdAt) VALUES(?,?,?,?,?)").bind(crypto.randomUUID(), f.orgId, "Media Pastor", JSON.stringify({settings:["members"]}), Date.now()).run();
+  await env.DB.prepare("UPDATE member SET role=? WHERE organizationId=? AND userId=?").bind("Media Pastor", f.orgId, f.userId).run();
+  await addCrewMember({data:f.input});
+  const row = await f.row();
+  await updateCrewMember({data:{orgId:f.orgId,id:row.id,expectedRevision:0,requestId:crypto.randomUUID(),updates:{role:"Audio"}}});
+  await deleteCrewMember({data:{orgId:f.orgId,id:row.id,expectedRevision:1,requestId:crypto.randomUUID()}});
+  for (const revoke of ["UPDATE organizationRole SET permission='{}' WHERE organizationId=?", "UPDATE member SET role='member' WHERE organizationId=?"]) {
+    await env.DB.prepare(revoke).bind(f.orgId).run();
+    await expect(addCrewMember({data:{...f.input,requestId:crypto.randomUUID()}})).rejects.toMatchObject({status:403});
+    await expect(updateCrewMember({data:{orgId:f.orgId,id:row.id,requestId:crypto.randomUUID(),updates:{role:"Audio"}}})).rejects.toMatchObject({status:403});
+    await expect(deleteCrewMember({data:{orgId:f.orgId,id:row.id,requestId:crypto.randomUUID()}})).rejects.toMatchObject({status:403});
+  }
+});

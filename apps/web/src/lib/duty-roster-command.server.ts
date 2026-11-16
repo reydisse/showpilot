@@ -1,5 +1,5 @@
 import { getD1 } from "./d1";
-import { hasPermission } from "./app-permissions";
+import { resolveEffectiveAccess } from "./effective-access";
 import {
   DEFAULT_DUTY_ROLES,
   dutyRosterResultSchema,
@@ -32,7 +32,7 @@ async function authority(
     )
     .bind(orgId, actor.userId, actor.sessionId)
     .first<{ id: string; role: string; managementRevision: number }>();
-  if (!member || !hasPermission(member.role, "settings:members"))
+  if (!member || !(await resolveEffectiveAccess(database, actor.userId, orgId))?.permissions.includes("settings:members"))
     throw new Error(
       "Your session or permission to manage duty assignments is no longer active.",
     );

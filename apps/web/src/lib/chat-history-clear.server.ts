@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { getD1 } from "./d1";
-import { hasPermission } from "./app-permissions";
+import { resolveEffectiveAccess } from "./effective-access";
 import { chatRelayKey } from "./chat-relay-key";
 import { withOperationTimeout } from "./operation-timeout";
 import {
@@ -43,7 +43,7 @@ export async function clearOrganizationChat({
       managementRevision: number;
       name: string;
     }>();
-  if (!member || !hasPermission(member.role, "settings:danger_zone"))
+  if (!member || !(await resolveEffectiveAccess(database, authority.userId, command.orgId))?.permissions.includes("settings:danger_zone"))
     throw new Error(
       "You no longer have permission to clear this organization's chat history.",
     );
