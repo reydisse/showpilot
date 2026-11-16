@@ -816,16 +816,9 @@ it("Media Pastor can add, edit and remove crew; role removal and permission revo
 });
 
 
-it("direct grant alone permits crew writes and revocation denies them", async () => {
+it("direct settings:members grants are rejected by the effective-access boundary", async () => {
   const f = await fixture();
   await env.DB.prepare("UPDATE member SET role='member' WHERE organizationId=? AND userId=?").bind(f.orgId, f.userId).run();
   await env.DB.prepare("INSERT INTO member_permission_grant(id,orgId,userId,capability,permissions,startsOn,grantedByUserId) VALUES(?,?,?,?,?,?,?)").bind(crypto.randomUUID(), f.orgId, f.userId, "crew", JSON.stringify(["settings:members"]), "2020-01-01", f.userId).run();
-  await addCrewMember({data:f.input});
-  const row = await f.row();
-  await updateCrewMember({data:{orgId:f.orgId,id:row.id,expectedRevision:0,requestId:crypto.randomUUID(),updates:{role:"Audio"}}});
-  await deleteCrewMember({data:{orgId:f.orgId,id:row.id,expectedRevision:1,requestId:crypto.randomUUID()}});
-  await env.DB.prepare("UPDATE member_permission_grant SET revokedAt=CURRENT_TIMESTAMP WHERE orgId=?").bind(f.orgId).run();
-  await expect(addCrewMember({data:{...f.input,requestId:crypto.randomUUID()}})).rejects.toMatchObject({status:403});
-  await expect(updateCrewMember({data:{orgId:f.orgId,id:row.id,requestId:crypto.randomUUID(),updates:{role:"Audio"}}})).rejects.toMatchObject({status:403});
-  await expect(deleteCrewMember({data:{orgId:f.orgId,id:row.id,requestId:crypto.randomUUID()}})).rejects.toMatchObject({status:403});
+  await expect(addCrewMember({data:f.input})).rejects.toMatchObject({status:403});
 });

@@ -108,7 +108,7 @@ export const ACCESS_CAPABILITIES = [
 export type AccessCapabilityId = (typeof ACCESS_CAPABILITIES)[number]["id"];
 
 export const GRANTABLE_PERMISSIONS = Array.from(
-  new Set<Permission>(["settings:members", ...ACCESS_CAPABILITIES.flatMap((capability) => [...capability.permissions])]),
+  new Set<Permission>(ACCESS_CAPABILITIES.flatMap((capability) => [...capability.permissions])),
 );
 const GRANTABLE_PERMISSION_SET = new Set<Permission>(GRANTABLE_PERMISSIONS);
 
