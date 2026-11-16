@@ -1,5 +1,5 @@
 import { getD1 } from "./d1";
-import { hasPermission } from "./app-permissions";
+import { resolveEffectiveAccess } from "./effective-access";
 import {
   kioskTeamResultSchema,
   type KioskTeamCommand,
@@ -19,7 +19,7 @@ export async function executeKioskTeamCommand(
     )
     .bind(command.orgId, actor.userId, actor.sessionId)
     .first<{ id: string; role: string; managementRevision: number }>();
-  if (!member || !hasPermission(member.role, "settings:members"))
+  if (!member || !(await resolveEffectiveAccess(database, actor.userId, command.orgId))?.permissions.includes("settings:members"))
     throw new Error(
       "Your session or permission to edit kiosk teams is no longer active.",
     );

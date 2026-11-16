@@ -68,6 +68,15 @@ describe("effective access", () => {
     expect(access?.revision).toBe("2026-08-21 12:00:00");
   });
 
+  it("honours an allowlisted direct grant and removes access after revocation", async () => {
+    const options = { role: "member", grantSets: [JSON.stringify(["rundown:edit"])] };
+    const granted = await resolveEffectiveAccess(accessDb(options), "user-1", "org-1", "2026-08-21");
+    expect(granted?.permissions).toContain("rundown:edit");
+    options.grantSets = [];
+    const revoked = await resolveEffectiveAccess(accessDb(options), "user-1", "org-1", "2026-08-21");
+    expect(revoked?.permissions).not.toContain("rundown:edit");
+  });
+
   it("rejects malformed and unknown serialized permissions", () => {
     expect(parseGrantedPermissions("not-json")).toEqual([]);
     expect(parseGrantedPermissions(JSON.stringify({ permission: "rundown:edit" }))).toEqual([]);

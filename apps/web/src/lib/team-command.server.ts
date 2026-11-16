@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { authRoles } from "./auth-access";
-import { hasPermission } from "./app-permissions";
+import { resolveEffectiveAccess } from "./effective-access";
 import { markDatabaseWrite } from "./request-database.server";
 
 type Database = Pick<D1Database, "prepare" | "batch">;
@@ -115,7 +115,7 @@ export async function readTeamAuthority(db: TeamAuthorityDatabase, actor: Actor,
   // to that role's static statements. App moderation keeps its app permission.
   const allowed =
     (command.kind === "report" || command.kind === "crew")
-      ? hasPermission(member.role, "settings:members")
+      ? (await resolveEffectiveAccess(db, actor.userId, command.orgId))?.permissions.includes("settings:members")
       : (command.kind === "role" && owner) ||
         actorRoles.some((role) => {
           const staticRole = Object.entries(authRoles).find(

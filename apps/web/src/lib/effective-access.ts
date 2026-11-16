@@ -1,5 +1,7 @@
 import {
   getEffectivePermissions,
+  getPermissions,
+  isPermission,
   hasAnyEffectivePermission,
   normalizeRole,
   type Permission,
@@ -98,8 +100,25 @@ export async function resolveEffectiveAccess(
     .prepare("SELECT role FROM member WHERE userId = ? AND organizationId = ? LIMIT 1")
     .bind(userId, orgId)
     .first<MemberRoleRow>();
-  const role = normalizeRole(member?.role ?? null);
-  if (!role) return null;
+  if (!member) return null;
+  const role = normalizeRole(member.role) ?? "member";
+  const policy = await db.prepare(`SELECT json_group_array(json_object('role',role,'permission',permission)) AS definitions FROM organizationRole WHERE organizationId = ?`)
+    .bind(orgId).first<{ definitions: string }>();
+  const definitions = JSON.parse(policy?.definitions ?? "[]") as { role: string; permission: string }[];
+  const memberRoles = member.role.split(",").map(value => value.trim());
+  if (!memberRoles.some(value => normalizeRole(value) || definitions.some(definition => definition.role === value))) return null;
+  const dynamicPermissions: Permission[] = [];
+  for (const definition of definitions) {
+    if (!memberRoles.includes(definition.role)) continue;
+    const statements = JSON.parse(definition.permission) as Record<string, string[]>;
+    for (const [resource, actions] of Object.entries(statements)) {
+      for (const action of actions) {
+        const permission = `${resource}:${action}`;
+        if (isPermission(permission)) dynamicPermissions.push(permission);
+      }
+    }
+  }
+  const staticPermissions = memberRoles.flatMap(value => normalizeRole(value) ? getPermissions(value) : []);
 
   const today = await resolveOrgToday(db, orgId, todayOverride);
   let aggregate: GrantPermissionAggregate | null = null;
@@ -134,7 +153,7 @@ export async function resolveEffectiveAccess(
     serializedGrantSets = [];
   }
   const grantedPermissions = [
-    ...new Set(serializedGrantSets.flatMap(parseGrantedPermissions)),
+    ...new Set([...staticPermissions.filter(permission => !getPermissions(role).includes(permission)), ...dynamicPermissions, ...serializedGrantSets.flatMap(parseGrantedPermissions)]),
   ];
   const revision = aggregate?.revision ?? "";
 

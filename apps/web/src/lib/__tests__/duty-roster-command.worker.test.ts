@@ -559,3 +559,15 @@ it("reports a failed duty summary read instead of pretending no one is assigned"
     );
   }
 });
+
+it("custom authority permits writes, permission removal denies, and static owner remains allowed", async () => {
+ const {orgId,userId}=authenticated;
+ await env.DB.prepare("INSERT INTO organizationRole(id,organizationId,role,permission,createdAt) VALUES(?,?,?,?,?)").bind(crypto.randomUUID(),orgId,"Authority Test",JSON.stringify({settings:["members"]}),Date.now()).run();
+ await env.DB.prepare("UPDATE member SET role=? WHERE organizationId=? AND userId=?").bind("Authority Test",orgId,userId).run();
+ await writeDutyRoster({data:{...(await reviewed()),action:"seed-roles"}});
+ const deniedData={...(await reviewed()),action:"seed-roles" as const};
+ await env.DB.prepare("UPDATE organizationRole SET permission='{}' WHERE organizationId=?").bind(orgId).run();
+ await expect(writeDutyRoster({data:deniedData})).rejects.toThrow();
+ await env.DB.prepare("UPDATE member SET role='owner' WHERE organizationId=? AND userId=?").bind(orgId,userId).run();
+ await writeDutyRoster({data:{...(await reviewed()),action:"seed-roles"}});
+});

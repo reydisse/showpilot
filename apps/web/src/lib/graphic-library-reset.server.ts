@@ -1,5 +1,5 @@
 import { getD1 } from "./d1";
-import { hasPermission } from "./app-permissions";
+import { resolveEffectiveAccess } from "./effective-access";
 import type { GraphicLibraryReset } from "./graphic-library-reset-contract";
 import type { LiveSessionAuthorityClaim } from "./live-rundown-authority.server";
 
@@ -25,7 +25,7 @@ export async function resetSavedGraphics({ command, authority, database = getD1(
     WHERE m.organizationId=? AND m.userId=? AND s.id=? AND ${activeSession}`)
     .bind(command.orgId,authority.userId,authority.sessionId)
     .first<{id:string;role:string;managementRevision:number;name:string}>();
-  if (!member || !hasPermission(member.role,"settings:danger_zone"))
+  if (!member || !(await resolveEffectiveAccess(database, authority.userId, command.orgId))?.permissions.includes("settings:danger_zone"))
     throw new Error("You no longer have permission to reset this organization's saved graphics.");
   const guard = `EXISTS(SELECT 1 FROM member m JOIN session s ON s.userId=m.userId
     WHERE m.organizationId=? AND m.id=? AND m.userId=? AND m.role=? AND m.managementRevision=? AND s.id=? AND ${activeSession})`;
