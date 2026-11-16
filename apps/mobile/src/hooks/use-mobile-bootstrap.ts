@@ -21,5 +21,9 @@ export function useMobileBootstrap({ enabled = true, poll = false, retry }: Mobi
     // request loop on every authenticated screen.
     refetchInterval: poll ? 30_000 : false,
   });
-  return { organization, organizationPending, ...query };
+  // React Query retains data for this identity while refreshing. Background
+  // failures must not replace settled lists or introduce an operator alert.
+  return { organization, organizationPending, ...query,
+    error: query.data === undefined ? query.error : null,
+  };
 }

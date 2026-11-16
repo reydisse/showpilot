@@ -1458,10 +1458,13 @@ export async function getMobileShowBoard(
 export async function getMobileShowWorkspace(
   orgId: string,
 ): Promise<MobileShowWorkspace> {
-  const response = await authenticatedFetch(
-    `/api/mobile/v1/show-workspace?orgId=${encodeURIComponent(orgId)}`,
-  );
-  return showWorkspaceSchema.parse(await response.json());
+  return withMobileRequestDeadline(async signal => {
+    const response = await authenticatedFetch(
+      `/api/mobile/v1/show-workspace?orgId=${encodeURIComponent(orgId)}`,
+      { signal },
+    );
+    return showWorkspaceSchema.parse(await response.json());
+  });
 }
 
 export async function setMobileCheckInStatus(input: {
