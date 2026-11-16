@@ -170,3 +170,14 @@ it("requires the current name for new resets but retains a confirmed request thr
   await expect(resetLowerThirdLibrary({data:{...data,requestId:crypto.randomUUID()}})).rejects.toThrow("exact name");
   expect(await templates()).toHaveLength(1);
 });
+
+it("custom authority permits writes, permission removal denies, and static owner remains allowed", async () => {
+ const {orgId,userId}=authenticated;
+ await env.DB.prepare("INSERT INTO organizationRole(id,organizationId,role,permission,createdAt) VALUES(?,?,?,?,?)").bind(crypto.randomUUID(),orgId,"Authority Test",JSON.stringify({settings:["danger_zone"]}),Date.now()).run();
+ await env.DB.prepare("UPDATE member SET role=? WHERE organizationId=? AND userId=?").bind("Authority Test",orgId,userId).run();
+ await resetLowerThirdLibrary({data:command()});
+ await env.DB.prepare("UPDATE organizationRole SET permission='{}' WHERE organizationId=?").bind(orgId).run();
+ await expect(resetLowerThirdLibrary({data:command()})).rejects.toThrow();
+ await env.DB.prepare("UPDATE member SET role='owner' WHERE organizationId=? AND userId=?").bind(orgId,userId).run();
+ await resetLowerThirdLibrary({data:command()});
+});

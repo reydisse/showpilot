@@ -460,3 +460,14 @@ it("preserves existing CSS team colors on update", async () => {
   });
   expect((await read())[0]).toMatchObject({ name: "Renamed", color: "red" });
 });
+
+it("custom authority permits writes, permission removal denies, and static owner remains allowed", async () => {
+ const {orgId,userId}=authenticated;
+ await env.DB.prepare("INSERT INTO organizationRole(id,organizationId,role,permission,createdAt) VALUES(?,?,?,?,?)").bind(crypto.randomUUID(),orgId,"Authority Test",JSON.stringify({settings:["members"]}),Date.now()).run();
+ await env.DB.prepare("UPDATE member SET role=? WHERE organizationId=? AND userId=?").bind("Authority Test",orgId,userId).run();
+ await writeKioskTeam({data:teamCommand()});
+ await env.DB.prepare("UPDATE organizationRole SET permission='{}' WHERE organizationId=?").bind(orgId).run();
+ await expect(writeKioskTeam({data:teamCommand()})).rejects.toThrow();
+ await env.DB.prepare("UPDATE member SET role='owner' WHERE organizationId=? AND userId=?").bind(orgId,userId).run();
+ await writeKioskTeam({data:teamCommand()});
+});

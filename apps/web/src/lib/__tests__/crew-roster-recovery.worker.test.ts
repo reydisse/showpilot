@@ -822,3 +822,20 @@ it("direct settings:members grants are rejected by the effective-access boundary
   await env.DB.prepare("INSERT INTO member_permission_grant(id,orgId,userId,capability,permissions,startsOn,grantedByUserId) VALUES(?,?,?,?,?,?,?)").bind(crypto.randomUUID(), f.orgId, f.userId, "crew", JSON.stringify(["settings:members"]), "2020-01-01", f.userId).run();
   await expect(addCrewMember({data:f.input})).rejects.toMatchObject({status:403});
 });
+
+it("report and crew authority honour custom revocation and static owner", async()=>{
+ const {readTeamAuthority}=await import("../team-command.server");
+ const f=await fixture();
+ const session=await env.DB.prepare("SELECT id FROM session WHERE userId=? LIMIT 1").bind(f.userId).first<{id:string}>();
+ const actor={userId:f.userId,sessionId:session!.id};
+ await env.DB.prepare("INSERT INTO organizationRole(id,organizationId,role,permission,createdAt) VALUES(?,?,?,?,?)").bind(crypto.randomUUID(),f.orgId,"Review Test",JSON.stringify({settings:["members"]}),Date.now()).run();
+ for(const kind of ["report","crew"] as const){
+ await env.DB.prepare("UPDATE member SET role='Review Test' WHERE organizationId=? AND userId=?").bind(f.orgId,f.userId).run();
+ await env.DB.prepare("UPDATE organizationRole SET permission=? WHERE organizationId=?").bind(JSON.stringify({settings:["members"]}),f.orgId).run();
+ await readTeamAuthority(env.DB,actor,{orgId:f.orgId,kind});
+ await env.DB.prepare("UPDATE organizationRole SET permission='{}' WHERE organizationId=?").bind(f.orgId).run();
+ await expect(readTeamAuthority(env.DB,actor,{orgId:f.orgId,kind})).rejects.toThrow();
+ await env.DB.prepare("UPDATE member SET role='owner' WHERE organizationId=? AND userId=?").bind(f.orgId,f.userId).run();
+ await readTeamAuthority(env.DB,actor,{orgId:f.orgId,kind});
+ }
+});

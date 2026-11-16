@@ -228,3 +228,14 @@ it("notifies live clients and rejects re-sending an already cleared message ID",
   expect(await rejected).toMatchObject({messageId:oldId,error:expect.stringContaining("already cleared")});
   expect(await history("production")).toEqual([]);socket.close();
 });
+
+it("custom authority permits writes, permission removal denies, and static owner remains allowed", async () => {
+ const {orgId,userId}=authenticated;
+ await env.DB.prepare("INSERT INTO organizationRole(id,organizationId,role,permission,createdAt) VALUES(?,?,?,?,?)").bind(crypto.randomUUID(),orgId,"Authority Test",JSON.stringify({settings:["danger_zone"]}),Date.now()).run();
+ await env.DB.prepare("UPDATE member SET role=? WHERE organizationId=? AND userId=?").bind("Authority Test",orgId,userId).run();
+ await clearChatHistory({data:command()});
+ await env.DB.prepare("UPDATE organizationRole SET permission='{}' WHERE organizationId=?").bind(orgId).run();
+ await expect(clearChatHistory({data:command()})).rejects.toThrow();
+ await env.DB.prepare("UPDATE member SET role='owner' WHERE organizationId=? AND userId=?").bind(orgId,userId).run();
+ await clearChatHistory({data:command()});
+});
