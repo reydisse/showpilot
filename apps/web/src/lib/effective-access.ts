@@ -106,6 +106,7 @@ export async function resolveEffectiveAccess(
     .bind(orgId).first<{ definitions: string }>();
   const definitions = JSON.parse(policy?.definitions ?? "[]") as { role: string; permission: string }[];
   const memberRoles = member.role.split(",").map(value => value.trim());
+  if (!memberRoles.some(value => normalizeRole(value) || definitions.some(definition => definition.role === value))) return null;
   const dynamicPermissions: Permission[] = [];
   for (const definition of definitions) {
     if (!memberRoles.includes(definition.role)) continue;
