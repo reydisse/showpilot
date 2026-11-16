@@ -419,3 +419,14 @@ it("clears an old heartbeat deadline when an operator retries the connection", a
   expect(f.result.current.hydrated).toBe(true);
   expect(current.readyState).toBe(1);
 });
+
+it("reports uncertain execution when an unacknowledged change retires", async () => {
+  const f = await fixture();
+  await act(async () => f.result.current.sendCommand("update-meta", { serviceName: "Pending" }));
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await act(async () => f.result.current.retryConnection());
+    await act(async () => {});
+    await act(async () => { const socket = sockets.at(-1); socket.open(); hydrate(socket); });
+  }
+  expect(f.result.current.lastError).toBe("Could not confirm whether that change took effect. Check before trying again.");
+});

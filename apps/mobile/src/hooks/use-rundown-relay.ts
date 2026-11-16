@@ -135,9 +135,8 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
         setCommandError("An unconfirmed transport command expired and will not be retried. It may have completed; review live state before trying again.");
       } else if (pending.attempts < 3) {
         queueRef.current.unshift({ ...pending, attempts: pending.attempts + 1 });
-        setConnectionError("ShowPilot is refreshing live state before retrying that control change.");
       } else {
-        setCommandError("That control change could not be confirmed. Check the live state before trying again.");
+        setCommandError("Could not confirm whether that change took effect. Check before trying again.");
       }
       updateCount();
       if (socketRef.current === socket) {
@@ -222,7 +221,12 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       clearKeepalive();
       clearPendingTimer();
       if (pendingRef.current) {
-        queueRef.current.unshift(pendingRef.current);
+        const pending = pendingRef.current;
+        if (pending.attempts < 3) {
+          queueRef.current.unshift({ ...pending, attempts: pending.attempts + 1 });
+        } else {
+          setCommandError("Could not confirm whether that change took effect. Check before trying again.");
+        }
         pendingRef.current = null;
       }
       const socket = socketRef.current;
