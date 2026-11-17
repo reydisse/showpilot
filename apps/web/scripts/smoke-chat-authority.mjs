@@ -11,7 +11,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, crewChatPass, opera
   };
   await browser("open", `${origin}/join/chat/${crewChatPass()}`);
   await browser("fill", "input", "Guest fixture");
-  await browser("find", "role", "button", "click", "--name", "Join Team Chat", "--exact");
+  await browser("find", "role", "button", "click", "--name", "Join Production Chat", "--exact");
   await browser("wait", "textarea");
   await browser("fill", "textarea", "Guest message through verified pass");
   await browser("press", "Enter");
