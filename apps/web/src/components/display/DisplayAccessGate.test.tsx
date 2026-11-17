@@ -107,7 +107,7 @@ describe("display access deadlines", () => {
           finishOld = resolve;
         }),
     );
-    render(
+    const { container } = render(
       <DisplayAccessGate orgSlug="venue" surface="overlay">
         <PrivateDisplay />
       </DisplayAccessGate>,
@@ -119,6 +119,8 @@ describe("display access deadlines", () => {
     expect(screen.getByRole("alert").textContent).toContain(
       "could not be opened",
     );
+    expect(screen.getByText(/Last checked/)).toBeTruthy();
+    expect(container.querySelector("time")?.getAttribute("datetime")).toBeTruthy();
     api.ensure.mockResolvedValue({ authorized: false });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Try again" }));
