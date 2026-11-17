@@ -11,7 +11,7 @@ for (const offline of [false, true]) {
     const cache = {};
     const mocks = {
       react: { Children: { toArray: x => [x] }, useEffect: fn => effects.push(fn) },
-      'react/jsx-runtime': { jsx: (type, props) => ({ type, props }) },
+      'react/jsx-runtime': { jsx: (type, props) => typeof type === 'function' ? type(props) : ({ type, props }) },
       'react-native': { Text: 'Text' },
       '@showpilot/shared/ui-feedback': { plainFailure: () => 'Please try again.' },
       '@/lib/auth-client': { authClient: { useActiveOrganization: () => ({ data: { id: 'org' } }), getCookie: () => 'session=valid' } },
@@ -21,7 +21,7 @@ for (const offline of [false, true]) {
     function load(name) {
       if (mocks[name]) return mocks[name];
       const path = name === '@/lib/failure-reporting' ? 'lib/failure-reporting.ts'
-        : name === './error-reporting' ? 'lib/error-reporting.ts' : 'components/failure-text.tsx';
+        : name === './error-reporting' ? 'lib/error-reporting.ts' : name === './failure-text.tsx' ? 'components/failure-text.tsx' : 'components/failure-text.native.tsx';
       if (cache[path]) return cache[path];
       const source = readFileSync(new URL('../src/' + path, import.meta.url), 'utf8');
       const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText;
