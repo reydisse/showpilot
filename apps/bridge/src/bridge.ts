@@ -1,3 +1,4 @@
+import { parseDeviceCommand, type DeviceCommand } from "@showpilot/shared/device-command";
 import { ProPresenterReservations } from "./propresenter-reservations.js";
 import WebSocket, { type ClientOptions } from "ws";
 import { createBridgeSettingsRecipient, type BridgeSettingsRecipient } from "@showpilot/shared/bridge-settings";
@@ -42,14 +43,7 @@ interface BridgeOptions {
   };
 }
 
-interface CommandMessage {
-  type: "command";
-  id: string;
-  protocol: string;
-  target: string;
-  command: string;
-  settings?: Record<string, unknown>;
-}
+type CommandMessage = DeviceCommand;
 
 interface ReservedProPresenterMessage {
   type: "prepare-propresenter-command" | "execute-propresenter-command";
@@ -162,12 +156,7 @@ function parseIncomingMessage(value: unknown): IncomingMessage | null {
         && typeof value.showId === "string" && /^[A-Za-z0-9:_-]{1,100}$/.test(value.showId)
         ? {type:value.type,id:value.id,showId:value.showId,protectedSettings:value.protectedSettings} : null;
     case "command":
-      return typeof value.id === "string"
-        && typeof value.protocol === "string"
-        && typeof value.target === "string"
-        && typeof value.command === "string"
-        ? { type: value.type, id: value.id, protocol: value.protocol, target: value.target, command: value.command }
-        : null;
+      return parseDeviceCommand(value);
     case "connect-device":
       return typeof value.protocol === "string"
         && typeof value.target === "string"
