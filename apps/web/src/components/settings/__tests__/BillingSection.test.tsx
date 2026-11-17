@@ -117,3 +117,14 @@ it("does not label an expired trial as active or hide Free", () => {
   expect(screen.queryByText(/Pro trial access/)).toBeNull();
   expect(screen.getByText("Features available now: Free")).toBeTruthy();
 });
+
+it.each(["pro", "enterprise"])("consumes plan %s without starting checkout", async plan => {
+ const { createCheckoutSession } = await import("@/lib/billing");
+ vi.mocked(createCheckoutSession).mockClear();
+ window.history.replaceState({}, "", "/?plan=" + plan);
+ render(<BillingSection orgId="fixture" billing={billing} />);
+ expect(screen.queryByText("Selected for you") !== null).toBe(plan === "pro");
+ if (plan === "pro") expect(screen.getByRole("group", { name: "Pro plan" }).getAttribute("data-preselected")).toBe("true");
+ expect(window.location.search).toBe("");
+ expect(createCheckoutSession).not.toHaveBeenCalled();
+});

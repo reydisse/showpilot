@@ -3,11 +3,12 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Mail } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import { safeAuthReturnTo, verificationHref } from "@/lib/auth-navigation";
+import { safeAuthReturnTo, safeSignupPlan, withSignupPlan, verificationHref } from "@/lib/auth-navigation";
 import { withOperationTimeout } from "@/lib/operation-timeout";
 
 export const Route = createFileRoute("/_auth/verify-email")({
   validateSearch: (search: Record<string, unknown>) => ({
+    plan: safeSignupPlan(search.plan),
     returnTo: safeAuthReturnTo(search.returnTo),
     error: typeof search.error === "string" ? search.error : undefined,
   }),
@@ -25,7 +26,7 @@ type DeliveryState =
 const buttonClass = "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-board-border px-4 py-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-500 disabled:opacity-50";
 
 function VerifyEmailPage() {
-  const { error: linkError, returnTo } = Route.useSearch();
+  const { error: linkError, returnTo, plan } = Route.useSearch();
   const [attempt, setAttempt] = useState(0);
   const [verification, setVerification] = useState<VerificationState>({ status: "checking" });
   const [delivery, setDelivery] = useState<DeliveryState>({ status: "idle" });
@@ -57,7 +58,7 @@ function VerifyEmailPage() {
     deliveryRequest.current = request;
     setDelivery({ status: "sending", email });
     try {
-      const result = await withOperationTimeout(authClient.sendVerificationEmail({ email, callbackURL: verificationHref(returnTo), fetchOptions: { signal: request.signal } }), 8_000, "Email delivery was not confirmed in time.");
+      const result = await withOperationTimeout(authClient.sendVerificationEmail({ email, callbackURL: verificationHref(returnTo, plan), fetchOptions: { signal: request.signal } }), 8_000, "Email delivery was not confirmed in time.");
       if (request.signal.aborted) return;
       setDelivery(result.error || result.data?.status !== true ? { status: "error", email, at: Date.now() } : { status: "sent", email });
     } catch {
@@ -80,7 +81,7 @@ function VerifyEmailPage() {
       {verification.status === "anonymous" && <>
         <h2 className="text-xl font-semibold">Sign in to check verification</h2>
         <p className="text-sm text-board-muted">{linkError ? "This verification link is invalid or has expired. Sign in to request another email." : "Sign in with the email address you want to verify."}</p>
-        <Link to="/login" search={{ verify: 1, returnTo }} className={`${buttonClass} bg-fire-500 text-black`}>Sign in</Link>
+        <Link to="/login" search={{ verify: 1, returnTo, plan }} className={`${buttonClass} bg-fire-500 text-black`}>Sign in</Link>
       </>}
       {verification.status === "unverified" && <>
         <Mail className="mx-auto h-10 w-10 text-fire-500" aria-hidden="true" />
@@ -100,7 +101,7 @@ function VerifyEmailPage() {
         <CheckCircle2 className="mx-auto h-10 w-10 text-green-400" aria-hidden="true" />
         <h2 className="text-xl font-semibold">Email verified</h2>
         <p className="break-words text-sm text-board-muted">{verification.email} is verified. You can continue to your workspace.</p>
-        <Link to={returnTo ?? "/setup"} className={`${buttonClass} bg-fire-500 text-black`}>Continue</Link>
+        <Link to={withSignupPlan(returnTo ?? "/setup", plan)} className={`${buttonClass} bg-fire-500 text-black`}>Continue</Link>
       </>}
     </section>
   </div>;

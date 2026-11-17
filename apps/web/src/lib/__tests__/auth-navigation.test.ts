@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { safeAuthReturnTo, verificationEmailCallback, verificationHref } from "../auth-navigation";
+import { safeSignupPlan, safeAuthReturnTo, verificationEmailCallback, verificationHref } from "../auth-navigation";
 it.each(["/", "/setup?mode=new", "/delete-account?token=abc123", "/venue/chat?room=planning#message-5", "/venue/timecode?showId=abc", "/invite/abc", "/venue/assets?search=Hello%20world"])("preserves an app destination: %s", path => {
   expect(safeAuthReturnTo(path)).toBe(path);
 });
@@ -26,4 +26,13 @@ it("preserves a bounded Planning invite carrying fifty recipient IDs", async () 
 });
 it.each(["/join/chat/planning/" + "a".repeat(3000), "/join/chat/planning/planning_chat_" + "a".repeat(8200) + ".b.c", "/join/chat/planning/planning_chat_" + "a".repeat(3000) + ".b.c?next=//elsewhere"])("rejects unbounded or ambiguous long invite destinations", path => {
   expect(safeAuthReturnTo(path)).toBeUndefined();
+});
+
+it.each(["starter", "pro", "founding"])("preserves signup plan %s", plan => {
+ expect(safeSignupPlan(plan)).toBe(plan);
+ expect(verificationHref(undefined, plan)).toBe("/verify-email?plan=" + plan);
+});
+it.each(["free", "enterprise", "", null, undefined, 1, [], {}, ["pro"]])("drops invalid signup plan %j", plan => {
+ expect(safeSignupPlan(plan)).toBeUndefined();
+ expect(verificationHref(undefined, plan)).toBe("/verify-email");
 });

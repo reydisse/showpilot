@@ -1,3 +1,4 @@
+import { safeSignupPlan } from "@/lib/auth-navigation";
 import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useOrganizationCreation, runCreationRequest } from "@/hooks/useOrganizationCreation";
@@ -61,7 +62,8 @@ import {
 // ─────────────────────────────────────────────────────────────
 
 export const Route = createFileRoute("/_auth/setup")({
-  validateSearch: (search: Record<string, unknown>): { mode?: "new"; orgId?: string; creationRequestId?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { mode?: "new"; orgId?: string; creationRequestId?: string; plan?: ReturnType<typeof safeSignupPlan> } => ({
+    plan: safeSignupPlan(search.plan),
     mode: search.mode === "new" ? "new" : undefined,
     orgId: typeof search.orgId === "string" ? search.orgId : undefined,
     creationRequestId: creationRequestIdSchema.safeParse(search.creationRequestId).success ? String(search.creationRequestId) : undefined,
@@ -195,7 +197,7 @@ const fmt = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStar
 
 function SetupWizard() {
   const { progress, initialScene, initialWorkspace } = Route.useLoaderData();
-  const { mode, creationRequestId } = Route.useSearch();
+  const { mode, creationRequestId, plan } = Route.useSearch();
   const navigate = Route.useNavigate();
   const router = useRouter();
   const { user } = Route.useRouteContext() as {
@@ -265,7 +267,7 @@ function SetupWizard() {
       setNavigationError("Could not open that page. Your saved setup is kept. Try Exit setup again.");
     });
   };
-  const workspaceHref = org ? `/${org.slug}${archetypeLanding(archetype, workspace.modules)}` : mode === "new" ? "/" : "/invitations";
+  const workspaceHref = org ? (plan ? `/${org.slug}/settings?section=billing&plan=${plan}` : `/${org.slug}${archetypeLanding(archetype, workspace.modules)}`) : mode === "new" ? "/" : "/invitations";
   const currentRequest = (version: number) => navigation.current.mounted && !navigation.current.leaving && !navigation.current.suspended && navigation.current.version === version;
 
   // Broadcast cut between scenes: dip to black, 220ms, with a breath.
@@ -336,7 +338,7 @@ function SetupWizard() {
               prepareRequest={async id => {
                 const version = navigation.current.version;
                 if (!currentRequest(version)) throw new Error("Setup navigation changed.");
-                await navigate({ search: { mode: "new", creationRequestId: id }, replace: true });
+                await navigate({ search: { mode: "new", creationRequestId: id, plan }, replace: true });
                 if (!currentRequest(version)) throw new Error("Setup navigation changed.");
               }}
               user={user}
@@ -345,7 +347,7 @@ function SetupWizard() {
               onCreated={async (created, signal) => {
                 const version = navigation.current.version;
                 if (!currentRequest(version)) return;
-                await navigate({ search: { orgId: created.id }, replace: true });
+                await navigate({ search: { orgId: created.id, plan }, replace: true });
                 if (signal.aborted || !currentRequest(version)) return;
                 setOrg(created);
                 setDrafts(value => ({ ...value, organization: false }));
