@@ -38,6 +38,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Apply numbered migrations to scratch D1
+        working-directory: apps/web
+        env:
+          WRANGLER_SEND_METRICS: "false"
+        run: |
+          set -euo pipefail
+          scratch_d1="$(mktemp -d)"
+          trap 'rm -rf "$scratch_d1"' EXIT
+          pnpm run db:migrate:local --persist-to "$scratch_d1"
+
       - name: Verify native release contracts
         run: pnpm native:verify
 

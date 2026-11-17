@@ -188,12 +188,18 @@ mode for `.dev.vars` values):
 Migrations are **hand-written sequential SQL files** in
 `apps/web/prisma/migrations/` named `000N_name.sql`. They deliberately do **not** use wrangler's
 migrations-directory convention — never run `wrangler d1 migrations apply`.
-Nothing applies them automatically; the deploy workflow only *checks* and
-blocks.
+Production migrations are applied manually; the deploy workflow only *checks*
+and blocks.
 
-(The timestamped directories in the same folder are legacy Prisma-dev
-artifacts; the numbered files are the convention. After editing
-`schema.prisma`, run `pnpm db:generate`.)
+The numbered SQL sequence is the **single system of record for schema history**.
+`applied-remote.txt` is the operator-confirmed deployment log recording what
+production has actually received, not the schema history itself. The legacy
+timestamped Prisma folders were removed (row 335), leaving only the numbered
+history. After editing `schema.prisma`, run `pnpm db:generate`.
+
+Every CI run applies the full numbered sequence to a throwaway local D1 via
+`pnpm run db:migrate:local --persist-to <temporary-directory>`. The job fails
+if any migration errors.
 
 ### Device timing
 
