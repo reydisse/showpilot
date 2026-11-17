@@ -249,8 +249,8 @@ const MessageCard = memo(function MessageCard({
             {message.reactions.filter((reaction) => reaction.userIds.length > 0).map((reaction) => {
             const selected = Boolean(currentUserId && reaction.userIds.includes(currentUserId));
             return (
-              <Pressable accessibilityRole="button" disabled={mutationPending} accessibilityState={{ selected, disabled: mutationPending }} key={reaction.emoji} onPress={() => onToggleReaction(message, reaction.emoji)} style={[styles.reaction, selected && styles.reactionSelected]}>
-                <Text style={styles.reactionText}>{reaction.emoji} {reaction.userIds.length}</Text>
+              <Pressable accessibilityRole="button" disabled={mutationPending} accessibilityState={{ selected, disabled: mutationPending }} key={reaction.emoji} onPress={() => onToggleReaction(message, reaction.emoji)} style={styles.reaction}>
+                <Text style={[styles.reactionText, selected && styles.reactionTextSelected]}>{reaction.emoji} {reaction.userIds.length}</Text>
               </Pressable>
             );
             })}
@@ -1012,8 +1012,8 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   pollOptionText: { flex: 1, color: colors.text, fontFamily, fontSize: 11 },
   pollCount: { color: colors.textMuted, fontFamily, fontSize: 11, fontWeight: "800" },
   reactions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 5 },
-  reaction: { minHeight: 44, minWidth: 44, justifyContent: "center", borderRadius: radii.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, paddingHorizontal: 8 },
-  reactionSelected: { borderColor: colors.amberBorder, backgroundColor: colors.amberSoft },
+  reaction: { minHeight: 44, minWidth: 44, justifyContent: "center", paddingHorizontal: 8 },
+  reactionTextSelected: { color: colors.amberText, fontWeight: "800" },
   reactionText: { color: colors.text, fontFamily, fontSize: 11 },
   deliveryPending: { maxWidth: 260, color: colors.textMuted, fontFamily, fontSize: 11 },
   deliveryFailed: { maxWidth: 260, color: colors.red, fontFamily, fontSize: 11, lineHeight: 15 },
