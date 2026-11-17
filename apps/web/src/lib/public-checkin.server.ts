@@ -1,18 +1,30 @@
 import type { PublicAttendanceResult, PublicAttendanceWrite, PublicCrewMember } from "./public-checkin";
 
 import { attendanceDigest as digest, readAttendanceByMemberId as readMember, attendanceMember, attendanceChangeTime, type AttendanceDatabase as Database, type AttendanceRow as MemberRow } from "./attendance-state.server";
+export async function hashCheckInSecret(secret: string) {
+  return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret)))].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+async function credential(db: Database, orgId: string, memberId: string, secret?: string): Promise<PublicCrewMember | null> {
+  const row = await db.prepare("SELECT checkInSecretHash,photoUrl FROM crew_member WHERE orgId=? AND memberId=?").bind(orgId, memberId).first<{checkInSecretHash: string | null; photoUrl: string}>();
+  return { row, valid: !!row?.checkInSecretHash && !!secret && await hashCheckInSecret(secret) === row.checkInSecretHash };
+}
 async function publicMember(row: MemberRow | null): Promise<PublicCrewMember | null> {
   if (!row) return null;
   const { id: _id, photoUrl: _photoUrl, role: _role, ...member } = await attendanceMember(row);
   return member;
 }
-export async function getPublicAttendanceMember(db: Database, orgId: string, memberId: string) {
-  return publicMember(await readMember(db, orgId, memberId));
+export async function getPublicAttendanceMember(db: Database, orgId: string, memberId: string, secret?: string): Promise<PublicCrewMember | null> {
+  const member = await publicMember(await readMember(db, orgId, memberId));
+  if (!member) return null;
+  const { row, valid } = await credential(db, orgId, memberId, secret);
+  return { ...member, secretRequired: !!row?.checkInSecretHash, ...(valid ? { photoUrl: row!.photoUrl } : {}) };
 }
 
 /** A receipt and its conditional attendance change commit in one transaction. */
 export async function applyPublicAttendanceIntent(db: Database, orgId: string, input: PublicAttendanceWrite): Promise<PublicAttendanceResult> {
   const { memberId, intent, expectedRevision, requestId } = input;
+  const auth = await credential(db, orgId, memberId, input.secret);
+  if (auth.row?.checkInSecretHash && !auth.valid) throw new Error("Unable to confirm attendance. Please retry.");
   const fingerprint = await digest({ memberId, intent, expectedRevision });
   const receiptKey = `public-attendance:${requestId}`;
   const readReceipt = async (): Promise<PublicAttendanceResult | null> => {

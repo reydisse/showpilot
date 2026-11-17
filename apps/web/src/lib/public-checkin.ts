@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const publicCheckInOrgSchema = z.object({ slug: z.string().min(1).max(64) });
 export const publicMemberLookupSchema = publicCheckInOrgSchema.extend({
+  secret: z.string().max(256).optional(),
   memberId: z.string().trim().min(1, "Enter your member ID.").max(64).transform(value => value.toUpperCase()),
 });
 export const publicAttendanceWriteSchema = publicMemberLookupSchema.extend({
@@ -15,6 +16,8 @@ export interface PublicCrewMember {
   name: string;
   isOnline: boolean;
   revision: string;
+  secretRequired?: boolean;
+  photoUrl?: string;
 }
 export interface PublicAttendanceResult {
   requestId: string;
