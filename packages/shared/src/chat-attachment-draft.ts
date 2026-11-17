@@ -102,7 +102,7 @@ export class ChatAttachmentDraft<Source, Body> {
           const prepared = await this.transfer.prepare(entry.source, entry.work.id, controller.signal);
           if (!current()) throw new Error("Attachment preparation cancelled");
           const spec = chatUploadSpecSchema.parse(prepared.spec);
-          if (spec.uploadId !== entry.work.id) throw new Error("Upload identity changed during preparation. Remove this attachment and choose it again.");
+          if (spec.uploadId !== entry.work.id) throw new Error("Something changed while this file was being prepared. Remove this attachment and choose it again.");
           entry.prepared = { ...prepared, spec };
           this.transition(entry, { ...this.identity(entry), state: "uploading" });
         }
@@ -110,7 +110,7 @@ export class ChatAttachmentDraft<Source, Body> {
         const value = await this.transfer.upload(entry.prepared, controller.signal);
         const actual = chatAttachmentSchema.parse(value);
         const expected = chatUploadAttachment(this.transfer.orgId, entry.prepared.spec);
-        if (actual.id !== expected.id || actual.name !== expected.name || actual.url !== expected.url || actual.mimeType !== expected.mimeType || actual.size !== expected.size) throw new Error("The upload reply does not match this file. Recover the original upload.");
+        if (actual.id !== expected.id || actual.name !== expected.name || actual.url !== expected.url || actual.mimeType !== expected.mimeType || actual.size !== expected.size) throw new Error("Upload was not confirmed for this file. Retry this file to recover the original upload.");
         return actual;
       }, controller, 60_000, "Upload was not confirmed. Retry this file to recover the original upload.");
       if (!current()) return;
