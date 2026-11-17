@@ -375,7 +375,7 @@ it("does not report copied until the clipboard confirms and offers retry on fail
 
 it.each([true, false])("gates role updates on confirmation (%s)", async (confirmed) => {
   await open();
-  const select = screen.getByRole<HTMLSelectElement>("combobox", { name: "Role for Casey Crew" });
+  const select = screen.getByRole("combobox", { name: "Role for Casey Crew" });
   fireEvent.change(select, { target: { value: "tm" } });
   expect(api.role).not.toHaveBeenCalled();
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: confirmed ? "Change role" : "Keep current role" }));
@@ -385,6 +385,6 @@ it.each([true, false])("gates role updates on confirmation (%s)", async (confirm
     expect(api.role.mock.calls[0][0].data).toEqual({ orgId: "org-id", memberId: member.id, role: "tm", expectedRevision: 3, requestId: expect.any(String) });
   } else {
     expect(api.role).not.toHaveBeenCalled();
-    expect(select.value).toBe("member");
+    expect((select as unknown as { value: string }).value).toBe("member");
   }
 });
