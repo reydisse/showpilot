@@ -760,7 +760,7 @@ function TemplatePreviewPage() {
                       <button
                         onClick={() => editSceneItem(item)}
                         title="Edit this lower third"
-                        className="flex items-center gap-1.5 max-w-[180px]"
+                        className="flex min-h-11 items-center gap-1.5 max-w-[180px]"
                       >
                         <span className="text-[9px] font-mono text-fire-500 shrink-0">
                           {posLabel(item.controls)}

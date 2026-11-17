@@ -245,7 +245,7 @@ const useStyles = createThemedStyles((colors) => StyleSheet.create({
   checkInTitle: { color: colors.text, fontFamily, fontSize: 15, fontWeight: "900" },
   checkInHint: { color: colors.textMuted, fontFamily, fontSize: 11, lineHeight: 16 },
   checkInActions: { flexDirection: "row", gap: 7 },
-  checkInAction: { flex: 1, minHeight: 40 },
+  checkInAction: { flex: 1, minHeight: 44 },
   sectionRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 12 },
   sectionEyebrow: { color: colors.amberText, fontFamily, fontSize: 11, fontWeight: "900", letterSpacing: 1.5 },
   sectionTitle: { color: colors.text, fontFamily, fontSize: 18, fontWeight: "800", marginTop: 3 },
