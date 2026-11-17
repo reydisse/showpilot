@@ -1,3 +1,4 @@
+import { recordScopedTokenAudit } from "./scoped-token-audit.server";
 import { scopedTokenDigest, findScopedToken, scopedTokenIsActive } from "./scoped-token-store.server";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
@@ -107,6 +108,7 @@ export const createKioskToken = createServerFn({ method: "POST" })
       select: { id: true, label: true, expiresAt: true, createdAt: true, view: true },
     });
 
+    await recordScopedTokenAudit(env.DB, { orgId: data.orgId, tokenId: kioskToken.id, kind: "kiosk", action: "created", actorUserId: userId });
     return { ...kioskToken, token };
   });
 
@@ -131,12 +133,14 @@ export const revokeKioskToken = createServerFn({ method: "POST" })
       select: { orgId: true },
     });
     if (!existing) throw new Error("Token not found");
-    await assertKioskTokenPermission(existing.orgId);
-    return await prisma.kioskToken.update({
+    const userId = await assertKioskTokenPermission(existing.orgId);
+    const revoked = await prisma.kioskToken.update({
       where: { id: data.tokenId, orgId: existing.orgId },
       data: { revokedAt: new Date() },
       select: { id: true, revokedAt: true },
     });
+    await recordScopedTokenAudit(env.DB, { orgId: existing.orgId, tokenId: data.tokenId, kind: "kiosk", action: "revoked", actorUserId: userId });
+    return revoked;
   });
 
 export const validateKioskToken = createServerFn({ method: "GET" })

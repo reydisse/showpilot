@@ -1,3 +1,4 @@
+import { recordScopedTokenAudit } from "./scoped-token-audit.server";
 import { scopedTokenDigest } from "./scoped-token-store.server";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
@@ -99,6 +100,7 @@ export const createCompanionToken = createServerFn({ method: "POST" })
       select: { id: true, label: true, expiresAt: true, createdAt: true },
     });
 
+    await recordScopedTokenAudit(env.DB, { orgId: data.orgId, tokenId: companionToken.id, kind: "companion", action: "created", actorUserId: userId });
     return { ...companionToken, token };
   });
 
@@ -123,10 +125,12 @@ export const revokeCompanionToken = createServerFn({ method: "POST" })
       select: { orgId: true },
     });
     if (!existing) throw new Error("Token not found");
-    await assertCompanionTokenPermission(existing.orgId);
-    return await prisma.companionToken.update({
+    const userId = await assertCompanionTokenPermission(existing.orgId);
+    const revoked = await prisma.companionToken.update({
       where: { id: data.tokenId, orgId: existing.orgId },
       data: { revokedAt: new Date() },
       select: { id: true, revokedAt: true },
     });
+    await recordScopedTokenAudit(env.DB, { orgId: existing.orgId, tokenId: data.tokenId, kind: "companion", action: "revoked", actorUserId: userId });
+    return revoked;
   });

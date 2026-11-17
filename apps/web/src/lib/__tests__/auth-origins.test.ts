@@ -92,3 +92,15 @@ describe("credentialed API origins", () => {
     expect(isAllowedApiOrigin("not a url", "https://showpilot.tech/api/mobile/v1/bootstrap")).toBe(false);
   });
 });
+
+// Evaluate the config expressions directly without bootstrapping Worker bindings.
+it("pins getAuth origins and session policy", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(`${process.cwd()}/src/lib/auth.ts`, "utf8");
+  const origins = source.match(/trustedOrigins: (\[[\s\S]*?\n    \])/)!;
+  expect(new Function("getDevelopmentTrustedOrigins", "baseURL", `return ${origins[1]}`)(getDevelopmentTrustedOrigins, "https://app.showpilot.tech")).toEqual([
+    "https://app.showpilot.tech", "https://showpilot.tech", "https://www.showpilot.tech", "https://admin.showpilot.tech", "https://showpilot.reydisse.workers.dev", "showpilot://",
+  ]);
+  const session = source.match(/session: (\{ expiresIn:[^}]+\})/)!;
+  expect(new Function(`return (${session[1]})`)()).toEqual({ expiresIn: 604800, updateAge: 86400 });
+});
