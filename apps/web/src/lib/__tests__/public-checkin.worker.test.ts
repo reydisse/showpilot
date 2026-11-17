@@ -3,6 +3,7 @@ import { expect, it, vi } from "vitest";
 import { getPrisma } from "../db";
 import { seedRelayMember } from "@/test/relay-fixtures";
 import { applyPublicAttendanceIntent, getPublicAttendanceMember } from "../public-checkin.server";
+import { attendanceMember } from "../attendance-state.server";
 import type { PublicAttendanceWrite } from "../public-checkin";
 vi.mock("@tanstack/react-start/server", () => ({ getRequestHeaders: () => new Headers({ "cf-connecting-ip": "192.0.2.1" }) }));
 vi.mock("@tanstack/react-start", () => {
@@ -30,6 +31,7 @@ const timestamps = (orgId: string) => env.DB.prepare("SELECT lastCheckIn,lastChe
 it("replays an acknowledged check-in without undoing a later check-out or changing its timestamps", async () => {
   const f = await fixture(); const first = await f.request("check-in");
   expect((await f.save(first)).member?.isOnline).toBe(true);
+  expect(Object.keys((await f.save(first)).member ?? {}).sort()).toEqual(["isOnline", "memberId", "name", "revision"]);
   const firstTimes = await timestamps(f.orgId);
   expect((await f.save(first)).outcome).toBe("applied"); expect(await timestamps(f.orgId)).toEqual(firstTimes);
   await f.save(await f.request("check-out")); const finalTimes = await timestamps(f.orgId);
@@ -98,7 +100,7 @@ it("validates public RPCs, returns only public member fields, and retains per-ID
   const f = await fixture();
   expect(await getPublicCheckInOrg({ data: { slug: "missing" } })).toBeNull();
   const member = await getPublicCrewMemberByMemberId({ data: { slug: f.orgId, memberId: " td3917 " } });
-  expect(Object.keys(member ?? {}).sort()).toEqual(["isOnline", "memberId", "name", "photoUrl", "revision", "role"]);
+  expect(Object.keys(member ?? {}).sort()).toEqual(["isOnline", "memberId", "name", "revision"]);
   await expect(publicCheckInByMemberId({ data: { slug: f.orgId, memberId: f.memberId, intent: "check-in" } })).rejects.toThrow();
   const input = await f.request("check-in");
   for (let n = 0; n < 6; n++) expect((await publicCheckInByMemberId({ data: input })).outcome).toBe("applied");
@@ -117,4 +119,10 @@ it("keeps attendance timestamps readable by existing Prisma operator screens", a
   const updated = await getPrisma().crewMember.findUnique({ where: { orgId_memberId: { orgId: f.orgId, memberId: f.memberId } } });
   expect(updated?.isOnline).toBe(false);
   expect(updated?.lastCheckOut?.getTime()).toBeGreaterThan(member?.lastCheckIn?.getTime() ?? 0);
+});
+
+it("preserves photo and role in the authenticated attendance projection", async () => {
+  const member = await attendanceMember({ id: "internal", memberId: "TD3917", name: "Fixture person", photoUrl: "https://example.com/photo.jpg", role: "Director", isOnline: 0, lastCheckIn: null, lastCheckOut: null });
+  expect(Object.keys(member).sort()).toEqual(["id", "isOnline", "memberId", "name", "photoUrl", "revision", "role"]);
+  expect(member).toMatchObject({ photoUrl: "https://example.com/photo.jpg", role: "Director" });
 });

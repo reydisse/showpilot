@@ -13,8 +13,6 @@ export type PublicAttendanceWrite = z.infer<typeof publicAttendanceWriteSchema>;
 export interface PublicCrewMember {
   memberId: string;
   name: string;
-  photoUrl: string;
-  role: string;
   isOnline: boolean;
   revision: string;
 }
