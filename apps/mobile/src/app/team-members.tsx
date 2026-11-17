@@ -172,6 +172,13 @@ export default function TeamMembersScreen() {
     ]);
   }
 
+  function confirmRoleChange(member: MobileOrganizationMember, role: string) {
+    Alert.alert("Change role?", `${member.user.name} will become ${roleLabel(role)}. This changes what they can access and control in this organization.`, [
+      { text: "Keep current role", style: "cancel" },
+      { text: "Change role", onPress: () => roleMutation.mutate({ memberId: member.id, role }) },
+    ]);
+  }
+
   function confirmRemove(memberId: string) {
     const member = memberById.get(memberId);
     Alert.alert(
@@ -365,7 +372,7 @@ export default function TeamMembersScreen() {
                   accessibilityState={{ checked: editingMember?.role === role }}
                   key={role}
                   disabled={roleMutation.isPending}
-                  onPress={() => editingMember && roleMutation.mutate({ memberId: editingMember.id, role })}
+                  onPress={() => editingMember && confirmRoleChange(editingMember, role)}
                   style={[styles.roleChoice, editingMember?.role === role && styles.choiceActive]}
                 >
                   <View style={styles.roleChoiceCopy}>

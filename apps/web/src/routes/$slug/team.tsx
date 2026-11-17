@@ -253,8 +253,15 @@ export function TeamWorkspace({ initial }: { initial: TeamInitial }) {
     tabs.find((tab) => tab.id === activeTab)?.id ?? tabs[0]?.id;
   const tabPrefix = useId();
   const tabList = useRef<HTMLDivElement>(null);
-  const changeRole = (member: OrgMember, role: string) => {
+  const changeRole = async (member: OrgMember, role: string) => {
     if (disabled || member.role === role) return;
+    const label = ROLE_META[role as keyof typeof ROLE_META]?.label ?? role;
+    if (!(await confirm({
+      title: "Change role?",
+      description: `Change ${member.user.name}'s role to ${label}? This changes what they can access and control in this organization.`,
+      confirmLabel: "Change role",
+      cancelLabel: "Keep current role",
+    }))) return;
     void startChange({
       label: `Change role for ${member.user.name}`,
       write: (requestId, signal) =>

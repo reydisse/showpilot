@@ -138,6 +138,7 @@ it("keeps the exact failed role command available after switching tabs", async (
     screen.getByRole("combobox", { name: "Role for Casey Crew" }),
     { target: { value: "tm" } },
   );
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Change role" }));
   await act(async () => {});
   expect(
     screen.getByRole("alert", { name: "Team change" }).textContent,
@@ -170,6 +171,7 @@ it("retries only the read after a confirmed change whose refresh fails", async (
     screen.getByRole("combobox", { name: "Role for Casey Crew" }),
     { target: { value: "tm" } },
   );
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Change role" }));
   await act(async () => {});
   expect(
     screen.getByRole("alert", { name: "Team change" }).textContent,
@@ -267,6 +269,7 @@ it("bounds a hanging write and retains a failed team read without showing an emp
     screen.getByRole("combobox", { name: "Role for Casey Crew" }),
     { target: { value: "tm" } },
   );
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Change role" }));
   await act(() => vi.advanceTimersByTimeAsync(10_000));
   expect(screen.getByRole("button", { name: "Retry change" })).toBeTruthy();
   expect(screen.getByText("Casey Crew")).toBeTruthy();
@@ -368,4 +371,20 @@ it("does not report copied until the clipboard confirms and offers retry on fail
   expect(control.textContent).toBe("Copied");
   expect(copy).toHaveBeenCalledTimes(2);
   expect(copy.mock.calls[0][0]).toContain(`/invite/${invitation.id}`);
+});
+
+it.each([true, false])("gates role updates on confirmation (%s)", async (confirmed) => {
+  await open();
+  const select = screen.getByRole<HTMLSelectElement>("combobox", { name: "Role for Casey Crew" });
+  fireEvent.change(select, { target: { value: "tm" } });
+  expect(api.role).not.toHaveBeenCalled();
+  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: confirmed ? "Change role" : "Keep current role" }));
+  await act(async () => {});
+  if (confirmed) {
+    expect(api.role).toHaveBeenCalledTimes(1);
+    expect(api.role.mock.calls[0][0].data).toEqual({ orgId: "org-id", memberId: member.id, role: "tm", expectedRevision: 3, requestId: expect.any(String) });
+  } else {
+    expect(api.role).not.toHaveBeenCalled();
+    expect(select.value).toBe("member");
+  }
 });
