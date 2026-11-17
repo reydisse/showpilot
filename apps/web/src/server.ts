@@ -1,3 +1,4 @@
+import { decideUploadContentType } from "./lib/upload-content-sniff";
 import { handleAccountProfileRequest } from "./lib/account-profile-api.server";
 import { chatAttachmentName, chatUploadSpecSchema } from "@showpilot/shared/chat-attachment";
 import { ChatAttachmentStorageError, chatFileIsDeleted, storeChatAttachment } from "./lib/chat-attachment-storage.server";
@@ -499,7 +500,7 @@ const appServer = {
       const headers = new Headers();
       object.writeHttpMetadata(headers);
       headers.set("Cache-Control", "private, no-store");
-      headers.set("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`);
+      headers.set("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`);
       return new Response(object.body, { headers });
     }
 
@@ -594,6 +595,9 @@ const appServer = {
         ]);
         if (!allowedTypes.has(file.type)) return new Response("This file type is not supported", { status: 415 });
         if (file.size > 15 * 1024 * 1024) return new Response("Files must be 15 MB or smaller", { status: 413 });
+        const bytes = await file.arrayBuffer();
+        const contentType = decideUploadContentType(file.type, new Uint8Array(bytes));
+        if (!contentType) return new Response("This file type is not supported", { status: 415 });
         const fileId = crypto.randomUUID();
         const safeName = chatAttachmentName(file.name);
         const attachmentOwner = guestToken && validGuest ? await guestAttachmentOwnerId(guestToken) : access.identity?.userId;
@@ -601,24 +605,24 @@ const appServer = {
         if (url.searchParams.has("uploadId") || url.searchParams.has("sha256")) {
           if (!validGuest && !expectedUserId) return new Response("Upload requires the original account identity", { status: 400 });
           const spec = chatUploadSpecSchema.safeParse({ uploadId: url.searchParams.get("uploadId"), sha256: url.searchParams.get("sha256"),
-            name: url.searchParams.get("name") ?? safeName, mimeType: file.type, size: file.size });
+            name: url.searchParams.get("name") ?? safeName, mimeType: contentType, size: file.size });
           if (!spec.success) return new Response("Invalid upload identity. Choose the file again.", { status: 400 });
           try {
-            return Response.json(await storeChatAttachment(e.STORAGE, { orgId, roomId, ownerId: attachmentOwner }, spec.data, file.stream()));
+            return Response.json(await storeChatAttachment(e.STORAGE, { orgId, roomId, ownerId: attachmentOwner }, spec.data, bytes));
           } catch (error) {
             return new Response(error instanceof ChatAttachmentStorageError ? error.message : "Upload was not confirmed. Retry the original file.",
               { status: error instanceof ChatAttachmentStorageError ? error.status : 503 });
           }
         }
-        await e.STORAGE.put(`orgs/${orgId}/chat/${fileId}/${safeName}`, file.stream(), {
-          httpMetadata: { contentType: file.type },
+        await e.STORAGE.put(`orgs/${orgId}/chat/${fileId}/${safeName}`, bytes, {
+          httpMetadata: { contentType },
           customMetadata: { uploadedBy: attachmentOwner, roomId },
         });
         return Response.json({
           id: fileId,
           name: safeName,
           url: `/api/chat-file/${encodeURIComponent(orgId)}/${fileId}/${encodeURIComponent(safeName)}`,
-          mimeType: file.type,
+          mimeType: contentType,
           size: file.size,
         });
       }
@@ -705,6 +709,9 @@ const appServer = {
       }
 
       const arrayBuffer = await file.arrayBuffer();
+      if (decideUploadContentType(file.type, new Uint8Array(arrayBuffer)) !== "image/jpeg") {
+        return Response.json({ error: "Avatar must be a JPEG image" }, { status: 400 });
+      }
       const key = `avatars/${session.user.id}.jpg`;
       await e.STORAGE.put(key, arrayBuffer, { httpMetadata: { contentType: "image/jpeg" } });
       const avatarPath = `/api/user/avatar/${session.user.id}.jpg?v=${Date.now()}`;
@@ -719,7 +726,7 @@ const appServer = {
       return new Response(obj.body, {
         headers: {
           "Content-Type": "image/jpeg",
-          "Cache-Control": "public, max-age=31536000",
+          "Cache-Control": "private, max-age=86400",
         },
       });
     }
