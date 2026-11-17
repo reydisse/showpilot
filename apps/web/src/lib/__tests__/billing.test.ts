@@ -97,7 +97,7 @@ describe("checkout concurrency guards", () => {
       { ...matching, id: "cs_other", metadata: { ...matching.metadata, plan: "starter" } },
       matching,
     ];
-    expect(reusableCheckoutSession(sessions as never, { orgId: "org-1", plan: "pro", uiMode: "hosted" })?.id).toBe("cs_match");
+    expect(reusableCheckoutSession(sessions as never, { orgId: "org-1", plan: "pro", uiMode: "hosted", interval: "monthly" })?.id).toBe("cs_match");
   });
 
   it("uses one deterministic operation key for same-day retries", () => {
@@ -146,4 +146,18 @@ describe("plan limits shape", () => {
     expect(err.status).toBe(402);
     expect(err.name).toBe("PlanLimitError");
   });
+});
+
+
+it("maps all annual prices including founding entitlement", () => {
+  const prices = { starter: "s", pro: "p", founding: "f", starterAnnual: "sa", proAnnual: "pa", foundingAnnual: "fa" };
+  expect(planFromPriceId("sa", prices)).toEqual({ plan: "starter", foundingMember: false });
+  expect(planFromPriceId("pa", prices)).toEqual({ plan: "pro", foundingMember: false });
+  expect(planFromPriceId("fa", prices)).toEqual({ plan: "pro", foundingMember: true });
+});
+
+it("isolates checkout intervals", () => {
+  expect(checkoutIdempotencyKey("o", "pro", "hosted", NOW, "annual")).not.toBe(checkoutIdempotencyKey("o", "pro", "hosted", NOW, "monthly"));
+  const session = { status: "open", mode: "subscription", metadata: { orgId: "o", plan: "pro", uiMode: "hosted", interval: "monthly" } };
+  expect(reusableCheckoutSession([session] as never, { orgId: "o", plan: "pro", uiMode: "hosted", interval: "annual" })).toBeUndefined();
 });

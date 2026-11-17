@@ -114,8 +114,11 @@ equivalents go in `apps/web/.dev.vars` (gitignored — never commit values).
 | `STRIPE_SECRET_KEY` | Stripe API client (`src/lib/billing.ts`) | Stripe dashboard (live mode) → Developers → API keys → secret key (`sk_live_…`). |
 | `STRIPE_WEBHOOK_SECRET` | Webhook signature verification (`src/routes/api/stripe/webhook.ts`) | Signing secret (`whsec_…`) of the live webhook endpoint — see [Stripe setup](#stripe-live-mode-setup). |
 | `STRIPE_PRICE_STARTER` | Checkout price ID (`src/lib/billing.ts`) | Live price ID (`price_…`) of the Starter product. |
+| `STRIPE_PRICE_STARTER_ANNUAL` | Optional annual checkout price ID | Same product, USD $390/year (2 months free). |
 | `STRIPE_PRICE_PRO` | Checkout price ID (`src/lib/billing.ts`) | Live price ID of the Pro product. |
+| `STRIPE_PRICE_PRO_ANNUAL` | Optional annual checkout price ID | Same product, USD $790/year (2 months free). |
 | `STRIPE_PRICE_FOUNDING` | Checkout price ID (`src/lib/billing.ts`) | Live price ID of the Founding Member product. |
+| `STRIPE_PRICE_FOUNDING_ANNUAL` | Optional annual checkout price ID | Same product, USD $250/year (2 months free). |
 
 Also required for Cloudflare Stream features (live inputs and Stream Connect
 simulcast, `src/lib/stream*.ts`) — these throw at first use if missing:
@@ -3035,8 +3038,11 @@ customer portal), then from `apps/web`:
 pnpm exec wrangler secret put STRIPE_SECRET_KEY      # sk_live_…
 pnpm exec wrangler secret put STRIPE_WEBHOOK_SECRET  # whsec_… (live endpoint)
 pnpm exec wrangler secret put STRIPE_PRICE_STARTER   # price_… (live Starter)
+pnpm exec wrangler secret put STRIPE_PRICE_STARTER_ANNUAL # price_… (annual)
 pnpm exec wrangler secret put STRIPE_PRICE_PRO       # price_… (live Pro)
+pnpm exec wrangler secret put STRIPE_PRICE_PRO_ANNUAL # price_… (annual)
 pnpm exec wrangler secret put STRIPE_PRICE_FOUNDING  # price_… (live Founding)
+pnpm exec wrangler secret put STRIPE_PRICE_FOUNDING_ANNUAL # price_… (annual)
 ```
 
 Secrets apply to the running Worker immediately — do this together with

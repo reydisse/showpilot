@@ -25,6 +25,7 @@ describe("resolveCheckoutUiMode — fallback decision", () => {
 });
 
 const input = {
+  interval: "monthly" as const,
   customerId: "cus_123",
   orgId: "org_123",
   orgSlug: "grace",
@@ -57,6 +58,15 @@ describe("buildCheckoutSessionParams — session mode selection", () => {
       expect(embedded[key]).toEqual(hosted[key]);
     }
     expect(embedded.subscription_data?.metadata?.orgId).toBe("org_123");
-    expect(embedded.metadata).toEqual({ orgId: "org_123", plan: "pro", uiMode: "embedded" });
+    expect(embedded.metadata).toEqual({ orgId: "org_123", plan: "pro", interval: "monthly", uiMode: "embedded" });
   });
+});
+
+
+it("enables promotions and a 14 day trial with interval metadata", () => {
+  const params = buildCheckoutSessionParams({ ...input, uiMode: "hosted", interval: "annual" });
+  expect(params.allow_promotion_codes).toBe(true);
+  expect(params.subscription_data?.trial_period_days).toBe(14);
+  expect(params.subscription_data?.metadata).toEqual({ orgId: input.orgId, plan: "pro", interval: "annual" });
+  expect(params.metadata?.interval).toBe("annual");
 });
