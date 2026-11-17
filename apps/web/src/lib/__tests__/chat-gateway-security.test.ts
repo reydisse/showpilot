@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   access: vi.fn(),
   relay: vi.fn(),
   verifyPass: vi.fn(),
+  storagePut: vi.fn(),
   storageGet: vi.fn(),
   storageDelete: vi.fn(),
   tombstoned: false,
@@ -43,7 +44,7 @@ const testEnv = {
     }),
   },
   CHAT_RELAY: { idFromName: (name: string) => name, get: () => ({ fetch: mocks.relay }) },
-  STORAGE: { get: mocks.storageGet, delete: mocks.storageDelete },
+  STORAGE: { put: mocks.storagePut, get: mocks.storageGet, delete: mocks.storageDelete },
 };
 
 beforeEach(() => {
@@ -215,4 +216,26 @@ describe("chat gateway authority boundary", () => {
     expect(response.status).toBe(503); expect(mocks.relay).not.toHaveBeenCalled();
   });
 
+});
+
+it("checks avatar bytes and scopes avatar caching", async () => {
+ mocks.session.mockResolvedValue({ user: { id: "member-1" } });
+ for (const [bytes, status] of [[[137,80,78,71,13,10,26,10],400], [[255,216,255],200]] as const) {
+  const form = new FormData(); form.set("file", new File([new Uint8Array(bytes)], "a.jpg", { type: "image/jpeg" }));
+  expect((await server.fetch(new Request("https://chat.test/api/user/avatar", { method: "POST", body: form }), testEnv, {})).status).toBe(status);
+ }
+ mocks.storageGet.mockResolvedValue({ body: new Uint8Array([255,216,255]) });
+ expect((await server.fetch(new Request("https://chat.test/api/user/avatar/member-1.jpg"), testEnv, {})).headers.get("Cache-Control")).toBe("private, max-age=86400");
+});
+it("checks chat bytes and serves accepted PNG as an attachment", async () => {
+ for (const [bytes, status] of [[[37,80,68,70,45],415], [[137,80,78,71,13,10,26,10],200]] as const) {
+  const form = new FormData(); form.set("file", new File([new Uint8Array(bytes)], "a.png", { type: "image/png" }));
+  expect((await server.fetch(new Request("https://chat.test/api/chat/org/upload?guestToken=valid", { method: "POST", body: form }), testEnv, {})).status).toBe(status);
+ }
+ expect(mocks.storagePut.mock.calls[0][2].httpMetadata.contentType).toBe("image/png");
+ mocks.storageGet.mockResolvedValue({ body: new Uint8Array([137]), customMetadata: {}, writeHttpMetadata: (h: Headers) => h.set("Content-Type", "image/png") });
+ mocks.relay.mockResolvedValue(Response.json({ deleted: false }));
+ const response = await server.fetch(new Request("https://chat.test/api/chat-file/org/file/a.png?guestToken=valid"), testEnv, {});
+ expect(response.headers.get("Content-Type")).toBe("image/png");
+ expect(response.headers.get("Content-Disposition")).toBe("attachment; filename*=UTF-8''a.png");
 });

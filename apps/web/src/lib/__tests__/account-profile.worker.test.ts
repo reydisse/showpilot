@@ -283,3 +283,8 @@ it("never publishes a photo if storing the bytes fails", async () => {
     ).outcome,
   ).toBe("applied");
 });
+
+it("rejects non-JPEG bytes declared as JPEG", async () => {
+ const f = await fixture();
+ expect((await photo(f, 0, [137,80,78,71,13,10,26,10])).status).toBe(400);
+});

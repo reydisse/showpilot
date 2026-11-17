@@ -1,3 +1,4 @@
+import { decideUploadContentType } from "./upload-content-sniff";
 import { z } from "zod";
 import {
   profileNameCommandSchema,
@@ -82,6 +83,8 @@ export async function handleAccountProfileRequest(
     )
       return respond({ error: "Choose a JPEG photo smaller than 2 MB." }, 400);
     const bytes = await file.arrayBuffer();
+    if (decideUploadContentType(file.type, new Uint8Array(bytes)) !== "image/jpeg")
+      return respond({ error: "Choose a JPEG photo smaller than 2 MB." }, 400);
     const hash = [
       ...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
     ]
