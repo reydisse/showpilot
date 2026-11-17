@@ -58,8 +58,11 @@ describe("ChatRelay live authority", () => {
     if (kind === "revoked") await env.DB.prepare("DELETE FROM member WHERE organizationId=? AND userId=?").bind(test.orgId, test.authority.userId).run();
     await evictDurableObject(test.stub);
     const closed = new Promise<CloseEvent>(resolve => socket.addEventListener("close", resolve, { once: true }));
-    socket.send(JSON.stringify({ type: "message", text: "Rejected" }));
+    const broadcasts: unknown[] = [];
+    socket.addEventListener("message", event => broadcasts.push(JSON.parse(String(event.data))));
+    socket.send(JSON.stringify({ type: "message", messageType: "alert", text: "Rejected" }));
     expect(await closed).toMatchObject({ code: 4403 });
+    expect(broadcasts).toEqual([]);
     expect(await (await test.stub.fetch(test.url("/history"))).json()).toMatchObject({ messages: [] });
   });
 
