@@ -772,7 +772,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
         if (!tokenHash || !/^sha256:[0-9a-f]{64}$/.test(tokenHash)) return new Response("Guest token identity required", { status: 401 });
         if (await chatPassIsRevoked(this.env.DB, this.orgId, tokenHash)) return new Response("Guest pass revoked", { status: 401 });
         const attachmentOwnerId = url.searchParams.get("attachmentOwnerId") ?? undefined;
-        session = { ...base, kind: "guest", role: "Guest", workerVerified: true, tokenHash, expiresAt, attachmentOwnerId };
+        session = { ...base, name: base.name.startsWith("Guest - ") ? base.name : `Guest - ${base.name}`, kind: "guest", role: "Guest", workerVerified: true, tokenHash, expiresAt, attachmentOwnerId };
       } else {
         if (url.searchParams.get("role") === "Guest") return new Response("Guest authority required", { status: 401 });
         session = await this.readMemberSession(url) ?? { ...base, kind: "viewer" };
