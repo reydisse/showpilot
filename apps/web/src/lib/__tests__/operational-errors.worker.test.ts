@@ -75,3 +75,13 @@ it("drops arbitrary exception text, throttles relay duplicates and cannot reject
   expect(() => reportRelayError(ctx, env.DB, orgId, "rundown_activation", cause)).not.toThrow();
   await expect(Promise.all(tasks.splice(0))).resolves.toEqual([undefined]); fail.mockRestore();
 });
+
+it("accepts matching or absent Origin with a session, and requires a session without Origin", async () => {
+  const member = await fixture();
+  expect((await handleOperationalErrorRequest(request(member.orgId), env.DB, member.orgId, ctx)).status).toBe(202);
+  const native = () => { const req = request(member.orgId); req.headers.delete("origin"); return req; };
+  expect((await handleOperationalErrorRequest(native(), env.DB, member.orgId, ctx)).status).toBe(202);
+  expect((await handleOperationalErrorRequest(request(member.orgId, input, "https://evil.test"), env.DB, member.orgId, ctx)).status).toBe(403);
+  auth.userId = null;
+  expect((await handleOperationalErrorRequest(native(), env.DB, member.orgId, ctx)).status).toBe(401);
+});

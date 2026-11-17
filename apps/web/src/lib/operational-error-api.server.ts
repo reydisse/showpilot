@@ -7,7 +7,7 @@ import { recordOperationalError } from "./operational-errors.server";
 export async function handleOperationalErrorRequest(request: Request, db: D1Database, orgId: string, ctx: Pick<ExecutionContext, "waitUntil">): Promise<Response> {
   const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
   if (!["GET", "POST"].includes(request.method)) return json({ error: "Method not allowed" }, 405);
-  if (request.method === "POST" && request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "Origin not allowed" }, 403);
+  if (request.method === "POST" && request.headers.has("origin") && request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "Origin not allowed" }, 403);
   const session = await getAuth().api.getSession({ headers: request.headers });
   if (!session) return json({ error: "Unauthorized" }, 401);
   const access = await resolveEffectiveAccess(db, session.user.id, orgId);
