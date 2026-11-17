@@ -393,7 +393,7 @@ export default function TeamMembersScreen() {
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
   list: { gap: 10, paddingBottom: spacing.large },
   headerContent: { gap: spacing.medium, paddingBottom: 2 },
-  inviteButton: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 7, borderRadius: radii.small, backgroundColor: colors.amber, paddingHorizontal: 13 },
+  inviteButton: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: 7, borderRadius: radii.small, backgroundColor: colors.amber, paddingHorizontal: 13 },
   inviteButtonText: { color: colors.black, fontFamily, fontSize: 11, fontWeight: "900" },
   summaryCard: { flexDirection: "row", alignItems: "flex-start", gap: 12, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.panel, padding: spacing.medium },
   summaryCopy: { flex: 1, gap: 4 },
