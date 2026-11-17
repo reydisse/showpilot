@@ -10,8 +10,10 @@
 # They deliberately do NOT use wrangler's migrations-directory convention, so
 # `wrangler d1 migrations apply` cannot track them. Instead, the "Check D1
 # migrations" step below compares the numbered SQL files against the
-# applied-remote.txt manifest and FAILS the deploy with instructions if any
-# file is unapplied. See DEPLOY.md → "D1 migrations" for the full procedure.
+# applied-remote.txt production-application log and FAILS the deploy with
+# instructions if any file is unapplied. The numbered sequence is the system
+# of record for schema history; the manifest logs production application.
+# See DEPLOY.md → "D1 migrations" for the full procedure.
 #
 # Required repo secrets:
 #   CLOUDFLARE_API_TOKEN  — Workers/R2 deploy token (see DEPLOY.md)
