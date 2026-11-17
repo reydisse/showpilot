@@ -788,6 +788,10 @@ const appServer = {
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24)))) ;
+    const headers = new Headers(request.headers);
+    headers.set("x-showpilot-csp-nonce", nonce);
+    request = new Request(request, { headers });
     const bindings = env as Env;
     return withDatabaseRequest(request, bindings.DB, async () => {
       let response: Response;
@@ -797,7 +801,7 @@ export default {
         if (!(cause instanceof AccessCheckUnavailableError)) throw cause;
         response = withApiCorsHeaders(request, accessCheckUnavailableResponse());
       }
-      return withSecurityHeaders(request, response);
+      return withSecurityHeaders(request, response, nonce);
     });
   },
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {

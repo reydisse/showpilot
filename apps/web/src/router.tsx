@@ -1,3 +1,4 @@
+import { getCspNonce } from "./lib/csp-nonce"
 import { createRouter as createTanStackRouter } from '@tanstack/react-router'
 import { routeTree } from './routeTree.gen'
 import { RouteError, RouteNotFound } from './components/ui/RouteRecovery'
@@ -7,6 +8,7 @@ export function getRouter() {
   installRouteLoadDeadlines(routeTree)
   const router = createTanStackRouter({
     routeTree,
+    ssr: { nonce: getCspNonce() },
     defaultErrorComponent: RouteError,
     defaultNotFoundComponent: RouteNotFound,
 
