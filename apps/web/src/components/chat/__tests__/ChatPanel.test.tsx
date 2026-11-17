@@ -498,3 +498,27 @@ it("restores the earlier unsent text after saving an edit", async () => {
   await waitFor(() => expect(screen.getByRole("textbox")).toHaveProperty("value", "Next announcement"));
   expect(edit).toHaveBeenCalledWith("reply", "Correction", 2);
 });
+
+it("portals the fixed reaction picker and preserves selection", () => {
+  const onSetReaction = vi.fn().mockResolvedValue(undefined);
+  render(<ChatPanel messages={[messages[1]]} connectionStatus="connected" unreadCount={0} onSendMessage={vi.fn()} onSetReaction={onSetReaction} />);
+  fireEvent.click(screen.getByRole("button", { name: "Choose reaction" }));
+  const picker = screen.getByTestId("reaction-picker");
+  expect(picker.parentElement).toBe(document.body);
+  expect(screen.getByTestId("chat-scroll-region").contains(picker)).toBe(false);
+  expect(picker.style.position).toBe("fixed");
+  const emoji = within(picker).getAllByRole("button")[0].textContent!;
+  fireEvent.click(within(picker).getByRole("button", { name: `React ${emoji}` }));
+  expect(onSetReaction).toHaveBeenCalledWith(messages[1].id, emoji, true);
+  expect(screen.queryByTestId("reaction-picker")).toBeNull();
+});
+
+it("closes the reaction picker on chat scrolling and window resizing", () => {
+  render(<ChatPanel messages={[messages[1]]} connectionStatus="connected" unreadCount={0} onSendMessage={vi.fn()} onSetReaction={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Choose reaction" }));
+  fireEvent.scroll(screen.getByTestId("chat-scroll-region"));
+  expect(screen.queryByTestId("reaction-picker")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Choose reaction" }));
+  fireEvent(window, new Event("resize"));
+  expect(screen.queryByTestId("reaction-picker")).toBeNull();
+});
