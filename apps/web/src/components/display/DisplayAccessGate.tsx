@@ -137,7 +137,12 @@ function DisplaySession({
               : "This display could not be opened."}
         </p>
         {state.status === "error" && (
-          null
+          <p className="text-sm text-white/70">
+            Last checked{" "}
+            <time dateTime={new Date(state.occurredAt).toISOString()}>
+              {new Date(state.occurredAt).toLocaleTimeString()}
+            </time>
+          </p>
         )}
         {state.status !== "checking" && (
           <button
