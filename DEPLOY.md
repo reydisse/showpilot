@@ -168,7 +168,7 @@ mode for `.dev.vars` values):
    each live price ID (`price_…`) into the matching secret:
    `STRIPE_PRICE_STARTER`, `STRIPE_PRICE_PRO`, `STRIPE_PRICE_FOUNDING`.
 2. **Webhook endpoint.** Developers → Webhooks → Add endpoint:
-   - URL: `https://showpilot.tech/api/stripe/webhook`
+   - URL: `https://app.showpilot.tech/api/stripe/webhook`
    - Events: `checkout.session.completed`,
      `customer.subscription.updated`, `customer.subscription.deleted`
      (the only events the handler processes — see
@@ -3031,7 +3031,7 @@ https://github.com/reydisse/showpilot/actions/workflows/deploy.yml).
 
 **2. Create live-mode Stripe objects and swap the five secrets.**
 Follow [Stripe live-mode setup](#stripe-live-mode-setup) in **live mode**
-(products/prices, webhook on `https://showpilot.tech/api/stripe/webhook`,
+(products/prices, webhook on `https://app.showpilot.tech/api/stripe/webhook`,
 customer portal), then from `apps/web`:
 
 ```sh
