@@ -13,9 +13,25 @@ export function safeAuthReturnTo(value: unknown): string | undefined {
   } catch { return; }
 }
 
-export function verificationHref(returnTo?: string): string {
+export function safeSignupPlan(value: unknown): "starter" | "pro" | "founding" | undefined {
+  return value === "starter" || value === "pro" || value === "founding" ? value : undefined;
+}
+
+export function withSignupPlan(destination: string, value: unknown): string {
+  const plan = safeSignupPlan(value);
+  if (!plan) return destination;
+  const url = new URL(destination, "https://auth-return.invalid");
+  url.searchParams.set("plan", plan);
+  return url.pathname + url.search + url.hash;
+}
+
+export function verificationHref(returnTo?: string, value?: unknown): string {
   const destination = safeAuthReturnTo(returnTo);
-  return destination ? `/verify-email?${new URLSearchParams({ returnTo: destination })}` : "/verify-email";
+  const plan = safeSignupPlan(value);
+  const search = new URLSearchParams();
+  if (destination) search.set("returnTo", destination);
+  if (plan) search.set("plan", plan);
+  return search.size ? `/verify-email?${search}` : "/verify-email";
 }
 
 // Email links always land on our status page, including after opening the link
@@ -23,7 +39,7 @@ export function verificationHref(returnTo?: string): string {
 export function verificationEmailCallback(callback: string | null, baseURL: string): string {
   try {
     const url = new URL(callback ?? "/verify-email", baseURL);
-    if (url.origin === new URL(baseURL).origin && url.pathname === "/verify-email") return verificationHref(safeAuthReturnTo(url.searchParams.get("returnTo")));
+    if (url.origin === new URL(baseURL).origin && url.pathname === "/verify-email") return verificationHref(safeAuthReturnTo(url.searchParams.get("returnTo")), url.searchParams.get("plan"));
   } catch { /* Invalid callback falls back to the verification page. */ }
   return "/verify-email";
 }

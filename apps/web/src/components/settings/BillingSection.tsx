@@ -1,3 +1,4 @@
+import { safeSignupPlan } from "@/lib/auth-navigation";
 import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -67,6 +68,15 @@ export function BillingSection({
   orgId: string;
   billing: OrgBillingInfo | null;
 }) {
+  const [selectedPlan] = useState(() => typeof window === "undefined" ? undefined : safeSignupPlan(new URLSearchParams(window.location.search).get("plan")));
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("plan")) {
+      url.searchParams.delete("plan");
+      window.history.replaceState(window.history.state, "", url.toString());
+    }
+    if (selectedPlan) document.getElementById(`signup-plan-${selectedPlan}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedPlan]);
   const [banner] = useState<"success" | "cancelled" | null>(
     billingBannerFromUrl,
   );
@@ -303,12 +313,15 @@ export function BillingSection({
                 key={card.plan}
                 role="group"
                 aria-label={`${card.name} plan`}
-                className={`rounded-xl border p-4 flex flex-col ${
+                id={`signup-plan-${card.plan}`}
+                data-preselected={selectedPlan === card.plan || undefined}
+                className={`rounded-xl border p-4 flex flex-col ${selectedPlan === card.plan ? "ring-2 ring-fire-500" : ""} ${
                   isCurrent
                     ? "border-fire-500/50 bg-fire-500/5"
                     : "border-board-border bg-board-card"
                 }`}
               >
+                {selectedPlan === card.plan && <p className="text-sm font-semibold text-fire-500">Selected for you</p>}
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-sm font-semibold text-board-text">
                     {card.name}

@@ -10,10 +10,11 @@ import { getSignInDesign } from "@showpilot/shared";
 import { authClient } from "@/lib/auth-client";
 import { PASSWORD_MIN_LENGTH } from "@showpilot/shared";
 import { withOperationTimeout } from "@/lib/operation-timeout";
-import { safeAuthReturnTo, verificationHref } from "@/lib/auth-navigation";
+import { safeAuthReturnTo, safeSignupPlan, withSignupPlan, verificationHref } from "@/lib/auth-navigation";
 
 export const Route = createFileRoute("/_auth/login")({
-  validateSearch: (search: Record<string, unknown>): { signup?: 1; verify?: 1; returnTo?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { signup?: 1; verify?: 1; returnTo?: string; plan?: ReturnType<typeof safeSignupPlan> } => ({
+    plan: safeSignupPlan(search.plan),
     signup: search.signup === "1" || search.signup === 1 ? 1 : undefined,
     verify: search.verify === "1" || search.verify === 1 ? 1 : undefined,
     returnTo: safeAuthReturnTo(search.returnTo),
@@ -23,7 +24,7 @@ export const Route = createFileRoute("/_auth/login")({
 });
 
 function LoginPage() {
-  const { signup, verify, returnTo } = Route.useSearch();
+  const { signup, verify, returnTo, plan } = Route.useSearch();
   const { design } = Route.useLoaderData();
   const [isSignUp, setIsSignUp] = useState(Boolean(signup));
   const [email, setEmail] = useState("");
@@ -54,7 +55,7 @@ function LoginPage() {
     try {
       const fetchOptions = { signal: controller.signal, retry: 0 };
       const operation = signingUp
-        ? authClient.signUp.email({ email, password, name, callbackURL: verificationHref(destination), fetchOptions })
+        ? authClient.signUp.email({ email, password, name, callbackURL: verificationHref(destination, plan), fetchOptions })
         : authClient.signIn.email({ email, password, fetchOptions });
       const result = await withOperationTimeout(operation, 8_000, "Authentication confirmation timed out.");
       if (controller.signal.aborted) return;
@@ -77,7 +78,7 @@ function LoginPage() {
       if (!result.data?.user || !result.data.token) throw new Error("Authentication acknowledgement missing.");
       unlockLocalAccount();
       setPassword("");
-      window.location.href = signingUp || verifyAfterSignIn ? verificationHref(destination) : destination ?? (createOrgAfterSignIn ? "/setup?mode=new" : "/");
+      window.location.href = signingUp || verifyAfterSignIn ? verificationHref(destination, plan) : (destination ? withSignupPlan(destination, plan) : undefined) ?? (createOrgAfterSignIn ? "/setup?mode=new" : "/");
     } catch {
       if (controller.signal.aborted) return;
       setUncertainSignup(signingUp);

@@ -3,11 +3,11 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, expect, it, vi } from "vitest";
 import { Route } from "@/routes/_auth/login";
 
-const auth = vi.hoisted(() => ({ signUp: vi.fn(), signIn: vi.fn() }));
+const auth = vi.hoisted(() => ({ signUp: vi.fn(), signIn: vi.fn(), plan: undefined as unknown }));
 vi.mock("@/lib/auth-client", () => ({ authClient: { signUp: { email: auth.signUp }, signIn: { email: auth.signIn } } }));
 vi.mock("@/components/auth/SignInShell", () => ({ SignInShell: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock("@tanstack/react-router", () => ({
-  createFileRoute: () => (options: unknown) => ({ options, useSearch: () => ({ signup: 1 }), useLoaderData: () => ({ design: {} }) }),
+  createFileRoute: () => (options: unknown) => ({ options, useSearch: () => ({ signup: 1, plan: auth.plan }), useLoaderData: () => ({ design: {} }) }),
   Link: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
@@ -61,4 +61,12 @@ it("explains signup password-policy errors without exposing raw auth codes", asy
   await attemptSignup();
   expect(screen.getByRole("alert").textContent).toContain("Use no more than 128 characters");
   expect(screen.getByRole("alert").textContent).not.toContain("PASSWORD_TOO_LONG");
+});
+
+it.each(["pro", "enterprise"])("validates signup callback plan %s", async plan => {
+ auth.plan = plan;
+ auth.signUp.mockResolvedValue({ error: { message: "Test failure" } });
+ await attemptSignup();
+ expect(auth.signUp.mock.calls[0][0].callbackURL).toBe(plan === "pro" ? "/verify-email?plan=pro" : "/verify-email");
+ auth.plan = undefined;
 });
