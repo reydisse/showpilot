@@ -82,6 +82,8 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
   const toleranceValid = toleranceText.trim() !== "" && isValidTimecodeTolerance(toleranceFrames);
   const toleranceError = `Tolerance must be a whole number from 0 to ${MAX_TIMECODE_TOLERANCE_FRAMES} frames.`;
   const [webhookUrl, setWebhookUrl] = useState(text("url"));
+  const [webhookSecret, setWebhookSecret] = useState(text("secret"));
+  const secretId = useId();
   const webhookId = useId();
   const timecodeId = useId();
   const labelId = useId();
@@ -109,7 +111,11 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
     if (changeDetails && basicFields && details.status === "invalid") { setError(details.message); return; }
     let payload: Record<string, unknown>;
     if (editing && !changeDetails) payload = initialDetails;
-    else if (action === "custom-webhook") payload = { ...(editing?.payload ?? {}), url: webhookUrl.trim() };
+    else if (action === "custom-webhook") {
+      payload = { ...(editing?.payload ?? {}), url: webhookUrl.trim() };
+      delete payload.secret;
+      if (webhookSecret) payload.secret = webhookSecret;
+    }
     else if (mediaAction) payload = {
       output: mediaOutput.trim(),
       ...(action === "media-play" ? { mediaId: mediaAsset?.id, etag: mediaAsset?.etag, volume: mediaVolumeValid ? Number(mediaVolume) / 100 : null } : {}),
@@ -246,6 +252,8 @@ export function AutomationEventEditor({ onAdd, format, connected, loadTargets, t
       {!changeDetails ? <p className="text-sm text-board-muted">The cue keeps its saved action details. Editing does not fire or re-arm it.</p> : action === "custom-webhook" ? <div className="space-y-2">
         <label htmlFor={webhookId} className="block text-xs text-board-muted">Webhook URL</label>
         <input id={webhookId} type="url" required value={webhookUrl} onChange={event => setWebhookUrl(event.target.value)} className={INPUT_CLASS} placeholder="https://hooks.example.com/show" />
+        <label htmlFor={secretId}>Signing secret</label>
+        <input id={secretId} type="password" value={webhookSecret} onChange={event => setWebhookSecret(event.target.value)} className={INPUT_CLASS} />
         {webhookUrl.length > 0 && !isSafeAutomationWebhookUrl(webhookUrl) && <p role="alert" className="text-xs text-red-400">Enter a public HTTPS webhook URL without credentials or a custom port.</p>}
       </div> : mediaAction ? <MediaCueFields key={action} orgId={orgId} play={action === "media-play"} output={mediaOutput} onOutput={setMediaOutput} asset={mediaAsset} onAsset={setMediaAsset} volume={mediaVolume} onVolume={setMediaVolume} /> : namedTimer ? <div className="space-y-3">
         <div><label htmlFor={timerNameId} className="mb-1 block text-xs text-board-muted">Timer name</label>

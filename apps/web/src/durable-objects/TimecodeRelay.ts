@@ -1,3 +1,4 @@
+import { assertAutomationWebhookResolvesPublic } from "../lib/automation-webhook.server";
 import { isTimecodeCueControl, reviewTimecodeCue, sameTimecodeCueReviews } from "@showpilot/shared";
 import { isTimecodeGateCommand, sameTimecodeGateReview } from "@showpilot/shared";
 import { isReviewedTimecodeClockEdit, sameTimecodeClockReview } from "@showpilot/shared";
@@ -2185,17 +2186,17 @@ export class TimecodeRelay extends DurableObject {
         if (!isSafeAutomationWebhookUrl(url)) {
           throw new Error("Custom webhook target must be a public HTTPS URL.");
         }
-        const response = await fetch(url, {
-          method: "POST",
-          signal,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            event: event.label,
-            timecode: this.state.display,
-            payload: event.payload,
-            firedAt: Date.now(),
-          }),
-        });
+        await assertAutomationWebhookResolvesPublic(url, signal);
+        const body = JSON.stringify({ event: event.label, action: event.action, eventId: event.id, timecode: this.state.display, firedAt: Date.now() });
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        const secret = event.payload.secret;
+        if (typeof secret === "string" && secret.length > 0) {
+          const encoder = new TextEncoder();
+          const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+          const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(body));
+          headers["X-ShowPilot-Signature"] = `sha256=${Array.from(new Uint8Array(signature), byte => byte.toString(16).padStart(2, "0")).join("")}`;
+        }
+        const response = await fetch(url, { method: "POST", signal, headers, body });
         signal.throwIfAborted();
         await response.body?.cancel();
         if (!response.ok) throw new AutomationRejection("Custom webhook", response.status);

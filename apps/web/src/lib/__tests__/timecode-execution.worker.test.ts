@@ -117,7 +117,8 @@ describe("automation acknowledgement", () => {
   });
 
   it("times out a hung webhook and ignores its late acknowledgement", async () => {
-    const requests = vi.fn<typeof fetch>(async () => {
+    const requests = vi.fn<typeof fetch>(async (url) => {
+      if (String(url).startsWith("https://cloudflare-dns.com/")) return Response.json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
       // Deliberately ignore AbortSignal, as an RPC or remote device might.
       await new Promise((resolve) => setTimeout(resolve, 5200));
       return Response.json({ ok: true });
@@ -137,7 +138,8 @@ describe("automation acknowledgement", () => {
   }, 10000);
 
   it("runs a later lyric cue while a same-frame webhook is still awaiting acknowledgement", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).startsWith("https://cloudflare-dns.com/")) return Response.json({ Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] });
       await new Promise((resolve) => setTimeout(resolve, 1500));
       return Response.json({ ok: true });
     }));
@@ -355,4 +357,35 @@ describe("automation acknowledgement", () => {
     await test.command("feed-tc", tick);
     expect((await test.events())[0]).toMatchObject({ fired: false, executionAttempts: 3 });
   });
+});
+
+it.each([undefined, "signing-key"])("sends a fixed body and optional signature (%s)", async secret => {
+  let body = ""; let headers = new Headers();
+  vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+    if (String(url).startsWith("https://cloudflare-dns.com/")) return Response.json({Status:0,Answer:[{type:1,data:"93.184.216.34"}]});
+    body = String(init?.body); headers = new Headers(init?.headers); return Response.json({ok:true});
+  }));
+  const test = await timeline();
+  await test.command("add-event", {id:"fixed",action:"custom-webhook",label:"Fixed",triggerTimecode:atZero,payload:{url:"https://hooks.example.com/cue",secret,arbitrary:"excluded"}});
+  await test.command("feed-tc",tick);
+  expect((await test.events())[0].fired).toBe(true);
+  expect(Object.keys(JSON.parse(body)).sort()).toEqual(["action","event","eventId","firedAt","timecode"]);
+  expect(body).not.toContain("excluded");
+  if (secret) {
+    const key = await crypto.subtle.importKey("raw",new TextEncoder().encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign"]);
+    const signature = await crypto.subtle.sign("HMAC",key,new TextEncoder().encode(body));
+    expect(headers.get("X-ShowPilot-Signature")).toBe(`sha256=${Array.from(new Uint8Array(signature), b => b.toString(16).padStart(2,"0")).join("")}`);
+    expect(body).not.toContain(secret);
+  } else expect(headers.has("X-ShowPilot-Signature")).toBe(false);
+});
+it("rejects rebinding before dispatch", async () => {
+ const target = vi.fn();
+ vi.stubGlobal("fetch",vi.fn(async url => {
+   if (String(url).startsWith("https://cloudflare-dns.com/")) return Response.json({Status:0,Answer:[{type:1,data:"127.0.0.1"}]});
+   target(); return Response.json({ok:true});
+ }));
+ const test=await timeline();
+ await test.command("add-event",{id:"rebound",action:"custom-webhook",label:"Rebound",triggerTimecode:atZero,payload:{url:"https://hooks.example.com/cue"}});
+ await test.command("feed-tc",tick);
+ expect((await test.events())[0].executionStatus).toBe("failed");expect(target).not.toHaveBeenCalled();
 });

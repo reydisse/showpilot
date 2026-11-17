@@ -66,7 +66,7 @@ it("retry reserves one dispatch across concurrent requests and preserves later f
   const f = await fixture(); await f.command("remove-event", { id: "cue" });
   await f.cue("hook", "custom-webhook", { url: "https://hooks.example.com/test" });
   const fetcher = vi.fn().mockImplementationOnce(async () => new Response("Failed", { status: 500 })).mockImplementation(async () => Response.json({ ok: true }));
-  vi.stubGlobal("fetch", fetcher);
+  stubWebhookFetch( fetcher);
   await f.command("fire-event", { id: "hook" });
   expect((await f.events())[0].executionStatus).toBe("failed");
   const retry = await f.control("retry", "hook");
@@ -80,7 +80,7 @@ it("retry reserves one dispatch across concurrent requests and preserves later f
 });
 it("keeps failed delivery separate from accepting a retry request", async () => {
   const f = await fixture(); await f.cue("hook", "custom-webhook", { url: "https://hooks.example.com/test" });
-  const fetcher = vi.fn(async () => new Response("Failed", { status: 500 })); vi.stubGlobal("fetch", fetcher);
+  const fetcher = vi.fn(async () => new Response("Failed", { status: 500 })); stubWebhookFetch( fetcher);
   await f.command("fire-event", { id: "hook" }); const retry = await f.control("retry", "hook");
   expect(await f.command("control-cues", retry)).toMatchObject({ status: 200, body: { outcome: "applied" } });
   expect((await f.events()).find(event => event.id === "hook")).toMatchObject({ fired: false, executionStatus: "failed" });
@@ -89,7 +89,7 @@ it("keeps failed delivery separate from accepting a retry request", async () => 
 it("disables a dispatching cue without losing its later acknowledgement", async () => {
   const f = await fixture(); await f.cue("hook", "custom-webhook", { url: "https://hooks.example.com/test" });
   let sent = false;
-  vi.stubGlobal("fetch", vi.fn(async () => { sent = true; await new Promise(resolve => setTimeout(resolve, 1000)); return Response.json({ ok: true }); }));
+  stubWebhookFetch( vi.fn(async () => { sent = true; await new Promise(resolve => setTimeout(resolve, 1000)); return Response.json({ ok: true }); }));
   const firing = f.command("control-cues", await f.control("fire", "hook"));
   await expect.poll(() => sent).toBe(true);
   try {
@@ -104,7 +104,7 @@ it("a stop cancels a queued reviewed output even if automation resumes before di
   await f.cue("second", "custom-webhook", { url: "https://hooks.example.com/queue" });
   let sent = false;
   const fetcher = vi.fn(async () => { sent = true; await new Promise(resolve => setTimeout(resolve, 1000)); return Response.json({ ok: true }); });
-  vi.stubGlobal("fetch", fetcher);
+  stubWebhookFetch( fetcher);
   const first = f.command("fire-event", { id: "first" }); await expect.poll(() => sent).toBe(true);
   const queued = f.command("control-cues", await f.control("fire", "second"));
   await expect.poll(async () => (await f.events()).find(event => event.id === "second")?.executionStatus).toBe("dispatching");
@@ -152,7 +152,7 @@ it("does not reset after clock movement and rejects fire while disabled or alrea
 it("rechecks permission after a reviewed cue waits behind another output", async () => {
   const f = await fixture(); await f.cue("first", "custom-webhook", { url: "https://hooks.example.com/queue" }); await f.cue("second", "custom-webhook", { url: "https://hooks.example.com/queue" });
   let sent = false; const fetcher = vi.fn(async () => { sent = true; await new Promise(resolve => setTimeout(resolve, 1000)); return Response.json({ ok: true }); });
-  vi.stubGlobal("fetch", fetcher);
+  stubWebhookFetch( fetcher);
   const first = f.command("fire-event", { id: "first" }); await expect.poll(() => sent).toBe(true);
   const second = f.command("control-cues", await f.control("fire", "second"));
   await expect.poll(async () => (await f.events()).find(event => event.id === "second")?.executionStatus).toBe("dispatching");
@@ -187,3 +187,7 @@ it("rejects an old fire request that arrives after a newer Stop and Resume", asy
   expect(await f.command("control-cues", input)).toMatchObject({ status: 409, body: { outcome: "conflict" } });
   expect((await f.events())[0].fired).toBe(false);
 });
+
+function stubWebhookFetch(target: (...args: any[]) => any) {
+ vi.stubGlobal("fetch", (url: any, init: any) => String(url).startsWith("https://cloudflare-dns.com/") ? Promise.resolve(Response.json({Status:0,Answer:[{type:1,data:"93.184.216.34"}]})) : target(url, init));
+}
