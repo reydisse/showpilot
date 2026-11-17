@@ -56,6 +56,32 @@ function commandResponse(socket: WebSocket, id: string): Promise<unknown> {
 }
 
 describe("BridgeRelay device dispatch", () => {
+  it("serves a clean slate until the active socket confirms each activation", async () => {
+    const orgId = "bridge-snapshot-confirmation";
+    const { stub, socket } = await openBridge(orgId);
+    const clean = { bridgeOnline: true, connectedTargets: [], devices: 0, deviceEvents: {} };
+    await expect(stub.getBridgeStatus()).resolves.toMatchObject(clean);
+    socket.send(JSON.stringify({ type: "bridge-status", targets: ["old-target"] }));
+    await expect.poll(async () => (await stub.getBridgeStatus()).connectedTargets).toEqual(["old-target"]);
+    await evictDurableObject(stub);
+    await expect(stub.getBridgeStatus()).resolves.toMatchObject(clean);
+    const response = await stub.fetch(await bridgeClientTestRequest(orgId));
+    const client = response.webSocket!;
+    client.accept();
+    await expect(nextMessage(client)).resolves.toMatchObject({
+      online: true, connectedTargets: [], devices: 0, deviceEvents: {},
+    });
+    socket.send(JSON.stringify({ type: "bridge-status", targets: ["fresh-target"] }));
+    await expect.poll(async () => (await stub.getBridgeStatus()).connectedTargets).toEqual(["fresh-target"]);
+    await evictDurableObject(stub);
+    socket.send(JSON.stringify({ type: "device-status", target: "only-target", connected: true }));
+    await expect.poll(async () => (await stub.getBridgeStatus()).connectedTargets).toEqual(["only-target"]);
+    await evictDurableObject(stub);
+    socket.send(JSON.stringify({ type: "bridge-status", version: "confirmed-without-targets" }));
+    await expect.poll(async () => (await stub.getBridgeStatus()).version).toBe("confirmed-without-targets");
+    await expect(stub.getBridgeStatus()).resolves.toMatchObject({ connectedTargets: [], deviceEvents: {} });
+  });
+
   it("uses the unified 10s dispatch timeout policy", () => {
     expect(relaySource).not.toContain("8_000");
     expect(relaySource).toContain("}, 10_000);");
