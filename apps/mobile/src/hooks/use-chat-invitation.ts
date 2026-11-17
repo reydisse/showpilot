@@ -25,7 +25,7 @@ export function useChatInvitation(scope: { orgId: string; userId: string; scope:
     parseResult: input => chatInviteReplySchema.parse(input),
     retryable: result => result.notifications.status === "pending",
     dismissible: () => true,
-    failureMessage: "The link result is unconfirmed. Retry the original request to recover it without creating another link.",
+    failureMessage: "We couldn't confirm whether your link was created. Retry the same request to check — it won't create a second link.",
     refresh: async () => {},
   });
   const requestKey = [requestFamily, scope.userId, scope.orgId, scope.scope];
@@ -79,7 +79,7 @@ export function useChatInviteSharing(pass: ChatInviteReply | null, active: boole
       const outcome = await runMobileOperation(() => share(pass.joinUrl), controller.signal, 15000);
       if (owns()) setStored({ owner, kind: outcome });
     } catch (error) {
-      if (owns()) setStored({ owner, kind: "failed", error: error instanceof Error && !(error instanceof MobileOperationTimeoutError) ? error.message : "Sharing was not confirmed. Your link is still available below. Retry sharing or copy it manually." });
+      if (owns()) setStored({ owner, kind: "failed", error: error instanceof Error && !(error instanceof MobileOperationTimeoutError) ? error.message : "Sharing didn't finish. Your link is still available below." });
     } finally { if (owner.controller === controller) owner.controller = null; }
   }
   return { ...(stored.owner === owner ? stored : { kind: "idle" as const, error: undefined }), open };

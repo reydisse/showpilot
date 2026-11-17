@@ -367,7 +367,7 @@ it("keeps uncertain edits visible and blocks conflicting row actions until recov
   render(<ChatPanel messages={[messages[1]]} connectionStatus="connected" unreadCount={0} currentUserId="me" onSendMessage={vi.fn()} onEditMessage={vi.fn()} onDeleteMessage={vi.fn()} onSetReaction={vi.fn()}
     mutations={[{ command, state: "unknown", error: "Change not confirmed", at: 1000 }]} onRetryMutation={retry} onDismissMutation={dismiss} />);
   const status = screen.getByRole("region", { name: "Message changes" });
-  expect(status.textContent).toContain("My captured draft"); expect(status.textContent).toContain("This message change needs attention."); expect(status.querySelector("time")).toBeNull();
+  expect(status.textContent).toContain("My captured draft"); expect(status.textContent).toContain("Change not confirmed"); expect(status.querySelector("time")).toBeNull();
   expect(screen.getByRole("button", { name: "Edit message" })).toHaveProperty("disabled", true);
   expect(screen.getByRole("button", { name: "Delete message" })).toHaveProperty("disabled", true);
   expect(screen.getByRole("button", { name: "Choose reaction" })).toHaveProperty("disabled", true);
@@ -383,7 +383,7 @@ it("offers cleanup recovery for an applied delete and silently hides the complet
   const retry = vi.fn(), dismiss = vi.fn();
   const base = { messages: [], connectionStatus: "connected" as const, unreadCount: 0, onSendMessage: vi.fn(), onRetryMutation: retry, onDismissMutation: dismiss };
   const view = render(<ChatPanel {...base} mutations={[{ command, state: "settled", result, at: 2000 }]} />);
-  expect(screen.getByRole("alert").textContent).toContain("An attachment needs attention.");
+  expect(screen.getByRole("alert").textContent).toContain("The message was deleted, but its attachments were not removed. Retry attachment cleanup to finish removing them.");
   expect(screen.queryByRole("button", { name: "Dismiss result" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Retry attachment cleanup" })); expect(retry).toHaveBeenCalledWith(command.requestId);
   view.rerender(<ChatPanel {...base} mutations={[{ command, state: "settled", result: { ...result, cleanup: "complete" }, at: 2001 }]} />);
@@ -415,7 +415,7 @@ it("keeps a failed attachment removal recoverable without sending that attachmen
   fireEvent.click(screen.getByRole("button", { name: "Remove notes.txt" }));
   await waitFor(() => expect(remove).toHaveBeenCalledWith(attachment));
   const retry = await screen.findByRole("button", { name: "Retry removing notes.txt" });
-  expect(screen.getByRole("alert").textContent).toContain("This attachment needs attention.");
+  expect(screen.getByRole("alert").textContent).toContain("This attachment could not be removed.");
   remove.mockResolvedValue(undefined); fireEvent.click(retry);
   await waitFor(() => expect(remove).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Retry removing notes.txt" })).toBeNull());

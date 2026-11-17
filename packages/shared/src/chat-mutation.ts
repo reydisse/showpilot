@@ -35,7 +35,7 @@ export function chatMutationSummary(operation: ChatMutationOperation): string {
   }
 }
 export function chatMutationOutcomeMessage(result: ChatMutationResult): string {
-  if (result.outcome === "applied" && result.cleanup !== "complete") return "Message deleted. Attachment cleanup was not confirmed; retry cleanup without deleting again.";
+  if (result.outcome === "applied" && result.cleanup !== "complete") return "Message deleted. Removing its attachments did not finish — retry cleanup to finish. The message will not be deleted again.";
   switch (result.outcome) {
     case "applied": return "Your change was saved.";
     case "superseded": return "Your earlier change was saved. The message has since changed; its current state was preserved.";

@@ -194,7 +194,7 @@ export function useChat({ orgId, isVisible = false, senderName: userName, sender
 
   const setReaction = useCallback(async (messageId: string, emoji: string, active: boolean) => {
     const adapter = getAdapter();
-    if (!adapter?.setReaction) throw new Error("Reactions are available in ShowPilot chat");
+    if (!adapter?.setReaction) throw new Error("Reactions are only available in ShowPilot chat.");
     await adapter.setReaction(messageId, emoji, active);
   }, [getAdapter]);
 

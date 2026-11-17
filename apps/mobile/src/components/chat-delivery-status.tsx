@@ -16,7 +16,7 @@ export function ChatDeliveryStatus({ items, connected, retry, retryNotifications
   if (!visible.length) return null;
   return <View style={styles.container}>
     {visible.map(item => <View key={item.id} style={styles.item} testID={`chat-delivery-${item.id}`}>
-      {(item.kind === "uncertain" || item.kind === "rejected" || item.kind === "notification-failed") && <FailureText accessibilityRole="alert" style={styles.title}>{plainFailure(item.error, item.kind === "notification-failed" ? "Crew alerts could not be sent." : "This message needs attention.")}</FailureText>}
+      {(item.kind === "uncertain" || item.kind === "rejected" || item.kind === "notification-failed") && <FailureText accessibilityRole="alert" style={styles.title}>{plainFailure(item.error, item.kind === "notification-failed" ? "Crew alerts could not be sent." : item.kind === "uncertain" ? "This message may not have been sent." : "This message was not sent.")}</FailureText>}
       <Text style={styles.text}>{item.text}</Text>
       {item.kind === "queued" || item.kind === "sending" ? <QuietActivity label="Sending message" /> : null}
       {item.kind === "uncertain" ? <AppButton label="Retry original message" variant="secondary" disabled={!connected} onPress={() => retry(item.id)} /> : null}
