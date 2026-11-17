@@ -102,3 +102,4 @@
 0095_tm_management_recovery.sql
 0096_attendance_iso_timestamps.sql
 0097_scoped_token_audit.sql
+0098_checkin_secret.sql
