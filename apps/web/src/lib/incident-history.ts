@@ -1,3 +1,4 @@
+import { escapeLikePattern } from "./sql-like";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getD1 } from "@/lib/d1";
@@ -48,12 +49,12 @@ export const getIncidentHistory = createServerFn({ method: "GET" })
     if (data.status !== "all") add("i.status = ?", data.status);
     if (data.severity !== "all") add("i.severity = ?", data.severity);
     if (data.category) add("lower(trim(i.category)) = ?", data.category.trim().toLowerCase());
-    if (data.assignee) add("lower(i.assignedName) LIKE ?", `%${data.assignee.toLowerCase()}%`);
+    if (data.assignee) add("lower(i.assignedName) LIKE ? ESCAPE '\\'", `%${escapeLikePattern(data.assignee.toLowerCase())}%`);
     if (data.from) add("i.serviceDate >= ?", data.from);
     if (data.to) add("i.serviceDate <= ?", data.to);
     if (data.query) {
-      const needle = `%${data.query.toLowerCase()}%`;
-      conditions.push("(lower(i.description) LIKE ? OR lower(i.reportedBy) LIKE ? OR lower(i.assignedName) LIKE ? OR lower(i.category) LIKE ?)");
+      const needle = `%${escapeLikePattern(data.query.toLowerCase())}%`;
+      conditions.push("(lower(i.description) LIKE ? ESCAPE '\\' OR lower(i.reportedBy) LIKE ? ESCAPE '\\' OR lower(i.assignedName) LIKE ? ESCAPE '\\' OR lower(i.category) LIKE ? ESCAPE '\\')");
       params.push(needle, needle, needle, needle);
     }
     const whereSql = conditions.join(" AND ");

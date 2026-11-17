@@ -1,3 +1,4 @@
+import { escapeLikePattern } from "./sql-like";
 import { proPresenterOutputCommandSchema } from "@showpilot/shared/propresenter-output";
 import { attendanceTimestamp } from "./attendance-timestamp";
 import { readMemberProPresenterOutput, writeProPresenterOutput, ProPresenterOutputAccessError } from "./propresenter-output.server";
@@ -3572,13 +3573,13 @@ async function mobileIncidentHistory(
   if (severity !== "all") add("i.severity = ?", severity);
   if (category) add("lower(trim(i.category)) = ?", category.toLowerCase());
   if (assignee)
-    add("lower(i.assignedName) LIKE ?", `%${assignee.toLowerCase()}%`);
+    add("lower(i.assignedName) LIKE ? ESCAPE '\\'", `%${escapeLikePattern(assignee.toLowerCase())}%`);
   if (from) add("i.serviceDate >= ?", from);
   if (to) add("i.serviceDate <= ?", to);
   if (query) {
-    const needle = `%${query.toLowerCase()}%`;
+    const needle = `%${escapeLikePattern(query.toLowerCase())}%`;
     conditions.push(
-      "(lower(i.description) LIKE ? OR lower(i.reportedBy) LIKE ? OR lower(i.assignedName) LIKE ? OR lower(i.category) LIKE ?)",
+      "(lower(i.description) LIKE ? ESCAPE '\\' OR lower(i.reportedBy) LIKE ? ESCAPE '\\' OR lower(i.assignedName) LIKE ? ESCAPE '\\' OR lower(i.category) LIKE ? ESCAPE '\\')",
     );
     params.push(needle, needle, needle, needle);
   }

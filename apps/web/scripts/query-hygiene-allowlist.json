@@ -1,0 +1,670 @@
+{
+  "src/durable-objects/LowerThirdsRelay.ts:guard": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/durable-objects/RundownRelay.ts:NEXT_UPDATED_AT_SQL": {
+    "count": 2,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/durable-objects/RundownRelay.ts:assignments.join(\", \")": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/durable-objects/RundownRelay.ts:guard": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/durable-objects/RundownRelay.ts:access.guard": {
+    "count": 1,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/access-write.server.ts:activeSession": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/access-write.server.ts:predicate": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/access-write.server.ts:guard.join(\" AND \")": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/account-profile.server.ts:authority": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/assignment-response-write.server.ts:table": {
+    "count": 2,
+    "reason": "Internal identifier selected from a fixed set."
+  },
+  "src/lib/assignment-response-write.server.ts:principalColumn": {
+    "count": 3,
+    "reason": "Internal identifier selected from a fixed set."
+  },
+  "src/lib/assignment-response-write.server.ts:snapshotSql": {
+    "count": 1,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/lib/assignment-response-write.server.ts:guard": {
+    "count": 3,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/assignment-response-write.server.ts:owns": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/attendance-state.server.ts:columns": {
+    "count": 3,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/audio-write.server.ts:next.guard": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/bridge-credentials.server.ts:AUTHORITY_SELECT": {
+    "count": 2,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/lib/chat-history-clear.server.ts:activeSession": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/chat-history-clear.server.ts:guard": {
+    "count": 3,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/chat-pass-issuance.server.ts:targets.map(() => \"?\").join(\",\")": {
+    "count": 1,
+    "reason": "Code-defined columns or placeholder list; values bound separately."
+  },
+  "src/lib/chat-pass-issuance.server.ts:recipients.map(() => \"?\").join(\",\")": {
+    "count": 1,
+    "reason": "Code-defined columns or placeholder list; values bound separately."
+  },
+  "src/lib/checklist-writes.server.ts:guard": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/checklist-writes.server.ts:where": {
+    "count": 3,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/checklist-writes.server.ts:condition": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/crew-roster.server.ts:authority.guard.join(\" AND \")": {
+    "count": 4,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/crew-roster.server.ts:guard.join(\" AND \")": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/crew-schedule-access.server.ts:live": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/crew-schedule-access.server.ts:guard": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/crew-schedule-access.server.ts:access.guard": {
+    "count": 1,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/cue-column-seed.ts:guard.sql": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/cue-sheet-writes.server.ts:guard": {
+    "count": 6,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/cue-sheet-writes.server.ts:field": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/cue-sheet-writes.server.ts:condition": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/cue-sheet.ts:showId ? \"showId = ?\" : \"serviceDate = ?\"": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/data.ts:fields.map(([key]) => `\"${key}\"=?`).concat(\"updatedAt=?\").join(\",\")": {
+    "count": 2,
+    "reason": "Code-defined columns or placeholder list; values bound separately."
+  },
+  "src/lib/destination-control.server.ts:access.guard": {
+    "count": 4,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/destination-control.server.ts:matches": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/destination-control.server.ts:notCommitted": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/device-write.server.ts:next.guard": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/duty-roster-command.server.ts:activeSession": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/duty-roster-command.server.ts:notDeleting": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/duty-roster-command.server.ts:guard": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/duty-roster-command.server.ts:reviewed": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/duty-roster-command.server.ts:validPeople": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/duty-roster-command.server.ts:codeAvailable": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/duty-roster-command.server.ts:owns": {
+    "count": 4,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/duty-roster-storage.server.ts:where": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/duty-roster-storage.server.ts:guard": {
+    "count": 5,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/duty-roster-storage.server.ts:target": {
+    "count": 4,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/equipment-command.server.ts:access.guard": {
+    "count": 4,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/equipment-command.server.ts:condition": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/equipment-command.server.ts:claim": {
+    "count": 3,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/equipment-command.server.ts:changed.map(({ field }) => `${field}=?`).join(\",\")": {
+    "count": 1,
+    "reason": "Code-defined columns or placeholder list; values bound separately."
+  },
+  "src/lib/external-chat-gateway.ts:EXTERNAL_SETTING_KEYS.map(() => \"?\").join(\", \")": {
+    "count": 1,
+    "reason": "Code-defined columns or placeholder list; values bound separately."
+  },
+  "src/lib/graphic-control.server.ts:access.guard": {
+    "count": 6,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/graphic-control.server.ts:checks.join(\" AND \")": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/graphic-control.server.ts:owns": {
+    "count": 5,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/graphic-library-reset.server.ts:activeSession": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/graphic-library-reset.server.ts:guard": {
+    "count": 3,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/graphic-library-reset.server.ts:programIdle": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/graphic-library.server.ts:guard": {
+    "count": 6,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/incident-history.ts:whereSql": {
+    "count": 2,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/lib/incident-history.ts:orderSql": {
+    "count": 1,
+    "reason": "Fixed ordering selected by validated enum."
+  },
+  "src/lib/incident-writes.server.ts:guard": {
+    "count": 6,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/incident-writes.server.ts:incidentScope": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/incident-writes.server.ts:condition": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/incidents.ts:incidentDeleteSnapshotSql": {
+    "count": 1,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/lib/incidents.ts:where": {
+    "count": 3,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/invitation-response.server.ts:row.decision ? \"AND id=?\" : \"\"": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/invitation-response.server.ts:receipt ? \"AND id=?\" : \"\"": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/kiosk-display-command.server.ts:guard": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/kiosk-display-command.server.ts:owns": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/kiosk-team-command.server.ts:liveSession": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/kiosk-team-command.server.ts:notDeleting": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/kiosk-team-command.server.ts:guard": {
+    "count": 3,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/kiosk-team-command.server.ts:reviewed": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/kiosk-team-command.server.ts:person": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/kiosk-team-command.server.ts:owns": {
+    "count": 8,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/member-permission-guard.server.ts:notDeleting": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/member-permission-guard.server.ts:grant": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/member-permission-guard.server.ts:guard": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/mobile-api.server.ts:placeholders": {
+    "count": 2,
+    "reason": "Code-defined columns or placeholder list; values bound separately."
+  },
+  "src/lib/mobile-api.server.ts:whereSql": {
+    "count": 2,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/lib/mobile-api.server.ts:orderSql": {
+    "count": 1,
+    "reason": "Fixed ordering selected by validated enum."
+  },
+  "src/lib/mobile-api.server.ts:[...recipients].map(() => \"?\").join(\",\")": {
+    "count": 1,
+    "reason": "Code-defined columns or placeholder list; values bound separately."
+  },
+  "src/lib/notification-preferences.server.ts:currentAuthority": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/notification-preferences.server.ts:placeholders": {
+    "count": 1,
+    "reason": "Code-defined columns or placeholder list; values bound separately."
+  },
+  "src/lib/notification-read.server.ts:authority": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/notification-timezone.server.ts:authority": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/onboarding-seed.server.ts:existing.sql": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/onboarding-seed.server.ts:sql": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/onboarding-seed.server.ts:guard.sql": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/onboarding-seed.server.ts:legacyGuard": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/operational-notifications.server.ts:input.once ? \"ON CONFLICT(id) DO NOTHING\" : `ON CONFLICT(id) DO UPDATE SET\n               type = excluded.type,\n               severity = excluded.severity,\n               title = excluded.title,\n               message = excluded.message,\n               target = excluded.target,\n               source = excluded.source,\n               actionUrl = excluded.actionUrl,\n               category = excluded.category,\n               deviceAlertEnabled = excluded.deviceAlertEnabled,\n               dismissed = 0,\n               readAt = NULL,\n               createdAt = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/organization-creation.server.ts:authority": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/organization-creation.server.ts:ownerOfAttempt": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/personal-notifications.ts:data.cursor ? \"AND (julianday(createdAt) < julianday(?) OR (julianday(createdAt) = julianday(?) AND id < ?))\" : \"\"": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/pm-dashboard.ts:previous": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/propresenter-output.server.ts:guard": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/propresenter-output.server.ts:nowSql": {
+    "count": 2,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/lib/propresenter-output.server.ts:owns": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/report-note-write.server.ts:condition": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/report-note-write.server.ts:noteWhere": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/rundown-item-storage.server.ts:where.sql": {
+    "count": 3,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/rundown-item-storage.server.ts:guard": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/rundown-meta-update.server.ts:NEXT_UPDATED_AT_SQL": {
+    "count": 1,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/lib/rundown-replacement-read.server.ts:access.guard": {
+    "count": 1,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/rundown-replacement-write.server.ts:access.guard": {
+    "count": 2,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/rundown-replacement-write.server.ts:owns": {
+    "count": 6,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/rundown-replacement-write.server.ts:NEXT_UPDATED_AT_SQL": {
+    "count": 1,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/lib/saved-rundown-delete.server.ts:access.guard": {
+    "count": 3,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/schedule-assignment.server.ts:snapshotSelect": {
+    "count": 3,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/lib/schedule-assignment.server.ts:access.guard": {
+    "count": 7,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/schedule-assignment.server.ts:checks.join(\" AND \")": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/schedule-assignment.server.ts:owns": {
+    "count": 5,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/schedule-copy.server.ts:access.guard": {
+    "count": 2,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/schedule-copy.server.ts:owns": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/schedule-invitation-delivery.server.ts:input.guard.sql": {
+    "count": 4,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/schedule-provider.server.ts:snapshotSql": {
+    "count": 2,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/lib/schedule-provider.server.ts:actor.guard": {
+    "count": 4,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/schedule-provider.server.ts:owns": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/schedule-reminder.server.ts:access.guard": {
+    "count": 2,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/schedule-reminder.server.ts:target.kind === \"show\" ? \"showId\" : \"id\"": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/scoped-token-store.server.ts:kind === \"kiosk\" ? \"view\" : \"NULL AS view\"": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/scoped-token-store.server.ts:table": {
+    "count": 5,
+    "reason": "Internal identifier selected from a fixed set."
+  },
+  "src/lib/service-creation.server.ts:access.guard": {
+    "count": 2,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/service-creation.server.ts:sourceGuard": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/service-creation.server.ts:capacity": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/service-creation.server.ts:owns": {
+    "count": 3,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/service-deletion.server.ts:match": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/service-deletion.server.ts:stopped": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/service-deletion.server.ts:access.guard": {
+    "count": 3,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/service-deletion.server.ts:sql": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/settings-read.server.ts:placeholders": {
+    "count": 1,
+    "reason": "Code-defined columns or placeholder list; values bound separately."
+  },
+  "src/lib/show-creation-review.server.ts:access.guard": {
+    "count": 2,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/show-details-write.server.ts:access.guard": {
+    "count": 2,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/show-details-write.server.ts:NEXT_UPDATED_AT_SQL": {
+    "count": 1,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/lib/show-details-write.server.ts:owns": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/show-inventory-write.server.ts:owns": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/show-inventory-write.server.ts:NEXT_UPDATED_AT_SQL": {
+    "count": 1,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/lib/show-inventory-write.server.ts:decision": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/show-inventory-write.server.ts:access.guard": {
+    "count": 1,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/stream-destination-write.server.ts:guard": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/stream-input-health.server.ts:guard": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/stream-input-lifecycle.server.ts:guard": {
+    "count": 4,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/stream-output-command.server.ts:command.action === \"live\" ? \"enabled=1\" : \"(enabled=1 OR cfOutputId<>'')\"": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/stream-output-command.server.ts:command.commitGuard?.sql ?? \"1\"": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/stream-output-command.server.ts:check": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/stream-output-command.server.ts:guard": {
+    "count": 3,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/team-command.server.ts:policySql": {
+    "count": 1,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/lib/team-command.server.ts:canonical.memberIdOrEmail.includes(\"@\") ? \"lower(u.email)=lower(?)\" : \"m.id=?\"": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/team-command.server.ts:guard.join(\" AND \")": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/team-invitation.server.ts:invitationViewSelect": {
+    "count": 2,
+    "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
+  },
+  "src/lib/team-invitation.server.ts:memberExists": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/team-invitation.server.ts:guard.join(\" AND \")": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/template-save-write.server.ts:access.guard": {
+    "count": 3,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/template-save-write.server.ts:owns": {
+    "count": 4,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/tm-dashboard.ts:showId ? \"id = ?\" : \"serviceDate = ?\"": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/tm-graphics.server.ts:guard.guard": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/tm-graphics.server.ts:ids.map(() => \"?\").join(\",\")": {
+    "count": 1,
+    "reason": "Code-defined columns or placeholder list; values bound separately."
+  },
+  "src/lib/tm-graphics.server.ts:actor.guard": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/tm-management.server.ts:access.guard": {
+    "count": 4,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/tm-management.server.ts:checks.join(\" AND \")": {
+    "count": 2,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/tm-management.server.ts:owns": {
+    "count": 4,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/workspace/change.server.ts:settingKeys.map(() => \"?\").join(\",\")": {
+    "count": 1,
+    "reason": "Code-defined columns or placeholder list; values bound separately."
+  },
+  "src/lib/workspace/change.server.ts:access.guard": {
+    "count": 4,
+    "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
+  },
+  "src/lib/workspace/change.server.ts:owns": {
+    "count": 1,
+    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  }
+}

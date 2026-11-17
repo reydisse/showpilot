@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleMobileApi, type MobileApiDatabase, type MobileApiStatement } from "../mobile-api.server";
 
@@ -565,6 +566,27 @@ describe("mobile incident workflow", () => {
     expect(calls.find((call) => call.sql.includes("FROM content_reaction r JOIN"))?.params)
       .toEqual(["org-1", "org-1", "incident-1"]);
   });
+
+  it.each([['query', '100%'], ['query', 'stage_left'], ['assignee', '100%'], ['assignee', 'stage_left']])(
+    'matches literal characters in history %s=%s using SQLite', async (filter, needle) => {
+      const calls: QueryCall[] = [];
+      const response = await get(fakeDatabase({ calls }),
+        `/api/mobile/v1/incidents/history?orgId=org-1&${filter}=${encodeURIComponent(needle)}`);
+      expect(response.status).toBe(200);
+      const query = calls.find(call => call.sql.includes('SELECT id, showId') && call.sql.includes('FROM incident i'))!;
+      const result = execFileSync('python3', ['-c', `
+import sqlite3, json, sys
+query = json.loads(sys.stdin.read())
+db = sqlite3.connect(':memory:')
+db.execute('CREATE TABLE incident_comment (incidentId, orgId)')
+db.execute('CREATE TABLE incident (id, orgId, showId, category, severity, description, reportedBy, serviceDate, timestamp, status, assignedTo, assignedName, acknowledgedAt, assignedAt, resolvedAt, resolvedBy)')
+for ident, text in [('literal', query['needle']), ('wildcard', query['needle'].replace('%', 'percent').replace('_', 'X'))]:
+ db.execute('INSERT INTO incident (id, orgId, description, assignedName, timestamp) VALUES (?, ?, ?, ?, ?)', (ident, 'org-1', text, text, '2026-01-01'))
+print(json.dumps([row[0] for row in db.execute(query['sql'], query['params'])]))
+`], { input: JSON.stringify({ ...query, needle }), encoding: 'utf8' });
+      expect(JSON.parse(result)).toEqual(['literal']);
+    },
+  );
 
   it("applies advanced history filters with tenant scope and stable pagination", async () => {
     const calls: QueryCall[] = [];
