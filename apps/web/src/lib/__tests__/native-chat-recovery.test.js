@@ -124,7 +124,7 @@ it("keeps auth errors until a complete hydration and does not reconnect in the b
 it("rejects malformed history rather than declaring an empty room ready", async () => {
   const f = setup(); await f.flush();
   await act(async () => f.sockets[0].receive({ type: "hydrate", serverTime: Date.now(), messages: [{ id: "bad" }] }));
-  expect(f.result.current.hydrated).toBe(false); expect(f.result.current.lastError).toMatch(/invalid history/);
+  expect(f.result.current.hydrated).toBe(false); expect(f.result.current.lastError).toBe("Chat could not load. Retry the connection.");
   expect(f.sockets[0].readyState).toBe(Socket.CLOSED);
 });
 it("does not acknowledge another sender's message and does not automatically retry an uncertain send", async () => {
@@ -202,7 +202,7 @@ it("keeps live edits, reactions, typing and read receipts after hydration", asyn
 it("clears a socket-write error when that same message is acknowledged", async () => {
   const f = setup(); await f.hydrate(); let id; f.sockets[0].sendError = true;
   await act(async () => { id = f.result.current.send("Retry me"); });
-  expect(f.result.current.lastError).toMatch(/could not send/); f.sockets[0].sendError = false;
+  expect(f.result.current.lastError).toBe("Your message could not be sent."); f.sockets[0].sendError = false;
   await act(async () => { f.result.current.retryMessage(id); f.sockets[0].receive({ type: "message", message: message(id) }); }); await f.flush();
   expect(f.result.current.outbox).toEqual([]); expect(f.result.current.lastError).toBeNull();
 });

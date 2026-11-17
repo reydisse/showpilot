@@ -118,7 +118,7 @@ describe("retained attachment draft", () => {
     const f = fixture();
     f.upload.mockImplementationOnce(async prepared => chatUploadAttachment("other-org", prepared.spec));
     const id = f.draft.add("notes.txt", "notes.txt"); await settle();
-    expect(f.draft.getSnapshot()[0]).toMatchObject({ id, state: "upload-failed", error: expect.stringContaining("does not match") });
+    expect(f.draft.getSnapshot()[0]).toMatchObject({ id, state: "upload-failed", error: "Upload was not confirmed for this file. Retry this file to recover the original upload." });
     f.draft.retry(id); await settle(); expect(f.draft.getSnapshot()[0].state).toBe("ready");
   });
 });

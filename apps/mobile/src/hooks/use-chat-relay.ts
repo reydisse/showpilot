@@ -89,7 +89,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production", u
         const result = chatNotificationResultSchema.parse(await notifyMobileChat(command, controller.signal));
         if (result.orgId !== command.orgId || result.userId !== command.userId || result.roomId !== command.roomId
           || result.messageId !== command.messageId || result.requestId !== command.requestId)
-          throw new Error("Crew notifications were not confirmed. Retry notifications without sending the message again.");
+          throw new Error("The notification result belongs to another message or account.");
         return result;
       }, undefined, 15000).then(() => {
         changeOutbox(items => items.filter(value => value !== claim));
