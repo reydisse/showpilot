@@ -151,6 +151,7 @@ type KioskTokenRow = {
 
 function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
   const [label, setLabel] = useState("");
+  const [expiresInDays, setExpiresInDays] = useState<number | null>(90);
   const [purpose, setPurpose] = useState<"board" | "timer" | "overlay">(
     "board",
   );
@@ -188,7 +189,7 @@ function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
           orgId,
           label: label.trim(),
           view: purpose,
-          expiresInDays: null,
+          expiresInDays,
         },
       });
       setLabel("");
@@ -279,6 +280,18 @@ function AccessTokensTab({ orgId, slug }: { orgId: string; slug: string }) {
           Stage and overlay tokens include a browser display link. Lobby app
           tokens connect the lobby display software.
         </p>
+        <label className="block text-sm text-board-text">
+          Token expiry
+          <select value={expiresInDays ?? "never"} disabled={busy || issuedToken !== null}
+            onChange={(event) => setExpiresInDays(event.target.value === "never" ? null : Number(event.target.value))}
+            className="mt-2 min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm">
+            <option value="30">30 days</option>
+            <option value="90">90 days</option>
+            <option value="365">365 days</option>
+            <option value="never">Never expires</option>
+          </select>
+        </label>
+        {expiresInDays === null && <p role="alert" className="mt-2 text-sm text-amber-300">This link never expires. Anyone who has it can open this display until you revoke the link.</p>}
         <div className="flex items-center gap-2">
           <input
             value={label}

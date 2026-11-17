@@ -168,7 +168,7 @@ it.each(["timer", "overlay"] as const)(
         orgId: "org-1",
         label: "New display",
         view: purpose,
-        expiresInDays: null,
+        expiresInDays: 90,
       },
     });
     expect(screen.getByLabelText("New display link")).toHaveProperty(
@@ -196,7 +196,7 @@ it("keeps lobby API tokens distinct from browser display links", async () => {
       orgId: "org-1",
       label: "Lobby integration",
       view: "board",
-      expiresInDays: null,
+      expiresInDays: 90,
     },
   });
 });

@@ -1,3 +1,4 @@
+import { isPublicIpAddress } from "../../../../packages/shared/src/automation-webhook-url";
 import { findScopedToken, scopedTokenIsActive } from "./scoped-token-store.server";
 import { env } from "cloudflare:workers";
 import { verifyToken, getKioskSecret } from "@/lib/kiosk";
@@ -26,8 +27,8 @@ export function kioskJson(data: unknown, status = 200) {
     status,
     headers: {
       ...BASE_HEADERS,
-      // Kiosk polls every 60s; allow edge/browser caching for that window.
-      "Cache-Control": status === 200 ? "public, max-age=60" : "no-store",
+      // Token-scoped kiosk responses must never be cached.
+      "Cache-Control": "private, no-store",
     },
   });
 }
@@ -51,7 +52,14 @@ function bearer(request: Request): string | null {
   const header = request.headers.get("Authorization") ?? "";
   const m = header.match(/^Bearer\s+(.+)$/i);
   if (m) return m[1].trim();
-  // LAN-only fallback: ?key= (see contract). Prefer the Bearer token.
+  // Prefer Bearer; allow ?key= only for a valid non-public connecting IP.
+  const ip = request.headers.get("CF-Connecting-IP");
+  if (!ip) return null;
+  try {
+    const host = new URL(ip.includes(":") ? `https://[${ip}]/` : `https://${ip}/`).hostname;
+    if (!ip.includes(":") && (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip) || ip.split(".").some(part => Number(part) > 255))) return null;
+    if (!host || isPublicIpAddress(ip)) return null;
+  } catch { return null; }
   const key = new URL(request.url).searchParams.get("key");
   return key && key.trim() ? key.trim() : null;
 }
