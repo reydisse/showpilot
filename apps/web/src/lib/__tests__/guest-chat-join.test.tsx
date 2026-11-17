@@ -20,7 +20,7 @@ it("waits for an explicit named guest join and clears that identity when the tok
   const router = await renderJoin();
   expect(api.chat).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Camera fixture" } });
-  fireEvent.click(screen.getByRole("button", { name: "Join Team Chat" }));
+  fireEvent.click(screen.getByRole("button", { name: "Join Production Chat" }));
   expect(api.chat).toHaveBeenCalledWith(expect.objectContaining({ orgId: "org", guestToken: "fixture-token", senderName: "Camera fixture" }));
   expect(screen.getByRole("heading", { name: "Guest chat connected" })).toBeTruthy();
   api.chat.mockClear();
@@ -34,7 +34,7 @@ it("removes the chat when its signed access period ends", async () => {
   api.validate.mockResolvedValue({ status: "valid", pass: { orgId: "org", orgSlug: "venue", exp: Math.floor(Date.now()/1000)+2 } });
   await renderJoin();
   fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Camera fixture" } });
-  fireEvent.click(screen.getByRole("button", { name: "Join Team Chat" }));
+  fireEvent.click(screen.getByRole("button", { name: "Join Production Chat" }));
   expect(screen.getByRole("heading", { name: "Guest chat connected" })).toBeTruthy();
   await act(async () => vi.advanceTimersByTimeAsync(2100));
   expect(screen.getByRole("heading", { name: "This crew pass has expired" })).toBeTruthy();
@@ -52,7 +52,7 @@ it("removes guest chat when the authenticated relay reports revocation", async (
   api.chat.mockReturnValue({ guestAccessRevoked: true, connectionStatus: "disconnected" });
   await renderJoin();
   fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Camera fixture" } });
-  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Join Team Chat" })));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Join Production Chat" })));
   expect(screen.getByRole("heading", { name: "This crew pass was revoked" })).toBeTruthy();
   expect(screen.queryByRole("heading", { name: "Guest chat connected" })).toBeNull();
 });

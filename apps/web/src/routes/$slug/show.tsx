@@ -325,7 +325,7 @@ function ChatPanel({
         onSetReaction={setReaction}
         typingUsers={typingUsers}
         onTypingChange={setTyping}
-        title="Team Chat"
+        title="Production Chat"
         subtitle={userName}
         currentUserName={userName}
         currentUserId={userId}

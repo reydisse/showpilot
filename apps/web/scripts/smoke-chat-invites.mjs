@@ -92,7 +92,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, operatorEmai
     await evaluate("fetch('/api/auth/sign-out',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(r=>r.json())");
     await open(crewPath(crewChatPass(20)));await text("Join production chat");
     assert.equal(await evaluate("window.inviteSockets.length"),0);
-    await fill("crew-chat-display-name","Camera invite fixture");await click("Join Team Chat");
+    await fill("crew-chat-display-name","Camera invite fixture");await click("Join Production Chat");
     await check("window.inviteSockets.some(s=>s.readyState===WebSocket.OPEN)","actual guest connection");
     await text("This crew pass has expired");
     await check("window.inviteSockets.every(s=>s.readyState===WebSocket.CLOSED)","guest closed at expiry");

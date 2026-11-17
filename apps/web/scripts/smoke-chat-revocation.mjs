@@ -66,7 +66,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, crewChatPass
     await withRealBrowser({ origin }, async guestBrowser => {
       const guest = await setup(guestBrowser, "guest");
       await guest.page("Page.navigate", { url: crewUrl }); await guest.text("Join production chat");
-      await guest.fill("#crew-chat-display-name", "Camera revoke fixture"); await guest.click("Join Team Chat");
+      await guest.fill("#crew-chat-display-name", "Camera revoke fixture"); await guest.click("Join Production Chat");
       await guest.check("window.revokeSockets.some(s=>s.readyState===WebSocket.OPEN)", "guest connected before revocation");
       await member.click("Disable a chat link"); await member.fill("[role=dialog] textarea", crewUrl);
       await member.click("Review disable"); await member.text("Disable this chat link?"); await member.geometry("Cancel", "confirmation");
@@ -103,7 +103,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, crewChatPass
       const staleCrewUrl = `${origin}/join/chat/${encodeURIComponent(crewChatPass(301))}`;
       await guest.page("Page.navigate",{url:staleCrewUrl}); await guest.text("Join production chat");
       await member.fill("[role=dialog] textarea",staleCrewUrl); await member.click("Review disable"); await member.click("Disable link"); await member.text("This link is disabled.");
-      await guest.fill("#crew-chat-display-name","Late guest fixture"); await guest.click("Join Team Chat"); await guest.text("This crew pass was revoked");
+      await guest.fill("#crew-chat-display-name","Late guest fixture"); await guest.click("Join Production Chat"); await guest.text("This crew pass was revoked");
       await guest.check("window.revokeSockets.every(s=>s.readyState===WebSocket.CLOSED)","revocation before Join recovered");
       assert.deepEqual(await guest.evaluate("window.revokeErrors"),[]);assert.deepEqual(await member.evaluate("window.revokeErrors"),[]);
       await member.click("Close");
