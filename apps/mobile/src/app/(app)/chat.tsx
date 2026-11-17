@@ -1,3 +1,4 @@
+import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { FailureText } from "@/components/failure-text";
 import { QuietActivity } from "@/components/quiet-activity";
 import { attachmentDeadline } from "@showpilot/shared/chat-attachment-draft";
@@ -314,7 +315,7 @@ export default function ChatScreen() {
   const [mutationError, setMutationError] = useState<{ scope: string; message: string; at: number } | null>(null);
   const mutationFailure = useCallback((error: unknown) => {
     if (currentMutationScope.current !== mutationScope) return;
-    setMutationError(error instanceof ChatMutationTrackedError ? null : { scope: mutationScope, message: error instanceof Error ? error.message : "This change needs attention.", at: Date.now() });
+    setMutationError(error instanceof ChatMutationTrackedError ? null : { scope: mutationScope, message: error instanceof Error ? error.message : "That change could not be made. Try again.", at: Date.now() });
   }, [mutationScope]);
   const blockedMessages = useMemo(() => new Set(relay.mutations.filter(item => item.state !== "settled" || item.result.cleanup !== "complete").map(item => item.command.messageId)), [relay.mutations]);
   const bootstrap = useMobileBootstrap();
@@ -414,9 +415,6 @@ export default function ChatScreen() {
   const otherDmUserId = roomId.startsWith("dm:") ? roomParts.slice(1).find((userId) => userId !== currentUserId) : null;
   const dmMember = members.find((member) => member.userId === otherDmUserId);
   const roomTitle = roomId === "production" ? "Production Chat" : roomId === "planning" ? "Planning Room" : dmMember?.name ?? "Direct message";
-  const gatewayLabel = relay.gatewayStatus.platform
-    ? `${relay.gatewayStatus.platform[0].toUpperCase()}${relay.gatewayStatus.platform.slice(1)} ${relay.gatewayStatus.status === "connected" ? "synced" : relay.gatewayStatus.status}`
-    : null;
   const memberSearchResults = useMemo(() => {
     const needle = roomSearch.trim().toLowerCase();
     return members.filter((member) => member.userId !== currentUserId
@@ -487,14 +485,14 @@ export default function ChatScreen() {
         const mentionedUserIds = members
           .filter((member) => new RegExp(`(^|\\s)@${member.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=\\s|$|[.,!?])`, "i").test(submittedText))
           .map((member) => member.userId);
-        if (!attachments.draft) throw new Error("Chat is not ready. Keep this draft and retry sending.");
+        if (!attachments.draft) throw new Error("Your message can't be sent yet. Your draft is saved — try again.");
         await attachments.draft.handoff(files => {
           const messageId = relay.send(submittedText, type, {
             mentionedUserIds,
             ...(reply ? { replyTo: { messageId: reply.id, senderName: reply.senderName, text: reply.text } } : {}),
             ...(files.length ? { attachments: files } : {}),
           });
-          if (!messageId) throw new Error("Message could not be queued. Keep this draft and retry sending.");
+          if (!messageId) throw new Error("Your message could not be sent. Your draft is still here — try sending again.");
         });
       });
       if (sent && currentMutationScope.current === mutationScope) {
@@ -590,7 +588,7 @@ export default function ChatScreen() {
           ...(reply ? { replyTo: { messageId: reply.id, senderName: reply.senderName, text: reply.text } } : {}),
           poll: { question: snapshot.poll.question.trim(), options: snapshot.poll.options.map(option => option.trim()).filter(Boolean) },
         });
-        if (!messageId) throw new Error("Poll could not be queued. Keep this poll and retry sending.");
+        if (!messageId) throw new Error("Your poll could not be sent. Your poll is still here — try sending again.");
       });
     } catch (error) { mutationFailure(error); }
   }
@@ -736,7 +734,7 @@ export default function ChatScreen() {
       <Page scroll={false}>
         <View style={styles.roomHeader}>
             <Pressable accessibilityRole="button" accessibilityLabel={`Switch chat room. Current room: ${roomTitle}`} onPress={() => setRoomPickerOpen(true)} style={styles.roomSwitcher}>
-              <View style={styles.roomCopy}><Text style={styles.roomTitle}>{roomTitle}</Text><Text numberOfLines={1} style={[styles.roomSubtitle, relay.status === "connected" && styles.connected]}>{relay.status === "connected" ? `● Connected${gatewayLabel ? ` · ${gatewayLabel}` : ""}` : relay.status}</Text></View>
+              <View style={styles.roomCopy}><Text style={styles.roomTitle}>{roomTitle}</Text></View>
               <ChevronDown color={colors.textMuted} size={17} />
             </Pressable>
             {membersQuery.data?.canInvite && !roomId.startsWith("dm:") ? <Pressable accessibilityRole="button" accessibilityLabel={roomId === "planning" ? "Share Planning Room" : "Invite guest crew"} onPress={() => setShareOpen(true)} style={styles.shareButton}><Share2 color={colors.textMuted} size={18} /></Pressable> : null}
@@ -744,7 +742,7 @@ export default function ChatScreen() {
         {membersQuery.error ? <View><FailureText accessibilityRole="alert" style={styles.error}>{membersQuery.error.message}</FailureText><AppButton label="Retry chat members" variant="secondary" disabled={membersQuery.isFetching} onPress={() => void membersQuery.refetch()} /></View> : null}
         {relay.lastError ? <FailureText accessibilityRole="alert" style={styles.error}>{relay.lastError}</FailureText> : null}
         {relay.status !== "connected" || relay.lastError ? <AppButton label="Retry chat connection" variant="secondary" onPress={relay.retryConnection} /> : null}
-        {relay.gatewayStatus.status === "error" ? <Text style={styles.error}>External chat sync: {relay.gatewayStatus.error ?? "connection failed"}</Text> : null}
+        {relay.gatewayStatus.status === "error" ? <Text style={styles.error}>{plainFailure(relay.gatewayStatus.error ?? "", `Messages may not be reaching ${relay.gatewayStatus.platform ? relay.gatewayStatus.platform[0].toUpperCase() + relay.gatewayStatus.platform.slice(1) : ""}.`)}</Text> : null}
         {isScreenFocused && liveRundownQuery.data ? <LiveChatStatus detail={liveRundownQuery.data} orgId={organization.id} /> : null}
         <View style={styles.listWrap}>
           <FlatList

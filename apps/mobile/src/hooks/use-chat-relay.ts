@@ -52,7 +52,7 @@ function historyUrl(orgId: string, roomId: string, cursor: ChatHistoryCursor) {
   url.search = new URLSearchParams({ room: roomId, limit: "200", beforeTimestamp: String(cursor.timestamp), beforeId: cursor.id }).toString(); return url.toString();
 }
 const uncertainMessage = "Delivery was not confirmed. It may have arrived. Retry the original message to check without posting it twice.";
-const sendFailureMessage = "Chat could not send. Retry the message or reconnect.";
+const sendFailureMessage = "Your message could not be sent.";
 
 /** Each mounted room owns its socket and deadlines. Unconfirmed messages live in
  * the actor/org/room query cache so leaving the screen cannot silently lose them. */
@@ -174,7 +174,7 @@ export function useChatRelay(orgId: string | undefined, roomId = "production", u
             if (typeof payload !== "object" || payload === null || Array.isArray(payload) || !("type" in payload)) return;
             if (payload.type === "hydrate" && "messages" in payload && Array.isArray(payload.messages)) {
               const messages = payload.messages.map(parseChatMessage);
-              if (messages.some(item => item === null)) throw new Error("Chat returned an invalid history snapshot. Retry the connection.");
+              if (messages.some(item => item === null)) throw new Error("Chat could not load. Retry the connection.");
               snapshot = messages.filter((item): item is MobileChatMessage => item !== null);
               cancelHistory();
               snapshot.forEach(acknowledge);
@@ -279,9 +279,9 @@ export function useChatRelay(orgId: string | undefined, roomId = "production", u
             const headers = await getNativeCookieHeader();
             if (child.signal.aborted) throw new Error("History request cancelled.");
             const response = await expoFetch(historyUrl(orgId, roomId, requestedCursor), { credentials: getAuthenticatedFetchCredentials(), headers: { Accept: "application/json", ...headers }, signal: child.signal });
-            if (!response.ok) throw new Error(`Earlier messages could not be loaded (${response.status}).`);
+            if (!response.ok) throw new Error(`Earlier messages could not be loaded.`);
             const page = parseChatHistoryPage(await response.json());
-            if (!page) throw new Error("ShowPilot returned an invalid chat history page.");
+            if (!page) throw new Error("Earlier messages could not be loaded.");
             return page;
           }, request.signal, 10000);
           if (!owns()) return;

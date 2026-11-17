@@ -49,7 +49,7 @@ it.each(["queued", "sending"])("keeps the user's %s message visible with one qui
 it("shows an uncertain message failure once and retries only its original request", () => {
   const retry = vi.fn(); render(<Status items={[{ ...message, kind: "uncertain", error: "Relay acknowledgement timed out" }]} connected retry={retry} retryNotifications={vi.fn()} discard={vi.fn()} />);
   expect(screen.getAllByRole("alert")).toHaveLength(1);
-  expect(screen.getByRole("alert").textContent).toBe("This message needs attention.");
+  expect(screen.getByRole("alert").textContent).toBe("This message may not have been sent.");
   fireEvent.click(screen.getByRole("button", { name: "Retry original message" }));
   expect(retry).toHaveBeenCalledExactlyOnceWith(message.id);
 });

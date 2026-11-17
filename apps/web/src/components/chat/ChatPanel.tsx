@@ -522,11 +522,11 @@ export function ChatPanel({
   const blockedMessages = new Set(mutations.filter(item => item.state !== "settled" || item.result.cleanup !== "complete").map(item => item.command.messageId));
   const voteSafely: NonNullable<ChatPanelProps["onVotePoll"]> = async (...args) => {
     try { await onVotePoll?.(...args); setMessageActionError(null); }
-    catch (error) { setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "This change needs attention."); }
+    catch (error) { setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "That change could not be made. Try again."); }
   };
   const reactSafely: NonNullable<ChatPanelProps["onSetReaction"]> = async (...args) => {
     try { await onSetReaction?.(...args); setMessageActionError(null); }
-    catch (error) { setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "This change needs attention."); }
+    catch (error) { setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "That change could not be made. Try again."); }
   };
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -735,7 +735,7 @@ export function ChatPanel({
       });
       setMessageActionError(null);
     } catch (error) {
-      setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "Message could not be queued. Retry sending your draft.");
+      setMessageActionError(error instanceof ChatMutationTrackedError ? null : error instanceof Error ? error.message : "Your message could not be sent. Your draft is still here — try sending again.");
     }
   };
 
@@ -748,7 +748,7 @@ export function ChatPanel({
       } }));
       setMessageActionError(null);
     } catch (error) {
-      setMessageActionError(error instanceof Error ? error.message : "Poll could not be queued. Retry sending the poll.");
+      setMessageActionError(error instanceof Error ? error.message : "Your poll could not be sent. Try sending it again.");
     }
   };
 
@@ -870,8 +870,8 @@ export function ChatPanel({
     setReplyingTo(message);
     requestAnimationFrame(() => textareaRef.current?.focus());
   };
-  const gatewaySummary = gatewayStatus?.platform
-    ? `${gatewayStatus.platform} ${gatewayStatus.status === "connected" ? "synced" : gatewayStatus.status}`
+  const gatewaySummary = gatewayStatus?.status === "error" && gatewayStatus.platform
+    ? `${gatewayStatus.platform[0].toUpperCase()}${gatewayStatus.platform.slice(1)} is not connected`
     : null;
 
   return (
@@ -894,7 +894,7 @@ export function ChatPanel({
               {unreadCount > 0 && <span className="rounded-full bg-fire-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-black">{unreadCount > 99 ? "99+" : unreadCount}</span>}
             </div>
             {subtitle || gatewaySummary ? (
-              <p className={cn("mt-0.5 flex items-center gap-1.5 truncate text-[10px]", gatewayStatus?.status === "error" ? "text-red-300" : "text-board-muted")} title={gatewayStatus?.error}><ConnectionDot status={connectionStatus} />{connectionLabel[connectionStatus]}{subtitle ? ` · ${subtitle}` : ""}{gatewaySummary ? ` · ${gatewaySummary}` : ""}</p>
+              <p className={cn("mt-0.5 flex items-center gap-1.5 truncate text-[10px]", gatewayStatus?.status === "error" ? "text-red-300" : "text-board-muted")} title={gatewayStatus?.error}><ConnectionDot status={connectionStatus} />{subtitle}{gatewaySummary ? ` · ${gatewaySummary}` : ""}</p>
             ) : null}
           </div>
         </div>
@@ -1036,7 +1036,7 @@ export function ChatPanel({
       </section>}
       {mutations.some(item => item.state === "unknown" || item.state === "settled" && (item.result.outcome !== "applied" || item.result.cleanup !== "complete")) && <section aria-label="Message changes" className="border-t border-board-border">
         {mutations.filter(item => item.state === "unknown" || item.state === "settled" && (item.result.outcome !== "applied" || item.result.cleanup !== "complete")).map(item => <div key={item.command.requestId} hidden={item.state === "sending"} role={item.state === "sending" ? "status" : "alert"} className="space-y-2 border-b border-board-border px-4 py-3 text-sm text-amber-200">
-          <p className="break-words">{item.state === "sending" ? <QuietActivity label="Saving message change…" /> : item.state === "unknown" ? "This message change needs attention." : item.result.cleanup !== "complete" ? "An attachment needs attention." : plainFailure(chatMutationOutcomeMessage(item.result))}</p>
+          <p className="break-words">{item.state === "sending" ? <QuietActivity label="Saving message change…" /> : item.state === "unknown" ? item.error : item.result.cleanup !== "complete" ? "The message was deleted, but its attachments were not removed. Retry attachment cleanup to finish removing them." : plainFailure(chatMutationOutcomeMessage(item.result))}</p>
           <p className="break-words text-xs text-board-muted">{chatMutationSummary(item.command.operation).slice(0, 140)}</p>
 
           {item.state !== "sending" && (item.state === "unknown" || item.result.cleanup !== "complete") && onRetryMutation && <button type="button" disabled={connectionStatus !== "connected"} className="ml-2 min-h-11 rounded-lg border border-board-border px-3 disabled:opacity-50" onClick={() => onRetryMutation(item.command.requestId)}>{item.state === "settled" ? "Retry attachment cleanup" : "Recover original change"}</button>}
@@ -1059,7 +1059,7 @@ export function ChatPanel({
                 <div key={work.id} data-testid={`chat-attachment-${work.id}`} className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-board-border bg-board-card p-2 text-xs">
                   <FileText className="h-4 w-4 shrink-0 text-fire-300" />
                   <div className="min-w-0 flex-1"><p className="break-all text-board-text">{work.name}</p><p className="text-board-muted">{["uploading", "removing", "sending"].includes(work.state) ? <QuietActivity label={attachmentStateLabel(work)} /> : null}</p></div>
-                  {(work.state === "upload-failed" || work.state === "remove-failed") && <p role="alert" className="w-full break-words text-red-300">This attachment needs attention.</p>}
+                  {(work.state === "upload-failed" || work.state === "remove-failed") && <p role="alert" className="w-full break-words text-red-300">{work.state === "upload-failed" ? "This attachment did not finish uploading." : "This attachment could not be removed."}</p>}
                   {(work.state === "upload-failed" || work.state === "remove-failed") && <button type="button" className="min-h-11 rounded-lg border border-board-border px-3 text-board-text" aria-label={`${work.state === "remove-failed" ? "Retry removing" : "Retry uploading"} ${work.name}`} onClick={() => attachmentDraft?.retry(work.id)}>{work.state === "remove-failed" ? "Retry removal" : "Retry upload"}</button>}
                   {work.state !== "removing" && work.state !== "remove-failed" && work.state !== "sending" && <button type="button" className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-board-border text-board-muted hover:text-board-text" aria-label={`Remove ${work.name}`} onClick={() => attachmentDraft?.remove(work.id)}><X className="h-4 w-4" /></button>}
                 </div>

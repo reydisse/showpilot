@@ -1,6 +1,6 @@
+import { FailureText } from "@/components/failure-text";
 import { QuietActivity } from "@/components/quiet-activity";
 import { plainFailure } from "@showpilot/shared/ui-feedback";
-import { FailureText } from "@/components/failure-text";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import type { ChatDelivery } from "../hooks/use-chat-relay";
@@ -16,7 +16,7 @@ export function ChatDeliveryStatus({ items, connected, retry, retryNotifications
   if (!visible.length) return null;
   return <View style={styles.container}>
     {visible.map(item => <View key={item.id} style={styles.item} testID={`chat-delivery-${item.id}`}>
-      {(item.kind === "uncertain" || item.kind === "rejected" || item.kind === "notification-failed") && <FailureText accessibilityRole="alert" style={styles.title}>{plainFailure(item.error, item.kind === "notification-failed" ? "Crew alerts could not be sent." : "This message needs attention.")}</FailureText>}
+      {(item.kind === "uncertain" || item.kind === "rejected" || item.kind === "notification-failed") && <FailureText accessibilityRole="alert" style={styles.title}>{deliveryFailureText(item)}</FailureText>}
       <Text style={styles.text}>{item.text}</Text>
       {item.kind === "queued" || item.kind === "sending" ? <QuietActivity label="Sending message" /> : null}
       {item.kind === "uncertain" ? <AppButton label="Retry original message" variant="secondary" disabled={!connected} onPress={() => retry(item.id)} /> : null}
@@ -29,6 +29,10 @@ export function ChatDeliveryStatus({ items, connected, retry, retryNotifications
     </View>)}
   </View>;
 }
+function deliveryFailureText(item: Extract<ChatDelivery, { kind: "uncertain" | "rejected" | "notification-failed" }>) {
+  return item.kind === "notification-failed" && item.error === "The notification result belongs to another message or account." ? "Crew notifications were not confirmed. Retry notifications without sending the message again." : plainFailure(item.error, item.kind === "notification-failed" ? "Crew alerts could not be sent." : item.kind === "uncertain" ? "This message may not have been sent." : "This message was not sent.");
+}
+
 const useStyles = createThemedStyles(colors => StyleSheet.create({
   container: { gap: 12, paddingHorizontal: 12 },
   list: { gap: 12 },
