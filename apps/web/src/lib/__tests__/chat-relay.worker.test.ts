@@ -62,6 +62,34 @@ function makeMutationFrame(orgId: string, messageId: string, operation: ChatMuta
 
 describe("ChatRelay threads", () => {
   it.each([
+    ["guest", "Sam", "Guest - Sam"],
+    ["guest", "Guest - Sam", "Guest - Sam"],
+    ["member", "Sam", "Sam"],
+  ] as const)("preserves authoritative names for %s named %s", async (kind, name, expectedName) => {
+    const orgId = `display-name-${crypto.randomUUID()}`;
+    const member = await openChat(orgId);
+    const url = member.url(kind === "guest" ? "/internal/guest-ws" : "/ws");
+    url.searchParams.set("name", name);
+    url.searchParams.set("guestTokenHash", `sha256:${"a".repeat(64)}`);
+    url.searchParams.set("guestExpiresAt", String(Date.now() + 60000));
+    const response = await member.stub.fetch(url, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } });
+    expect(response.status).toBe(101);
+    const sender = response.webSocket;
+    if (!sender) throw new Error("Missing sender socket");
+    const hydration = nextFrame(sender, "hydrate");
+    sender.accept(); await hydration;
+    await runInDurableObject(member.stub, (_instance, ctx) => {
+      expect(ctx.getWebSockets().map(socket => socket.deserializeAttachment())).toContainEqual(expect.objectContaining({ kind, name: expectedName }));
+    });
+    const broadcast = nextFrame(member.socket, "message");
+    sender.send(JSON.stringify({ type: "message", text: "Hello", senderName: "Forged" }));
+    await expect(broadcast).resolves.toMatchObject({ message: { senderName: expectedName } });
+    await evictDurableObject(member.stub);
+    expect(await (await member.stub.fetch(member.url("/history"))).json()).toMatchObject({ messages: [{ senderName: expectedName }] });
+    sender.close(); member.socket.close();
+  });
+
+  it.each([
     ["guest", "alert", "text"],
     ["guest", "cue", "text"],
     ["member", "alert", "alert"],
