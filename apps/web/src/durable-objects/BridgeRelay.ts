@@ -801,7 +801,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       const timer = setTimeout(() => {
         pending.delete(key);
         resolve({ success: false, error: message.type !== "connect-device" ? "Device command timed out" : "Device connection timed out" });
-      }, message.type !== "connect-device" ? 10_000 : 8_000);
+      }, 10_000);
       pending.set(key, { resolve, timer, connection: commandConnection(message, actor) });
       try {
         bridgeSocket.send(JSON.stringify(message));
@@ -1136,6 +1136,9 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     switch (msg.type) {
       case "command": {
         if (typeof msg.id !== "string" || !msg.id) return;
+        for (const pending of this.pendingClientCommands.values()) {
+          if (pending.socket === clientWs && pending.clientId === msg.id) return;
+        }
         const operationId = `client_${crypto.randomUUID()}`;
         const timer = setTimeout(() => {
           this.pendingClientCommands.delete(operationId);

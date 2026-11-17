@@ -1,3 +1,4 @@
+import relaySource from "../../durable-objects/BridgeRelay.ts?raw";
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects, evictDurableObject, runInDurableObject, runDurableObjectAlarm } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
@@ -55,6 +56,10 @@ function commandResponse(socket: WebSocket, id: string): Promise<unknown> {
 }
 
 describe("BridgeRelay device dispatch", () => {
+  it("uses the unified 10s dispatch timeout policy", () => {
+    expect(relaySource).not.toContain("8_000");
+    expect(relaySource).toContain("}, 10_000);");
+  });
   it("completes a Bridge-initiated close and clears its live targets", async () => {
     const { stub, socket } = await openBridge("bridge-peer-close");
     socket.send(JSON.stringify({ type: "bridge-status", targets: ["venue-device"] }));
@@ -283,6 +288,42 @@ describe("BridgeRelay device dispatch", () => {
     const { stub } = await openBridge("relay-org-a");
     const response = await stub.fetch(new Request("https://bridge.test/status?orgId=relay-org-b"));
     expect(response.status).toBe(403);
+  });
+
+  it("drops only same-socket in-flight duplicate command IDs", async () => {
+    const orgId = "relay-command-dedupe";
+    const { socket: bridge } = await openBridge(orgId);
+    await approveTestBridgeTarget(orgId, "pjlink", "projector-a:4352");
+    const client = await openClient(orgId);
+    const forwarded: Record<string, unknown>[] = [];
+    const responses: Record<string, unknown>[] = [];
+    bridge.addEventListener("message", (event) => forwarded.push(JSON.parse(String(event.data))));
+    client.addEventListener("message", (event) => responses.push(JSON.parse(String(event.data))));
+    const send = (id: string) => client.send(JSON.stringify({ type: "command", id, protocol: "pjlink", target: "projector-a:4352", command: "%1POWR 1\r" }));
+    const firstMessage = nextMessage(bridge);
+    send("cmd_1");
+    const first = await firstMessage;
+    send("cmd_1");
+    const secondMessage = nextMessage(bridge);
+    send("cmd_2");
+    const second = await secondMessage;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(forwarded).toHaveLength(2);
+    expect(second.id).not.toBe(first.id);
+    for (const [message, id] of [[first, "cmd_1"], [second, "cmd_2"]] as const) {
+      const response = nextMessage(client);
+      bridge.send(JSON.stringify({ type: "command-response", id: message.id, success: true }));
+      await expect(response).resolves.toMatchObject({ type: "command-response", id, success: true });
+    }
+    const thirdMessage = nextMessage(bridge);
+    send("cmd_3");
+    const third = await thirdMessage;
+    const response = nextMessage(client);
+    bridge.send(JSON.stringify({ type: "command-response", id: third.id, success: true }));
+    await expect(response).resolves.toMatchObject({ id: "cmd_3", success: true });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(forwarded).toHaveLength(3);
+    expect(responses.map((message) => message.id)).toEqual(["cmd_1", "cmd_2", "cmd_3"]);
   });
 
   it("routes colliding browser command IDs only to their originating operator", async () => {

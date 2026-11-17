@@ -1404,6 +1404,23 @@ Disconnect action disconnects the shared venue device. Install a protocol-3
 Bridge before deploying this Worker. Keep this Worker, the keyring and a
 protocol-3 Bridge together for rollback.
 
+Disconnect is issued from the mobile app's device screen through permission-checked
+server RPC dispatch. Web panel client-websocket disconnect-device frames are not
+forwarded to the Bridge; panel cleanup is local only. The relay forwards the
+disconnect to the active Bridge and reports success as soon as the frame is sent
+(fire-and-forget). It does not wait for teardown confirmation, re-check the target
+against the approved-device list, or cancel relay commands or connections already
+in flight; those finish or time out independently.
+
+The Bridge processes messages in order, applying disconnect only after any command
+already executing finishes; disconnect does not interrupt that command. It closes
+the target's device connection for every protocol type, removes its VISCA state,
+and tears down its OSC mixer feedback. For ProPresenter connections it also clears
+pending slide reservations. The Bridge then broadcasts device-status with
+connected:false for the target and a fresh bridge-status whose target list no
+longer includes it. Clients learn of disconnection from these broadcasts, not from
+the disconnect call itself.
+
 After building web and the native sidecar, run the disposable local rehearsal:
 
 ```sh
