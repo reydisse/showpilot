@@ -1,3 +1,13 @@
+/**
+ * This Durable Object is the ONLY live store for chat messages.
+ * Messages live in its SQLite chat_messages table, one instance per org + room.
+ * Chat is deliberately not mirrored to D1; the D1 chat_message table from
+ * migration 0003 is legacy. See DEPLOY.md, "Chat message storage and retention".
+ * There is no automatic retention pruning or message expiry.
+ * Messages persist until operator clear-history, individual deletion,
+ * account scrub, or deletion of the Durable Object storage itself.
+ * The 2000-message hydration window limits connection loading, not retention.
+ */
 import { chatRoomClearSchema, chatClearReceiptSchema, type ChatRoomClear } from "@/lib/chat-history-clear-contract";
 import { chatUploadSpecSchema } from "@showpilot/shared/chat-attachment";
 import { ChatAttachmentStorageError, cancelChatUpload, chatUploadFileKey, reserveChatUpload, chatFileIsDeleted, eraseChatAttachment } from "@/lib/chat-attachment-storage.server";

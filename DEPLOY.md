@@ -10028,3 +10028,16 @@ The final compiled `smoke-asset-request-recovery.mjs` (`browser2`) uses real dis
 The final input-label regression (`labels2`) passes all seven form views, asset targets and dialog focus/dismissal checks. Navigation (`navigation1`, before the final error-copy-only change) passes all 21 routes and 13 Settings sections without reload. All fixtures are disposable; no production data, remote migration, external message, deployment or release was touched. Necessary Markdown remains twenty files.
 
 Parent admin draft #305 is green at 9b42bfc587286bfd9845ed1e7ce7a680eafb20a8, run 42665532647. Input-label draft #306 is open at e6dd0d3dde9d373c6fff91e560f41316fa670a96, run 42669071760; this successor waits for that exact head's CI before opening a PR. Phase 2 remains 67/79. CSV import recovery, final broad-gate reconciliation and the owner-supplied founding-window end date/timezone remain outstanding.
+
+
+## Chat message storage and retention (2026-11-17, Phase 3 row 336)
+
+Live chat messages are stored ONLY in the ChatRelay Durable Object SQLite store. There is one DO instance per organization + room, keyed as `orgId:roomId` by `apps/web/src/lib/chat-relay-key.ts`. The `chat_messages` table is created in the ChatRelay constructor in `apps/web/src/durable-objects/ChatRelay.ts`. Every live chat read and write goes through the relay.
+
+This DO-only store is the deliberate design. Ledger row 336 (id `0a600b9ffb2beffa`) offered pruning-or-document; this section takes the document path. Chat is not mirrored to D1.
+
+The singular D1 `chat_message` table from migration 0003 is LEGACY, not the live store. Two references remain: the operator clear-history flow in `apps/web/src/lib/chat-history-clear.server.ts` deletes its rows for the organization alongside the DO store (the comment there calls them legacy rows); and `apps/web/src/lib/chat.ts` still exports the Prisma server functions `getChatMessages` and `sendChatMessage` against that table, which no client code in `src` calls. Other D1 `chat_*` tables remain live: `chat_user_room`, `chat_pass_creation_receipt`, `chat_pass_revocation`, and `chat_history_clear_receipt` hold room indexes, pass receipts and clear receipts — metadata, not message bodies.
+
+There is NO automatic age-based pruning or expiry of chat messages. Messages persist in the DO until an operator clears the organization's chat history from Settings, an individual message is deleted, a deleted account is scrubbed, or the DO storage itself is deleted. Settings clear-history requires `settings:danger_zone` permission and typing the exact organization name. It deletes messages up to the clear moment in every room and deletes the organization's legacy D1 rows. Clearing history is org-wide across rooms, not per-room. The 2000-message hydration limit in ChatRelay is a connection load window, explicitly not retention: older messages remain stored.
+
+D1 backups and exports do NOT contain live chat history. Deleting or resetting a ChatRelay DO irreversibly destroys that organization + room's chat history.
