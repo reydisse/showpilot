@@ -39,6 +39,7 @@ interface Flight { controller: AbortController; timer?: ReturnType<typeof setTim
 const buttonClass = "min-h-11 rounded-xl border border-board-border px-4 py-3 font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fire-500 disabled:opacity-50";
 
 export function CheckInKiosk({ slug, orgName }: { slug: string; orgName: string }) {
+  const [secret, setSecret] = useState("");
   const [code, setCode] = useState("");
   const [state, setState] = useState<State>({ kind: "entry" });
   const flight = useRef<Flight | null>(null);
@@ -47,7 +48,7 @@ export function CheckInKiosk({ slug, orgName }: { slug: string; orgName: string 
   const uncertain = state.kind === "write" || state.kind === "write-error";
   const blocker = useBlocker({ shouldBlockFn: () => uncertain, enableBeforeUnload: uncertain, withResolver: true });
   const cancel = () => { clearTimeout(flight.current?.timer); flight.current?.controller.abort(); flight.current = null; };
-  const reset = () => { cancel(); setCode(""); setState({ kind: "entry" }); };
+  const reset = () => { cancel(); setCode(""); setSecret(""); setState({ kind: "entry" }); };
   useEffect(() => {
     // Legacy IDs are hints, never identity proof. Do not read or restore them.
     try { localStorage.removeItem(`showpilot-checkin:${slug}:memberId`); } catch { /* Storage is optional; no identity is restored. */ }
@@ -78,7 +79,7 @@ export function CheckInKiosk({ slug, orgName }: { slug: string; orgName: string 
   function lookup(memberId: string) {
     if (flight.current) return;
     setState({ kind: "lookup", memberId });
-    void run(signal => getPublicCrewMemberByMemberId({ data: { slug, memberId }, signal }), member => {
+    void run(signal => getPublicCrewMemberByMemberId({ data: { slug, memberId, secret }, signal }), member => {
       if (member) setState({ kind: "confirm", member });
       else setState({ kind: "lookup-error", memberId, failure: { message: "Member not found. Check your ID or ask your team.", occurredAt: Date.now() } });
     }, failure => setState({ kind: "lookup-error", memberId, failure }));
@@ -116,9 +117,11 @@ export function CheckInKiosk({ slug, orgName }: { slug: string; orgName: string 
       {(state.kind === "lookup" || state.kind === "write") && <p role="status" className="flex items-center gap-3"><LoaderCircle className="size-5 animate-spin" aria-hidden="true" />{state.kind === "lookup" ? "Finding your name…" : <QuietActivity label="Confirming attendance…" />}</p>}
       {state.kind === "lookup" && <button className={buttonClass} onClick={reset}>Cancel lookup</button>}
       {state.kind === "confirm" && <section aria-label="Confirm your identity" className="space-y-4 rounded-2xl border border-board-border bg-board-card p-5">
+        {state.member.secretRequired && <label className="block">Check-in secret<input type="password" autoComplete="off" value={secret} onChange={event => setSecret(event.target.value)} onBlur={() => { if (secret) lookup(state.member.memberId); }} className="block w-full rounded border p-3" /></label>}
+        {state.member.photoUrl && <img src={state.member.photoUrl} alt={state.member.name} className="size-20 rounded-full object-cover" />}
         <h2 className="break-words text-xl font-semibold">Is this you, {state.member.name}?</h2>
         <p>{state.member.isOnline ? "You are currently checked in." : "You are currently checked out."}</p>
-        <button className={`${buttonClass} w-full bg-fire-500 text-white`} onClick={() => write({ slug, memberId: state.member.memberId, intent: state.member.isOnline ? "check-out" : "check-in", expectedRevision: state.member.revision, requestId: crypto.randomUUID() })}>
+        <button className={`${buttonClass} w-full bg-fire-500 text-white`} onClick={() => write({ slug, secret, memberId: state.member.memberId, intent: state.member.isOnline ? "check-out" : "check-in", expectedRevision: state.member.revision, requestId: crypto.randomUUID() })}>
           {state.member.isOnline ? "Yes, check me out" : "Yes, check me in"}
         </button>
         <button className={`${buttonClass} w-full`} onClick={reset}>Not me · use another ID</button>

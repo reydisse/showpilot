@@ -96,7 +96,7 @@
     "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
   },
   "src/lib/crew-roster.server.ts:authority.guard.join(\" AND \")": {
-    "count": 4,
+    "count": 5,
     "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
   },
   "src/lib/crew-roster.server.ts:guard.join(\" AND \")": {

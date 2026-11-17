@@ -31,7 +31,7 @@ const timestamps = (orgId: string) => env.DB.prepare("SELECT lastCheckIn,lastChe
 it("replays an acknowledged check-in without undoing a later check-out or changing its timestamps", async () => {
   const f = await fixture(); const first = await f.request("check-in");
   expect((await f.save(first)).member?.isOnline).toBe(true);
-  expect(Object.keys((await f.save(first)).member ?? {}).sort()).toEqual(["isOnline", "memberId", "name", "revision"]);
+  expect(Object.keys((await f.save(first)).member ?? {}).sort()).toEqual(["isOnline", "memberId", "name", "revision", "secretRequired"]);
   const firstTimes = await timestamps(f.orgId);
   expect((await f.save(first)).outcome).toBe("applied"); expect(await timestamps(f.orgId)).toEqual(firstTimes);
   await f.save(await f.request("check-out")); const finalTimes = await timestamps(f.orgId);
@@ -100,7 +100,7 @@ it("validates public RPCs, returns only public member fields, and retains per-ID
   const f = await fixture();
   expect(await getPublicCheckInOrg({ data: { slug: "missing" } })).toBeNull();
   const member = await getPublicCrewMemberByMemberId({ data: { slug: f.orgId, memberId: " td3917 " } });
-  expect(Object.keys(member ?? {}).sort()).toEqual(["isOnline", "memberId", "name", "revision"]);
+  expect(Object.keys(member ?? {}).sort()).toEqual(["isOnline", "memberId", "name", "revision", "secretRequired"]);
   await expect(publicCheckInByMemberId({ data: { slug: f.orgId, memberId: f.memberId, intent: "check-in" } })).rejects.toThrow();
   const input = await f.request("check-in");
   for (let n = 0; n < 6; n++) expect((await publicCheckInByMemberId({ data: input })).outcome).toBe("applied");
@@ -125,4 +125,37 @@ it("preserves photo and role in the authenticated attendance projection", async 
   const member = await attendanceMember({ id: "internal", memberId: "TD3917", name: "Fixture person", photoUrl: "https://example.com/photo.jpg", role: "Director", isOnline: 0, lastCheckIn: null, lastCheckOut: null });
   expect(Object.keys(member).sort()).toEqual(["id", "isOnline", "memberId", "name", "photoUrl", "revision", "role"]);
   expect(member).toMatchObject({ photoUrl: "https://example.com/photo.jpg", role: "Director" });
+});
+
+it("enforces secrets, limits photos, and invalidates rotated secrets", async () => {
+  const { hashCheckInSecret } = await import("../public-checkin.server");
+  const f = await fixture();
+  expect((await f.save(await f.request("check-in"))).outcome).toBe("applied");
+  const set = async (secret: string) => env.DB.prepare("UPDATE crew_member SET checkInSecretHash=?,photoUrl='https://example.com/photo.jpg' WHERE id=?").bind(await hashCheckInSecret(secret), f.id).run();
+  await set("ci_first");
+  const request = await f.request("check-out");
+  await expect(f.save(request)).rejects.toThrow("Unable to confirm attendance. Please retry.");
+  await expect(f.save({ ...request, secret: "wrong" })).rejects.toThrow("Unable to confirm attendance. Please retry.");
+  expect(await f.read()).not.toHaveProperty("photoUrl");
+  expect(await getPublicAttendanceMember(env.DB, f.orgId, f.memberId, "wrong")).not.toHaveProperty("photoUrl");
+  expect(await getPublicAttendanceMember(env.DB, f.orgId, f.memberId, "ci_first")).toHaveProperty("photoUrl", "https://example.com/photo.jpg");
+  expect((await f.save({ ...request, secret: "ci_first" })).outcome).toBe("applied");
+  await set("ci_second");
+  await expect(f.save({ ...request, secret: "ci_first" })).rejects.toThrow("Unable to confirm attendance. Please retry.");
+  expect((await f.save({ ...await f.request("check-in"), secret: "ci_second" })).outcome).toBe("applied");
+});
+
+it("issues and rotates only with crew-management authority", async () => {
+  const { issueCrewCheckInSecret } = await import("../crew-roster.server");
+  const f = await fixture();
+  const actor = { userId: `${f.orgId}-operator`, sessionId: `${f.orgId}-operator-session` };
+  await expect(issueCrewCheckInSecret(env.DB, { userId: "missing", sessionId: "missing" }, f.orgId, f.id)).rejects.toThrow();
+  const first = await issueCrewCheckInSecret(env.DB, actor, f.orgId, f.id);
+  expect(first.secret).toMatch(/^ci_[a-f0-9]{64}$/);
+  const second = await issueCrewCheckInSecret(env.DB, actor, f.orgId, f.id);
+  const request = await f.request("check-in");
+  await expect(f.save({ ...request, secret: first.secret })).rejects.toThrow();
+  expect((await f.save({ ...request, secret: second.secret })).outcome).toBe("applied");
+  await env.DB.prepare("UPDATE member SET role='member' WHERE organizationId=?").bind(f.orgId).run();
+  await expect(issueCrewCheckInSecret(env.DB, actor, f.orgId, f.id)).rejects.toThrow();
 });

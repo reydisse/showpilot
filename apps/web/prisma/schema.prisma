@@ -270,6 +270,7 @@ model ShowInventoryItem {
 }
 
 model CrewMember {
+  checkInSecretHash String?
   id           String              @id @default(cuid())
   orgId        String
   organization Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)

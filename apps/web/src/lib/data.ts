@@ -1,5 +1,5 @@
 import { createCrewProfileSchema, updateCrewProfileSchema, deleteCrewProfileSchema } from "./crew-roster-contract";
-import { crewActor, readCrewRoster, writeCrewProfile } from "./crew-roster.server";
+import { issueCrewCheckInSecret, crewActor, readCrewRoster, writeCrewProfile } from "./crew-roster.server";
 import { env } from "cloudflare:workers";
 import { runAudioWrite } from "./audio-write.server";
 import { runDeviceWrite } from "./device-write.server";
@@ -80,7 +80,7 @@ export const getPublicCrewMemberByMemberId = createServerFn({ method: "GET" })
     await enforcePublicCheckInRateLimit("read", data.slug, data.memberId);
     const org = await getPrisma().organization.findUnique({ where: { slug: data.slug }, select: { id: true } });
     if (!org) return null;
-    return getPublicAttendanceMember(getD1(), org.id, data.memberId);
+    return getPublicAttendanceMember(getD1(), org.id, data.memberId, data.secret);
   });
 
 // ─── Checklist ──────────────────────────────────────────────
@@ -409,3 +409,7 @@ export const deleteDevice = createServerFn({ method: "POST" })
       statement: getD1().prepare("DELETE FROM device WHERE id=? AND orgId=?").bind(data.id,data.orgId),
     }));
   });
+
+export const issueCheckInSecret = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: z.string().min(1), id: z.string().min(1) }), data))
+  .handler(async ({ data }) => issueCrewCheckInSecret(getD1(), await crewActor(getRequestHeaders()), data.orgId, data.id));

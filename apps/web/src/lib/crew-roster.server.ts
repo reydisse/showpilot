@@ -335,3 +335,13 @@ export async function writeCrewProfile(
     );
   return saved;
 }
+
+export async function issueCrewCheckInSecret(db: CrewProfileDatabase, actor: Actor, orgId: string, id: string) {
+  const authority = await crewAuthority(db, actor, orgId);
+  const secret = "ci_" + [...crypto.getRandomValues(new Uint8Array(32))].map(b => b.toString(16).padStart(2, "0")).join("");
+  const { hashCheckInSecret } = await import("./public-checkin.server");
+  const row = await db.prepare(`UPDATE crew_member SET checkInSecretHash=? WHERE orgId=? AND id=? AND ${authority.guard.join(" AND ")} RETURNING id`).bind(await hashCheckInSecret(secret), orgId, id, ...authority.params).first();
+  if (!row) throw new TeamCommandError(403, "Unable to issue check-in secret.");
+  markDatabaseWrite();
+  return { secret };
+}

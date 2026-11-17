@@ -2,7 +2,7 @@ import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { useState, useMemo, useRef } from "react";
 import { Pencil, Trash2, UserPlus, Users, Search, X } from "lucide-react";
-import { deleteCrewMember } from "@/lib/data";
+import { issueCheckInSecret, deleteCrewMember } from "@/lib/data";
 import { MemberForm, type CrewChange } from "./MemberForm";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
@@ -32,17 +32,21 @@ const DEPARTMENT_ORDER: RoleDepartment[] = [
 
 function MemberCard({
   member,
+  orgId,
   onEdit,
   onDelete,
   deleting,
   canManage,
 }: {
   member: Member;
+  orgId: string;
   onEdit: (m: Member) => void;
   onDelete: (m: Member) => void;
   deleting: boolean;
   canManage: boolean;
 }) {
+  const [issued, setIssued] = useState<string | null>(null);
+  const [issueError, setIssueError] = useState("");
   const dept = getDepartment(member.role);
   const config = DEPARTMENTS[dept];
 
@@ -87,6 +91,9 @@ function MemberCard({
         </div>
       </div>
 
+      {issued && <div role="dialog" aria-label="Check-in secret"><p>This secret will not be shown again.</p><code>{issued}</code><button onClick={() => void navigator.clipboard.writeText(issued)}>Copy</button><button onClick={() => setIssued(null)}>Close</button></div>}
+      {issueError && <p role="alert">{issueError}</p>}
+      {canManage && <button onClick={async () => { try { setIssued(null); setIssueError(""); const result = await issueCheckInSecret({ data: { orgId, id: member.id } }); setIssued(result.secret); } catch { setIssueError("Unable to issue check-in secret."); } }}>Issue/Rotate check-in secret</button>}
       {canManage ? (
         <div className="flex shrink-0 items-center gap-1">
           <button
@@ -481,7 +488,7 @@ export function MemberTable({
                     </div>
                     <div className="grid gap-2">
                       {deptMembers.map((member) => (
-                        <MemberCard
+                        <MemberCard orgId={orgId}
                           key={member.id}
                           member={member}
                           onEdit={handleEdit}
@@ -498,7 +505,7 @@ export function MemberTable({
           ) : (
             <div className="grid gap-2">
               {filteredMembers.map((member) => (
-                <MemberCard
+                <MemberCard orgId={orgId}
                   key={member.id}
                   member={member}
                   onEdit={handleEdit}
