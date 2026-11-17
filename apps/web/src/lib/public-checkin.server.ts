@@ -4,7 +4,7 @@ import { attendanceDigest as digest, readAttendanceByMemberId as readMember, att
 export async function hashCheckInSecret(secret: string) {
   return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret)))].map(b => b.toString(16).padStart(2, "0")).join("");
 }
-async function credential(db: Database, orgId: string, memberId: string, secret?: string): Promise<PublicCrewMember | null> {
+async function credential(db: Database, orgId: string, memberId: string, secret?: string) {
   const row = await db.prepare("SELECT checkInSecretHash,photoUrl FROM crew_member WHERE orgId=? AND memberId=?").bind(orgId, memberId).first<{checkInSecretHash: string | null; photoUrl: string}>();
   return { row, valid: !!row?.checkInSecretHash && !!secret && await hashCheckInSecret(secret) === row.checkInSecretHash };
 }
