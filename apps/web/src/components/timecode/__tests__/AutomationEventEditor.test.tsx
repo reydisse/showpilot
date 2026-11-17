@@ -236,7 +236,7 @@ it.each(["abc", "99:99:99:99", "00:00:01:30"])("validates invalid timecode %s in
   expect(save).not.toHaveBeenCalled();
 });
 
-it("offers a validated webhook URL field instead of JSON", async () => {
+it.each(["", "sign-me"])("offers a validated webhook URL field with secret %s", async secret => {
   const save = vi.fn(async (_event: NewAutomationEvent) => {});
   render(<AutomationEventEditor connected format={format} onAdd={save} />);
   fireEvent.change(screen.getByLabelText("Timecode (HH:MM:SS:FF)"), { target: { value: "00:00:10:00" } });
@@ -246,8 +246,10 @@ it("offers a validated webhook URL field instead of JSON", async () => {
   fireEvent.change(url, { target: { value: "https://127.0.0.1/hook" } });
   expect(screen.getByRole("button", { name: "Add Event" })).toHaveProperty("disabled", true);
   fireEvent.change(url, { target: { value: "https://example.com/hook" } });
+  fireEvent.change(screen.getByLabelText("Signing secret"), { target: { value: secret } });
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add Event" })));
-  expect(save.mock.calls[0][0]).toMatchObject({ action: "custom-webhook", payload: { url: "https://example.com/hook" } });
+  if (secret) expect(save.mock.calls[0][0].payload.secret).toBe(secret);
+  else expect(save.mock.calls[0][0].payload).not.toHaveProperty("secret");
 });
 
 

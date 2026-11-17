@@ -93,7 +93,7 @@ it("waits for in-flight cue acknowledgement before reformatting", async () => {
   await f.command("add-event", { id, label: "In flight", action: "custom-webhook", payload: { url: "https://hooks.example.com/test" },
     triggerTimecode: { hours: 0, minutes: 0, seconds: 10, frames: 0 } });
   let dispatched = false;
-  vi.stubGlobal("fetch", vi.fn(async () => {
+  stubWebhookFetch( vi.fn(async () => {
     dispatched = true;
     await new Promise(resolve => setTimeout(resolve, 1000));
     return Response.json({ ok: true });
@@ -129,3 +129,7 @@ it("reports invalid legacy clock positions instead of silently returning success
   expect(await f.command("set-timecode")).toMatchObject({ status: 400, body: { ok: false } });
   expect((await f.state()).totalFrames).toBe(0);
 });
+
+function stubWebhookFetch(target: (...args: any[]) => any) {
+ vi.stubGlobal("fetch", (url: any, init: any) => String(url).startsWith("https://cloudflare-dns.com/") ? Promise.resolve(Response.json({Status:0,Answer:[{type:1,data:"93.184.216.34"}]})) : target(url, init));
+}
