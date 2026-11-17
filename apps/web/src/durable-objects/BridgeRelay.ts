@@ -236,6 +236,8 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   private previewWrite: Promise<void> = Promise.resolve();
   private clientSessions: Set<WebSocket> = new Set();
   private bridgeOnline = false;
+  // Socket attachments are last-known state, not confirmation in this activation.
+  private bridgeStatusConfirmed = false;
   private bridgeInfo: BridgeRelayStatusInfo = { connectedTargets: [], deviceEvents: {} };
   private credentialId: string | null = null;
   private orgId = "";
@@ -332,6 +334,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       this.clientSessions.clear();
       this.bridgeOnline = false;
       this.credentialId = null;
+      this.bridgeStatusConfirmed = false;
       this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
       return Response.json({ ok: true });
     }
@@ -417,7 +420,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
             JSON.stringify({
               type: "bridge-status",
               online: this.bridgeOnline,
-              ...(role === "propresenter-viewer" ? {} : { ...this.bridgeInfo, ...this.selectionStatus() }),
+              ...(role === "propresenter-viewer" ? {} : { ...this.snapshotBridgeInfo(), ...this.selectionStatus() }),
             })
           );
         }
@@ -448,7 +451,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   }
 
   private broadcastStatus(): void {
-    this.broadcastToClients(JSON.stringify({ type: "bridge-status", online: this.bridgeOnline, ...this.bridgeInfo, ...this.selectionStatus() }));
+    this.broadcastToClients(JSON.stringify({ type: "bridge-status", online: this.bridgeOnline, ...this.snapshotBridgeInfo(), ...this.selectionStatus() }));
   }
 
   private async sendBridgeRole(socket: WebSocket, role = socket === this.bridgeWs ? "active" : "standby", selectionId?: string): Promise<void> {
@@ -480,6 +483,12 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     }
   }
 
+  private snapshotBridgeInfo(): BridgeRelayStatusInfo {
+    return this.bridgeStatusConfirmed
+      ? this.bridgeInfo
+      : { connectedTargets: [], devices: 0, deviceEvents: {} };
+  }
+
   private async activateConnection(socket: WebSocket, preparedTarget?: { target: TimecodeTarget | null }): Promise<void> {
     const installation = this.bridges.get(socket);
     if (!installation || socket.readyState !== WebSocket.OPEN) throw new Error("Selected Bridge is offline.");
@@ -487,6 +496,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
     this.bridgeWs = socket;
     this.credentialId = installation.credentialId;
     this.bridgeOnline = true;
+    this.bridgeStatusConfirmed = false;
     this.bridgeInfo = parseSocketAttachment(socket.deserializeAttachment())?.bridgeInfo ?? { connectedTargets: [], deviceEvents: {} };
     this.timecodeTarget = target;
     this.serializeBridgeAttachment();
@@ -523,6 +533,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
           this.bridgeWs = null;
           this.credentialId = null;
           this.bridgeOnline = false;
+          this.bridgeStatusConfirmed = false;
           this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
           this.timecodeTarget = null;
           if (socket.readyState === WebSocket.OPEN) await this.activateConnection(socket, { target });
@@ -540,7 +551,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   }
 
   private statusSnapshot(): BridgeRelayStatus {
-    return { bridgeOnline: this.bridgeOnline, clientCount: this.clientSessions.size, timecodeTarget: this.timecodeTarget, ...this.bridgeInfo, ...this.selectionStatus() };
+    return { bridgeOnline: this.bridgeOnline, clientCount: this.clientSessions.size, timecodeTarget: this.timecodeTarget, ...this.snapshotBridgeInfo(), ...this.selectionStatus() };
   }
 
   async getBridgeStatus(): Promise<BridgeRelayStatus> {
@@ -893,6 +904,7 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       this.bridgeWs = null;
       this.credentialId = null;
       this.bridgeOnline = false;
+      this.bridgeStatusConfirmed = false;
       this.bridgeInfo = { connectedTargets: [], deviceEvents: {} };
       this.failPendingDispatches("Venue Bridge disconnected");
       this.failPendingClientCommands("Venue Bridge disconnected");
@@ -999,6 +1011,8 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         break;
       }
       case "bridge-status":
+        if (!this.bridgeStatusConfirmed) this.bridgeInfo = this.snapshotBridgeInfo();
+        this.bridgeStatusConfirmed = true;
         this.bridgeInfo = {
           version: typeof msg.version === "string" ? msg.version : undefined,
           devices: typeof msg.devices === "number" ? msg.devices : undefined,
@@ -1076,6 +1090,8 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
       }
 
       case "device-status":
+        if (!this.bridgeStatusConfirmed) this.bridgeInfo = this.snapshotBridgeInfo();
+        this.bridgeStatusConfirmed = true;
         if (typeof msg.target === "string") {
           const targets = new Set(this.bridgeInfo.connectedTargets);
           if (msg.connected === true) targets.add(msg.target);
