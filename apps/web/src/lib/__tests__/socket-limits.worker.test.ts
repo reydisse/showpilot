@@ -61,4 +61,5 @@ it("TimecodeRelay processes 300 master feed frames at 10 Hz without closing", as
     }
     expect(closed).toBe(false);
   } finally { time.mockRestore(); socket.close(); }
-});
+// Coverage CI performs 300 sequential socket/state round trips on a shared runner.
+}, 60_000);
