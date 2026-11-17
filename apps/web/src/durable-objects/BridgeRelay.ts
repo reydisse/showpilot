@@ -1,3 +1,4 @@
+import { relaySocketCapReached, consumeSocketMessage, ROOM_FULL_CLOSE_CODE, ROOM_FULL_CLOSE_REASON, RATE_LIMIT_CLOSE_CODE, RATE_LIMIT_CLOSE_REASON } from "@/lib/socket-limits.server";
 import { ProPresenterCommandRecovery, type ProPresenterCommandContext } from "@/lib/propresenter-command-recovery.server";
 import { proPresenterCommandSchema, type ProPresenterCommand } from "@showpilot/shared/propresenter-command";
 import { reportRelayError } from "@/lib/operational-errors.server";
@@ -382,6 +383,16 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
                 authClaim: authClaim ?? undefined,
               }),
         };
+
+        if (relaySocketCapReached(this.ctx)) {
+
+          this.ctx.acceptWebSocket(server);
+
+          server.close(ROOM_FULL_CLOSE_CODE, ROOM_FULL_CLOSE_REASON);
+
+          return new Response(null, { status: 101, webSocket: client });
+
+        }
 
         this.ctx.acceptWebSocket(server);
         server.serializeAttachment?.(attachment);
@@ -825,6 +836,10 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
   }
 
   webSocketMessage(ws: WebSocket, data: string | ArrayBuffer): Promise<void> {
+    if (!consumeSocketMessage(ws, Date.now())) {
+      ws.close(RATE_LIMIT_CLOSE_CODE, RATE_LIMIT_CLOSE_REASON);
+      return Promise.resolve();
+    }
     // The handoff owns the command queue while waiting. Its one narrow ack
     // releases that wait; it cannot forward device data or grant authority.
     try {

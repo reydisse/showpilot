@@ -1,3 +1,4 @@
+import { relaySocketCapReached, consumeSocketMessage, ROOM_FULL_CLOSE_CODE, ROOM_FULL_CLOSE_REASON, RATE_LIMIT_CLOSE_CODE, RATE_LIMIT_CLOSE_REASON } from "@/lib/socket-limits.server";
 /**
  * This Durable Object is the ONLY live store for chat messages.
  * Messages live in its SQLite chat_messages table, one instance per org + room.
@@ -792,6 +793,11 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
       }
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
+      if (relaySocketCapReached(this.ctx)) {
+        this.ctx.acceptWebSocket(server);
+        server.close(ROOM_FULL_CLOSE_CODE, ROOM_FULL_CLOSE_REASON);
+        return new Response(null, { status: 101, webSocket: client });
+      }
       this.ctx.acceptWebSocket(server);
       this.sessions.set(server, session);
       server.serializeAttachment(session);
@@ -954,6 +960,10 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
   }
 
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+    if (!consumeSocketMessage(ws, Date.now())) {
+      ws.close(RATE_LIMIT_CLOSE_CODE, RATE_LIMIT_CLOSE_REASON);
+      return ;
+    }
     try {
       // A hibernated Durable Object can wake directly into a WebSocket event,
       // without another fetch() call to restore the in-memory working set.

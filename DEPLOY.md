@@ -10049,3 +10049,7 @@ There is NO automatic age-based pruning or expiry of chat messages. Messages per
 D1 backups and exports do NOT contain live chat history. Deleting or resetting a ChatRelay DO irreversibly destroys that organization + room's chat history.
 
 Migration 0098 adds nullable crew_member.checkInSecretHash. Apply post-merge using the standing migration procedure. Enforcement is per-member opt-in by issuance; members without an issued secret are unaffected. Secret-only updates do not fire the profile revision trigger, which names profile columns explicitly.
+
+### Per-relay socket cap and per-socket rate limit (2026-11-17, Phase 3 row 351)
+
+Each relay instance allows 200 sockets; additional connections close with code 4413 "Room full". Each socket allows 50 inbound messages/second sustained with a 150-message burst; floods close with code 1008 "Message rate limit exceeded". Healthy traffic, including the 10 Hz feed master and reconnect bursts, sits far below both limits.
