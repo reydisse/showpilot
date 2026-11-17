@@ -40,3 +40,12 @@ describe("HTTP security headers", () => {
     expect(withSecurityHeaders(new Request("https://showpilot.tech/api/chat/org/ws"), response)).toBe(response);
   });
 });
+
+it("restricts script and connection sources", async () => {
+  const { THEME_BOOTSTRAP } = await import("../theme-bootstrap");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(THEME_BOOTSTRAP));
+  const hash = btoa(String.fromCharCode(...new Uint8Array(digest)));
+  const csp = withSecurityHeaders(new Request("https://app.showpilot.tech/login"), new Response(""), "testNonce").headers.get("Content-Security-Policy")!;
+  expect(csp.split("; ").find(x => x.startsWith("script-src"))).toBe(`script-src 'self' 'nonce-testNonce' 'sha256-${hash}' https://js.stripe.com https://static.cloudflareinsights.com`);
+  expect(csp.split("; ").find(x => x.startsWith("connect-src"))).toBe(`connect-src 'self' ${new URL(import.meta.env.VITE_POSTHOG_HOST || "https://us.i.posthog.com").origin} https://api.stripe.com https://m.stripe.network https://cloudflareinsights.com ws:`);
+});

@@ -13,7 +13,7 @@ import { LOCAL_ACCOUNT_EXIT_COOKIE, accountExitRequested, localAccountExit } fro
 import { AuthSkeleton } from "@/components/ui/Skeleton";
 import appCss from "../styles.css?url";
 
-const THEME_BOOTSTRAP = `try{if(localStorage.getItem("showpilot-theme")==="light")document.documentElement.className="light"}catch(_){}`;
+import { THEME_BOOTSTRAP } from "../lib/theme-bootstrap";
 
 export const Route = createRootRoute({
   pendingMs: 100, // show pending state after 100ms (avoids flash on fast navigations)
