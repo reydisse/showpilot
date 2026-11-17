@@ -204,7 +204,63 @@ describe("Bridge setup boundary", () => {
     expect(loadConfigFile(directory)?.url).toBe("wss://app.example/api/bridge/org/ws");
   });
 
+  it("creates a private token once and reuses it on subsequent starts", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "showpilot-setup-"));
+    temporaryDirectories.push(directory);
+    vi.spyOn(process, "cwd").mockReturnValue(directory);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    let token = "";
+    for (let run = 0; run < 2; run++) {
+      const server = startSetupServer(0, () => ({ config: null, bridgeRunning: false, bridgeStatus: "waiting" }), () => {});
+      await new Promise<void>(resolve => server.once("listening", resolve));
+      try {
+        const tokenPath = path.join(directory, "showpilot-bridge.setup-token");
+        const stored = fs.readFileSync(tokenPath, "utf8").trim();
+        expect(stored).toMatch(/^[A-Za-z0-9_-]{43}$/);
+        if (run === 0) token = stored;
+        expect(stored).toBe(token);
+        if (process.platform !== "win32") expect(fs.statSync(tokenPath).mode & 0o777).toBe(0o600);
+      } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+    }
+    expect(log.mock.calls.filter(([line]) => String(line).startsWith("Bridge setup token"))).toHaveLength(1);
+  });
+
+  it("requires the setup token before saving and never embeds it in HTML", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "showpilot-setup-"));
+    temporaryDirectories.push(directory);
+    vi.spyOn(process, "cwd").mockReturnValue(directory);
+    const onSave = vi.fn();
+    const server = startSetupServer(0, () => ({ config: null, bridgeRunning: false, bridgeStatus: "waiting" }), onSave);
+    await new Promise<void>(resolve => server.once("listening", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing address");
+    const base = `http://127.0.0.1:${address.port}`;
+    const token = fs.readFileSync(path.join(directory, "showpilot-bridge.setup-token"), "utf8").trim();
+    try {
+      const html = await (await fetch(base)).text();
+      expect(html).not.toContain(token);
+      expect(html).toContain('name="setupToken" type="password" autocomplete="off" required');
+      for (const supplied of [undefined, "wrong", "x".repeat(token.length), token]) {
+        const form = new URLSearchParams({ site: "http://localhost:1", org: "test", key: "sp_test" });
+        if (supplied !== undefined) form.set("setupToken", supplied);
+        const response = await fetch(`${base}/save`, { method: "POST", headers: { Origin: "http://localhost:0" }, body: form, redirect: "manual" });
+        expect(response.status).toBe(supplied === token ? 303 : 403);
+        if (supplied !== token) {
+          expect(response.headers.get("cache-control")).toBe("no-store");
+          expect(await response.text()).toMatch(/setup token.*startup/);
+          expect(fs.existsSync(path.join(directory, "showpilot-bridge.config.json"))).toBe(false);
+          expect(onSave).not.toHaveBeenCalled();
+        }
+      }
+      expect(loadConfigFile(directory)?.key).toBe("sp_test");
+      expect(onSave).toHaveBeenCalledOnce();
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+  });
+
   it("never returns the saved credential through the local setup HTML or status API", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "showpilot-setup-"));
+    temporaryDirectories.push(directory);
+    vi.spyOn(process, "cwd").mockReturnValue(directory);
     const config = { ...validConfig(), propresenterPassword: "stage-fixture-secret" };
     expect(publicBridgeConfig(config)).not.toHaveProperty("key");
     const server = startSetupServer(0, () => ({ config, bridgeRunning: true, bridgeStatus: "running" }), () => {});

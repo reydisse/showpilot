@@ -1,7 +1,7 @@
 import fs from "fs";
 import http from "http";
 import path from "path";
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { deleteCredential, readCredential, writeCredential } from "./credential-store.js";
 import { credentialFreeUrl } from "./transport-url.js";
 
@@ -26,6 +26,26 @@ export interface SetupState {
 const CONFIG_FILES = ["showpilot-bridge.config.json", "bridge.config.json"];
 const CREDENTIAL_FORMAT = "showpilot-bridge-v1";
 const CONFIG_ERROR = "Unable to read or save Bridge configuration.";
+
+function loadOrCreateSetupToken(directory = process.cwd()): string {
+  const fullPath = path.join(directory, "showpilot-bridge.setup-token");
+  try {
+    return fs.readFileSync(fullPath, "utf8").trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const token = randomBytes(32).toString("base64url");
+  const temporaryPath = `${fullPath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporaryPath, `${token}\n`, { encoding: "utf8", mode: 0o600 });
+    fs.renameSync(temporaryPath, fullPath);
+    if (process.platform !== "win32") fs.chmodSync(fullPath, 0o600);
+  } finally {
+    if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
+  }
+  console.log(`Bridge setup token (enter it on the setup page): ${token}`);
+  return token;
+}
 
 function savedCredentials(value: Record<string, unknown>): Pick<BridgeConfig, "key" | "propresenterPassword"> {
   if (value.credentialFormat !== undefined) {
@@ -200,6 +220,7 @@ export function startSetupServer(
   getState: () => SetupState,
   onSave: (config: BridgeConfig) => Promise<void> | void
 ): http.Server {
+  const setupToken = Buffer.from(loadOrCreateSetupToken());
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
 
@@ -211,6 +232,12 @@ export function startSetupServer(
       }
       const body = await readBody(req);
       const form = new URLSearchParams(body);
+      const suppliedToken = Buffer.from(form.get("setupToken") ?? "");
+      if (!suppliedToken.length || suppliedToken.length !== setupToken.length || !timingSafeEqual(suppliedToken, setupToken)) {
+        res.writeHead(403, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
+        res.end("The setup token from Bridge startup is required to save settings.");
+        return;
+      }
       const config: BridgeConfig = {
         site: (form.get("site") || "").trim(),
         org: (form.get("org") || "").trim().replace(/^\/+|\/+$/g, ""),
@@ -302,6 +329,8 @@ export function startSetupServer(
       <p>${message}</p>
       <div class="card">
         <form method="post" action="/save">
+          <label for="setupToken">Setup token (printed when Bridge first started; stored in showpilot-bridge.setup-token next to the config)</label>
+          <input id="setupToken" name="setupToken" type="password" autocomplete="off" required />
           <div class="grid">
             <div>
               <label for="site">ShowPilot site</label>
