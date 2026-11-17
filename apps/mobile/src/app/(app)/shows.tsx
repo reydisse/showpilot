@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { ShowCreationSheet } from "@/components/show-creation-sheet";
 import { useShowCreationDrafts } from "@/hooks/use-show-creation";
 import { authClient } from "@/lib/auth-client";
@@ -76,7 +77,7 @@ export default function ShowsScreen() {
               <ActivityIndicator color={colors.amberText} size="large" />
             ) : null}
             {error ? (
-              <Text onPress={() => refetch()} style={styles.error}>{error.message}{"\n"}<Text style={styles.retry}>Tap to retry</Text></Text>
+              <Pressable accessibilityRole="button" onPress={() => void refetch()} style={styles.retryButton}><FailureText accessibilityRole="alert" style={styles.error}>{error.message}</FailureText><Text style={styles.retry}>Tap to retry</Text></Pressable>
             ) : null}
           </View>
         }
@@ -101,6 +102,8 @@ export default function ShowsScreen() {
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
+  retryButton: { minHeight: 44, justifyContent: "center", alignItems: "center", gap: 4, padding: 8 },
+
   addButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.amber },
   list: { gap: 12, paddingBottom: spacing.large },
   listHeader: { gap: spacing.medium, marginBottom: 2 },

@@ -346,7 +346,7 @@ export default function LiveShowScreen() {
   if (!canView) return <Redirect href="/(app)/shows" />;
   if (!query.data)
     return (
-      <Page backTo="/(app)/shows" backLabel="Back to shows" eyebrow="LIVE WORKSPACE" title="Could not open Show"><Text accessibilityRole="alert" style={styles.error}>The live workspace could not load.</Text><AppButton label="Tap to retry" onPress={() => void query.refetch()} /></Page>
+      <Page backTo="/(app)/shows" backLabel="Back to shows" eyebrow="LIVE WORKSPACE" title="Could not open Show"><FailureText accessibilityRole="alert" style={styles.error}>The live workspace could not load.</FailureText><AppButton label="Tap to retry" onPress={() => void query.refetch()} /></Page>
     );
   const refresh = async () => {
     setManualRefreshing(true);
