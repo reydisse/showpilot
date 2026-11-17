@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { composerFields } from "@showpilot/shared/chat-composer";
@@ -8,7 +9,7 @@ import { chatEditTime, chatMutationSummary, chatMutationOutcomeMessage } from "@
 import { ChatMutationTrackedError, type ChatMutationWork } from "@showpilot/shared/chat-mutation-tracker";
 import type { ChatNotificationWork } from "@/lib/chat-notifications";
 import { connectionLabel } from "@/lib/connection-state";
-import { useSyncExternalStore, useState, useRef, useEffect, useMemo, useCallback, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useLayoutEffect, useSyncExternalStore, useState, useRef, useEffect, useMemo, useCallback, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
 import { isEmojiReaction, QUICK_REACTION_EMOJIS } from "@showpilot/shared";
 import {
   MessageSquare,
@@ -198,6 +199,31 @@ function ChatMessageRow({
   mutationPending?: boolean;
 }) {
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const reactionToggleRef = useRef<HTMLButtonElement>(null);
+  const reactionPickerRef = useRef<HTMLDivElement>(null);
+  const [reactionPosition, setReactionPosition] = useState({ top: 0, left: 0 });
+  useLayoutEffect(() => {
+    if (!reactionPickerOpen) return;
+    const button = reactionToggleRef.current;
+    const picker = reactionPickerRef.current;
+    if (!button || !picker) return;
+    const anchor = button.getBoundingClientRect();
+    const card = picker.getBoundingClientRect();
+    setReactionPosition({
+      left: Math.max(16, Math.min(anchor.right - card.width, window.innerWidth - card.width - 16)),
+      top: anchor.bottom + 4 + card.height <= window.innerHeight - 16
+        ? anchor.bottom + 4
+        : Math.max(16, anchor.top - card.height - 4),
+    });
+    const close = () => setReactionPickerOpen(false);
+    const scrollRegion = button.closest('[data-testid="chat-scroll-region"]');
+    scrollRegion?.addEventListener("scroll", close);
+    window.addEventListener("resize", close);
+    return () => {
+      scrollRegion?.removeEventListener("scroll", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [reactionPickerOpen]);
   const [customReaction, setCustomReaction] = useState("");
   const isEvent = message.type === "cue" || message.type === "alert";
   const attachmentUrl = (url: string) => attachmentAccessToken
@@ -356,16 +382,16 @@ function ChatMessageRow({
           isOwn && "self-end",
         )}>
         {onReply && <button type="button" onClick={() => onReply(message)} className="min-h-11 min-w-11 touch-manipulation p-2 transition hover:bg-board-border/60 hover:text-fire-300 sm:p-1.5" aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
-        {onSetReaction && <button type="button" disabled={mutationPending} onClick={() => setReactionPickerOpen((open) => !open)} className="min-h-11 min-w-11 touch-manipulation border-l border-board-border p-2 transition disabled:opacity-50 hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Choose reaction" title="Choose reaction"><Smile className="h-3.5 w-3.5" /></button>}
+        {onSetReaction && <button ref={reactionToggleRef} type="button" disabled={mutationPending} onClick={() => setReactionPickerOpen((open) => !open)} className="min-h-11 min-w-11 touch-manipulation border-l border-board-border p-2 transition disabled:opacity-50 hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Choose reaction" title="Choose reaction"><Smile className="h-3.5 w-3.5" /></button>}
         {isOwn && onEdit && <button type="button" disabled={mutationPending} onClick={() => onEdit(message)} className="min-h-11 min-w-11 touch-manipulation border-l border-board-border p-2 transition disabled:opacity-50 hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
         {isOwn && onDelete && <button type="button" disabled={mutationPending} onClick={() => onDelete(message)} className="min-h-11 min-w-11 touch-manipulation border-l border-board-border p-2 transition disabled:opacity-50 hover:bg-red-500/10 hover:text-red-300 sm:p-1.5" aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
-        {reactionPickerOpen && <div className="absolute right-0 top-full z-20 mt-1 w-[min(17rem,calc(100vw-2rem))] rounded-lg border border-board-border bg-board-card p-2 shadow-xl">
+        {reactionPickerOpen && createPortal(<div ref={reactionPickerRef} data-testid="reaction-picker" style={{ position: "fixed", ...reactionPosition }} className="fixed z-50 w-[min(17rem,calc(100vw-2rem))] rounded-lg border border-board-border bg-board-card p-2 shadow-xl">
           <div className="grid max-h-60 grid-cols-5 gap-1 overflow-y-auto">{MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" disabled={mutationPending} onClick={() => { setReactionPickerOpen(false); void onSetReaction?.(message.id, emoji, !message.reactions?.some(item => item.emoji === emoji && currentUserId && item.userIds.includes(currentUserId))); }} className="min-h-11 min-w-11 rounded-md p-1.5 text-base hover:bg-board-border/60 disabled:opacity-50" aria-label={`React ${emoji}`}>{emoji}</button>)}</div>
           <form className="mt-2 flex gap-1 border-t border-board-border pt-2" onSubmit={(event) => { event.preventDefault(); if (mutationPending || !isEmojiReaction(customReaction)) return; setReactionPickerOpen(false); setCustomReaction(""); void onSetReaction?.(message.id, customReaction, !message.reactions?.some(item => item.emoji === customReaction && currentUserId && item.userIds.includes(currentUserId))); }}>
             <input aria-label="Type or paste any emoji" value={customReaction} onChange={(event) => setCustomReaction(event.target.value)} maxLength={32} placeholder="Any emoji" className="min-h-11 min-w-0 flex-1 rounded-md border border-board-border bg-board-bg px-2 py-1 text-xs text-board-text outline-none focus:border-fire-400/50" />
             <button type="submit" disabled={mutationPending || !isEmojiReaction(customReaction)} className="min-h-11 min-w-11 rounded-md bg-fire-500 px-2 text-xs font-semibold text-black disabled:opacity-40">Add</button>
           </form>
-        </div>}
+        </div>, document.body)}
         </div>}
       </div>
     </div>
