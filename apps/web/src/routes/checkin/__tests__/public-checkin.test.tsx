@@ -9,7 +9,7 @@ vi.mock("@tanstack/react-router", () => ({
   useBlocker: () => ({ status: "idle" }),
 }));
 vi.mock("@/lib/data", () => ({ getPublicCheckInOrg: vi.fn(), getPublicCrewMemberByMemberId: vi.fn(), publicCheckInByMemberId: vi.fn() }));
-const member: PublicCrewMember = { memberId: "TD3917", name: "Fixture person", role: "Director", photoUrl: "", isOnline: false, revision: "a".repeat(64) };
+const member: PublicCrewMember = { memberId: "TD3917", name: "Fixture person", isOnline: false, revision: "a".repeat(64) };
 function deferred<T>() {
   let resolve: (value: T) => void = () => {};
   const promise = new Promise<T>(done => { resolve = done; });
@@ -45,6 +45,7 @@ it("never restores another person's identity or attendance action from local sto
 it("requires fresh ID lookup and explicit identity confirmation before writing", async () => {
   page(); enter();
   expect(await screen.findByText("Is this you, Fixture person?")).toBeTruthy();
+  expect(screen.getByText("You are currently checked out.")).toBeTruthy();
   expect(publicCheckInByMemberId).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Not me · use another ID" }));
   expect(screen.getByLabelText("Member ID")).toHaveProperty("value", "");
@@ -120,4 +121,11 @@ it("shows an organization-not-found page instead of redirecting to sign-in or Sh
   routeData.orgName = null; page();
   expect(screen.getByRole("heading", { name: "Organization not found" })).toBeTruthy();
   expect(getPublicCrewMemberByMemberId).not.toHaveBeenCalled();
+});
+
+it("shows the name and checked-in state when confirming an online member", async () => {
+  vi.mocked(getPublicCrewMemberByMemberId).mockResolvedValue({ ...member, isOnline: true });
+  page(); enter();
+  expect(await screen.findByText("Is this you, Fixture person?")).toBeTruthy();
+  expect(screen.getByText("You are currently checked in.")).toBeTruthy();
 });

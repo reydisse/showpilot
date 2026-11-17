@@ -116,9 +116,7 @@ export function CheckInKiosk({ slug, orgName }: { slug: string; orgName: string 
       {(state.kind === "lookup" || state.kind === "write") && <p role="status" className="flex items-center gap-3"><LoaderCircle className="size-5 animate-spin" aria-hidden="true" />{state.kind === "lookup" ? "Finding your name…" : <QuietActivity label="Confirming attendance…" />}</p>}
       {state.kind === "lookup" && <button className={buttonClass} onClick={reset}>Cancel lookup</button>}
       {state.kind === "confirm" && <section aria-label="Confirm your identity" className="space-y-4 rounded-2xl border border-board-border bg-board-card p-5">
-        {state.member.photoUrl && <img src={state.member.photoUrl} alt="" className="size-20 rounded-full object-cover" />}
         <h2 className="break-words text-xl font-semibold">Is this you, {state.member.name}?</h2>
-        <p className="break-words text-board-muted">{state.member.role}</p>
         <p>{state.member.isOnline ? "You are currently checked in." : "You are currently checked out."}</p>
         <button className={`${buttonClass} w-full bg-fire-500 text-white`} onClick={() => write({ slug, memberId: state.member.memberId, intent: state.member.isOnline ? "check-out" : "check-in", expectedRevision: state.member.revision, requestId: crypto.randomUUID() })}>
           {state.member.isOnline ? "Yes, check me out" : "Yes, check me in"}

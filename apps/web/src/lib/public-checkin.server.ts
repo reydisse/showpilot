@@ -3,7 +3,7 @@ import type { PublicAttendanceResult, PublicAttendanceWrite, PublicCrewMember } 
 import { attendanceDigest as digest, readAttendanceByMemberId as readMember, attendanceMember, attendanceChangeTime, type AttendanceDatabase as Database, type AttendanceRow as MemberRow } from "./attendance-state.server";
 async function publicMember(row: MemberRow | null): Promise<PublicCrewMember | null> {
   if (!row) return null;
-  const { id: _id, ...member } = await attendanceMember(row);
+  const { id: _id, photoUrl: _photoUrl, role: _role, ...member } = await attendanceMember(row);
   return member;
 }
 export async function getPublicAttendanceMember(db: Database, orgId: string, memberId: string) {
