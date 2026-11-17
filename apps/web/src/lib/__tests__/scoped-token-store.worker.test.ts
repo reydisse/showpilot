@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 import { backfillScopedTokenDigests, findScopedToken, scopedTokenDigest, scopedTokenIsActive } from "../scoped-token-store.server";
-import { authenticateKiosk } from "../kiosk-api";
+import { kioskJson, authenticateKiosk } from "../kiosk-api";
 import { authenticateCompanion } from "../companion-api";
 import { authenticateDisplayRequest } from "../display-access.server";
 import { signToken } from "../kiosk-token";
@@ -77,5 +77,21 @@ describe("scoped bearer token storage", () => {
     expect(await backfillScopedTokenDigests(env.DB)).toEqual({ migrated: 0, remaining: 0 });
     expect(scopedTokenIsActive(await findScopedToken(env.DB, "kiosk", revoked.orgId, revoked.token))).toBe(false);
     await expect(backfillScopedTokenDigests(env.DB, 0)).rejects.toThrow("batch size");
+  });
+});
+
+ describe("kiosk cache and LAN query authentication", () => {
+  it.each([200, 401, 500])("prevents caching status %s", status => {
+    expect(kioskJson({}, status).headers.get("Cache-Control")).toBe("private, no-store");
+  });
+  it.each(["8.8.8.8", "192.168.1.20", "fd00::1", "2606:4700:4700::1111", "invalid", "999.1.1.1", "", null])("gates query tokens for %s while preserving Bearer", async ip => {
+    const { token, orgId } = await fixture("kiosk");
+    const headers = new Headers();
+    if (ip !== null) headers.set("CF-Connecting-IP", ip);
+    const result = await authenticateKiosk(new Request(`https://app.example/api?key=${encodeURIComponent(token)}`, { headers }));
+    if (ip === "192.168.1.20" || ip === "fd00::1") expect(result).toEqual({ orgId, orgSlug: orgId });
+    else expect(result).toHaveProperty("error.status", 401);
+    headers.set("Authorization", `Bearer ${token}`);
+    expect(await authenticateKiosk(new Request("https://app.example/api", { headers }))).toEqual({ orgId, orgSlug: orgId });
   });
 });
