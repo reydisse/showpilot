@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useEffect, useMemo, useState } from "react";
@@ -253,7 +254,7 @@ export default function ChecklistScreen() {
       <Page backTo="/(app)/operations" backLabel="Back to operations" eyebrow="PRE-SHOW" title="Checklist">
         <View style={styles.emptyPanel}>
           <ListChecks color={colors.textFaint} size={30} />
-          <Text style={styles.emptyTitle}>{showsQuery.error ? "Checklist history unavailable" : "No shows yet"}</Text>
+          {showsQuery.error ? <FailureText accessibilityRole="alert" style={styles.emptyTitle}>Checklist history unavailable</FailureText> : <Text style={styles.emptyTitle}>No shows yet</Text>}
           <Text style={styles.emptyText}>{showsQuery.error ? "The show list could not be loaded. Try again." : "Create a show first, then its checklist will be available here."}</Text>
         </View>
       </Page>
@@ -335,7 +336,10 @@ export default function ChecklistScreen() {
               <ActivityIndicator color={colors.amber} size="large" />
             ) : null}
             {query.error ? (
-              <Text accessibilityRole="button" onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text>
+              <Pressable accessibilityRole="button" onPress={() => void query.refetch()} style={styles.retryButton}>
+                <FailureText accessibilityRole="alert" style={styles.error}>{query.error.message}</FailureText>
+                <Text style={styles.retryText}>Tap to retry</Text>
+              </Pressable>
             ) : null}
 
             {entries.length > 0 ? (
@@ -508,7 +512,10 @@ export default function ChecklistScreen() {
             <View style={styles.modalLoading}><ActivityIndicator color={colors.amber} size="large" /><Text style={styles.emptyText}>Analyzing rundown cues…</Text></View>
           ) : null}
           {draftQuery.error ? (
-            <Text accessibilityRole="button" onPress={() => draftQuery.refetch()} style={[styles.error, styles.modalError]}>{draftQuery.error.message} · Tap to retry</Text>
+            <Pressable accessibilityRole="button" onPress={() => void draftQuery.refetch()} style={styles.retryButton}>
+                <FailureText accessibilityRole="alert" style={[styles.error, styles.modalError]}>{draftQuery.error.message}</FailureText>
+                <Text style={styles.retryText}>Tap to retry</Text>
+              </Pressable>
           ) : null}
           {draftQuery.data ? (
             <FlatList
@@ -564,6 +571,9 @@ function SuggestionCard({ suggestion, selected, onToggle }: {
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
+  retryButton: { minHeight: 44, justifyContent: "center", alignItems: "center", gap: 4, padding: 8 },
+  retryText: { color: colors.text, fontFamily, fontSize: 12, fontWeight: "800" },
+
   smartButton: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 7, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.amberBorder, backgroundColor: colors.amberSoft, paddingHorizontal: 13 },
   smartButtonText: { color: colors.amberText, fontFamily, fontSize: 12, fontWeight: "900" },
   pressed: { opacity: 0.58 },

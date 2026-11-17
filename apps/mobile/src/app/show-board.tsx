@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { useEffect, useMemo, useState } from "react";
@@ -181,7 +182,7 @@ export default function ShowBoardScreen() {
         </Pressable>
       </View>
       {query.error ? (
-        <Pressable accessibilityRole="button" onPress={() => void query.refetch()} style={styles.errorCard}><Text accessibilityRole="alert" style={styles.errorText}>Crew could not load.</Text><Text style={styles.retryText}>Tap to retry</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={() => void query.refetch()} style={styles.errorCard}><FailureText accessibilityRole="alert" style={styles.errorText}>Crew could not load.</FailureText><Text style={styles.retryText}>Tap to retry</Text></Pressable>
       ) : null}
     </View>
   );

@@ -110,7 +110,7 @@ export default function CheckInScreen() {
     if (!statusMutation.error || failed?.member.id !== member.id) return null;
     return (
       <Pressable accessibilityRole="button" onPress={() => statusMutation.mutate(failed)} style={styles.retryButton}>
-        <Text accessibilityRole="alert" style={styles.error}>Attendance could not be updated.</Text>
+        <FailureText accessibilityRole="alert" style={styles.error}>Attendance could not be updated.</FailureText>
         <Text style={styles.retryText}>Tap to retry</Text>
       </Pressable>
     );
@@ -147,7 +147,7 @@ export default function CheckInScreen() {
       {query.isPending ? <ActivityIndicator color={colors.amberText} size="large" /> : null}
       {query.error ? (
         <Pressable accessibilityRole="button" onPress={() => void query.refetch()} style={styles.retryButton}>
-          <Text accessibilityRole="alert" style={styles.error}>Crew could not load.</Text>
+          <FailureText accessibilityRole="alert" style={styles.error}>Crew could not load.</FailureText>
           <Text style={styles.retryText}>Tap to retry</Text>
         </Pressable>
       ) : null}

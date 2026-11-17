@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { workspaceCopy , isEmojiReaction, QUICK_REACTION_EMOJIS } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/providers/workspace-provider";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
@@ -281,7 +282,10 @@ export default function IncidentsScreen() {
               <ActivityIndicator color={colors.amber} size="large" />
             ) : null}
             {query.error ? (
-              <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text>
+              <Pressable accessibilityRole="button" onPress={() => void query.refetch()} style={styles.retryButton}>
+                <FailureText accessibilityRole="alert" style={styles.error}>{query.error.message}</FailureText>
+                <Text style={styles.retryText}>Tap to retry</Text>
+              </Pressable>
             ) : null}
           </View>
         }
@@ -590,6 +594,9 @@ function IncidentDiscussion({
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
+  retryButton: { minHeight: 44, justifyContent: "center", alignItems: "center", gap: 4, padding: 8 },
+  retryText: { color: colors.text, fontFamily, fontSize: 12, fontWeight: "800" },
+
   addButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 13, backgroundColor: colors.amber },
   summaryRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   summary: { flexDirection: "row", alignItems: "center", gap: 8 },

@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { Redirect, router } from "expo-router";
 import UserRound from "lucide-react-native/icons/user-round";
@@ -25,7 +26,7 @@ export default function HomeScreen() {
     }>
       {error ? (
         <View style={styles.errorCard}>
-          <Text style={styles.errorTitle}>ShowPilot could not be opened.</Text>
+          <FailureText accessibilityRole="alert" style={styles.errorTitle}>ShowPilot could not be opened.</FailureText>
           <Text onPress={() => refetch()} style={styles.retry}>Try again</Text>
         </View>
       ) : null}

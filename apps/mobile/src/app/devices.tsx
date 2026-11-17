@@ -1,3 +1,4 @@
+import { FailureText } from "@/components/failure-text";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Cable from "lucide-react-native/icons/cable";
@@ -145,7 +146,10 @@ export default function DevicesScreen() {
             <View style={styles.fleetStats}><View style={styles.fleetStat}><Text style={styles.fleetValue}>{query.data?.devices.length ?? 0}</Text><Text style={styles.fleetLabel}>CONFIGURED</Text></View><View style={styles.fleetStat}><Text style={[styles.fleetValue, styles.onlineValue]}>{query.data?.devices.filter((device) => device.connected).length ?? 0}</Text><Text style={styles.fleetLabel}>CONNECTED</Text></View><View style={styles.fleetStat}><Text style={styles.fleetValue}>{new Set(query.data?.devices.map((device) => device.adapterType)).size}</Text><Text style={styles.fleetLabel}>ADAPTERS</Text></View></View>
             <View style={styles.searchBox}><Search color={colors.textFaint} size={16} /><TextInput accessibilityLabel="Search devices" onChangeText={setSearch} placeholder="Search devices or adapters" placeholderTextColor={colors.textFaint} style={styles.searchInput} value={search} />{search ? <Pressable accessibilityLabel="Clear device search" onPress={() => setSearch("")}><X color={colors.textMuted} size={17} /></Pressable> : null}</View>
             {query.isPending ? <ActivityIndicator color={colors.amber} size="large" /> : null}
-            {query.error ? <Text onPress={() => query.refetch()} style={styles.error}>{query.error.message} · Tap to retry</Text> : null}
+            {query.error ? <Pressable accessibilityRole="button" onPress={() => void query.refetch()} style={styles.retryButton}>
+                <FailureText accessibilityRole="alert" style={styles.error}>{query.error.message}</FailureText>
+                <Text style={styles.retryText}>Tap to retry</Text>
+              </Pressable> : null}
           </View>
         )}
         ListEmptyComponent={query.data && !query.isPending ? <View style={styles.emptyState}><Text style={styles.empty}>{search ? "No devices match this search." : "No devices are configured for this workspace."}</Text>{!search ? <AppButton label="Add the first device" onPress={() => openEditor(null)} variant="secondary" /> : null}</View> : null}
@@ -164,6 +168,9 @@ export default function DevicesScreen() {
 }
 
 const useStyles = createThemedStyles((colors) => StyleSheet.create({
+  retryButton: { minHeight: 44, justifyContent: "center", alignItems: "center", gap: 4, padding: 8 },
+  retryText: { color: colors.text, fontFamily, fontSize: 12, fontWeight: "800" },
+
   addButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: colors.amber },
   bridgeNote: { flexDirection: "row", gap: 12, borderRadius: radii.medium, borderWidth: 1, padding: spacing.medium },
   bridgeOnline: { borderColor: colors.greenBorder, backgroundColor: colors.greenSoft },
