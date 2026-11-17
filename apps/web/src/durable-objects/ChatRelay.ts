@@ -1055,7 +1055,7 @@ export class ChatRelay extends DurableObject<ChatRelayEnv> {
           senderName: session.name,
           senderRole: session.role,
           text: (parsed.text ?? "").trim().slice(0, 4000),
-          type: parsed.messageType === "alert" || parsed.messageType === "cue"
+          type: session.kind === "member" && (parsed.messageType === "alert" || parsed.messageType === "cue")
             ? parsed.messageType
             : "text",
           timestamp: Date.now(),

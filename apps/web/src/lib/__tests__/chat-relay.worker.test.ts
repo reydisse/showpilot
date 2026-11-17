@@ -61,6 +61,32 @@ function makeMutationFrame(orgId: string, messageId: string, operation: ChatMuta
 }
 
 describe("ChatRelay threads", () => {
+  it.each([
+    ["guest", "alert", "text"],
+    ["guest", "cue", "text"],
+    ["member", "alert", "alert"],
+    ["member", "cue", "cue"],
+  ] as const)("stores and broadcasts %s %s as %s", async (kind, messageType, expectedType) => {
+    const orgId = `message-type-${kind}-${messageType}`;
+    const member = await openChat(orgId);
+    let sender = member.socket;
+    if (kind === "guest") {
+      const response = await member.stub.fetch(new Request(`https://chat.test/internal/guest-ws?orgId=${orgId}&room=production&name=Guest&role=Guest&guestTokenHash=sha256:${"a".repeat(64)}&guestExpiresAt=${Date.now() + 60000}`, { headers: { Upgrade: "websocket", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET } }));
+      if (!response.webSocket) throw new Error("Missing guest socket");
+      sender = response.webSocket;
+      const hydration = nextFrame(sender, "hydrate");
+      sender.accept(); await hydration;
+    }
+    const text = `Same body for ${messageType}`;
+    const id = crypto.randomUUID();
+    const broadcast = nextFrame(member.socket, "message");
+    sender.send(JSON.stringify({ type: "message", messageType, text, clientMessageId: id }));
+    await expect(broadcast).resolves.toMatchObject({ message: { id, type: expectedType, text } });
+    expect(await (await member.stub.fetch(member.url("/history"))).json()).toMatchObject({ messages: [{ id, type: expectedType, text }] });
+    sender.close();
+    if (sender !== member.socket) member.socket.close();
+  });
+
   it("recovers the original reaction acknowledgement without toggling it off", async () => {
     const orgId = "reaction-receipt-org";
     const { stub, socket, url } = await openChat(orgId);
