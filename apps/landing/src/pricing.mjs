@@ -34,8 +34,8 @@ export const PRICING = {
     monthly: 25,
     tagline: "Everything in Pro, locked in for life",
   },
-  // Annual prices are not created in Stripe yet — shown as coming soon.
-  annualNote: "Annual billing (2 months free) coming soon",
+  // Annual billing charges ten monthly payments per year.
+  annualNote: "Annual billing available — 2 months free",
 };
 
 export const APP_URL = "https://app.showpilot.tech";

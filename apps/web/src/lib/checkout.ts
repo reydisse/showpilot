@@ -31,6 +31,7 @@ export interface CheckoutSessionParamsInput {
   orgId: string;
   orgSlug: string;
   plan: "starter" | "pro" | "founding";
+  interval: "monthly" | "annual";
   priceId: string;
   baseUrl: string;
 }
@@ -50,21 +51,23 @@ export function checkoutIdempotencyKey(
   plan: CheckoutSessionParamsInput["plan"],
   uiMode: CheckoutUiMode,
   now: Date = new Date(),
+  interval: "monthly" | "annual" = "monthly",
 ): string {
   // Checkout Sessions expire after 24 hours. A UTC-day operation key converges
   // simultaneous tabs/retries without pinning a future attempt to an expired session.
-  return `showpilot-checkout:${orgId}:${plan}:${uiMode}:${now.toISOString().slice(0, 10)}`;
+  return `showpilot-checkout:${orgId}:${plan}:${interval}:${uiMode}:${now.toISOString().slice(0, 10)}`;
 }
 
 export function reusableCheckoutSession(
   sessions: Stripe.Checkout.Session[],
-  input: Pick<CheckoutSessionParamsInput, "orgId" | "plan" | "uiMode">,
+  input: Pick<CheckoutSessionParamsInput, "orgId" | "plan" | "uiMode" | "interval">,
 ): Stripe.Checkout.Session | undefined {
   return sessions.find((session) =>
     session.status === "open"
     && session.mode === "subscription"
     && session.metadata?.orgId === input.orgId
     && session.metadata?.plan === input.plan
+    && (session.metadata?.interval ?? "monthly") === input.interval
     && session.metadata?.uiMode === input.uiMode
   );
 }
@@ -84,10 +87,17 @@ export function buildCheckoutSessionParams(
     metadata: {
       orgId: input.orgId,
       plan: input.plan,
+      interval: input.interval,
       uiMode: input.uiMode,
     },
     line_items: [{ price: input.priceId, quantity: 1 }],
-    subscription_data: { metadata: { orgId: input.orgId } },
+    allow_promotion_codes: true,
+    subscription_data: {
+      // Stripe-side trial_period_days=14 mirrors the documented product trial
+      // (14 days on Pro, no card) so Stripe and app-side trials agree.
+      trial_period_days: 14,
+      metadata: { orgId: input.orgId, plan: input.plan, interval: input.interval },
+    },
   };
 
   if (input.uiMode === "embedded") {

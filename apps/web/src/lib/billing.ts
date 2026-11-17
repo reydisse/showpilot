@@ -97,6 +97,7 @@ export const getOrgBilling = createServerFn({ method: "GET" })
 const checkoutSchema = z.object({
   orgId: idSchema,
   plan: z.enum(["starter", "pro", "founding"]),
+  interval: z.enum(["monthly", "annual"]).default("monthly"),
   // Default "hosted" keeps the original flow when the client doesn't (or
   // can't) request embedded — e.g. VITE_STRIPE_PUBLISHABLE_KEY is unset.
   uiMode: z.enum(["embedded", "hosted"]).default("hosted"),
@@ -136,8 +137,9 @@ export const createCheckoutSession = createServerFn({ method: "POST" })
       }
     }
 
-    const { getStripe, getStripePriceIds } = await import("@/lib/stripe.server");
+    const { getStripe, getStripePriceId } = await import("@/lib/stripe.server");
     const stripe = getStripe();
+    const priceId = getStripePriceId(data.plan, data.interval);
 
     let customerId = org.stripeCustomerId;
     if (!customerId) {
@@ -175,11 +177,11 @@ export const createCheckoutSession = createServerFn({ method: "POST" })
     const reusable = reusableCheckoutSession(openSessions.data, {
       orgId: org.id,
       plan: data.plan,
+      interval: data.interval,
       uiMode: data.uiMode,
     });
     if (reusable) return checkoutResult(data.uiMode, reusable);
 
-    const prices = getStripePriceIds();
     const session = await stripe.checkout.sessions.create(
       buildCheckoutSessionParams({
         uiMode: data.uiMode,
@@ -187,11 +189,12 @@ export const createCheckoutSession = createServerFn({ method: "POST" })
         orgId: org.id,
         orgSlug: org.slug,
         plan: data.plan,
-        priceId: prices[data.plan],
+        interval: data.interval,
+        priceId,
         baseUrl: getBaseUrl(),
       }),
       {
-        idempotencyKey: checkoutIdempotencyKey(org.id, data.plan, data.uiMode),
+        idempotencyKey: checkoutIdempotencyKey(org.id, data.plan, data.uiMode, undefined, data.interval),
       },
     );
     return checkoutResult(data.uiMode, session);

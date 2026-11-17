@@ -93,11 +93,11 @@ export function getEffectivePlan(
 /** Map a Stripe price ID to its plan. Founding members get pro. */
 export function planFromPriceId(
   priceId: string,
-  prices: { starter: string; pro: string; founding: string },
+  prices: { starter: string; pro: string; founding: string; starterAnnual?: string; proAnnual?: string; foundingAnnual?: string },
 ): { plan: Plan; foundingMember: boolean } | null {
-  if (priceId === prices.founding) return { plan: "pro", foundingMember: true };
-  if (priceId === prices.pro) return { plan: "pro", foundingMember: false };
-  if (priceId === prices.starter) return { plan: "starter", foundingMember: false };
+  if (priceId === prices.founding || (prices.foundingAnnual !== undefined && priceId === prices.foundingAnnual)) return { plan: "pro", foundingMember: true };
+  if (priceId === prices.pro || (prices.proAnnual !== undefined && priceId === prices.proAnnual)) return { plan: "pro", foundingMember: false };
+  if (priceId === prices.starter || (prices.starterAnnual !== undefined && priceId === prices.starterAnnual)) return { plan: "starter", foundingMember: false };
   return null;
 }
 

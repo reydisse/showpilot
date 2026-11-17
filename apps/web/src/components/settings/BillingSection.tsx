@@ -70,6 +70,7 @@ export function BillingSection({
   const [banner] = useState<"success" | "cancelled" | null>(
     billingBannerFromUrl,
   );
+  const [interval, setInterval] = useState<"monthly" | "annual">("monthly");
   const [checkingOut, setCheckingOut] = useState<string | null>(null);
   const [openingPortal, setOpeningPortal] = useState(false);
   const [billingError, setBillingError] = useState<string | null>(null);
@@ -137,7 +138,7 @@ export function BillingSection({
       const uiMode = resolveCheckoutUiMode(getStripePublishableKey());
       if (uiMode === "embedded") void loadEmbeddedCheckoutModal();
       const result = await createCheckoutSession({
-        data: { orgId: orgId, plan, uiMode },
+        data: { orgId: orgId, plan, uiMode, interval },
       });
       if (result.mode === "embedded") {
         setEmbeddedCheckout({
@@ -215,7 +216,14 @@ export function BillingSection({
         <p className="mt-2 text-sm text-board-muted">
           Features available now: {planName(billing.effectivePlan)}
         </p>
-        {betaActive ? (
+        <div role="group" aria-label="Billing interval" className="flex gap-3 mb-4">
+        {(["monthly", "annual"] as const).map((value) => (
+          <button key={value} aria-pressed={interval === value} disabled={checkingOut !== null} onClick={() => setInterval(value)} className="min-h-11 px-4 rounded-lg border border-board-border">
+            {value === "monthly" ? "Monthly" : "Annual — 2 months free"}
+          </button>
+        ))}
+      </div>
+      {betaActive ? (
           <p className="mt-2 text-sm text-purple-400">
             Pro beta access is free until public launch.
           </p>
@@ -275,7 +283,7 @@ export function BillingSection({
                 >
                   {checkingOut === "founding"
                     ? "Redirecting..."
-                    : "Subscribe to Founding — $25/mo"}
+                    : interval === "annual" ? "Subscribe to Founding — $250/year" : "Subscribe to Founding — $25/mo"}
                 </button>
               )}
             </>
@@ -312,9 +320,9 @@ export function BillingSection({
                   )}
                 </div>
                 <p className="text-2xl font-bold text-board-text">
-                  ${card.price}
+                  ${interval === "annual" ? card.price * 10 : card.price}
                   <span className="text-xs font-normal text-board-muted">
-                    /mo
+                    {interval === "annual" ? "/year — 2 months free" : "/mo"}
                   </span>
                 </p>
                 <p className="text-xs text-board-muted mt-1 mb-3">
@@ -323,11 +331,11 @@ export function BillingSection({
                 <ul className="space-y-1.5 mb-4 flex-1">
                   {card.features.map((feature) => (
                     <li
-                      key={feature}
+                      key={interval === "annual" && feature === "$25/mo locked in" ? "$250/year locked in" : feature}
                       className="flex items-center gap-1.5 text-xs text-board-muted"
                     >
                       <Check className="w-3 h-3 text-fire-500 shrink-0" />
-                      {feature}
+                      {interval === "annual" && feature === "$25/mo locked in" ? "$250/year locked in" : feature}
                     </li>
                   ))}
                 </ul>
