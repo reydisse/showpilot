@@ -13,6 +13,10 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./device-command": {
+      "types": "./src/device-command.d.mts",
+      "import": "./src/device-command.mjs"
+    },
     "./bridge-target": {
       "types": "./src/bridge-target.d.mts",
       "import": "./src/bridge-target.mjs"

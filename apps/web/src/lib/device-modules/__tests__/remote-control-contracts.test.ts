@@ -1,3 +1,4 @@
+import { parseDeviceCommand } from "@showpilot/shared/device-command";
 import { describe, expect, it } from "vitest";
 import { buildHomeAssistantActions, buildHomeAssistantCommand, parseHomeAssistantEntities } from "../homeassistant/homeassistant-module";
 import { resolveRemoteDeviceControl } from "../../mobile-device-controls";
@@ -24,6 +25,26 @@ function remote(adapterType: string) {
 }
 
 describe("remote device-control contracts", () => {
+  it("produces frames accepted by the shared command schema", () => {
+    for (const [adapterType, settings] of Object.entries(settingsByAdapter)) {
+      const control = remote(adapterType);
+      const action = control.actions[0];
+      // Home Assistant actions require discovered entities; these settings have none.
+      if (adapterType === "homeassistant" && !action) {
+        expect(parseDeviceCommand({ type: "command", id: "contract-test", protocol: control.definition.protocol,
+          target: control.target, command: 'POST /api/services/scene/turn_on {"entity_id":"scene.service"}' })).not.toBeNull();
+        continue;
+      }
+      if (!action) throw new Error(`Missing first action for ${adapterType}`);
+      const params = Object.fromEntries(action.params.map((param) => [param.id,
+        param.default ?? param.options?.[0]?.value ?? (param.type === "number" ? param.min ?? 1 : param.type === "boolean" ? false : "Program"),
+      ]));
+      const frame = { type: "command", id: "contract-test", protocol: control.definition.protocol,
+        target: control.target, command: control.definition.buildCommand(action.id, params, settings) };
+      expect(parseDeviceCommand(frame), adapterType).toEqual(frame);
+    }
+  });
+
   it("resolves every native-capable adapter to a Bridge protocol and typed action catalog", () => {
     for (const [adapterType, settings] of Object.entries(settingsByAdapter)) {
       const remote = resolveRemoteDeviceControl(adapterType, settings);
