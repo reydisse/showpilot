@@ -3452,10 +3452,11 @@
       "phase": "3",
       "section": "3.4 Reconnect and state hygiene (audit ARCH/M1 to M6)",
       "line": 337,
-      "status": "blocked",
+      "status": "verified",
       "evidence": [
         "2026-11-18 WS8 adjudication: #97 fix: publish active shows only after the room is durably ready (merge 1f0047b0f06276c6d0751a746734df689cea551a). Open disposition: RundownRelay.ts fetch mismatch branch (lines 711-738) still clears items/timer and persists on writable show/date mismatch; no explicit revision-checked switch-show command exists. #97 fixes active-pointer publication, not this branch.",
-        "2026-11-18 WS8 adjudication: #97 fix: publish active shows only after the room is durably ready (merge 1f0047b0f06276c6d0751a746734df689cea551a). Open disposition: RundownRelay.ts fetch mismatch branch (lines 711-738) still clears items/timer and persists on writable show/date mismatch; no explicit revision-checked switch-show command exists. #97 fixes active-pointer publication, not this branch."
+        "2026-11-18 WS8 adjudication: #97 fix: publish active shows only after the room is durably ready (merge 1f0047b0f06276c6d0751a746734df689cea551a). Open disposition: RundownRelay.ts fetch mismatch branch (lines 711-738) still clears items/timer and persists on writable show/date mismatch; no explicit revision-checked switch-show command exists. #97 fixes active-pointer publication, not this branch.",
+        "2026-11-18 WS8 amendment: PR #415 \"fix: require confirmed show switches before replacing live room state\", merge fd462aef0ab4e6eae0343acea1b5527e5744b58b, CI run 44302302909 green. switch-show is now an explicit revision-checked command in the shared protocol with expectedRevision required and the existing classifyRelayCommand envelope; mismatched opens and non-switch commands preserve the room's items and timer and persist nothing; the old room keeps serving until a valid seed for the pending target succeeds; stale revisions are rejected (HTTP 409 / WS accepted:false); failed seeds retain the old room. Five acceptance tests passing: \"row 337 (a): mismatch HTTP state and WebSocket open preserve items and timer without persistence\"; \"row 337 (b): revision checked switch followed by seed atomically adopts show B\"; \"row 337 (c): stale switch rejects HTTP and WebSocket without state changes\"; \"row 337 (d): accepted switch keeps serving show A until a valid seed succeeds\"; \"row 337 (e): same-show seed retains an initialized room\"."
       ]
     },
     {
@@ -3650,10 +3651,11 @@
       "phase": "3",
       "section": "Phase 3 gate (all must pass before the final report)",
       "line": 364,
-      "status": "partial",
+      "status": "verified",
       "evidence": [
         "2026-11-18 WS8 adjudication: #97 fix: publish active shows only after the room is durably ready (merge 1f0047b0f06276c6d0751a746734df689cea551a); #383 WS7 N: reconnect snapshot honesty : hold restored targets until the Bridge confirms (row 334) (merge 775c6dfb65eed88375cb2d79ab2e395f3aba7e30); #388 Move cron maintenance to retryable Cloudflare Queue jobs (merge e33472ababda6534757ced98275a40accc7e83bf); #393 WS7 U: roll back failed web verification and document migration pairing (merge 8cab29902d70d4f894a40b6b8747a10d8e484e85). Open disposition: Room-open mismatch still wipes state in RundownRelay.ts:711-738 (row 337); #383/#388/#393 satisfy reconnect snapshot, queue retries and rollback limbs.",
-        "2026-11-18 WS8 adjudication: #97 fix: publish active shows only after the room is durably ready (merge 1f0047b0f06276c6d0751a746734df689cea551a); #383 WS7 N: reconnect snapshot honesty : hold restored targets until the Bridge confirms (row 334) (merge 775c6dfb65eed88375cb2d79ab2e395f3aba7e30); #388 Move cron maintenance to retryable Cloudflare Queue jobs (merge e33472ababda6534757ced98275a40accc7e83bf); #393 WS7 U: roll back failed web verification and document migration pairing (merge 8cab29902d70d4f894a40b6b8747a10d8e484e85). Open disposition: Room-open mismatch still wipes state in RundownRelay.ts:711-738 (row 337); #383/#388/#393 satisfy reconnect snapshot, queue retries and rollback limbs."
+        "2026-11-18 WS8 adjudication: #97 fix: publish active shows only after the room is durably ready (merge 1f0047b0f06276c6d0751a746734df689cea551a); #383 WS7 N: reconnect snapshot honesty : hold restored targets until the Bridge confirms (row 334) (merge 775c6dfb65eed88375cb2d79ab2e395f3aba7e30); #388 Move cron maintenance to retryable Cloudflare Queue jobs (merge e33472ababda6534757ced98275a40accc7e83bf); #393 WS7 U: roll back failed web verification and document migration pairing (merge 8cab29902d70d4f894a40b6b8747a10d8e484e85). Open disposition: Room-open mismatch still wipes state in RundownRelay.ts:711-738 (row 337); #383/#388/#393 satisfy reconnect snapshot, queue retries and rollback limbs.",
+        "2026-11-18 WS8 amendment: PR #415 (merge fd462aef0ab4e6eae0343acea1b5527e5744b58b) satisfies the final open limb, room-open mismatch wipe (row 337). Reconnect snapshot (#383), queue retries (#388) and rollback (#393) were already satisfied per the WS8 adjudication; all limbs are now satisfied."
       ]
     },
     {
