@@ -1,40 +1,17 @@
-// Single source of truth for every price shown on the landing page.
-// The build script (build.mjs) interpolates these into the HTML template —
-// no price is ever hardcoded in markup. Keep in sync with the app's plan
-// cards (apps/web/src/routes/$slug/settings.tsx) and Stripe prices
-// (STRIPE_PRICE_STARTER / STRIPE_PRICE_PRO / STRIPE_PRICE_FOUNDING).
-
+// Landing marketing prices; billing and enforcement are managed separately.
 export const PRICING = {
   starter: {
     name: "Starter",
-    monthly: 39,
-    tagline: "For small teams running weekly shows",
-    features: [
-      "25 team members",
-      "10 devices",
-      "50 shows",
-      "All integrations",
-      "Kiosk displays",
-    ],
+    monthly: 39.99,
+    tagline: "For one room, with the full core feature set",
+    features: ["Show planning", "Team collaboration", "All integrations", "Kiosk displays"],
   },
   pro: {
     name: "Pro",
-    monthly: 79,
-    tagline: "Full production power, no ceilings",
-    features: [
-      "100 team members",
-      "Unlimited devices",
-      "Unlimited shows",
-      "All integrations",
-      "Kiosk displays",
-    ],
+    monthly: 79.99,
+    tagline: "For unlimited rooms, with an advanced feature layer",
+    features: ["Show planning", "Team collaboration", "All integrations", "Kiosk displays"],
   },
-  founding: {
-    name: "Founding Member",
-    monthly: 25,
-    tagline: "Everything in Pro, locked in for life",
-  },
-  // Annual billing charges ten monthly payments per year.
   annualNote: "Annual billing available — 2 months free",
 };
 
