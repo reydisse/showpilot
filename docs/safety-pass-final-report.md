@@ -15,7 +15,7 @@ Verified means complete within the recorded evidence scope.
 | 0 | 38 | 0 | 0 | 0 |
 | 1 | 37 | 0 | 0 | 0 |
 | 2 | 68 | 11 | 0 | 0 |
-| 3 | 26 | 10 | 3 | 1 |
+| 3 | 28 | 9 | 3 | 0 |
 | final | 5 | 3 | 0 | 0 |
 | 0.4 | Included in Phase 0 | | | |
 
@@ -31,7 +31,7 @@ Display-pass work is indexed under Phase 0 by the source ledger. Merged #75, #15
 
 ## Phase 1
 
-#76 scopes clocks by show and validates MIDI sources. #79 to #87 harden relay claims, live authority, cached read leases and request-scoped D1 access. #88 to #93 ship feed watchdog, sequence recovery, single-writer automation and jump/format/tolerance guards. #95/#96 persist diffs; #97 makes active-show publication transactional after durable preparation. #98/#99 ship Bridge takeover and destination allowlisting; #100 to #108 hash tokens, encrypt credentials and verify ProPresenter authentication. #77 adds signing readiness, #78 removes the obsolete gateway and #94 repairs second-organisation onboarding. The ledger records the Phase 1 full-suite and named acceptance checks as verification-only closures, without claiming room-open auto-wipe was repaired; that separate Phase 3 requirement is blocked at row 337.
+#76 scopes clocks by show and validates MIDI sources. #79 to #87 harden relay claims, live authority, cached read leases and request-scoped D1 access. #88 to #93 ship feed watchdog, sequence recovery, single-writer automation and jump/format/tolerance guards. #95/#96 persist diffs; #97 makes active-show publication transactional after durable preparation. #98/#99 ship Bridge takeover and destination allowlisting; #100 to #108 hash tokens, encrypt credentials and verify ProPresenter authentication. #77 adds signing readiness, #78 removes the obsolete gateway and #94 repairs second-organisation onboarding. The ledger records the Phase 1 full-suite and named acceptance checks as verification-only closures, without claiming room-open auto-wipe was repaired; that separate Phase 3 requirement is now verified at row 337 by #415.
 
 The ledger preserves each recorded verification-only closure and its original test scope. Outstanding rows and specific reasons are enumerated in the complete disposition list below.
 
@@ -166,18 +166,16 @@ S3 live-state storage is deferred pending live rehearsal. #376 avatar reads stil
 - Row 325 (`34578e3f829ffc21`), **deferred**: #376 ships byte sniffing, attachment disposition and private avatar cache; signed expiring avatar-read URLs are explicitly deferred to preserve native image loading.
 - Row 328 (`4fa9d31819993c86`), **partial**: #378 pins seven-day sessions rather than short operator expiry and leaves platform-role super-admin, second factor and use alerting for a later build; #379 ships CSP. Session policy remains with Rey.
 - Row 336 (`0a600b9ffb2beffa`), **partial**: #384 documents DO-only live chat storage but explicitly confirms no age-based retention pruning; the requirement's pruning limb remains unimplemented.
-- Row 337 (`e020640319bf917a`), **blocked**: RundownRelay.ts fetch mismatch branch (lines 711-738) still clears items/timer and persists on writable show/date mismatch; no explicit revision-checked switch-show command exists. #97 fixes active-pointer publication, not this branch.
 - Row 353 (`4acaad0d38a10dd9`), **deferred**: S3 deliberately retains live rundown state, active-show pointers and graphics live state in app_setting pending a live rehearsal gate; #389/#390/#391/#412 move templates, editable settings and webhook history only.
 - Row 356 (`646ff04058e2627b`), **deferred**: #400 omits reproducible CI cargo audit installation; Dependabot covers Cargo updates. Cargo audit gate remains an explicit deferred gap.
 - Row 361 (`1036150e09dfc7f9`), **partial**: #369/#370 implement interval/promo/preselection mechanics; live annual prices and Stripe dashboard webhook host verification remain pending.
-- Row 364 (`06abe2ebc5b2979c`), **partial**: Room-open mismatch still wipes state in RundownRelay.ts:711-738 (row 337); #383/#388/#393 satisfy reconnect snapshot, queue retries and rollback limbs.
 - Row 372 (`cffc19c3e6de5a28`), **partial**: One complete venue rehearsal is not recorded: real APC/MTC, physical LTC audio, installed cloud-down local mode, long-run venue advances, real external-device firing and live annual checkout remain pending.
 - Row 378 (`6eaf7a8e4c663b1c`), **partial**: Changes are split into reviewable PRs, but the gate-between-phases clause remains partial: #353 retains Phase 2 at 68/79 while later Phase 3 work is merged.
 - Row 381 (`f25cdee668bf2a3f`), **partial**: #356 explicitly leaves full mutation ack/failure/lost-ack acceptance open; #357 leaves product-wide loading recovery open, despite #134/#358/#365 error reporting.
 
 ## Evidence corrections from WS8 review
 
-Row 337 is blocked: the writable show/date mismatch branch in RundownRelay.ts still clears room state on open. Row 364 is partial on that limb. Row 336 is partial because #384 documents DO-only storage but explicitly confirms no age-based pruning. These gaps contradict the first WS8 draft and are not hardware gates. Row 328 also retains the deferred platform-role super-admin, second-factor and use-alerting work described in #378.
+Rows 337 and 364 are now verified by #415, which closes the room-open mismatch wipe limb. Row 336 is partial because #384 documents DO-only storage but explicitly confirms no age-based pruning. These gaps contradict the first WS8 draft and are not hardware gates. Row 328 also retains the deferred platform-role super-admin, second-factor and use-alerting work described in #378.
 
 ## Complete unresolved ledger dispositions
 
@@ -201,18 +199,30 @@ Row 337 is blocked: the writable show/date mismatch branch in RundownRelay.ts st
 - Row 327 (`56d20ede8dc26816`), **partial**: #377 escapes LIKE needles and guards interpolation, but permits 167 reviewed interpolation entries rather than banning all except the two audited files specified by the requirement.
 - Row 328 (`4fa9d31819993c86`), **partial**: #378 pins seven-day sessions rather than short operator expiry and leaves platform-role super-admin, second factor and use alerting for a later build; #379 ships script nonces/connect-src but leaves inline styles unchanged. Session policy remains with Rey.
 - Row 336 (`0a600b9ffb2beffa`), **partial**: #384 documents DO-only live chat storage but explicitly confirms no age-based retention pruning; the requirement's pruning limb remains unimplemented.
-- Row 337 (`e020640319bf917a`), **blocked**: RundownRelay.ts fetch mismatch branch (lines 711-738) still clears items/timer and persists on writable show/date mismatch; no explicit revision-checked switch-show command exists. #97 fixes active-pointer publication, not this branch.
 - Row 353 (`4acaad0d38a10dd9`), **deferred**: S3 deliberately retains live rundown state, active-show pointers and graphics live state in app_setting pending a live rehearsal gate; #389/#390/#391/#412 move templates, editable settings and webhook history only.
 - Row 356 (`646ff04058e2627b`), **deferred**: #400 omits reproducible CI cargo audit installation; Dependabot covers Cargo updates. Cargo audit gate remains an explicit deferred gap; 13 override comments still say reason unknown rather than naming an advisory.
 - Row 361 (`1036150e09dfc7f9`), **partial**: #369/#370 implement interval/promo/preselection mechanics; live annual prices and Stripe dashboard webhook host verification remain pending.
 - Row 363 (`06eea448b9fc3c26`), **partial**: #372 provides bounded 90-day token defaults, not the required short show-weekend default; #374 guest prefixes/badges and #376 spoofed-MIME rejection are satisfied.
-- Row 364 (`06abe2ebc5b2979c`), **partial**: Room-open mismatch still wipes state in RundownRelay.ts:711-738 (row 337); #383/#388/#393 satisfy reconnect snapshot, queue retries and rollback limbs.
 - Row 372 (`cffc19c3e6de5a28`), **partial**: One complete venue rehearsal is not recorded: real APC/MTC, physical LTC audio, installed cloud-down local mode, long-run venue advances, real external-device firing and live annual checkout remain pending.
 - Row 378 (`6eaf7a8e4c663b1c`), **partial**: Changes are split into reviewable PRs, but the gate-between-phases clause remains partial: #353 retains Phase 2 at 68/79 while later Phase 3 work is merged.
 - Row 381 (`f25cdee668bf2a3f`), **partial**: #356 explicitly leaves full mutation ack/failure/lost-ack acceptance open; #357 leaves product-wide loading recovery open, despite #134/#358/#365 error reporting.
 
 ## Evidence corrections from WS8 review
 
-Row 337 is blocked: the writable show/date mismatch branch in RundownRelay.ts still clears room state on open. Row 364 is partial on that limb. Row 336 is partial because #384 documents DO-only storage but explicitly confirms no age-based pruning. These gaps contradict the first WS8 draft and are not hardware gates. Row 328 also retains the deferred platform-role super-admin, second-factor and use-alerting work described in #378.
+Rows 337 and 364 are now verified by #415, which closes the room-open mismatch wipe limb. Row 336 is partial because #384 documents DO-only storage but explicitly confirms no age-based pruning. These gaps contradict the first WS8 draft and are not hardware gates. Row 328 also retains the deferred platform-role super-admin, second-factor and use-alerting work described in #378.
 
 Additional WS8 clause findings: #386 omits unusual-IP/device PM alerts (row 322). #372 uses 90-day defaults, lacks venue-IP binding and retains shared chat-pass signing (rows 323/363). #377 guards 167 interpolation entries instead of the requested two-file exception (row 327). #379 leaves inline styles unchanged (row 328). #400 records 13 override reasons as unknown (row 356). These are retained as specific open dispositions, not treated as complete.
+
+## Post-gate addendum: Nov 18, 2026
+
+Row 337 was the run's one blocked row: RundownRelay auto-wiped room state on a show/date mismatch. PR #415 "fix: require confirmed show switches before replacing live room state", merge fd462aef0ab4e6eae0343acea1b5527e5744b58b, CI run 44302302909 green. switch-show is now an explicit revision-checked command in the shared protocol with expectedRevision required and the existing classifyRelayCommand envelope; mismatched opens and non-switch commands preserve the room's items and timer and persist nothing; the old room keeps serving until a valid seed for the pending target succeeds; stale revisions are rejected (HTTP 409 / WS accepted:false); failed seeds retain the old room. The five named acceptance tests passed:
+
+- "row 337 (a): mismatch HTTP state and WebSocket open preserve items and timer without persistence"
+- "row 337 (b): revision checked switch followed by seed atomically adopts show B"
+- "row 337 (c): stale switch rejects HTTP and WebSocket without state changes"
+- "row 337 (d): accepted switch keeps serving show A until a valid seed succeeds"
+- "row 337 (e): same-show seed retains an initialized room"
+
+Row 337 is now verified. Row 364 is also verified: #415 satisfies its final open room-wipe limb, while reconnect snapshot (#383), queue retries (#388) and rollback (#393) were already satisfied per the WS8 adjudication.
+
+Final ledger totals: 211 rows, 184 verified (complete), 24 partial, 3 deferred and 0 blocked. Acceptance remains partial on the other recorded dispositions.
