@@ -49,5 +49,9 @@
   },
   "dependencies": {
     "zod": "4.4.3"
+  },
+  "engines": {
+    "node": "24.x",
+    "pnpm": ">=10.30.3 <11"
   }
 }

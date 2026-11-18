@@ -1,0 +1,86 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      all-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: "/apps/web"
+    schedule:
+      interval: weekly
+    groups:
+      all-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: "/apps/bridge"
+    schedule:
+      interval: weekly
+    groups:
+      all-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: "/apps/desktop"
+    schedule:
+      interval: weekly
+    groups:
+      all-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: "/apps/bridge-desktop"
+    schedule:
+      interval: weekly
+    groups:
+      all-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: "/apps/landing"
+    schedule:
+      interval: weekly
+    groups:
+      all-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: "/apps/mobile"
+    schedule:
+      interval: weekly
+    groups:
+      all-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: "/packages/shared"
+    schedule:
+      interval: weekly
+    groups:
+      all-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: "/apps/desktop/src-tauri"
+    schedule:
+      interval: weekly
+    groups:
+      all-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: "/apps/bridge-desktop/src-tauri"
+    schedule:
+      interval: weekly
+    groups:
+      all-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: "/packages/native-credentials"
+    schedule:
+      interval: weekly
+    groups:
+      all-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      all-dependencies:
+        patterns: ["*"]

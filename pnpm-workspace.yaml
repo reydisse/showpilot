@@ -1,3 +1,56 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# Overrides migrated from root package.json; versions unchanged.
+overrides:
+  # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
+  "@babel/core": "7.29.6"
+  # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
+  "@hono/node-server": "1.19.15"
+  # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
+  "defu": "6.1.5"
+  # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
+  "effect": "3.20.0"
+  # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
+  "esbuild": "0.28.1"
+  # reason unknown — investigate before removing
+  "fast-uri": "3.1.6"
+  # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
+  "hono": "4.12.34"
+  # reason unknown — investigate before removing
+  "baseline-browser-mapping": "2.11.25"
+  # reason unknown — investigate before removing
+  "brace-expansion@>=5": "5.0.12"
+  # reason unknown — investigate before removing
+  "browserslist": "4.29.0"
+  # reason unknown — investigate before removing
+  "decode-uri-component": "0.5.0"
+  # reason unknown — investigate before removing
+  "deepmerge-ts": "8.0.2"
+  # reason unknown — investigate before removing
+  "image-size": "2.0.4"
+  # reason unknown — investigate before removing
+  "js-yaml@3": "3.15.2"
+  # reason unknown — investigate before removing
+  "js-yaml@>=4": "4.3.2"
+  # reason unknown — investigate before removing
+  "lodash": "4.18.1"
+  # reason unknown — investigate before removing
+  "mysql2": "3.24.4"
+  # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
+  "picomatch@<3": "2.3.2"
+  # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
+  "picomatch@>=3": "4.0.4"
+  # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
+  "postcss": "8.5.26"
+  # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
+  "seroval": "1.6.4"
+  # reason unknown — investigate before removing
+  "sharp": "0.35.4"
+  # reason unknown — investigate before removing
+  "uuid": "11.1.1"
+  # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
+  "vite": "7.3.6"
+  # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
+  "ws": "8.21.3"
