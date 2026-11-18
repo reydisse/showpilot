@@ -54,6 +54,8 @@ forward fix instead of restoring plaintext credentials.
 
 ## Relay and Bridge rollout / instant rollback
 
+Before restoring code, consult the [migration pairing table](#migration-pairing).
+
 1. Schedule a maintenance window and retain the matching previous Worker and
    Desktop/Bridge bundle pair. Follow [Bridge connection audit protocol](#bridge-connection-audit-protocol)
    for protocol compatibility and its compiled sidecar rehearsal; do not transition
@@ -245,6 +247,38 @@ mode for `.dev.vars` values):
 ---
 
 ## D1 migrations
+
+### Migration pairing
+
+Worker version rollback does not undo D1 migrations. Check the applied migration
+manifest against the target code before restoring a Worker. These rows derive
+from the named SQL files in `apps/web/prisma/migrations/` and their consumers:
+`scoped-token-audit.server.ts`, `public-checkin.server.ts`, `rundown.ts`,
+`settings.ts`, `setting-writes.server.ts`, and `org-setting-keys.ts` under
+`apps/web/src/lib/`.
+
+| Migration | What it changed | Code from BEFORE this migration against the post-migration DB | Code from AFTER against the pre-migration DB | Before rolling code back across it |
+| --- | --- | --- | --- | --- |
+| `0097_scoped_token_audit.sql` | Adds scoped_token_audit and indexes for credential creation/revocation receipts. | Compatible: old code ignores the new table. | Audit inserts fail because the table is absent. | Keep the additive table; no reverse move needed. |
+| `0098_checkin_secret.sql` | Adds nullable crew_member.checkInSecretHash. | Schema compatible; old code does not enforce the new secret check. | Secret queries/updates fail because the column is absent. | Keep the column; assess loss of secret enforcement before restoring old code. |
+| `0099_rundown_template.sql` | Moves rundown-saved:* payloads to rundown_template and rundown-template-save:* receipts to rundown_template_receipt, deleting legacy keys. | Unsafe: legacy readers find no saved templates or receipts. | Template/receipt queries fail because the tables are absent. | Reverse-move current data as described below before restoring legacy readers. |
+| `0100_org_setting.sql` | Moves lyrics-output, ontime-sync-rundown, ontime-send-commands, propresenter-pull-order, default-countdown-minutes, default-timer-mode, timezone-display, overtime-behavior, default-confidence-layout, l3-default-style, l3-animation-speed, l3-auto-clear, l3-auto-clear-duration into org_setting; deletes legacy keys. | Unsafe: app_setting readers lose these settings. | org_setting queries fail because the table is absent. | Reverse-move exactly the keys in this migration's IN list before restoring legacy readers. |
+| `0101_org_setting_remaining_keys.sql` | Moves org-timezone, clock-format, rundown-adapter, ontime-url, default-call-lead-minutes, notify-app-chat, propresenter-host/port/api-port/password/send-cues, chat-adapter, slack-token/channel/signing-secret, mattermost-url/token/channel, teams-webhook-url, discord-bot-token/channel-id, webhook-url into org_setting; deletes legacy keys. | Unsafe: app_setting readers lose these settings. | Reads of these keys return nothing from org_setting (or fail if 0100 is also absent). | Reverse-move exactly the keys in this migration's IN list before restoring legacy readers. |
+
+For the three data moves, pause writes and back up the database first. In a
+reviewed transaction, invert the migration's INSERT…SELECT using **current**
+values, not a stale pre-migration snapshot. For 0099, copy rundown_template
+`id, orgId, 'rundown-saved:' || templateId, payload` into app_setting
+`id, orgId, key, value`; copy rundown_template_receipt
+`orgId, 'rundown-template-save:' || templateId, value` with a fresh unique
+app_setting id. For 0100/0101, copy org_setting `orgId, key, value` with fresh
+unique app_setting ids, filtering by the exact IN list in the named SQL file.
+Upsert on `(orgId,key)` so current moved values replace stale legacy copies.
+Verify row counts and values for every key family before switching code, then
+resume writes only on the restored code. Retain the new tables for recovery;
+do not rerun the forward migrations blindly after legacy code has written data.
+This is an operator procedure, never an automatic part of Worker rollback.
+
 
 Migrations are **hand-written sequential SQL files** in
 `apps/web/prisma/migrations/` named `000N_name.sql`. They deliberately do **not** use wrangler's
