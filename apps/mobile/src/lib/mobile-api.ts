@@ -393,6 +393,7 @@ const showWorkspaceSchema = z.object({
   adapterStatus: z.enum(["ready", "fallback"]),
   chatAvailable: z.boolean(),
   showBoardAvailable: z.boolean(),
+  canControl: z.boolean(),
   canOpenRundown: z.boolean(),
   crew: z.array(checkInMemberSchema),
   runtime: z.discriminatedUnion("kind", [

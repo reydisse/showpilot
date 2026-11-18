@@ -146,6 +146,7 @@ describe("mobile Show workspace", () => {
       chatAvailable: true,
       showBoardAvailable: true,
       canOpenRundown: true,
+      canControl: false,
       crew: [{ id: "crew-1", name: "Ada Director", isOnline: true }],
       runtime: {
         kind: "native",
@@ -154,6 +155,13 @@ describe("mobile Show workspace", () => {
         timer: { playback: "play", currentItemId: "item-1" },
       },
     });
+  });
+
+  it("permits transport for rundown controllers", async () => {
+    mocks.resolveAccess.mockResolvedValue({ role: "operator", permissions: ["show:view", "rundown:control"] });
+    const response = await requestWorkspace(fakeDatabase());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ canControl: true });
   });
 
   it("opens an explicitly active past show and derives live state from its timer", async () => {

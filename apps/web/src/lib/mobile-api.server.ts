@@ -4457,6 +4457,7 @@ async function showWorkspace(
     configuredAdapter,
     chatAvailable: identity.permissions.includes("chat:access"),
     showBoardAvailable: identity.permissions.includes("showboard:view"),
+    canControl: identity.permissions.includes("rundown:control"),
     canOpenRundown: hasAny(identity, [
       "rundown:view",
       "rundown:edit",
