@@ -145,11 +145,16 @@ function LivePanel({ state, connected = true }: { state: LivePanelState; connect
   );
 }
 
-function QuickActions({ workspace, showId }: {
+function QuickActions({ workspace, showId, transport }: {
   workspace: MobileShowWorkspace;
+  transport?: { enabled: boolean; playing: boolean; currentItem: boolean; sendCommand: (action: "timer-pause" | "timer-next") => void };
   showId: string | null;
 }) {
   const actions = [
+    ...(workspace.canControl && transport ? [
+      { id: "pause", label: "Pause", icon: MonitorPlay, disabled: !transport.enabled || !transport.playing, onPress: () => transport.sendCommand("timer-pause") },
+      { id: "next", label: "Next", icon: ChevronRight, disabled: !transport.enabled || !transport.currentItem, onPress: () => transport.sendCommand("timer-next") },
+    ] : []),
     workspace.chatAvailable ? { id: "chat", label: "Chat", icon: MessageSquareText, onPress: () => router.push("/chat") } : null,
     workspace.canOpenRundown && showId ? { id: "rundown", label: "Full rundown", icon: ListVideo, onPress: () => router.push({ pathname: "/show/[showId]", params: { showId } }) } : null,
     workspace.showBoardAvailable ? { id: "board", label: "Crew status", icon: MonitorPlay, onPress: () => router.push("/show-board") } : null,
@@ -162,7 +167,7 @@ function QuickActions({ workspace, showId }: {
       {actions.map((action) => {
         const Icon = action.icon;
         return (
-          <Pressable accessibilityRole="button" key={action.id} onPress={action.onPress} style={({ pressed }) => [styles.action, pressed && styles.pressed]}><Icon color={colors.amberText} size={18} /><Text style={styles.actionLabel}>{action.label}</Text><ChevronRight color={colors.textFaint} size={15} /></Pressable>
+          <Pressable accessibilityRole="button" key={action.id} disabled={"disabled" in action && action.disabled} accessibilityState={{ disabled: "disabled" in action && action.disabled }} onPress={action.onPress} style={({ pressed }) => [styles.action, "disabled" in action && action.disabled && { opacity: 0.45 }, pressed && styles.pressed]}><Icon color={colors.amberText} size={18} /><Text style={styles.actionLabel}>{action.label}</Text><ChevronRight color={colors.textFaint} size={15} /></Pressable>
         );
       })}
     </View>
@@ -222,11 +227,12 @@ function SequenceRow({ item }: { item: SequenceItem }) {
   );
 }
 
-function WorkspaceList({ workspace, livePanel, items, showId, title, subtitle, onRefresh, refreshing, liveConnection }: {
+function WorkspaceList({ workspace, livePanel, items, showId, title, subtitle, onRefresh, refreshing, liveConnection, transport }: {
   workspace: MobileShowWorkspace;
   livePanel: React.ReactNode;
-  liveConnection?: { ready: boolean; label: string; error: string | null; retry: () => void };
+  liveConnection?: { ready: boolean; label: string; error: string | null; retry: () => void; dismissCommandError?: () => void };
   items: SequenceItem[];
+  transport?: { enabled: boolean; playing: boolean; currentItem: boolean; sendCommand: (action: "timer-pause" | "timer-next") => void };
   showId: string | null;
   title: string;
   subtitle: string;
@@ -247,10 +253,11 @@ function WorkspaceList({ workspace, livePanel, items, showId, title, subtitle, o
             <Text style={styles.workspaceClock}>{subtitle}</Text>
             {liveConnection?.error ? <View style={{ gap: 8 }}>
               <FailureText accessibilityRole="alert" style={{ color: colors.red }}>The live show could not be updated.</FailureText>
+              {liveConnection.dismissCommandError ? <AppButton label="Dismiss rundown notice" variant="secondary" onPress={liveConnection.dismissCommandError} /> : null}
               <AppButton label="Retry live connection" variant="secondary" onPress={liveConnection.retry} />
             </View> : null}
             {livePanel}
-            <QuickActions workspace={workspace} showId={showId} />
+            <QuickActions workspace={workspace} showId={showId} transport={transport} />
             <CrewStrip crew={workspace.crew} />
             <View style={styles.sectionRow}><View style={styles.sectionTitleRow}><ListVideo color={colors.textMuted} size={16} /><Text style={styles.sectionTitle}>RUNDOWN</Text></View><Text style={styles.sectionCount}>{items.length} ITEMS</Text></View>
           </View>
@@ -291,7 +298,7 @@ function NativeWorkspace({ workspace, runtime, orgId, onRefresh, refreshing }: {
     ? `${runtime.show.serviceDate} · ${formatServiceTime(runtime.show.scheduledStartTime, workspace.timeZone)}`
     : workspaceCopy("No upcoming service", workspaceTerms);
   return (
-    <WorkspaceList workspace={workspace} liveConnection={runtime.show ? { ready: authoritative, label: authoritative ? "Live sync" : relay.status === "connecting" ? "" : "", error: relay.lastError, retry: relay.retryConnection } : undefined} livePanel={<NativeLivePanel items={items} timer={timer} connected={authoritative} />} items={sequence} showId={runtime.show?.id ?? null} title={runtime.show?.name || "Live Show"} subtitle={subtitle} onRefresh={onRefresh} refreshing={refreshing} />
+    <WorkspaceList transport={{ enabled: authoritative && relay.unconfirmedCount === 0, playing: timer.playback === "play", currentItem: items.some((item) => item.id === timer.currentItemId), sendCommand: relay.sendCommand }} workspace={workspace} liveConnection={runtime.show ? { ready: authoritative, label: authoritative ? "Live sync" : relay.status === "connecting" ? "" : "", error: relay.lastError, dismissCommandError: relay.commandError ? relay.dismissCommandError : undefined, retry: relay.retryConnection } : undefined} livePanel={<NativeLivePanel items={items} timer={timer} connected={authoritative} />} items={sequence} showId={runtime.show?.id ?? null} title={runtime.show?.name || "Live Show"} subtitle={subtitle} onRefresh={onRefresh} refreshing={refreshing} />
   );
 }
 
