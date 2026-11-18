@@ -21,7 +21,7 @@ it("0101 moves exactly 22 keys verbatim in scratch D1, preserving S2a and all st
   const readApp = async () => (await db.prepare("SELECT key,value FROM app_setting WHERE orgId='s2b' ORDER BY key").all<{key:string;value:string}>()).results;
   const readOrg = async () => (await db.prepare("SELECT key,value FROM org_setting WHERE orgId='s2b' ORDER BY key").all<{key:string;value:string}>()).results;
   const beforeApp = await readApp(); const beforeOrg = await readOrg();
-  await applyD1Migrations(db, env.TEST_MIGRATIONS);
+  await applyD1Migrations(db, env.TEST_MIGRATIONS.filter(m => m.name < "0102"));
   expect(await readApp()).toEqual(beforeApp.filter(row => !moved.includes(row.key)));
   expect(await readOrg()).toEqual([...beforeOrg, ...values].sort((a,b) => a.key.localeCompare(b.key)));
   expect(await db.prepare("SELECT updatedAt FROM org_setting WHERE orgId='s2b' AND key='lyrics-output'").first("updatedAt")).toBe("original");
