@@ -246,7 +246,7 @@ describe("workspace onboarding and surfaces", () => {
       "/show",
     );
   });
-  it("maps every sidebar path exactly once without gating public routes", () => {
+  it("maps module sidebar paths exactly once without gating membership-only Settings", () => {
     const sidebar = readFileSync("src/components/layout/Sidebar.tsx", "utf8");
     const paths = [...sidebar.matchAll(/path: "([^"]+)"/g)].map(
       (match) => match[1],
@@ -255,7 +255,9 @@ describe("workspace onboarding and surfaces", () => {
       (value) => value.web,
     );
     expect(new Set(surfaces).size).toBe(surfaces.length);
-    for (const path of paths)
+    expect(paths.filter((path) => path === "settings")).toHaveLength(1);
+    expect(surfaces).not.toContain("settings");
+    for (const path of paths.filter((path) => path !== "settings"))
       expect(surfaces.filter((surface) => surface === path)).toHaveLength(1);
     expect(Object.keys(MODULE_SURFACES).sort()).toEqual([...MODULE_IDS].sort());
   });
