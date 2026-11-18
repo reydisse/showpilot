@@ -26,7 +26,7 @@ export default defineConfig(async () => {
           ],
           compatibilityDate: "2026-02-28",
           compatibilityFlags: ["nodejs_compat"],
-          d1Databases: ["DB"],
+          d1Databases: ["DB", "MIGRATION_DB"],
           r2Buckets: ["STORAGE"],
           durableObjects: {
             BRIDGE_RELAY: { className: "BridgeRelay", useSQLite: true },

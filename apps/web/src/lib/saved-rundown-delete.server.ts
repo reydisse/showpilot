@@ -17,21 +17,20 @@ export async function removeSavedRundown(
   const result = await db.batch<{ allowed: number }>([
     db
       .prepare(
-        `INSERT INTO app_setting(id,orgId,key,value) SELECT ?,?,?,? WHERE ${access.guard}
-      ON CONFLICT(orgId,key) DO NOTHING`,
+        `INSERT INTO rundown_template_receipt(orgId,templateId,value) SELECT ?,?,? WHERE ${access.guard}
+      ON CONFLICT(orgId,templateId) DO NOTHING`,
       )
       .bind(
-        crypto.randomUUID(),
         orgId,
-        `rundown-template-save:${id}`,
+        id,
         SAVED_RUNDOWN_REMOVED_RECEIPT,
         ...access.guardArgs,
       ),
     db
       .prepare(
-        `DELETE FROM app_setting WHERE orgId=? AND key=? AND ${access.guard}`,
+        `DELETE FROM rundown_template WHERE orgId=? AND templateId=? AND ${access.guard}`,
       )
-      .bind(orgId, `rundown-saved:${id}`, ...access.guardArgs),
+      .bind(orgId, id, ...access.guardArgs),
     db
       .prepare(`SELECT 1 AS allowed WHERE ${access.guard}`)
       .bind(...access.guardArgs),

@@ -56,7 +56,7 @@ function storedTemplate() {
   });
 }
 
-function fakeDatabase(calls: QueryCall[]): MobileApiDatabase {
+function fakeDatabase(calls: QueryCall[], templates: string[] = []): MobileApiDatabase {
   function statement(sql: string, params: unknown[]): MobileApiStatement {
     return {
       async first<T>() {
@@ -87,8 +87,8 @@ function fakeDatabase(calls: QueryCall[]): MobileApiDatabase {
           return { id: "show-1" } as T;
         if (sql.includes("key = 'org-timezone'")) return { value: "UTC" } as T;
         if (
-          sql.includes("key = ? LIMIT 1") &&
-          params[1] === "rundown-saved:template-1"
+          sql.includes("templateId = ? LIMIT 1") &&
+          params[1] === "template-1"
         ) {
           return { value: storedTemplate() } as T;
         }
@@ -119,8 +119,8 @@ function fakeDatabase(calls: QueryCall[]): MobileApiDatabase {
             ] as T[],
           };
         }
-        if (sql.includes("key LIKE 'rundown-saved:%'"))
-          return { results: [] as T[] };
+        if (sql.includes("FROM rundown_template"))
+          return { results: templates.map(value => ({ value })) as T[] };
         return { results: [] as T[] };
       },
       async run() {
@@ -178,6 +178,25 @@ describe("mobile rundown templates", () => {
       permissions: ["rundown:edit"],
       today: "2026-08-27",
     });
+  });
+
+  it("lists legacy fixture metadata unchanged from dedicated template payloads", async () => {
+    const calls: QueryCall[] = [];
+    const response = await handleMobileApi(new Request("https://showpilot.tech/api/mobile/v1/rundowns/show-1/templates?orgId=org-1"), { DB: fakeDatabase(calls, [storedTemplate(), "{malformed"]) } as MobileApiEnvironment);
+    expect(response?.status).toBe(200);
+    const saved = JSON.parse(storedTemplate());
+    const { items, ...meta } = saved;
+    expect((await response!.json() as { templates: unknown[] }).templates).toEqual([{ ...meta, itemCount: items.length }]);
+    expect(calls.some(call => call.sql.includes("FROM rundown_template") && call.params[0] === "org-1")).toBe(true);
+    expect(calls.some(call => call.sql.includes("rundown-saved:"))).toBe(false);
+  });
+
+  it("returns legacy fixture show-inventory summaries from dedicated payloads", async () => {
+    mocks.resolveAccess.mockResolvedValue({ role: "sm", permissions: ["rundown:edit", "schedule:manage"], today: "2026-08-27" });
+    const calls: QueryCall[] = [];
+    const response = await handleMobileApi(new Request("https://showpilot.tech/api/mobile/v1/schedule?orgId=org-1&from=2026-08-01&to=2026-09-01"), { DB: fakeDatabase(calls, [storedTemplate(), "{malformed"]) } as MobileApiEnvironment);
+    expect(response?.status).toBe(200);
+    expect((await response!.json() as { savedTemplates: unknown[] }).savedTemplates).toEqual([{ id: "template-1", name: "Sunday standard", itemCount: 1 }]);
   });
 
   it("saves the durable rundown snapshot with service metadata and reset timing", async () => {

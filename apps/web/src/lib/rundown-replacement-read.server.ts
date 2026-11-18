@@ -48,8 +48,8 @@ export async function readRundownReplacement(
   let copy: z.infer<typeof replacementCopySchema>, label: string;
   if (source.kind === "template") {
     const stored = await db
-      .prepare("SELECT value FROM app_setting WHERE orgId=? AND key=?")
-      .bind(orgId, `rundown-saved:${source.id}`)
+      .prepare("SELECT payload AS value FROM rundown_template WHERE orgId=? AND templateId=?")
+      .bind(orgId, source.id)
       .first<{ value: string }>();
     if (!stored)
       throw new RundownReplacementError(

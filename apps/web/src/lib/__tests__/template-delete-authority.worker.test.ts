@@ -15,7 +15,7 @@ async function fixture() {
   });
   const rows = () =>
     env.DB.prepare(
-      "SELECT key,value FROM app_setting WHERE orgId=? AND key LIKE 'rundown-%' ORDER BY key",
+      "SELECT key,value FROM (SELECT orgId,'rundown-saved:'||templateId AS key,payload AS value FROM rundown_template UNION ALL SELECT orgId,'rundown-template-save:'||templateId AS key,value FROM rundown_template_receipt) WHERE orgId=? ORDER BY key",
     )
       .bind(actor.orgId)
       .all();

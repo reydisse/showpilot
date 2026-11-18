@@ -123,7 +123,7 @@ async function fixture() {
   const rows = async () =>
     (
       await env.DB.prepare(
-        "SELECT key,value FROM app_setting WHERE orgId=? AND key LIKE 'rundown-%' ORDER BY key",
+        "SELECT key,value FROM (SELECT orgId,'rundown-saved:'||templateId AS key,payload AS value FROM rundown_template UNION ALL SELECT orgId,'rundown-template-save:'||templateId AS key,value FROM rundown_template_receipt) WHERE orgId=? ORDER BY key",
       )
         .bind(actor.orgId)
         .all()
@@ -280,7 +280,7 @@ it.each(["session", "role", "deleting"])(
 it("rolls back receipts and copy together if storage fails", async () => {
   const f = await fixture();
   await env.DB.exec(
-    "CREATE TRIGGER fail_modern_template BEFORE INSERT ON app_setting WHEN NEW.key LIKE 'rundown-saved:%' BEGIN SELECT RAISE(ABORT,'fixture template failure'); END",
+    "CREATE TRIGGER fail_modern_template BEFORE INSERT ON rundown_template BEGIN SELECT RAISE(ABORT,'fixture template failure'); END",
   );
   try {
     await expect(f.call()).rejects.toThrow("fixture template failure");
@@ -304,12 +304,12 @@ it.each(["orgId", "userId", "showId"])(
 it("reports conflict instead of adopting a legacy ID", async () => {
   const f = await fixture();
   await env.DB.prepare(
-    "INSERT INTO app_setting(id,orgId,key,value) VALUES (?,?,?,?)",
+    "INSERT INTO rundown_template(id,orgId,templateId,payload,name,updatedAt) VALUES (?,?,?,?,'','')",
   )
     .bind(
       crypto.randomUUID(),
       f.orgId,
-      `rundown-saved:${f.command.requestId}`,
+      f.command.requestId,
       "legacy",
     )
     .run();

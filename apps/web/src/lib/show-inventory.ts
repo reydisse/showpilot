@@ -9,8 +9,6 @@ import { assertOrgPermission } from "@/lib/org-access";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 import type { RundownItem } from "@/types/rundown";
 
-const SAVED_TEMPLATE_PREFIX = "rundown-saved:";
-
 type InventoryDelegate = Prisma.ShowInventoryItemDelegate;
 
 function inventoryDelegate(): InventoryDelegate | undefined {
@@ -183,19 +181,18 @@ export const getShowInventoryData = createServerFn({ method: "GET" })
         }
         throw error;
       }
-      const settings = await prisma.appSetting.findMany({
+      const settings = await prisma.rundownTemplate.findMany({
         where: {
           orgId: data.orgId,
-          key: { startsWith: SAVED_TEMPLATE_PREFIX },
         },
-        select: { value: true },
+        select: { payload: true },
       });
       const mapped = mapInventoryRows(rows);
       return {
         inventory: mapped.filter((row) => !row.archivedAt),
         archivedInventory: mapped.filter((row) => Boolean(row.archivedAt)),
         savedTemplates: parseSavedSources(
-          settings.map((setting) => setting.value),
+          settings.map((setting) => setting.payload),
         ),
       };
     },
@@ -208,11 +205,11 @@ export const listSavedRundownSources = createServerFn({ method: "GET" })
   )
   .handler(async ({ data }): Promise<SavedRundownSource[]> => {
     await assertInventoryAccess(data.orgId);
-    const settings = await getPrisma().appSetting.findMany({
-      where: { orgId: data.orgId, key: { startsWith: SAVED_TEMPLATE_PREFIX } },
-      select: { value: true },
+    const settings = await getPrisma().rundownTemplate.findMany({
+      where: { orgId: data.orgId },
+      select: { payload: true },
     });
-    return parseSavedSources(settings.map((setting) => setting.value));
+    return parseSavedSources(settings.map((setting) => setting.payload));
   });
 
 export const mutateShowInventory = createServerFn({ method: "POST" })

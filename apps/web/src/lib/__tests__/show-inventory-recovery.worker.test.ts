@@ -210,12 +210,12 @@ it("copies a clean source once and confirms the receipt after its template is re
   if (data.operation.kind !== "create") throw new Error("fixture");
   data.operation.sourceTemplateId = sourceId;
   await env.DB.prepare(
-    "INSERT INTO app_setting(id,orgId,key,value) VALUES (?,?,?,?)",
+    "INSERT INTO rundown_template(id,orgId,templateId,payload,name,updatedAt) VALUES (?,?,?,?,'','')",
   )
     .bind(
       crypto.randomUUID(),
       f.orgId,
-      `rundown-saved:${sourceId}`,
+      sourceId,
       JSON.stringify({
         items: [
           {
@@ -243,8 +243,8 @@ it("copies a clean source once and confirms the receipt after its template is re
       expectedEnd: null,
     }),
   ]);
-  await env.DB.prepare("DELETE FROM app_setting WHERE orgId=? AND key=?")
-    .bind(f.orgId, `rundown-saved:${sourceId}`)
+  await env.DB.prepare("DELETE FROM rundown_template WHERE orgId=? AND templateId=?")
+    .bind(f.orgId, sourceId)
     .run();
   expect((await apply(f, data)).result.outcome).toBe("applied");
   expect((await f.row(data.requestId))!.rundownJson).toBe(stored);
@@ -262,9 +262,9 @@ it.each([
     if (data.operation.kind !== "create") throw new Error("fixture");
     data.operation.sourceTemplateId = sourceId;
     await env.DB.prepare(
-      "INSERT INTO app_setting(id,orgId,key,value) VALUES (?,?,?,?)",
+      "INSERT INTO rundown_template(id,orgId,templateId,payload,name,updatedAt) VALUES (?,?,?,?,'','')",
     )
-      .bind(crypto.randomUUID(), f.orgId, `rundown-saved:${sourceId}`, value)
+      .bind(crypto.randomUUID(), f.orgId, sourceId, value)
       .run();
     await expect(apply(f, data)).rejects.toThrow(/source|saved rundown/);
     expect(await f.row(data.requestId)).toBeNull();
@@ -280,16 +280,16 @@ it("does not copy a template changed between source read and commit", async () =
   if (data.operation.kind !== "create") throw new Error("fixture");
   data.operation.sourceTemplateId = sourceId;
   await env.DB.prepare(
-    "INSERT INTO app_setting(id,orgId,key,value) VALUES (?,?,?,'[]')",
+    "INSERT INTO rundown_template(id,orgId,templateId,payload,name,updatedAt) VALUES (?,?,?,'[]','','')",
   )
-    .bind(crypto.randomUUID(), f.orgId, `rundown-saved:${sourceId}`)
+    .bind(crypto.randomUUID(), f.orgId, sourceId)
     .run();
   const db = beforeBatch(() =>
-    env.DB.prepare("UPDATE app_setting SET value=? WHERE orgId=? AND key=?")
+    env.DB.prepare("UPDATE rundown_template SET payload=? WHERE orgId=? AND templateId=?")
       .bind(
         JSON.stringify([{ id: "new", title: "New source" }]),
         f.orgId,
-        `rundown-saved:${sourceId}`,
+        sourceId,
       )
       .run(),
   );

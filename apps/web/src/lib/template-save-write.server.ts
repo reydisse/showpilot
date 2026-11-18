@@ -40,8 +40,8 @@ export async function writeTemplateSave(
     items: command.items,
   });
   const fingerprint = JSON.stringify([showId, digest]);
-  const key = `rundown-saved:${requestId}`,
-    legacyKey = `rundown-template-save:${requestId}`;
+  const key = requestId,
+    legacyKey = requestId;
   const read = `SELECT actorId,showId,fingerprint,outcome FROM template_save_request WHERE orgId=? AND requestId=? AND ${access.guard}`;
   const args = [orgId, requestId, ...access.guardArgs];
   let row: unknown = await db
@@ -59,8 +59,8 @@ export async function writeTemplateSave(
         .prepare(
           `INSERT INTO template_save_request(orgId,requestId,actorId,showId,fingerprint,nonce,outcome)
         SELECT ?,?,?,?,?,?,CASE
-          WHEN EXISTS(SELECT 1 FROM app_setting WHERE orgId=? AND key=? AND value=?) THEN 'removed'
-          WHEN EXISTS(SELECT 1 FROM app_setting WHERE orgId=? AND key IN (?,?)) THEN 'conflict'
+          WHEN EXISTS(SELECT 1 FROM rundown_template_receipt WHERE orgId=? AND templateId=? AND value=?) THEN 'removed'
+          WHEN EXISTS(SELECT 1 FROM rundown_template WHERE orgId=? AND templateId=?) OR EXISTS(SELECT 1 FROM rundown_template_receipt WHERE orgId=? AND templateId=?) THEN 'conflict'
           WHEN NOT EXISTS(SELECT 1 FROM rundown WHERE orgId=? AND id=?)
             OR EXISTS(SELECT 1 FROM app_setting WHERE orgId=? AND key=?) THEN 'removed'
           ELSE ? END WHERE ${access.guard}
@@ -78,6 +78,7 @@ export async function writeTemplateSave(
           SAVED_RUNDOWN_REMOVED_RECEIPT,
           orgId,
           key,
+          orgId,
           legacyKey,
           orgId,
           showId,
@@ -88,11 +89,10 @@ export async function writeTemplateSave(
         ),
       db
         .prepare(
-          `INSERT INTO app_setting(id,orgId,key,value) SELECT ?,?,?,? WHERE ${owns}
-        ON CONFLICT(orgId,key) DO NOTHING`,
+          `INSERT INTO rundown_template_receipt(orgId,templateId,value) SELECT ?,?,? WHERE ${owns}
+        ON CONFLICT(orgId,templateId) DO NOTHING`,
         )
         .bind(
-          crypto.randomUUID(),
           orgId,
           legacyKey,
           digest,
@@ -103,11 +103,10 @@ export async function writeTemplateSave(
         ),
       db
         .prepare(
-          `INSERT INTO app_setting(id,orgId,key,value) SELECT ?,?,?,? WHERE ${owns}
-        ON CONFLICT(orgId,key) DO NOTHING`,
+          `INSERT INTO rundown_template_receipt(orgId,templateId,value) SELECT ?,?,? WHERE ${owns}
+        ON CONFLICT(orgId,templateId) DO NOTHING`,
         )
         .bind(
-          crypto.randomUUID(),
           orgId,
           legacyKey,
           SAVED_RUNDOWN_REMOVED_RECEIPT,
@@ -118,11 +117,10 @@ export async function writeTemplateSave(
         ),
       db
         .prepare(
-          `INSERT INTO app_setting(id,orgId,key,value) SELECT ?,?,?,? WHERE ${owns}
-        ON CONFLICT(orgId,key) DO NOTHING`,
+          `INSERT INTO rundown_template_receipt(orgId,templateId,value) SELECT ?,?,? WHERE ${owns}
+        ON CONFLICT(orgId,templateId) DO NOTHING`,
         )
         .bind(
-          crypto.randomUUID(),
           orgId,
           legacyKey,
           SAVED_RUNDOWN_REMOVED_RECEIPT,
@@ -135,13 +133,15 @@ export async function writeTemplateSave(
         ? [
             db
               .prepare(
-                `INSERT INTO app_setting(id,orgId,key,value) SELECT ?,?,?,? WHERE ${owns}
-        ON CONFLICT(orgId,key) DO NOTHING`,
+                `INSERT INTO rundown_template(id,orgId,templateId,name,updatedAt,payload) SELECT ?,?,?,?,?,? WHERE ${owns}
+        ON CONFLICT(orgId,templateId) DO NOTHING`,
               )
               .bind(
                 crypto.randomUUID(),
                 orgId,
                 key,
+                canonical.name,
+                now,
                 JSON.stringify({
                   ...canonical,
                   createdAt: now,
@@ -178,7 +178,7 @@ export async function writeTemplateSave(
     outcome === "applied" &&
     !(await db
       .prepare(
-        `SELECT id FROM app_setting WHERE orgId=? AND key=? AND ${access.guard}`,
+        `SELECT id FROM rundown_template WHERE orgId=? AND templateId=? AND ${access.guard}`,
       )
       .bind(orgId, key, ...access.guardArgs)
       .first())

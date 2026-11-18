@@ -950,7 +950,7 @@ async function readMobileRundownTemplates(
 ) {
   const result = await db
     .prepare(
-      "SELECT value FROM app_setting WHERE orgId = ? AND key LIKE 'rundown-saved:%'",
+      "SELECT payload AS value FROM rundown_template WHERE orgId = ?",
     )
     .bind(orgId)
     .all<{ value: string }>();
@@ -1074,9 +1074,9 @@ async function saveMobileRundownTemplate(
   if (!show) return json({ error: "Show not found." }, 404);
   const existing = await db
     .prepare(
-      "SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1",
+      "SELECT payload AS value FROM rundown_template WHERE orgId = ? AND templateId = ? LIMIT 1",
     )
-    .bind(access.orgId, `rundown-saved:${requestId}`)
+    .bind(access.orgId, requestId)
     .first<{ value: string }>();
 
   const [itemsResult, timezone] = await Promise.all([
@@ -1211,9 +1211,9 @@ async function loadMobileRundownTemplate(
     .first<{ id: string; serviceDate: string }>();
   if (!show) return json({ error: "Show not found." }, 404);
   const setting = await env.DB.prepare(
-    "SELECT value FROM app_setting WHERE orgId = ? AND key = ? LIMIT 1",
+    "SELECT payload AS value FROM rundown_template WHERE orgId = ? AND templateId = ? LIMIT 1",
   )
-    .bind(access.orgId, `rundown-saved:${templateId}`)
+    .bind(access.orgId, templateId)
     .first<{ value: string }>();
   const template = setting ? parseMobileRundownTemplate(setting.value) : null;
   if (!template || template.id !== templateId)
@@ -2146,7 +2146,7 @@ function summarizeMobileShowInventory(rows: MobileShowInventoryRow[]) {
 async function loadMobileShowInventory(db: MobileApiDatabase, orgId: string) {
   const templateRows = await db
     .prepare(
-      "SELECT value FROM app_setting WHERE orgId = ? AND key LIKE 'rundown-saved:%'",
+      "SELECT payload AS value FROM rundown_template WHERE orgId = ?",
     )
     .bind(orgId)
     .all<{ value: string }>();

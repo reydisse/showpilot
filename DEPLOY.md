@@ -10077,3 +10077,39 @@ structured log is the alert hook and no fabricated organization is recorded.
 In the Cloudflare dashboard, open Queues > showpilot-cron-jobs-dlq to inspect
 backlog and message bodies using message preview. Inspect and fix the underlying
 job before replaying messages; queue delivery is at least once.
+### 0099: dedicated rundown templates (WS7 S1)
+
+Migration 0099 moves saved templates and their durable digest/tombstone receipts
+from `app_setting` into `rundown_template` and `rundown_template_receipt`.
+Payloads and receipt values move verbatim, including malformed legacy payloads.
+Only the two template key families are removed. Ledger row 353
+(`4acaad0d38a10dd9`) remains open for S2.
+
+Before applying, capture per-organization counts:
+
+```sql
+SELECT orgId, count(*) FROM app_setting WHERE key LIKE 'rundown-saved:%' GROUP BY orgId;
+SELECT orgId, count(*) FROM app_setting WHERE key LIKE 'rundown-template-save:%' GROUP BY orgId;
+```
+
+After applying, reconcile each organization and each family independently:
+
+```sql
+SELECT orgId, count(*) FROM rundown_template GROUP BY orgId;
+SELECT orgId, count(*) FROM rundown_template_receipt GROUP BY orgId;
+SELECT count(*) FROM app_setting WHERE key LIKE 'rundown-saved:%' OR key LIKE 'rundown-template-save:%';
+```
+
+The last count must be zero. Reconcile before enabling writes in the new release.
+For rollback, pause writes, reconstruct the old rows using the SQL below, then
+use `wrangler rollback` to restore the previous Worker and resume writes. Worker
+rollback alone does not reverse database migrations. Keep the dedicated tables
+until the rollback is verified; their payloads preserve the original bytes.
+
+```sql
+INSERT INTO app_setting(id,orgId,key,value)
+SELECT id,orgId,'rundown-saved:'||templateId,payload FROM rundown_template;
+INSERT INTO app_setting(id,orgId,key,value)
+SELECT lower(hex(randomblob(16))),orgId,'rundown-template-save:'||templateId,value
+FROM rundown_template_receipt;
+```

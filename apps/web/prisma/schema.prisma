@@ -136,7 +136,7 @@ model Organization {
   notificationPreferences NotificationPreference[]
   devices                Device[]
   appSettings            AppSetting[]
-  rundownTemplates RundownTemplate[]
+  rundownTemplates       RundownTemplate[]
   rundownTemplateReceipts RundownTemplateReceipt[]
   rundowns               Rundown[]
   rundownItems           RundownItem[]
@@ -1048,13 +1048,13 @@ model OrganizationCreationReceipt {
 }
 
 model RundownTemplate {
-  id String @id @default(cuid())
-  orgId String
+  id           String       @id @default(cuid())
+  orgId        String
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  templateId String
-  name String
-  updatedAt String
-  payload String
+  templateId   String
+  name         String
+  updatedAt    String
+  payload      String
 
   @@unique([orgId, templateId])
   @@index([orgId, updatedAt])
@@ -1062,10 +1062,10 @@ model RundownTemplate {
 }
 
 model RundownTemplateReceipt {
-  orgId String
+  orgId        String
   organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  templateId String
-  value String
+  templateId   String
+  value        String
 
   @@id([orgId, templateId])
   @@map("rundown_template_receipt")
