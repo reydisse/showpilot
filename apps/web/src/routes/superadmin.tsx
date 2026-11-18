@@ -1,3 +1,4 @@
+import { SuperAdminInsights } from "./-superadmin-insights";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { WORKSPACE_TYPES, WORKSPACE_DEFINITIONS } from "@showpilot/shared";
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
@@ -240,6 +241,7 @@ function SuperAdminDashboard() {
       </header>
 
       <div className="max-w-6xl mx-auto px-4 md:px-6 py-6 space-y-6">
+        <SuperAdminInsights orgs={orgs} />
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
           <StatCard label="Waitlist" value={stats.waitlistCount} icon={ListChecks} />

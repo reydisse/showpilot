@@ -674,5 +674,21 @@
   "src/lib/settings-read.server.ts:group.keys.map(() => \"?\").join(\", \")": {
     "count": 1,
     "reason": "Placeholder-only list; keys and organization are bound parameters."
+  },
+  "src/lib/superadmin.ts:filtered": {
+    "count": 1,
+    "reason": "Server-built audit SELECT plus fixed filter clauses; all input values are bound parameters."
+  },
+  "src/lib/superadmin.ts:table": {
+    "count": 1,
+    "reason": "Table names come exclusively from the fixed feature tuple in getFeatureUsage."
+  },
+  "src/lib/superadmin.ts:time": {
+    "count": 2,
+    "reason": "Timestamp expression is constructed exclusively from fixed feature column names."
+  },
+  "src/lib/superadmin.ts:table === \"checklist_entry\" ? \"AND checked = 1\" : \"\"": {
+    "count": 1,
+    "reason": "Fixed checked-only predicate chosen by the internal feature tuple."
   }
 }
