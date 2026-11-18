@@ -1,7 +1,7 @@
 // Landing marketing prices; billing and enforcement are managed separately.
 export const PRICING = {
   starter: {
-    name: "Starter",
+    name: "Basic",
     monthly: 39.99,
     tagline: "The essentials for one service in one space",
     features: [
@@ -18,7 +18,7 @@ export const PRICING = {
     tagline: "The full feature set, across unlimited spaces",
     features: [
       "Unlimited spaces",
-      "Everything in Starter",
+      "Everything in Basic",
       "Bridge &amp; device integrations",
       "Cue sheets &amp; checklists",
       "Incidents",
