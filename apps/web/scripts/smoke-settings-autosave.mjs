@@ -143,7 +143,7 @@ await withLocalSmokeFixture(async({origin,orgId,operatorCookie,operatorPassword,
     console.log(JSON.stringify({browserPassed:true,viewports:[320,768,1440],proPresenterTestBlocked:true,confidenceDraftPreserved:true,writeAttempts:inputs.length,uniqueRequests:expectedRequests.size}));
   });
   await stopServer();
-  const rows=await queryFixture(`SELECT key,value FROM app_setting WHERE orgId='${orgId}'`);
+  const rows=await queryFixture(`SELECT key,value FROM app_setting WHERE orgId='${orgId}' UNION ALL SELECT key,value FROM org_setting WHERE orgId='${orgId}'`);
   const state=Object.fromEntries(rows.map(row=>[row.key,row.value]));
   assert.equal(state['org-timezone'],'America/New_York');assert.equal(state['clock-format'],'24hr');assert.equal(state['propresenter-host'],'unsent.local');
   const layout=JSON.parse(state['default-confidence-layout']);assert.equal(layout.lyrics.showNext,false);assert.equal(layout.lyrics.color,'#123456');

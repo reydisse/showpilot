@@ -113,3 +113,55 @@ it("rolls back both receipt and setting if the transaction fails", async () => {
   expect(await stored(orgId, `setting-write:${input.requestId}`)).toBeNull();
   expect((await save(input)).outcome).toBe("applied");
 });
+
+it("routes migrated defaults through web reads and preserves conflict and replay receipts", async () => {
+  const { orgId } = await fixture();
+  const first: SettingWrite = { ...change(orgId, "countdown"), key: "default-timer-mode" };
+  expect(await save(first)).toMatchObject({ outcome: "applied", currentValue: "countdown" });
+  const stale = { ...first, requestId: crypto.randomUUID(), value: "clock", expectedValue: "old" };
+  expect(await save(stale)).toMatchObject({ outcome: "conflict", currentValue: "countdown" });
+  await save({ ...first, requestId: crypto.randomUUID(), expectedValue: "countdown", value: "old" });
+  expect(await save(stale)).toMatchObject({ outcome: "conflict", currentValue: "old" });
+  expect(await save(first)).toMatchObject({ outcome: "applied", currentValue: "old" });
+  await expect(save({ ...first, value: "changed" })).rejects.toThrow("different setting change");
+  expect(await stored(orgId, first.key)).toBeNull();
+  expect(await env.DB.prepare("SELECT value FROM org_setting WHERE orgId=? AND key=?").bind(orgId, first.key).first("value")).toBe("old");
+  expect(await getManageableOrgSettings({ data: { orgId } })).toEqual({ [first.key]: "old" });
+  const { getOrgSettings } = await import("../settings");
+  expect(await getOrgSettings({ data: { orgId } })).toEqual({ [first.key]: "old" });
+  expect(await stored(orgId, `setting-write:${first.requestId}`)).toContain('"outcome":"applied"');
+});
+
+it("round-trips every migrated key through the web funnel without broadening member reads", async () => {
+  const { ORG_SETTING_KEYS } = await import("../org-setting-keys");
+  const { DEFAULT_CONFIDENCE_LAYOUT } = await import("../confidence-layout");
+  const { getOrgSettings } = await import("../settings");
+  const { orgId } = await fixture();
+  const expected: Record<string, string> = {};
+  const { isEditableSettingKey } = await import("../editable-settings");
+  for (const key of ORG_SETTING_KEYS) {
+    if (!isEditableSettingKey(key)) throw new Error(`Non-editable migrated key: ${key}`);
+    const value = key === "default-confidence-layout" ? JSON.stringify(DEFAULT_CONFIDENCE_LAYOUT) : `value:${key}`;
+    expected[key] = value;
+    expect((await save({ ...change(orgId, value), key })).outcome).toBe("applied");
+    expect(await stored(orgId, key)).toBeNull();
+  }
+  expect(await getManageableOrgSettings({ data: { orgId } })).toEqual(expected);
+  const memberKeys = ["timezone-display", "default-timer-mode", "default-countdown-minutes", "overtime-behavior", "lyrics-output", "default-confidence-layout"];
+  expect(await getOrgSettings({ data: { orgId } })).toEqual(Object.fromEntries(memberKeys.map(key => [key, expected[key]])));
+});
+
+it("keeps personal preference values in app_setting and rolls back routed writes atomically", async () => {
+  const { orgId, userId } = await fixture();
+  const personal = { ...change(orgId, "false"), key: `personal-pref:${userId}` };
+  expect((await applySettingWrite(env.DB, personal, userId)).outcome).toBe("applied");
+  expect(await stored(orgId, personal.key)).toBe("false");
+  const input: SettingWrite = { ...change(orgId, ""), key: "default-timer-mode" };
+  const failing = { prepare: env.DB.prepare.bind(env.DB), batch: <T>(statements: D1PreparedStatement[]) => env.DB.batch<T>([...statements, env.DB.prepare("INSERT INTO organization(id,name,slug,createdAt) VALUES (?,'duplicate',?,CURRENT_TIMESTAMP)").bind(orgId,orgId)]) };
+  await expect(applySettingWrite(failing, input, userId)).rejects.toThrow();
+  expect(await stored(orgId, `setting-write:${input.requestId}`)).toBeNull();
+  expect(await env.DB.prepare("SELECT value FROM org_setting WHERE orgId=? AND key=?").bind(orgId,input.key).first("value")).toBeNull();
+  expect((await save(input)).outcome).toBe("applied");
+  expect((await save({ ...input, requestId: crypto.randomUUID(), value: "countup" })).outcome).toBe("conflict");
+  expect((await save({ ...input, requestId: crypto.randomUUID(), expectedValue: "", value: "countup" })).outcome).toBe("applied");
+});
