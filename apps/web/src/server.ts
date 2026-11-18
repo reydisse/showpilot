@@ -1,16 +1,14 @@
+import { enqueueCronJobs, consumeCronQueue, type CronMessage } from "./lib/cron-queue.server";
 import { decideUploadContentType } from "./lib/upload-content-sniff";
 import { handleAccountProfileRequest } from "./lib/account-profile-api.server";
 import { chatAttachmentName, chatUploadSpecSchema } from "@showpilot/shared/chat-attachment";
 import { ChatAttachmentStorageError, chatFileIsDeleted, storeChatAttachment } from "./lib/chat-attachment-storage.server";
 import { handleOperationalErrorRequest } from "./lib/operational-error-api.server";
-import { pruneOperationalErrors } from "./lib/operational-errors.server";
-import { backfillDeviceCredentials } from "./lib/device-settings.server";
 import { handleMediaRequest } from "./lib/media-library.server";
-import { backfillCredentialSettings, readSettingValuesForUse } from "./lib/credential-settings.server";
-import { backfillScopedTokenDigests } from "./lib/scoped-token-store.server";
+import { readSettingValuesForUse } from "./lib/credential-settings.server";
 import handler from "@tanstack/react-start/server-entry";
-import { withDatabaseRequest, withDatabaseTask } from "./lib/request-database.server";
-import { authenticateBridgeRequest, backfillLegacyBridgeInstallations, migrateLegacyBridgeInstallation } from "./lib/bridge-credentials.server";
+import { withDatabaseRequest } from "./lib/request-database.server";
+import { authenticateBridgeRequest, migrateLegacyBridgeInstallation } from "./lib/bridge-credentials.server";
 import { authenticateDisplayRequest } from "./lib/display-access.server";
 import { getAuth } from "./lib/auth";
 import { AccessCheckUnavailableError, accessCheckUnavailableResponse } from "./lib/access-check-errors.server";
@@ -47,6 +45,7 @@ export { CueSheetRelay } from "./durable-objects/CueSheetRelay";
 
 interface Env {
   CREDENTIAL_ENCRYPTION_KEYS?: string;
+  CRON_JOBS: Queue<CronMessage>;
   DB: D1Database;
   STORAGE: R2Bucket;
   TIMECODE_RELAY: Cloudflare.Env["TIMECODE_RELAY"];
@@ -766,27 +765,12 @@ const appServer = {
     return withRuntimeCacheHeaders(request, withApiCorsHeaders(request, response));
   },
   async scheduled(_controller: ScheduledController, e: Env): Promise<void> {
-    const { checkExpoPushReceipts } = await import("./lib/expo-push-receipts.server");
-    const { createDueDutyReminders } = await import("./lib/duty-roster.server");
-    const { createDuePostShowReminders } = await import("./lib/show-report-notes");
-    await Promise.all([
-      pruneOperationalErrors(e.DB),
-      checkExpoPushReceipts(e.DB, { accessToken: e.EXPO_ACCESS_TOKEN }),
-      createDuePostShowReminders(e.DB),
-      createDueDutyReminders(e.DB),
-      backfillScopedTokenDigests(e.DB),
-      backfillCredentialSettings(e.DB, e.CREDENTIAL_ENCRYPTION_KEYS),
-      backfillDeviceCredentials(e.DB, e.CREDENTIAL_ENCRYPTION_KEYS).then(result => {
-        if (result.invalid) throw new Error(`Device credential migration found ${result.invalid} invalid settings rows.`);
-      }),
-      backfillLegacyBridgeInstallations(e.DB).then((result) => {
-        if (result.failed > 0) throw new Error(`Bridge credential migration failed for ${result.failed} installations; ${result.remaining} remain.`);
-      }),
-    ]);
+    await enqueueCronJobs(e);
   },
 };
 
 export default {
+  queue: consumeCronQueue,
   async fetch(request: Request, env: unknown, ctx: unknown) {
     const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24)))) ;
     const headers = new Headers(request.headers);
@@ -805,6 +789,6 @@ export default {
     });
   },
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
-    await withDatabaseTask(env.DB, () => appServer.scheduled(controller, env));
+    await appServer.scheduled(controller, env);
   },
 };

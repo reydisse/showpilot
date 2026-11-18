@@ -11,6 +11,10 @@
 	"triggers": {
 		"crons": ["*/5 * * * *"]
 	},
+	"queues": {
+		"producers": [{ "binding": "CRON_JOBS", "queue": "showpilot-cron-jobs" }],
+		"consumers": [{ "queue": "showpilot-cron-jobs", "max_retries": 3, "retry_delay": 60, "max_batch_size": 1, "dead_letter_queue": "showpilot-cron-jobs-dlq" }]
+	},
 	"d1_databases": [
 		{
 			"binding": "DB",

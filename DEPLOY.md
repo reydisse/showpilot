@@ -10053,3 +10053,27 @@ Migration 0098 adds nullable crew_member.checkInSecretHash. Apply post-merge usi
 ### Per-relay socket cap and per-socket rate limit (2026-11-17, Phase 3 row 351)
 
 Each relay instance allows 200 sockets; additional connections close with code 4413 "Room full". Each socket allows 50 inbound messages/second sustained with a 150-message burst; floods close with code 1008 "Message rate limit exceeded". Healthy traffic, including the 10 Hz feed master and reconnect bursts, sits far below both limits.
+
+## Cron queue (Phase 3 ledger row 352)
+
+Every five minutes the producer sends eight independent job messages to
+`showpilot-cron-jobs`. The worker consumes one message per batch, with three
+retries after the initial attempt and a fixed 60-second retry delay. Exhausted
+messages move to `showpilot-cron-jobs-dlq`; there is deliberately no automatic
+DLQ consumer. This isolates heavyweight jobs and avoids immediate retry storms.
+
+Current Wrangler provisions missing queues on deploy (see
+https://developers.cloudflare.com/queues/configuration/configure-queues/).
+For explicit one-time provisioning before first deployment, operators can run
+`pnpm --filter @showpilot/web exec wrangler queues create showpilot-cron-jobs`
+and the same command with `showpilot-cron-jobs-dlq`. Skip creation if already
+present (`wrangler queues list`). No database migration is needed.
+
+Search Workers Observability logs (or `wrangler tail showpilot`) for
+`CRON_DLQ_ALERT`: the structured event contains job, delivery attempts, and error.
+With max_retries=3 the final delivery is attempt 4. The existing operational
+error store requires a real organization; these platform jobs have none, so the
+structured log is the alert hook and no fabricated organization is recorded.
+In the Cloudflare dashboard, open Queues > showpilot-cron-jobs-dlq to inspect
+backlog and message bodies using message preview. Inspect and fix the underlying
+job before replaying messages; queue delivery is at least once.
