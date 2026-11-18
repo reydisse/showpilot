@@ -32,16 +32,16 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate draft release
         shell: bash
         run: |
           node -e 'const m = /^(desktop|bridge)-v(\d+\.\d+\.\d+)$/.exec(process.env.RELEASE_TAG); if (!m) process.exit(1); require("node:fs").appendFileSync(process.env.GITHUB_ENV, `RELEASE_VERSION=${m[2]}\nPRODUCT_NAME=ShowPilot ${m[1] === "desktop" ? "Desktop" : "Bridge"}\n`);'
           test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.30.3
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
