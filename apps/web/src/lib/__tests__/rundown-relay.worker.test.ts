@@ -1,7 +1,7 @@
 import { withRelayMember } from "@/test/relay-fixtures";
 import { env } from "cloudflare:workers";
-import { abortAllDurableObjects, evictDurableObject } from "cloudflare:test";
-import { afterEach, describe, expect, it } from "vitest";
+import { abortAllDurableObjects, evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RundownItem } from "@/types/rundown";
 import { nextPlayableItem } from "../rundown-transport";
 import { hasLiveRundownAuthority } from "../live-rundown-authority.server";
@@ -383,4 +383,77 @@ describe("RundownRelay running order matches confidence displays", () => {
       currentItemId = expectedId;
     }
   });
+});
+
+async function switchFixture() {
+  const orgId = crypto.randomUUID();
+  await createOrg(orgId);
+  const a = crypto.randomUUID(), b = crypto.randomUUID();
+  for (const id of [a, b]) await env.DB.prepare("INSERT INTO rundown (id,orgId,serviceDate,name) VALUES (?, ?, ?, 'Switch')").bind(id, orgId, serviceDate).run();
+  const stub = relayFor(orgId);
+  const url = await withRelayMember(`https://rundown.test/command?orgId=${orgId}&serviceDate=${serviceDate}&showId=${a}&access=edit`);
+  const send = async (action: string, payload: Record<string, unknown>, expectedRevision?: number) => {
+    const targetUrl = new URL(url);
+    if (typeof payload.showId === "string") targetUrl.searchParams.set("showId", payload.showId);
+    return stub.fetch(targetUrl, { method: "POST", body: JSON.stringify({ action, payload, expectedRevision }) });
+  };
+  await (await send("seed", { items: [{ id: 'old', title: 'Old', type: 'segment', duration: 60000, notes: '', assignee: '', cue: '', status: 'upcoming', sortOrder: 0, hardStop: false }] })).text();
+  const read = async () => { const u = new URL(url); u.pathname = '/state'; return (await stub.fetch(u)).json<Record<string, unknown> & { revision: number; items: RundownItem[]; timer: Record<string, unknown> }>(); };
+  return { orgId, a, b, stub, url, send, read };
+}
+
+it("row 337 (a): mismatch HTTP state and WebSocket open preserve items and timer without persistence", async () => {
+  const f = await switchFixture();
+  const before = await f.read();
+  await runInDurableObject(f.stub, async (instance, ctx) => {
+    const writes = vi.spyOn(ctx.storage, 'transaction');
+    const u = new URL(f.url); u.searchParams.set('showId', f.b); u.pathname = '/state';
+    const response = await instance.fetch(new Request(u)); await response.text();
+    u.pathname = '/ws';
+    const socket = await instance.fetch(new Request(u, { headers: { Upgrade: 'websocket' } }));
+    socket.webSocket?.accept(); socket.webSocket?.close();
+    expect(writes).not.toHaveBeenCalled(); writes.mockRestore();
+  });
+  const after = await f.read();
+  expect(after.items).toEqual(before.items);
+  const { serverTime: _before, ...beforeTimer } = before.timer;
+  const { serverTime: _after, ...afterTimer } = after.timer;
+  expect(JSON.stringify(afterTimer)).toBe(JSON.stringify(beforeTimer));
+});
+
+it("row 337 (b): revision checked switch followed by seed atomically adopts show B", async () => {
+  const f = await switchFixture(); const before = await f.read();
+  expect((await f.send('switch-show', { showId: f.b, serviceDate }, before.revision)).status).toBe(200);
+  const newItems = before.items.map(item => ({ ...item, id: 'new', title: 'Show B cue' }));
+  expect((await f.send('seed', { showId: f.b, serviceDate, items: newItems, timer: before.timer }, before.revision + 1)).status).toBe(200);
+  expect(await f.read()).toMatchObject({ showId: f.b, serviceDate, items: newItems, revision: before.revision + 2 });
+});
+
+it("row 337 (c): stale switch rejects HTTP and WebSocket without state changes", async () => {
+  const f = await switchFixture(); const before = await f.read();
+  const response = await f.send('switch-show', { showId: f.b, serviceDate }, before.revision - 1);
+  expect(response.status).toBe(409); expect(await response.json()).toMatchObject({ reason: 'revision-conflict' });
+  const socketUrl = new URL(f.url); socketUrl.pathname = '/ws'; socketUrl.searchParams.set('showId', f.b);
+  const upgrade = await f.stub.fetch(socketUrl, { headers: { Upgrade: 'websocket' } });
+  upgrade.webSocket!.accept();
+  const result = nextFrame(upgrade.webSocket!, 'command-result');
+  upgrade.webSocket!.send(JSON.stringify({ type: 'command', id: 'stale-switch', action: 'switch-show', payload: { showId: f.b, serviceDate }, expectedRevision: before.revision - 1 }));
+  expect(await result).toMatchObject({ accepted: false, reason: 'revision-conflict' });
+  upgrade.webSocket!.close();
+  expect(await f.read()).toMatchObject({ showId: f.a, items: before.items, revision: before.revision });
+});
+
+it("row 337 (d): accepted switch keeps serving show A until a valid seed succeeds", async () => {
+  const f = await switchFixture(); const before = await f.read();
+  await (await f.send('switch-show', { showId: f.b, serviceDate }, before.revision)).text();
+  await evictDurableObject(f.stub);
+  expect(await f.read()).toMatchObject({ showId: f.a, items: before.items });
+  expect((await f.send('seed', { showId: f.b, serviceDate, items: 'invalid' }, before.revision + 1)).status).toBe(400);
+  expect(await f.read()).toMatchObject({ showId: f.a, items: before.items });
+});
+
+it("row 337 (e): same-show seed retains an initialized room", async () => {
+  const f = await switchFixture(); const before = await f.read();
+  await (await f.send('seed', { items: [] }, before.revision)).text();
+  expect(await f.read()).toMatchObject({ showId: f.a, items: before.items, revision: before.revision });
 });

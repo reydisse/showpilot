@@ -417,17 +417,6 @@ export function useRundownSync(
       connect();
     };
 
-    const stateMatchesTarget = (state: Record<string, unknown>) => {
-      const incomingShowId = typeof state.showId === "string" ? state.showId : null;
-      const incomingServiceDate = typeof state.serviceDate === "string" ? state.serviceDate : null;
-      const incomingItems = Array.isArray(state.items) ? state.items : [];
-      const hasRoomState = incomingItems.length > 0 || incomingShowId !== null || incomingServiceDate !== null;
-
-      if (showId && incomingShowId !== showId) return !hasRoomState;
-      if (!showId && serviceDate && incomingServiceDate && incomingServiceDate !== serviceDate) return false;
-      return true;
-    };
-
     function connect() {
       if (disposed) return;
       if (
@@ -464,6 +453,13 @@ export function useRundownSync(
                 revisionRef.current = msg.revision;
                 setRevision(msg.revision);
               }
+              if (pending.action === "switch-show" && !msg.accepted) {
+                commandQueue.current = commandQueue.current.filter(command => {
+                  if (command.action !== "seed") return true;
+                  confirmCommand(command.id);
+                  return false;
+                });
+              }
               pendingCommandRef.current = null;
               confirmCommand(pending.id);
               if (msg.accepted === false && msg.reason === "revision-conflict") {
@@ -483,10 +479,6 @@ export function useRundownSync(
           if (msg.type !== "hydrate" && msg.type !== "state") return;
           const state = msg.state;
           if (!isObject(state) || typeof state.revision !== "number" || !Number.isSafeInteger(state.revision) || state.revision < 0) throw new Error("Invalid rundown state");
-          if (!stateMatchesTarget(state)) {
-            dropConnection(ws, "The rundown update did not match the selected show. Reconnecting.");
-            return;
-          }
 
           if (typeof state.revision === "number" && Number.isFinite(state.revision)) {
             revisionRef.current = Math.max(revisionRef.current, state.revision);
@@ -624,13 +616,15 @@ export function useRundownSync(
       },
     ) => {
       sendCommand("seed", {
+        showId,
+        serviceDate,
         items: seedItems,
         timer: seedTimer,
         force,
         ...meta,
       });
     },
-    [sendCommand]
+    [sendCommand, showId, serviceDate]
   );
 
   return {

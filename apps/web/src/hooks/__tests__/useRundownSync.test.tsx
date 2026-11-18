@@ -511,7 +511,7 @@ describe("useRundownSync command confirmation", () => {
     unmount();
   });
 
-  it("clears failure and preview state when switching show, and rejects mismatched state", () => {
+  it("clears failure and preview state when switching show, and hydrates the old room for explicit switching", () => {
     vi.useFakeTimers();
     const { result, rerender, unmount } = renderHook(({ show }) => useRundownSync("org-scope", "2026-09-06", show), { initialProps: { show: "show-1" } });
     act(() => vi.advanceTimersByTime(0));
@@ -525,9 +525,28 @@ describe("useRundownSync command confirmation", () => {
     act(() => vi.advanceTimersByTime(0));
     const second = MockWebSocket.instances[1];
     act(() => { second.open(); hydrate(second); });
-    expect(result.current.connected).toBe(false);
-    expect(result.current.lastError).toContain("did not match");
-    expect(result.current.stateShowId).toBeNull();
+    expect(result.current.connected).toBe(true);
+    expect(result.current.lastError).toBeNull();
+    expect(result.current.stateShowId).toBe("show-1");
+    unmount();
+  });
+
+  it("sends the switch before its seed and cancels the seed after a stale switch rejection", () => {
+    vi.useFakeTimers();
+    const { result, unmount } = renderHook(() => useRundownSync("org-switch", "2026-09-06", "show-2"));
+    act(() => vi.advanceTimersByTime(0));
+    const socket = MockWebSocket.instances[0];
+    act(() => { socket.open(); hydrate(socket); });
+    act(() => {
+      result.current.sendCommand("switch-show", { showId: "show-2", serviceDate: "2026-09-06" });
+      result.current.seedState([], result.current.timer);
+    });
+    expect(socket.sent).toHaveLength(1);
+    const command = JSON.parse(socket.sent[0]);
+    expect(command).toMatchObject({ action: "switch-show", expectedRevision: result.current.revision });
+    act(() => socket.receive({ type: "command-result", id: command.id, accepted: false, reason: "revision-conflict", revision: command.expectedRevision + 1 }));
+    expect(socket.sent).toHaveLength(1);
+    expect(result.current.unconfirmedCount).toBe(0);
     unmount();
   });
 
