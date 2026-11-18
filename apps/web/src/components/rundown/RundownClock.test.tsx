@@ -61,3 +61,13 @@ it("server-rendered clock text uses the supplied reference instant", () => {
   const html=renderToString(<RundownClockCard {...props} timer={{...timer,mode:"clock"}}/>);
   expect(html).toContain(new Date(start).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"}));
 });
+
+it("keeps overtime badge and offset steady under reduced motion", () => {
+  const overtimeTimer = {...timer, playback: "pause" as const, elapsed: 2000, startedAt: null};
+  const view = render(<><RundownClockCard {...props} timer={overtimeTimer} currentItem={{...item, duration:1000}}/><RundownOffset timer={overtimeTimer} duration={1000} initialNow={start}/></>);
+  for (const element of [screen.getByText("Overtime"), view.container.querySelector(".rundown-row-offset")]) {
+    expect(element?.classList.contains("animate-pulse")).toBe(true);
+    expect(element?.classList.contains("motion-reduce:animate-none")).toBe(true);
+    expect(element?.classList.contains("text-red-400")).toBe(true);
+  }
+});
