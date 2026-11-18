@@ -265,7 +265,9 @@ from the named SQL files in `apps/web/prisma/migrations/` and their consumers:
 | `0100_org_setting.sql` | Moves lyrics-output, ontime-sync-rundown, ontime-send-commands, propresenter-pull-order, default-countdown-minutes, default-timer-mode, timezone-display, overtime-behavior, default-confidence-layout, l3-default-style, l3-animation-speed, l3-auto-clear, l3-auto-clear-duration into org_setting; deletes legacy keys. | Unsafe: app_setting readers lose these settings. | org_setting queries fail because the table is absent. | Reverse-move exactly the keys in this migration's IN list before restoring legacy readers. |
 | `0101_org_setting_remaining_keys.sql` | Moves org-timezone, clock-format, rundown-adapter, ontime-url, default-call-lead-minutes, notify-app-chat, propresenter-host/port/api-port/password/send-cues, chat-adapter, slack-token/channel/signing-secret, mattermost-url/token/channel, teams-webhook-url, discord-bot-token/channel-id, webhook-url into org_setting; deletes legacy keys. | Unsafe: app_setting readers lose these settings. | Reads of these keys return nothing from org_setting (or fail if 0100 is also absent). | Reverse-move exactly the keys in this migration's IN list before restoring legacy readers. |
 
-For the three data moves, pause writes and back up the database first. In a
+| `0102_webhook_event.sql` | Moves webhook-events arrays into webhook_event rows. | Unsafe: pre-0102 code reads app_setting and finds nothing. | Queries fail because webhook_event is absent. | Reverse-move current event rows before restoring legacy readers. |
+
+For the four data moves, pause writes and back up the database first. In a
 reviewed transaction, invert the migration's INSERT…SELECT using **current**
 values, not a stale pre-migration snapshot. For 0099, copy rundown_template
 `id, orgId, 'rundown-saved:' || templateId, payload` into app_setting
@@ -273,6 +275,7 @@ values, not a stale pre-migration snapshot. For 0099, copy rundown_template
 `orgId, 'rundown-template-save:' || templateId, value` with a fresh unique
 app_setting id. For 0100/0101, copy org_setting `orgId, key, value` with fresh
 unique app_setting ids, filtering by the exact IN list in the named SQL file.
+For 0102, reassemble each org’s current webhook_event payloads into a newest-first JSON array (timestamp DESC, seq DESC) in app_setting with key `webhook-events` and a fresh unique id.
 Upsert on `(orgId,key)` so current moved values replace stale legacy copies.
 Verify row counts and values for every key family before switching code, then
 resume writes only on the restored code. Retain the new tables for recovery;

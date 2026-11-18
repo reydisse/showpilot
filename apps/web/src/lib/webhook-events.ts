@@ -69,24 +69,19 @@ export async function appendWebhookEvent(
   orgId: string,
   event: WebhookEventInput,
 ) {
-  const existing = await prisma.appSetting.findUnique({
-    where: { orgId_key: { orgId, key: WEBHOOK_EVENTS_KEY } },
-  });
-  const parsed = existing?.value ? (() => {
-    try { return JSON.parse(existing.value); } catch { return []; }
-  })() : [];
-  const previousEvents = Array.isArray(parsed) ? (parsed as unknown[]) : [];
-  const normalizedEvents = previousEvents
-    .map((entry, index) => normalizeWebhookEvent(entry, index))
-    .filter((entry): entry is WebhookEventLogItem => Boolean(entry));
-  const nextEvents: WebhookEventLogItem[] = [{
+  const entry = {
     ...event,
     id: `webhook-event-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     timestamp: new Date().toISOString(),
-  }, ...normalizedEvents];
-  await prisma.appSetting.upsert({
-    where: { orgId_key: { orgId, key: WEBHOOK_EVENTS_KEY } },
-    update: { value: JSON.stringify(nextEvents.slice(0, MAX_WEBHOOK_EVENTS)) },
-    create: { orgId, key: WEBHOOK_EVENTS_KEY, value: JSON.stringify(nextEvents.slice(0, MAX_WEBHOOK_EVENTS)) },
-  });
+    payloadSummary: event.payloadSummary || sanitizePayloadSummary((event as unknown as Record<string, unknown>).payload),
+  };
+  // Sequence allocation happens inside the insert, so concurrent callers cannot
+  // overwrite each other or allocate the same ordering position.
+  await prisma.$executeRaw`INSERT INTO webhook_event(id, orgId, timestamp, seq, payload)
+    SELECT ${entry.id}, ${orgId}, ${entry.timestamp}, COALESCE(MAX(seq), 0) + 1, ${JSON.stringify(entry)}
+    FROM webhook_event WHERE orgId = ${orgId}`;
+  await prisma.$executeRaw`DELETE FROM webhook_event WHERE orgId = ${orgId} AND id IN (
+    SELECT id FROM webhook_event WHERE orgId = ${orgId}
+    ORDER BY timestamp DESC, seq DESC LIMIT -1 OFFSET ${MAX_WEBHOOK_EVENTS}
+  )`;
 }

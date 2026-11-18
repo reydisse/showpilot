@@ -135,6 +135,7 @@ model Organization {
   notifications          Notification[]
   notificationPreferences NotificationPreference[]
   devices                Device[]
+  webhookEvents          WebhookEvent[]
   orgSettings            OrgSetting[]
   appSettings            AppSetting[]
   rundownTemplates       RundownTemplate[]
@@ -1081,4 +1082,16 @@ model OrgSetting {
 
   @@id([orgId, key])
   @@map("org_setting")
+}
+
+model WebhookEvent {
+  id String @id
+  orgId String
+  timestamp String
+  seq Int
+  payload String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, timestamp(sort: Desc), seq(sort: Desc)], map: "webhook_event_org_order")
+  @@map("webhook_event")
 }
