@@ -62,3 +62,11 @@ describe("rundown command arbitration", () => {
     expect(canApplyRundownRelayAction("control", "timer-next")).toBe(true);
   });
 });
+
+it("requires a revision and target identity for edit-level switch-show", () => {
+  const command = { action: "switch-show", expectedRevision: 3, payload: { showId: "show-b", serviceDate: "2026-11-18" } };
+  expect(parseRundownRelayHttpCommand(command)).toEqual(command);
+  expect(canApplyRundownRelayAction("edit", command.action)).toBe(true);
+  expect(parseRundownRelayHttpCommand({ ...command, expectedRevision: undefined })).toBeNull();
+  expect(parseRundownRelayHttpCommand({ ...command, payload: { showId: "", serviceDate: "bad" } })).toBeNull();
+});

@@ -138,7 +138,7 @@ it("does not publish a target when its durable room preparation fails", async ()
   expect(await f.pointer()).toEqual({ "active-show-id": f.b.showId, "active-service-date": f.b.serviceDate });
 });
 
-it("activates a rescheduled stable show without replacing its live cues", async () => {
+it("requires an explicit switch before activating a rescheduled stable show and preserves live cues", async () => {
   const f = await fixture();
   await accepted(await f.a.activate("Keep this live edit"));
   const date = "2026-12-01";
@@ -146,8 +146,9 @@ it("activates a rescheduled stable show without replacing its live cues", async 
   const old = f.a.request("/activate", "seed", { items: [item("Stale loader")] });
   const url = new URL(old.url); url.searchParams.set("serviceDate", date);
   const response = await f.a.stub.fetch(new Request(url, old));
-  expect(await response.json()).toMatchObject({ ok: true, showId: f.a.showId, serviceDate: date });
-  expect(await f.pointer()).toEqual({ "active-show-id": f.a.showId, "active-service-date": date });
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ ok: false, reason: "show-mismatch" });
+  expect(await f.pointer()).toEqual({ "active-show-id": f.a.showId, "active-service-date": f.a.serviceDate });
   expect((await f.a.state()).items[0].title).toBe("Keep this live edit");
 });
 

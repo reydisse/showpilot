@@ -420,7 +420,9 @@ function RundownPage() {
     sendCommand,
     seedState,
   } = useRundownSync(orgId, serviceDate, showId);
-  const transportAvailable = canControlRundown && syncConnected;
+  const [dismissedSwitch, setDismissedSwitch] = useState<string | null>(null);
+  const switchScope = JSON.stringify([showId, serviceDate, syncedShowId, syncedServiceDate]);
+  const transportAvailable = canControlRundown && syncConnected && syncedServiceDate === serviceDate && (!showId || syncedShowId === showId);
   const relayMatchesTarget =
     syncedServiceDate === serviceDate && (!showId || syncedShowId === showId);
 
@@ -2674,6 +2676,21 @@ function RundownPage() {
             onClose={() => setShowCreateModal(false)}
           />
         ) : null}
+        <ConfirmDialog
+          open={syncHydrated && syncConnected && canEditRundown && !!showId && !relayMatchesTarget && dismissedSwitch !== switchScope}
+          onOpenChange={(open) => { if (!open) setDismissedSwitch(switchScope); }}
+          title="Switch this room to the selected show?"
+          description="The current rundown will be replaced only after the selected show's rundown is saved successfully."
+          confirmLabel="Switch show"
+          variant="warning"
+          onConfirm={() => {
+            sendCommand("switch-show", { showId, serviceDate });
+            seedState(databaseItemsRef.current, initialState.timer, false, {
+              serviceName, scheduledStartTime: scheduledStartIso, scheduledCallTime: scheduledCallIso,
+            });
+            setDismissedSwitch(switchScope);
+          }}
+        />
         <ResetRundownDialog open={resetScope === rundownScope} onOpenChange={(open) => setResetScope(open ? rundownScope : null)} playing={timer.playback === "play"} onReset={resetConfirmed} />
         <ConfirmDialog
           open={deleteItem?.scope === rundownScope}

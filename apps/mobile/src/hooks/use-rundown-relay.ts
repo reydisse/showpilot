@@ -166,6 +166,8 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
     let generation = 0;
     let heartbeat: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
     let hydratedRevision = 0;
+    let hydratedShowId: string | null = showId;
+    let hydratedServiceDate: string | null = serviceDate;
 
     hydratedRef.current = false;
     revisionRef.current = 0;
@@ -259,16 +261,6 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
       }
       const incomingShowId = typeof value.showId === "string" ? value.showId : null;
       const incomingServiceDate = typeof value.serviceDate === "string" ? value.serviceDate : null;
-      const incomingItems = Array.isArray(value.items) ? value.items : [];
-      const hasRoomState = incomingItems.length > 0 || incomingShowId !== null || incomingServiceDate !== null;
-      if (
-        (incomingShowId !== showId && hasRoomState) ||
-        (incomingServiceDate !== serviceDate && hasRoomState)
-      ) {
-        retireConnection("Live state belongs to another show. Reconnecting before sending controls.");
-        return;
-      }
-
       if (isRecord(value.timer) && typeof value.timer.serverTime === "number" && Number.isFinite(value.timer.serverTime)) {
         serverClockOffsetRef.current = value.timer.serverTime - Date.now();
       }
@@ -306,6 +298,8 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
           : current.ppPreviewSlide,
       }));
       hydratedRevision = value.revision;
+      hydratedShowId = incomingShowId;
+      hydratedServiceDate = incomingServiceDate;
       clearHandshake();
       attempts = 0;
       hydratedRef.current = true;
@@ -369,7 +363,7 @@ export function useRundownRelay(orgId: string, serviceDate: string, showId: stri
           if (!isRecord(message)) return;
           if (message.type === "pong") {
             if (!heartbeat || message.id !== heartbeat.id) return;
-            if (message.showId !== showId || message.serviceDate !== serviceDate
+            if (message.showId !== hydratedShowId || message.serviceDate !== hydratedServiceDate
               || typeof message.revision !== "number" || !Number.isSafeInteger(message.revision) || message.revision < 0) {
               retireConnection("The live connection returned an invalid heartbeat. Reconnecting for current state.");
               return;

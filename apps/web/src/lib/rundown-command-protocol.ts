@@ -19,6 +19,7 @@ export interface RundownRelayHttpCommand {
 
 const EDIT_ACTIONS = new Set([
   "seed",
+  "switch-show",
   "add-item",
   "update-item",
   "remove-item",
@@ -60,6 +61,10 @@ export function parseRundownRelayHttpCommand(value: unknown): RundownRelayHttpCo
 
   if (value.expiresAt !== undefined && (typeof value.expiresAt !== "number"
     || !Number.isSafeInteger(value.expiresAt) || value.expiresAt < 0)) return null;
+
+  if (action === "switch-show" && (value.expectedRevision === undefined
+    || !isRecord(value.payload) || typeof value.payload.showId !== "string" || !value.payload.showId.trim()
+    || typeof value.payload.serviceDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value.payload.serviceDate))) return null;
 
   // An offline journal must name its exact base and stable retry ID. It may
   // never take the permissive legacy path used by commands without revisions.

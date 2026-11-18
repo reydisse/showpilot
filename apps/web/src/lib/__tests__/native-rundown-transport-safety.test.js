@@ -282,7 +282,7 @@ it("requires hydration before connected and bounds an open but silent socket", a
   expect(f.result.current.lastError).toMatch(/timed out/i);
   expect(socket.readyState).toBe(3);
 });
-it("does not let a wrong-show snapshot satisfy the hydration deadline", async () => {
+it("hydrates the current room identity without switching it on open", async () => {
   const f = renderHook(() => useRundownRelay("org", "2026-11-08", "show"));
   await act(async () => {});
   const socket = sockets[0];
@@ -290,9 +290,9 @@ it("does not let a wrong-show snapshot satisfy the hydration deadline", async ()
     socket.open();
     socket.message({ type: "hydrate", state: { showId: "other", serviceDate: "2026-11-08", revision: 1, items: [], timer: {} } });
   });
-  await act(async () => vi.advanceTimersByTimeAsync(12001));
-  expect(f.result.current.hydrated).toBe(false);
-  expect(socket.readyState).toBe(3);
+  expect(f.result.current.hydrated).toBe(true);
+  expect(f.result.current.showId).toBe("other");
+  expect(socket.readyState).toBe(1);
 });
 it("does not mark malformed hydration live", async () => {
   const f = renderHook(() => useRundownRelay("org", "2026-11-08", "show"));

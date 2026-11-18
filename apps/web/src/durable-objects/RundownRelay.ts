@@ -92,6 +92,7 @@ interface PPSlideState extends RelayPPSlide {
 }
 
 interface RundownState {
+  pendingShow?: { showId: string; serviceDate: string };
   initialized: boolean;
   items: RundownItem[];
   timer: TimerState;
@@ -179,6 +180,7 @@ export class RundownRelay extends DurableObject {
             this.itemRowsInitialized = true;
           }
           this.state = {
+            pendingShow: stored.pendingShow,
             initialized: inferRundownRelayInitialized({ ...stored, items }),
             items: items.map((item, sortOrder) => ({ ...item, sortOrder })),
             timer: stored.timer ?? { ...DEFAULT_TIMER },
@@ -691,10 +693,12 @@ export class RundownRelay extends DurableObject {
       if (path === "/state") return this.targetJson({ ...this.getPublicState(), retired: true });
       return this.targetJson({ error: "This show's rundown has been retired" }, { status: 410 });
     }
-    await this.reconcileProPresenterOutputSetting();
-    if (internal && path === "/refresh-output") return this.targetJson({ ok: true });
     const serviceDate = url.searchParams.get("serviceDate");
     const showId = url.searchParams.get("showId");
+    const contextMismatch = showId ? showId !== this.state.showId
+      : !!serviceDate && serviceDate !== this.state.serviceDate;
+    if (!contextMismatch) await this.reconcileProPresenterOutputSetting();
+    if (internal && path === "/refresh-output") return this.targetJson({ ok: true });
     const access = url.searchParams.get("access");
     const authClaim = this.readAuthorityClaim(url, request);
     const writeAccess = access === "edit" || access === "control" ? access : null;
@@ -708,31 +712,17 @@ export class RundownRelay extends DurableObject {
       if (path === "/state") return this.targetJson({ ...this.getPublicState(), deleting: true });
       return this.targetJson({ ok: false, reason: "show-deleting", revision: this.state.revision }, { status: 409 });
     }
-    if (
-      canWrite &&
-      ((showId && showId !== this.state.showId) ||
-        (!showId && serviceDate && serviceDate !== this.state.serviceDate))
-    ) {
-      // A room is active for one service at a time. Relabelling the old
-      // rows as a newly opened date made the cue sheet show a hybrid of
-      // two services. Empty first; the editor then seeds this date's D1 rows.
-      this.state.serviceDate = serviceDate ?? undefined;
+    // Only an empty, never assigned room may acquire context on first use.
+    if (canWrite && !this.state.initialized && !this.state.showId
+      && this.state.items.length === 0) {
       this.state.showId = showId ?? undefined;
-      this.state.serviceName = undefined;
-      this.state.scheduledStartTime = undefined;
-      this.state.scheduledCallTime = undefined;
-      this.state.location = undefined;
-      this.state.initialized = false;
-      this.state.items = [];
-      this.state.timer = { ...DEFAULT_TIMER };
-      this.state.ppSlide = null;
-      this.state.ppPreviewSlide = null;
-      this.state.revision += 1;
-      this.state.recentCommandIds = [];
-      this.state.removedItems = [];
+      this.state.serviceDate = serviceDate ?? undefined;
       await this.persistState();
     }
 
+    if (internal && path === "/activate" && !this.commandMatchesContext("activate", undefined, showId, serviceDate)) {
+      return this.targetJson({ ok: false, reason: "show-mismatch", revision: this.state.revision }, { status: 409 });
+    }
     if (internal && path === "/activate") {
       if (!showId || !serviceDate || !canWrite) {
         return this.targetJson({ ok: false, error: "Choose a saved show before taking it live." }, { status: 400 });
@@ -838,6 +828,9 @@ export class RundownRelay extends DurableObject {
           state: this.getPublicState(),
         }, { status: 409 });
       }
+      if (!this.commandMatchesContext(body.action, body.payload, showId, serviceDate)) {
+        return this.targetJson({ ok: false, reason: "show-mismatch", revision: this.state.revision }, { status: 409 });
+      }
       let accepted: boolean;
       try {
         accepted = await this.handleCommand(body.action, body.payload, body.id);
@@ -873,6 +866,8 @@ export class RundownRelay extends DurableObject {
       canObserve?: boolean;
       orgId?: string;
       authClaim?: LiveRundownAuthorityClaim | null;
+      showId?: string;
+      serviceDate?: string;
     } | null;
     if (attachment?.orgId) this.orgId = attachment.orgId;
     await this.hydrateFromStorage();
@@ -968,6 +963,11 @@ export class RundownRelay extends DurableObject {
           return;
         }
 
+        if (!this.commandMatchesContext(parsed.action, parsed.payload, attachment?.showId, attachment?.serviceDate)) {
+          ws.send(JSON.stringify({ type: "command-result", ...this.resolvedTarget(), id: parsed.id,
+            accepted: false, reason: "show-mismatch", revision: this.state.revision }));
+          return;
+        }
         let accepted: boolean;
         try {
           accepted = await this.handleCommand(parsed.action, parsed.payload, parsed.id);
@@ -1032,6 +1032,19 @@ export class RundownRelay extends DurableObject {
     );
   }
 
+  private commandMatchesContext(action: string, payload: Record<string, unknown> | undefined,
+    showId?: string | null, serviceDate?: string | null): boolean {
+    // The command prepares the target selected by this connection; keyed show
+    // rooms must not be repurposed through a connection for another show.
+    if (action === "switch-show") return (!showId || payload?.showId === showId)
+      && (!serviceDate || payload?.serviceDate === serviceDate);
+    if (action === "seed" && this.state.pendingShow
+      && payload?.showId === this.state.pendingShow.showId
+      && payload?.serviceDate === this.state.pendingShow.serviceDate) return true;
+    return showId ? showId === this.state.showId && (!serviceDate || serviceDate === this.state.serviceDate)
+      : !serviceDate || serviceDate === this.state.serviceDate;
+  }
+
   private async handleCommand(
     action: string,
     payload?: Record<string, unknown>,
@@ -1041,6 +1054,17 @@ export class RundownRelay extends DurableObject {
     let metadataGuard: { expectedUpdatedAt: string | number; fields: Record<string, unknown> } | undefined;
 
     switch (action) {
+      case "switch-show": {
+        const showId = payload?.showId;
+        const serviceDate = payload?.serviceDate;
+        if (typeof showId !== "string" || typeof serviceDate !== "string") return false;
+        const available = await this.env.DB.prepare(
+          "SELECT id FROM rundown WHERE id = ? AND orgId = ? AND serviceDate = ? AND NOT EXISTS (SELECT 1 FROM app_setting WHERE orgId = rundown.orgId AND key = 'show-deleting:' || rundown.id)",
+        ).bind(showId, this.orgId, serviceDate).first();
+        if (!available) return false;
+        this.state.pendingShow = { showId, serviceDate };
+        break;
+      }
       case "seed": {
         const force = payload?.force === true;
         const items = parseRelayRundownItems(payload?.items);
@@ -1067,7 +1091,25 @@ export class RundownRelay extends DurableObject {
         ) return false;
         // Empty is valid, authoritative state after clear-all. Only a room
         // that has never been initialized may accept an ordinary loader seed.
-        if (!shouldAcceptRundownSeed(this.state.initialized, force)) return true;
+        const target = this.state.pendingShow;
+        if (target && (payload?.showId !== target.showId || payload?.serviceDate !== target.serviceDate)) return false;
+        if (!target && !shouldAcceptRundownSeed(this.state.initialized, force)) return true;
+        if (target) {
+          const available = await this.env.DB.prepare(
+            "SELECT id FROM rundown WHERE id = ? AND orgId = ? AND serviceDate = ? AND NOT EXISTS (SELECT 1 FROM app_setting WHERE orgId = rundown.orgId AND key = 'show-deleting:' || rundown.id)",
+          ).bind(target.showId, this.orgId, target.serviceDate).first();
+          if (!available) return false;
+          this.state.showId = target.showId;
+          this.state.serviceDate = target.serviceDate;
+          this.state.pendingShow = undefined;
+          this.state.timer = { ...DEFAULT_TIMER };
+          this.state.serviceName = undefined;
+          this.state.scheduledStartTime = undefined;
+          this.state.scheduledCallTime = undefined;
+          this.state.location = undefined;
+          this.state.ppSlide = null;
+          this.state.ppPreviewSlide = null;
+        }
         this.state.items = items;
         this.state.removedItems = [];
         this.state.initialized = true;
@@ -1313,7 +1355,13 @@ export class RundownRelay extends DurableObject {
     if (commandId) {
       this.state.recentCommandIds = [...this.state.recentCommandIds, commandId].slice(-100);
     }
-    await this.persistState();
+    try {
+      await this.persistState();
+    } catch (error) {
+      this.state = previousState;
+      reportRelayError(this.ctx, this.env.DB, this.orgId, "rundown_persistence", error);
+      return false;
+    }
     this.broadcastState();
 
     return true;
