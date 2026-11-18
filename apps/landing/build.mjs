@@ -31,9 +31,6 @@ const tokens = {
   "pro.features": PRICING.pro.features
     .map((f) => `<li>${f}</li>`)
     .join("\n              "),
-  "founding.name": PRICING.founding.name,
-  "founding.monthly": String(PRICING.founding.monthly),
-  "founding.tagline": PRICING.founding.tagline,
   annualNote: PRICING.annualNote,
   appUrl: APP_URL,
   signupUrl: SIGNUP_URL,
