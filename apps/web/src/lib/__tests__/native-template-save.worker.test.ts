@@ -105,7 +105,7 @@ async function fixture() {
     rows: async () =>
       (
         await env.DB.prepare(
-          "SELECT key,value FROM app_setting WHERE orgId=? AND key LIKE 'rundown-%' ORDER BY key",
+          "SELECT key,value FROM (SELECT orgId,'rundown-saved:'||templateId AS key,payload AS value FROM rundown_template UNION ALL SELECT orgId,'rundown-template-save:'||templateId AS key,value FROM rundown_template_receipt) WHERE orgId=? ORDER BY key",
         )
           .bind(actor.orgId)
           .all<{ key: string; value: string }>()
@@ -204,7 +204,7 @@ it("cannot resurrect a web-created template through a delayed installed mobile c
 it("rolls back a mobile template if the common receipt cannot be stored", async () => {
   const f = await fixture();
   await env.DB.exec(
-    "CREATE TRIGGER fail_native_template_receipt BEFORE INSERT ON app_setting WHEN NEW.key LIKE 'rundown-template-save:%' BEGIN SELECT RAISE(ABORT, 'fixture receipt failure'); END",
+    "CREATE TRIGGER fail_native_template_receipt BEFORE INSERT ON rundown_template_receipt BEGIN SELECT RAISE(ABORT, 'fixture receipt failure'); END",
   );
   try {
     await expect(f.save()).rejects.toThrow("fixture receipt failure");
@@ -238,12 +238,12 @@ it.each(["mobile", "web"])(
       updatedAt: "2020-01-01",
     };
     await env.DB.prepare(
-      "INSERT INTO app_setting(id,orgId,key,value) VALUES (?,?,?,?)",
+      "INSERT INTO rundown_template(id,orgId,templateId,payload,name,updatedAt) VALUES (?,?,?,?,'','')",
     )
       .bind(
         crypto.randomUUID(),
         f.orgId,
-        `rundown-saved:${f.requestId}`,
+        f.requestId,
         JSON.stringify(legacy),
       )
       .run();

@@ -38,11 +38,11 @@ async function fixture() {
       "INSERT INTO rundown(id,orgId,serviceDate,name,location,updatedAt) VALUES(?,?,?,'Target','Room','2026-01-01T00:00:00.000Z')",
     ).bind(showId, actor.orgId, serviceDate),
     env.DB.prepare(
-      "INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,?,?)",
+      "INSERT INTO rundown_template(id,orgId,templateId,payload,name,updatedAt) VALUES (?,?,?,?,'','')",
     ).bind(
       crypto.randomUUID(),
       actor.orgId,
-      `rundown-saved:${sourceId}`,
+      sourceId,
       JSON.stringify({
         id: sourceId,
         name: "Reviewed template",
@@ -155,7 +155,7 @@ async function fixture() {
 }
 it("applies the reviewed copy, stops the timer, resets timing and retries without replacing later edits", async () => {
   const f = await fixture();
-  await env.DB.prepare("UPDATE app_setting SET value=? WHERE orgId=? AND key=?")
+  await env.DB.prepare("UPDATE rundown_template SET payload=? WHERE orgId=? AND templateId=?")
     .bind(
       JSON.stringify({
         id: f.sourceId,
@@ -165,7 +165,7 @@ it("applies the reviewed copy, stops the timer, resets timing and retries withou
         items: [],
       }),
       f.orgId,
-      `rundown-saved:${f.sourceId}`,
+      f.sourceId,
     )
     .run();
   const applied = await f.save();

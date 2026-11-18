@@ -9,10 +9,10 @@ test("saved rundown templates are individually queryable rows, not a shared JSON
     readFile(new URL("../src/lib/mobile-api.server.ts", import.meta.url), "utf8"),
   ]);
 
-  assert.match(rundown, /key: \{ startsWith: "rundown-saved:" \}/);
+  assert.match(rundown, /prisma\.rundownTemplate\.findMany/);
   assert.doesNotMatch(rundown, /rundown-saved-index/);
-  assert.match(inventory, /key: \{ startsWith: SAVED_TEMPLATE_PREFIX \}/);
+  assert.match(inventory, /rundownTemplate\.findMany/);
   assert.doesNotMatch(inventory, /rundown-saved-index/);
-  assert.match(mobile, /key LIKE 'rundown-saved:%'/);
+  assert.match(mobile, /FROM rundown_template/);
   assert.doesNotMatch(mobile, /rundown-saved-index/);
 });

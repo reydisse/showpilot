@@ -934,10 +934,6 @@ export interface SavedRundownMeta {
   updatedAt: string;
 }
 
-function savedRundownKey(id: string) {
-  return `rundown-saved:${id}`;
-}
-
 /**
  * List all saved rundown templates for an org.
  */
@@ -948,14 +944,14 @@ export const listSavedRundowns = createServerFn({ method: "GET" })
   .handler(async ({ data }): Promise<SavedRundownMeta[]> => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
-    const settings = await prisma.appSetting.findMany({
-      where: { orgId: data.orgId, key: { startsWith: "rundown-saved:" } },
-      select: { value: true },
+    const settings = await prisma.rundownTemplate.findMany({
+      where: { orgId: data.orgId },
+      select: { payload: true },
     });
     return settings
       .flatMap((setting) => {
         try {
-          const saved = JSON.parse(setting.value) as SavedRundown;
+          const saved = JSON.parse(setting.payload) as SavedRundown;
           if (!saved?.id || !saved.name || !Array.isArray(saved.items))
             return [];
           return [
@@ -1026,13 +1022,13 @@ export const loadSavedRundown = createServerFn({ method: "GET" })
   .handler(async ({ data }): Promise<SavedRundown | null> => {
     await assertRundownEditAccess(data.orgId);
     const prisma = getPrisma();
-    const setting = await prisma.appSetting.findUnique({
+    const setting = await prisma.rundownTemplate.findUnique({
       where: {
-        orgId_key: { orgId: data.orgId, key: savedRundownKey(data.rundownId) },
+        orgId_templateId: { orgId: data.orgId, templateId: data.rundownId },
       },
     });
     if (!setting) return null;
-    const saved = JSON.parse(setting.value) as SavedRundown;
+    const saved = JSON.parse(setting.payload) as SavedRundown;
     return {
       ...saved,
       serviceName: saved.serviceName ?? "",

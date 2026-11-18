@@ -17,8 +17,8 @@ export async function createSavedRundown(
   { ok: true; id: string } | { ok: false; reason: "conflict" | "removed" }
 > {
   const { canonical, digest } = await savedRundownIdentity(content);
-  const key = `rundown-saved:${content.id}`;
-  const receiptKey = `rundown-template-save:${content.id}`;
+  const key = content.id;
+  const receiptKey = content.id;
   const now = new Date().toISOString();
   const value = JSON.stringify({
     ...canonical,
@@ -36,20 +36,19 @@ export async function createSavedRundown(
       await db.batch([
         db
           .prepare(
-            `INSERT INTO app_setting(id,orgId,key,value)
-      SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM app_setting WHERE orgId=? AND key=?)
-      ON CONFLICT(orgId,key) DO NOTHING`,
+            `INSERT INTO rundown_template(id,orgId,templateId,name,updatedAt,payload)
+      SELECT ?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM rundown_template_receipt WHERE orgId=? AND templateId=?)
+      ON CONFLICT(orgId,templateId) DO NOTHING`,
           )
-          .bind(crypto.randomUUID(), orgId, key, value, orgId, receiptKey),
+          .bind(crypto.randomUUID(), orgId, key, canonical.name, now, value, orgId, receiptKey),
         // Only the transaction that created this exact template may issue its receipt.
         db
           .prepare(
-            `INSERT INTO app_setting(id,orgId,key,value)
-      SELECT ?,?,?,? WHERE EXISTS (SELECT 1 FROM app_setting WHERE orgId=? AND key=? AND value=?)
-      ON CONFLICT(orgId,key) DO NOTHING`,
+            `INSERT INTO rundown_template_receipt(orgId,templateId,value)
+      SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM rundown_template WHERE orgId=? AND templateId=? AND payload=?)
+      ON CONFLICT(orgId,templateId) DO NOTHING`,
           )
           .bind(
-            crypto.randomUUID(),
             orgId,
             receiptKey,
             digest,
@@ -58,10 +57,10 @@ export async function createSavedRundown(
             value,
           ),
         db
-          .prepare("SELECT value FROM app_setting WHERE orgId=? AND key=?")
+          .prepare("SELECT value FROM rundown_template_receipt WHERE orgId=? AND templateId=?")
           .bind(orgId, receiptKey),
         db
-          .prepare("SELECT id FROM app_setting WHERE orgId=? AND key=?")
+          .prepare("SELECT id FROM rundown_template WHERE orgId=? AND templateId=?")
           .bind(orgId, key),
       ]),
     );

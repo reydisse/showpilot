@@ -106,9 +106,9 @@ export async function writeShowInventory(
         sourceGuard = "1",
         sourceArgs: (string | number | null)[] = [];
       if (op.sourceTemplateId) {
-        const key = `rundown-saved:${op.sourceTemplateId}`;
+        const key = op.sourceTemplateId;
         const template = await db
-          .prepare("SELECT value FROM app_setting WHERE orgId=? AND key=?")
+          .prepare("SELECT payload AS value FROM rundown_template WHERE orgId=? AND templateId=?")
           .bind(orgId, key)
           .first<{ value: string }>();
         if (!template)
@@ -144,7 +144,7 @@ export async function writeShowInventory(
           })),
         );
         sourceGuard =
-          "EXISTS(SELECT 1 FROM app_setting WHERE orgId=? AND key=? AND value=?)";
+          "EXISTS(SELECT 1 FROM rundown_template WHERE orgId=? AND templateId=? AND payload=?)";
         sourceArgs = [orgId, key, template.value];
       }
       decision = `CASE WHEN NOT EXISTS(SELECT 1 FROM show_inventory_item WHERE id=?) AND ${sourceGuard} THEN 'applied' ELSE 'conflict' END`;

@@ -77,8 +77,7 @@ function parityDatabase(input: {
         )
           return null;
         if (
-          sql.startsWith("SELECT value FROM app_setting") &&
-          String(params[1]).startsWith("rundown-saved:")
+          sql.startsWith("SELECT payload AS value FROM rundown_template")
         ) {
           return input.templateValue
             ? ({ value: input.templateValue } as T)
