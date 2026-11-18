@@ -104,3 +104,4 @@
 0097_scoped_token_audit.sql
 0098_checkin_secret.sql
 0099_rundown_template.sql
+0100_org_setting.sql
