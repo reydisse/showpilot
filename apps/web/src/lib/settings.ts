@@ -26,7 +26,6 @@ import {
   appendWebhookEvent,
   MAX_WEBHOOK_EVENTS,
   normalizeWebhookEvent,
-  WEBHOOK_EVENTS_KEY,
   type WebhookEventLogItem,
 } from "@/lib/webhook-events";
 import { hashRundownPin } from "@/lib/rundown-pin-crypto";
@@ -221,24 +220,10 @@ export const getRecentWebhookEvents = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     await assertApiOrWebhookPermission(data.orgId);
     const prisma = getPrisma();
-    const setting = await prisma.appSetting.findUnique({
-      where: { orgId_key: { orgId: data.orgId, key: WEBHOOK_EVENTS_KEY } },
-    });
-
-    if (!setting?.value) return [];
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(setting.value);
-    } catch {
-      return [];
-    }
-
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed
-      .slice(0, MAX_WEBHOOK_EVENTS)
-      .map((entry, index) => normalizeWebhookEvent(entry, index))
+    const rows = await prisma.$queryRaw<{ payload: string }[]>`SELECT payload FROM webhook_event
+      WHERE orgId = ${data.orgId} ORDER BY seq DESC LIMIT ${MAX_WEBHOOK_EVENTS}`;
+    return rows
+      .map((row, index) => normalizeWebhookEvent(JSON.parse(row.payload), index))
       .filter((event): event is WebhookEventLogItem => Boolean(event))
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   });
