@@ -1,3 +1,4 @@
+import { ORG_SETTING_KEYS } from "./org-setting-keys";
 const MEMBER_VISIBLE_SETTING_KEYS = [
   "org-timezone",
   "clock-format",
@@ -36,16 +37,24 @@ export async function readMemberVisibleOrgSettings(
   database: SettingsReadDatabase,
   orgId: string,
 ): Promise<Record<string, string>> {
-  const placeholders = MEMBER_VISIBLE_SETTING_KEYS.map(() => "?").join(", ");
-  const settings = await database
-    .prepare(
-      `SELECT key, value
-         FROM app_setting
-        WHERE orgId = ? AND key IN (${placeholders})`,
-    )
-    .bind(orgId, ...MEMBER_VISIBLE_SETTING_KEYS)
-    .all<SettingRow>();
-  return Object.fromEntries(
-    (settings.results ?? []).map((setting) => [setting.key, setting.value]),
-  );
+  const rows = await readRoutedSettingRows(database, orgId, MEMBER_VISIBLE_SETTING_KEYS);
+  return Object.fromEntries(rows.map(setting => [setting.key, setting.value]));
+}
+
+/** Preserve the requested key set while reading each key from its owner table. */
+export async function readRoutedSettingRows(
+  database: SettingsReadDatabase, orgId: string, keys: readonly string[],
+): Promise<SettingRow[]> {
+  const groups = [
+    { table: "app_setting", keys: keys.filter(key => !ORG_SETTING_KEYS.has(key)) },
+    { table: "org_setting", keys: keys.filter(key => ORG_SETTING_KEYS.has(key)) },
+  ];
+  const results = await Promise.all(groups.map(async group => {
+    if (!group.keys.length) return [];
+    const result = await database.prepare(
+      `SELECT key, value FROM ${group.table} WHERE orgId = ? AND key IN (${group.keys.map(() => "?").join(", ")})`,
+    ).bind(orgId, ...group.keys).all<SettingRow>();
+    return result.results ?? [];
+  }));
+  return results.flat();
 }

@@ -20,7 +20,7 @@ import { z } from "zod";
 import { idSchema, parseOrThrow } from "@/lib/validation";
 import { getTodayDateString } from "@/lib/utils";
 import { assertOrgPermission as assertEffectiveOrgPermission } from "@/lib/org-access";
-import { readMemberVisibleOrgSettings } from "@/lib/settings-read.server";
+import { readRoutedSettingRows, readMemberVisibleOrgSettings } from "@/lib/settings-read.server";
 import { getD1 } from "@/lib/d1";
 import {
   appendWebhookEvent,
@@ -112,10 +112,7 @@ export const getManageableOrgSettings = createServerFn({ method: "GET" })
   )
   .handler(async ({ data }) => {
     const role = await getOrgMemberRole(data.orgId);
-    const settings = await getPrisma().appSetting.findMany({
-      where: { orgId: data.orgId, key: { in: EDITABLE_SETTING_KEYS } },
-      select: { key: true, value: true },
-    });
+    const settings = await readRoutedSettingRows(getD1(), data.orgId, EDITABLE_SETTING_KEYS);
     return Object.fromEntries(
       settings
         .filter((setting) => isEditableSettingKey(setting.key))
@@ -361,22 +358,11 @@ export const getDisplaySettingsBySlug = createServerFn({ method: "GET" })
 
     await requireDisplayAccess(env.DB, getRequest(), org.id, "timer", env.KIOSK_SECRET);
     const [settings, shows] = await Promise.all([
-      prisma.appSetting.findMany({
-        where: {
-          orgId: org.id,
-          key: { in: [
-            CONFIDENCE_LAYOUT_KEY,
-            "clock-format",
-            "timezone-display",
-            "org-timezone",
-            "overtime-behavior",
-            "default-timer-mode",
-            "default-countdown-minutes",
-            "active-service-date",
-            "active-show-id",
-          ] },
-        },
-      }),
+      readRoutedSettingRows(getD1(), org.id, [
+        CONFIDENCE_LAYOUT_KEY, "clock-format", "timezone-display", "org-timezone",
+        "overtime-behavior", "default-timer-mode", "default-countdown-minutes",
+        "active-service-date", "active-show-id",
+      ]),
       prisma.rundown.findMany({
         where: { orgId: org.id },
         orderBy: [

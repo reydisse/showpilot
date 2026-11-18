@@ -531,10 +531,6 @@
     "count": 1,
     "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
   },
-  "src/lib/settings-read.server.ts:placeholders": {
-    "count": 1,
-    "reason": "Code-defined columns or placeholder list; values bound separately."
-  },
   "src/lib/show-creation-review.server.ts:access.guard": {
     "count": 2,
     "reason": "Authority/member permission guard composed from module constants; values bound through guardArgs."
@@ -666,5 +662,17 @@
   "src/lib/workspace/change.server.ts:owns": {
     "count": 1,
     "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
+  },
+  "src/lib/setting-writes.server.ts:table": {
+    "count": 2,
+    "reason": "Closed table choice from ORG_SETTING_KEYS membership: org_setting or app_setting; all values remain bound."
+  },
+  "src/lib/settings-read.server.ts:group.table": {
+    "count": 1,
+    "reason": "Literal app_setting/org_setting table names from the local groups array."
+  },
+  "src/lib/settings-read.server.ts:group.keys.map(() => \"?\").join(\", \")": {
+    "count": 1,
+    "reason": "Placeholder-only list; keys and organization are bound parameters."
   }
 }

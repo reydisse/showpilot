@@ -1,3 +1,4 @@
+import { ORG_SETTING_KEYS } from "./org-setting-keys";
 import type { SettingWrite, SettingWriteResult } from "./setting-writes";
 
 /** Internal storage command. Each RPC validates its keys and permissions before
@@ -7,11 +8,13 @@ export async function applySettingWrite(db: Pick<D1Database, "prepare" | "batch"
   const { orgId, key, value, expectedValue, requestId } = input;
   const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify({ userId, key, value, expectedValue }))))]
     .map(byte => byte.toString(16).padStart(2, "0")).join("");
+  const orgSetting = ORG_SETTING_KEYS.has(key);
+  const table = orgSetting ? "org_setting" : "app_setting";
   const receiptKey = `setting-write:${requestId}`;
   const read = async (): Promise<SettingWriteResult | null> => {
     const row = await db.prepare(`SELECT json_extract(r.value, '$.digest') AS digest,
       json_extract(r.value, '$.outcome') AS outcome,
-      (SELECT value FROM app_setting WHERE orgId = ? AND key = ?) AS currentValue
+      (SELECT value FROM ${table} WHERE orgId = ? AND key = ?) AS currentValue
       FROM app_setting r WHERE r.orgId = ? AND r.key = ?`)
       .bind(orgId, key, orgId, receiptKey).first<{ digest: string; outcome: string; currentValue: string | null }>();
     if (!row) return null;
@@ -26,12 +29,18 @@ export async function applySettingWrite(db: Pick<D1Database, "prepare" | "batch"
   const conflict = JSON.stringify({ digest, token, outcome: "conflict" });
   await db.batch([
     db.prepare(`INSERT INTO app_setting (id, orgId, key, value)
-      VALUES (?, ?, ?, CASE WHEN (SELECT value FROM app_setting WHERE orgId = ? AND key = ?) IS ? THEN ? ELSE ? END)
+      VALUES (?, ?, ?, CASE WHEN (SELECT value FROM ${table} WHERE orgId = ? AND key = ?) IS ? THEN ? ELSE ? END)
       ON CONFLICT(orgId, key) DO NOTHING`).bind(crypto.randomUUID(), orgId, receiptKey, orgId, key, expectedValue, applied, conflict),
-    db.prepare(`INSERT INTO app_setting (id, orgId, key, value)
-      SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM app_setting WHERE orgId = ? AND key = ? AND value = ?)
-      ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`)
-      .bind(crypto.randomUUID(), orgId, key, value, orgId, receiptKey, applied),
+    orgSetting
+      ? db.prepare(`INSERT INTO org_setting (orgId, key, value, updatedAt)
+          SELECT ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          WHERE EXISTS (SELECT 1 FROM app_setting WHERE orgId = ? AND key = ? AND value = ?)
+          ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt`)
+          .bind(orgId, key, value, orgId, receiptKey, applied)
+      : db.prepare(`INSERT INTO app_setting (id, orgId, key, value)
+          SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM app_setting WHERE orgId = ? AND key = ? AND value = ?)
+          ON CONFLICT(orgId, key) DO UPDATE SET value = excluded.value`)
+          .bind(crypto.randomUUID(), orgId, key, value, orgId, receiptKey, applied),
   ]);
   const saved = await read();
   if (!saved) throw new Error("Missing setting acknowledgement.");

@@ -10113,3 +10113,65 @@ INSERT INTO app_setting(id,orgId,key,value)
 SELECT lower(hex(randomblob(16))),orgId,'rundown-template-save:'||templateId,value
 FROM rundown_template_receipt;
 ```
+
+### 0100: web-funneled organization settings (WS7 S2a)
+
+Operator settings shared the untyped `app_setting` table with live show state,
+receipts, tombstones and personal preferences. Migration 0100 moves only the
+following proven web-funneled keys to `org_setting`, with values copied verbatim:
+
+- `lyrics-output`
+- `ontime-sync-rundown`
+- `ontime-send-commands`
+- `propresenter-pull-order`
+- `default-countdown-minutes`
+- `default-timer-mode`
+- `timezone-display`
+- `overtime-behavior`
+- `default-confidence-layout`
+- `l3-default-style`
+- `l3-animation-speed`
+- `l3-auto-clear`
+- `l3-auto-clear-duration`
+
+Ledger row 353 (`4acaad0d38a10dd9`) remains open for S2b. No credential fields
+move in S2a: their existing consumers and `backfillCredentialSettings` continue
+to use `app_setting`. In particular `webhook-url` is deferred rather than moving
+it without an equivalent independent `settings-org` backfill sweep. Ciphertext
+is never decrypted or re-encrypted by this migration.
+
+Migration 0100 NOT applied to production — the standing post-merge procedure applies it.
+
+Pause settings writes for the migration and reconciliation. Before applying,
+export `(orgId,key,value)` for this exact list to a local reconciliation snapshot,
+including per-organization counts grouped by each key (each key is its own family):
+
+```sql
+SELECT orgId,key,value FROM app_setting WHERE key IN ('lyrics-output', 'ontime-sync-rundown', 'ontime-send-commands', 'propresenter-pull-order', 'default-countdown-minutes', 'default-timer-mode', 'timezone-display', 'overtime-behavior', 'default-confidence-layout', 'l3-default-style', 'l3-animation-speed', 'l3-auto-clear', 'l3-auto-clear-duration') ORDER BY orgId,key;
+SELECT orgId,key,count(*) FROM app_setting WHERE key IN ('lyrics-output', 'ontime-sync-rundown', 'ontime-send-commands', 'propresenter-pull-order', 'default-countdown-minutes', 'default-timer-mode', 'timezone-display', 'overtime-behavior', 'default-confidence-layout', 'l3-default-style', 'l3-animation-speed', 'l3-auto-clear', 'l3-auto-clear-duration') GROUP BY orgId,key;
+```
+
+After applying and before resuming writes, export and compare the sorted rows
+and counts against that snapshot. Compare values byte-for-byte, including empty
+strings, whitespace and `spenc:` ciphertext; every organization/key family must
+have equal counts and values. Verify the deleted source family count is zero:
+
+```sql
+SELECT orgId,key,value FROM org_setting ORDER BY orgId,key;
+SELECT orgId,key,count(*) FROM org_setting GROUP BY orgId,key;
+SELECT count(*) FROM app_setting WHERE key IN ('lyrics-output', 'ontime-sync-rundown', 'ontime-send-commands', 'propresenter-pull-order', 'default-countdown-minutes', 'default-timer-mode', 'timezone-display', 'overtime-behavior', 'default-confidence-layout', 'l3-default-style', 'l3-animation-speed', 'l3-auto-clear', 'l3-auto-clear-duration');
+```
+
+For rollback, pause writes and reverse the move using the current dedicated
+values, then use `wrangler rollback` to restore the previous Worker before
+resuming writes. Worker rollback alone does not reverse database migrations.
+The reverse copy is lossless for payloads (legacy random row IDs are regenerated).
+Keep `org_setting` until rollback verification is complete. Before attempting
+0100 again, reconcile and remove the retained destination rows/table as part of
+the standing migration recovery procedure; do not run the forward insert twice.
+
+```sql
+INSERT INTO app_setting(id,orgId,key,value)
+SELECT lower(hex(randomblob(16))),orgId,key,value FROM org_setting WHERE true
+ON CONFLICT(orgId,key) DO UPDATE SET value=excluded.value;
+```

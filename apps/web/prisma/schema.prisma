@@ -135,6 +135,7 @@ model Organization {
   notifications          Notification[]
   notificationPreferences NotificationPreference[]
   devices                Device[]
+  orgSettings            OrgSetting[]
   appSettings            AppSetting[]
   rundownTemplates       RundownTemplate[]
   rundownTemplateReceipts RundownTemplateReceipt[]
@@ -1069,4 +1070,15 @@ model RundownTemplateReceipt {
 
   @@id([orgId, templateId])
   @@map("rundown_template_receipt")
+}
+
+model OrgSetting {
+  orgId String
+  key String
+  value String
+  updatedAt String
+  organization Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@id([orgId, key])
+  @@map("org_setting")
 }
