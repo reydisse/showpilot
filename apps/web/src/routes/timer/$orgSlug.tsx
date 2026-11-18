@@ -218,6 +218,14 @@ const TIMER_CSS = `
   .glow-overtime { animation: pulse-glow 1.8s ease-in-out infinite; }
 
   .message-bar { animation: message-pulse 2s ease-in-out infinite; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .phase-danger, .phase-overtime, .bg-overtime, .glow-overtime, .message-bar {
+      animation: none;
+    }
+    .bg-overtime { background-color: #1a0000; }
+    .glow-overtime { text-shadow: 0 0 20px rgba(239, 68, 68, 0.3); }
+  }
 `;
 
 // ─── Main Component ──────────────────────────────────────────

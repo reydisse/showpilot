@@ -71,7 +71,7 @@ export const RundownOffset = memo(function RundownOffset({ timer, duration, init
   const now = useClock(initialNow, timer.playback === "play");
   const elapsed = elapsedAt(timer, now);
   if (elapsed <= 0) return null;
-  return <span className={`rundown-row-offset text-xs font-mono font-bold px-2 py-0.5 rounded-full shrink-0 ${elapsed > duration ? "bg-red-500/20 text-red-400 animate-pulse" : "bg-green-500/15 text-green-400"}`}>
+  return <span className={`rundown-row-offset text-xs font-mono font-bold px-2 py-0.5 rounded-full shrink-0 ${elapsed > duration ? "bg-red-500/20 text-red-400 animate-pulse motion-reduce:animate-none" : "bg-green-500/15 text-green-400"}`}>
     {formatOffset(elapsed - duration)}
   </span>;
 });
@@ -91,7 +91,7 @@ export const RundownClockCard = memo(function RundownClockCard({ timer, initialN
     <div className="flex items-center gap-2 mb-2">
       {timer.playback === "play" ? <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" /> : timer.playback === "pause" ? <Pause className="w-3.5 h-3.5 text-yellow-400" /> : <Square className="w-3.5 h-3.5 text-board-muted" />}
       <span className="text-xs font-medium text-board-muted uppercase tracking-widest">{timer.playback === "stop" ? "Stopped" : timer.playback === "play" ? "Playing" : "Paused"}</span>
-      {overtime && <span className="text-xs font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">Overtime</span>}
+      {overtime && <span className="text-xs font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse motion-reduce:animate-none">Overtime</span>}
     </div>
     <p data-rundown-clock className={`text-6xl font-semibold tabular-nums tracking-tight ${overtime ? "text-red-400" : "text-board-text"}`}>{text}</p>
     {currentItem && <>
