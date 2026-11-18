@@ -1,3 +1,4 @@
+import { readRoutedSettingRows } from "./settings-read.server";
 import { readSettingValuesForUse } from "./credential-settings.server";
 
 export interface ProPresenterSettings {
@@ -15,9 +16,7 @@ interface SettingsDatabase {
 
 /** Authorized internal consumers only. Never return this object to a browser or webview. */
 export async function readProPresenterSettings(db: SettingsDatabase, orgId: string, encryptionKeys?: string): Promise<ProPresenterSettings> {
-  const result = await db.prepare(`SELECT key, value FROM app_setting WHERE orgId=? AND key IN (
-    'propresenter-host','propresenter-port','propresenter-api-port','propresenter-password',
-    'propresenter-send-cues','propresenter-stage-display')`).bind(orgId).all<{ key: string; value: string }>();
+  const result = await readRoutedSettingRows(db, orgId, ["propresenter-host", "propresenter-port", "propresenter-api-port", "propresenter-password", "propresenter-send-cues", "propresenter-stage-display"]).then(results => ({ results }));
   const values = await readSettingValuesForUse(encryptionKeys, orgId, result.results ?? []);
   const port = (value: string | undefined, fallback: number) => {
     const parsed = Number(value);

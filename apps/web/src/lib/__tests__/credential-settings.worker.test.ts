@@ -1,3 +1,4 @@
+import { ORG_SETTING_KEYS } from "../org-setting-keys";
 import { env } from "cloudflare:workers";
 import { afterEach, expect, it, vi } from "vitest";
 import { seedRelayMember } from "@/test/relay-fixtures";
@@ -28,10 +29,10 @@ async function fixture() {
   return member;
 }
 async function stored(orgId: string, settingKey = key) {
-  return await env.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = ?").bind(orgId, settingKey).first<string>("value");
+  return await env.DB.prepare(`SELECT value FROM ${ORG_SETTING_KEYS.has(settingKey) ? "org_setting" : "app_setting"} WHERE orgId = ? AND key = ?`).bind(orgId, settingKey).first<string>("value");
 }
 async function seed(orgId: string, settingKey: string, value: string) {
-  await env.DB.prepare("INSERT INTO app_setting (id, orgId, key, value) VALUES (?, ?, ?, ?) ON CONFLICT(orgId,key) DO UPDATE SET value=excluded.value")
+  await env.DB.prepare(`INSERT INTO ${ORG_SETTING_KEYS.has(settingKey) ? "org_setting (updatedAt" : "app_setting (id"}, orgId, key, value) VALUES (?, ?, ?, ?) ON CONFLICT(orgId,key) DO UPDATE SET value=excluded.value`)
     .bind(crypto.randomUUID(), orgId, settingKey, value).run();
 }
 
@@ -102,7 +103,7 @@ it("backfills complete bounded sweeps and preserves a simultaneous credential re
   await seed(orgId, "teams-webhook-url", "https://example.test/secret-hook");
   await seed(orgId, "org-label", "unchanged");
   await seed(orgId, "api-key", "legacy-bridge-owned-by-other-migration");
-  await env.DB.prepare("DELETE FROM credential_backfill_cursor WHERE name='settings'").run();
+  await env.DB.prepare("DELETE FROM credential_backfill_cursor WHERE name='org-settings-v1'").run();
   let raced = false;
   const racedDb = new Proxy(env.DB, { get(target, property) {
     if (property === "batch") return async <T>(statements: D1PreparedStatement[]): Promise<D1Result<T>[]> => {
@@ -113,10 +114,10 @@ it("backfills complete bounded sweeps and preserves a simultaneous credential re
     return typeof value === "function" ? value.bind(target) : value;
   } });
   // Position immediately before our fixtures so this batch actually competes with the edited row.
-  const first = await env.DB.prepare("SELECT MIN(rowid) AS first FROM app_setting WHERE orgId=?").bind(orgId).first<number>("first");
-  await env.DB.prepare("INSERT INTO credential_backfill_cursor (name,lastRowId) VALUES ('settings',?)").bind(first! - 1).run();
+  const first = await env.DB.prepare("SELECT MIN(rowid) AS first FROM org_setting WHERE orgId=?").bind(orgId).first<number>("first");
+  await env.DB.prepare("INSERT INTO credential_backfill_cursor (name,lastRowId) VALUES ('org-settings-v1',?)").bind(first! - 1).run();
   const result = await backfillCredentialSettings(racedDb, binding, 3);
-  expect(result.scanned).toBe(3);
+  expect(result.scanned).toBe(2);
   expect(await stored(orgId)).toBe("concurrent-replacement");
   let next = result;
   for (let count = 0; count < 100; count++) {
@@ -196,4 +197,50 @@ it("keeps explicit setting permissions, organization scoping and credential mask
   await updateOrgSetting({ data: { orgId, key: "org-timezone", value: "UTC", expectedValue: "America/Toronto", requestId: crypto.randomUUID() } });
   expect(await stored(orgId, "org-timezone")).toBe("UTC");
   expect(await stored(first.orgId, "org-timezone")).toBe("Pacific/Auckland");
+});
+
+
+it("chat gateway credential round-trip returns identical decrypted values after the move", async () => {
+  const { orgId } = await fixture();
+  const { getChatCredentials } = await import("../chat-proxy");
+  for (const [platform, rows] of Object.entries({
+    slack: [{ key: "slack-token", value: secret }, { key: "slack-channel", value: "channel" }],
+    mattermost: [{ key: "mattermost-url", value: "https://chat.test" }, { key: "mattermost-token", value: secret }, { key: "mattermost-channel", value: "channel" }],
+    discord: [{ key: "discord-bot-token", value: secret }, { key: "discord-channel-id", value: "channel" }],
+    teams: [{ key: "teams-webhook-url", value: "https://teams.test/private" }],
+  })) {
+    const ciphertextRows = await Promise.all(rows.map(async row => ({ ...row, value: await encryptSettingValue(binding, orgId, row.key, row.value) })));
+    const before = await readSettingValuesForUse(binding, orgId, ciphertextRows);
+    for (const row of ciphertextRows) await seed(orgId, row.key, row.value);
+    expect(await getChatCredentials(orgId, platform as "slack" | "mattermost" | "discord" | "teams")).toEqual(before);
+  }
+});
+
+it("retains the legacy credential sweep for custom suffix keys and excludes api-key", async () => {
+  const { backfillLegacyCredentialSettings } = await import("../credential-settings.server");
+  const { orgId } = await fixture();
+  await seed(orgId, "custom-service-token", secret);
+  await seed(orgId, "api-key", "bridge-owned");
+  for (let i = 0; i < 100; i++) {
+    if ((await backfillLegacyCredentialSettings(env.DB, binding)).sweepComplete) break;
+  }
+  const value = await stored(orgId, "custom-service-token");
+  expect(value).toMatch(/^spenc:v1:/);
+  expect(await readSettingValuesForUse(binding, orgId, [{ key: "custom-service-token", value: value! }])).toEqual({ "custom-service-token": secret });
+  expect(await stored(orgId, "api-key")).toBe("bridge-owned");
+});
+
+
+it("org backfill starts independently of legacy rowids and wraps to revisit earlier edits", async () => {
+  const { orgId } = await fixture();
+  await seed(orgId, key, secret);
+  await env.DB.prepare("DELETE FROM credential_backfill_cursor WHERE name='org-settings-v1'").run();
+  await env.DB.prepare("INSERT INTO credential_backfill_cursor(name,lastRowId) VALUES ('settings',900000000) ON CONFLICT(name) DO UPDATE SET lastRowId=excluded.lastRowId").run();
+  for (let i = 0; i < 100; i++) if ((await backfillCredentialSettings(env.DB, binding, 100)).sweepComplete) break;
+  expect(await stored(orgId)).toMatch(/^spenc:v1:/);
+  expect(await env.DB.prepare("SELECT lastRowId FROM credential_backfill_cursor WHERE name='settings'").first("lastRowId")).toBe(900000000);
+  expect(await env.DB.prepare("SELECT lastRowId FROM credential_backfill_cursor WHERE name='org-settings-v1'").first("lastRowId")).toBe(0);
+  await seed(orgId, key, "edited-after-wrap");
+  for (let i = 0; i < 100; i++) if ((await backfillCredentialSettings(env.DB, binding, 100)).sweepComplete) break;
+  expect(await readSettingValuesForUse(binding, orgId, [{ key, value: (await stored(orgId))! }])).toEqual({ [key]: "edited-after-wrap" });
 });

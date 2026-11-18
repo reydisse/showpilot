@@ -98,7 +98,7 @@ beforeEach(async () => {
     ["propresenter-send-cues", "true"],
   ])
     await env.DB.prepare(
-      "INSERT INTO app_setting (id,orgId,key,value) VALUES (?,?,?,?)",
+      "INSERT INTO org_setting (updatedAt,orgId,key,value) VALUES (?,?,?,?)",
     )
       .bind(crypto.randomUUID(), orgId, key, value)
       .run();

@@ -42,7 +42,7 @@ export async function memberCapabilityGuard(
       (
         await database
           .prepare(
-            "SELECT value FROM app_setting WHERE orgId=? AND key='org-timezone'",
+            "SELECT value FROM org_setting WHERE orgId=? AND key='org-timezone'",
           )
           .bind(orgId)
           .first<{ value: string }>()
@@ -84,7 +84,7 @@ export async function memberCapabilityGuard(
       else high = middle;
     }
     guard.push(
-      "COALESCE((SELECT value FROM app_setting WHERE orgId=? AND key='org-timezone'),'')=?",
+      "COALESCE((SELECT value FROM org_setting WHERE orgId=? AND key='org-timezone'),'')=?",
       "julianday('now')<julianday(?)",
     );
     guardArgs.push(orgId, timezone, new Date(high).toISOString());

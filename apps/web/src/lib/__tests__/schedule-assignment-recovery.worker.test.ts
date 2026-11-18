@@ -569,8 +569,8 @@ it("does not send an old invitation after another device reassigns the position"
 });
 it("stores the custom call in venue time and rejects show changes during the save", async () => {
   const f = await assignmentFixture();
-  await getPrisma().appSetting.create({
-    data: { orgId: f.orgId, key: "org-timezone", value: "America/Toronto" },
+  await getPrisma().orgSetting.create({
+    data: { updatedAt: new Date().toISOString(), orgId: f.orgId, key: "org-timezone", value: "America/Toronto" },
   });
   const command: ScheduleAssignmentCommand = {
     ...create(f),
@@ -755,7 +755,7 @@ it("native assignment read returns the current revision and venue timezone with 
   const f = await assignmentFixture(),
     initial = await saved(f);
   await env.DB.prepare(
-    "INSERT INTO app_setting (id,orgId,key,value) VALUES (?, ?,'org-timezone','America/Toronto')",
+    "INSERT INTO org_setting (updatedAt,orgId,key,value) VALUES (?, ?,'org-timezone','America/Toronto')",
   )
     .bind(crypto.randomUUID(), f.orgId)
     .run();

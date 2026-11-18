@@ -69,7 +69,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, operatorEmail, oper
     await browser("fill", 'input[aria-label="ProPresenter password"]', password);
     await browser("click", '[role="group"][aria-label="ProPresenter password credential"] button:text-is("Save credential")');
     await browser("wait", "--fn", "document.querySelector('input[aria-label=\"ProPresenter password\"]').value === ''");
-    const [stored] = await queryFixture(`SELECT value FROM app_setting WHERE orgId='${orgId}' AND key='propresenter-password'`);
+    const [stored] = await queryFixture(`SELECT value FROM org_setting WHERE orgId='${orgId}' AND key='propresenter-password'`);
     assert.ok(stored.value.startsWith("spenc:v1:") && !stored.value.includes(password));
     await browser("open", `${origin}/${orgId}/settings?section=api`);
     await browser("wait", 'input[placeholder="Main room computer"]');

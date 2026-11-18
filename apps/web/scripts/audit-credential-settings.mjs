@@ -9,7 +9,7 @@ export const credentialSettingsAuditSql = `SELECT key,
   SUM(CASE WHEN value <> '' AND value NOT GLOB 'spenc:*' THEN 1 ELSE 0 END) AS plaintext,
   SUM(CASE WHEN value GLOB 'spenc:v1:*' THEN 1 ELSE 0 END) AS encrypted,
   SUM(CASE WHEN value GLOB 'spenc:*' AND value NOT GLOB 'spenc:v1:*' THEN 1 ELSE 0 END) AS unknownFormat
-  FROM app_setting GROUP BY key`;
+  FROM (SELECT key,value FROM app_setting UNION ALL SELECT key,value FROM org_setting) GROUP BY key`;
 
 export function summarizeCredentialSettings(rows) {
   const counts = { plaintext: 0, encrypted: 0, unknownFormat: 0 };

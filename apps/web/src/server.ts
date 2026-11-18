@@ -214,9 +214,9 @@ const appServer = {
       const orgId = await resolveOrgId(slackEventsMatch[1], e.DB, request);
       if (!orgId) return new Response("Organization not found", { status: 404 });
       const [adapter, signingSecret, channel] = await Promise.all([
-        e.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'chat-adapter' LIMIT 1").bind(orgId).first<{ value: string }>(),
-        e.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'slack-signing-secret' LIMIT 1").bind(orgId).first<{ value: string }>(),
-        e.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'slack-channel' LIMIT 1").bind(orgId).first<{ value: string }>(),
+        e.DB.prepare("SELECT value FROM org_setting WHERE orgId = ? AND key = 'chat-adapter' LIMIT 1").bind(orgId).first<{ value: string }>(),
+        e.DB.prepare("SELECT value FROM org_setting WHERE orgId = ? AND key = 'slack-signing-secret' LIMIT 1").bind(orgId).first<{ value: string }>(),
+        e.DB.prepare("SELECT value FROM org_setting WHERE orgId = ? AND key = 'slack-channel' LIMIT 1").bind(orgId).first<{ value: string }>(),
       ]);
       if (adapter?.value !== "slack" || !signingSecret?.value || !channel?.value) {
         return new Response("Slack events are not configured", { status: 503 });
@@ -373,7 +373,7 @@ const appServer = {
         return new Response("Unauthorized", { status: 401 });
       }
       const serviceDate = url.searchParams.get("serviceDate");
-      const timezone = await e.DB.prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
+      const timezone = await e.DB.prepare("SELECT value FROM org_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
         .bind(orgId).first<{ value: string }>();
       const id = e.RUNDOWN_RELAY.idFromName(
         rundownRelayKey(orgId, serviceDate, getTodayDateString(timezone?.value), showId),

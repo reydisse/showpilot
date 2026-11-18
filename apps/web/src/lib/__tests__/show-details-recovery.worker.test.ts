@@ -367,7 +367,7 @@ it("retry and cancellation do not depend on newly changed venue timezone setting
   const command = { ...f.command, timeZone: undefined };
   await f.save(command);
   await env.DB.prepare(
-    "INSERT INTO app_setting(id,orgId,key,value) VALUES (?,?, 'org-timezone','invalid/timezone')",
+    "INSERT INTO org_setting(updatedAt,orgId,key,value) VALUES (?,?, 'org-timezone','invalid/timezone')",
   )
     .bind(crypto.randomUUID(), f.orgId)
     .run();

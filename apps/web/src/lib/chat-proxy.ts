@@ -8,7 +8,7 @@ import { readSettingValuesForUse } from "./credential-settings.server";
  * exposed to the client.
  */
 
-import { createServerFn } from "@tanstack/react-start";
+import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { getPrisma } from "@/lib/db";
 import { assertOrgPermission } from "@/lib/org-access";
 import type { ChatMessage } from "@/lib/adapters/chat-adapter";
@@ -69,17 +69,17 @@ const PLATFORM_KEYS: Record<Platform, string[]> = {
   teams: ["teams-webhook-url"],
 };
 
-async function getChatCredentials(
+export const getChatCredentials = createServerOnlyFn(async function getChatCredentials(
   orgId: string,
   platform: Platform,
 ): Promise<Record<string, string>> {
   const prisma = getPrisma();
   const keys = PLATFORM_KEYS[platform];
-  const settings = await prisma.appSetting.findMany({
+  const settings = await prisma.orgSetting.findMany({
     where: { orgId, key: { in: keys } },
   });
   return readSettingValuesForUse(env.CREDENTIAL_ENCRYPTION_KEYS, orgId, settings);
-}
+});
 
 // ─── Test Connection ────────────────────────────────────────
 

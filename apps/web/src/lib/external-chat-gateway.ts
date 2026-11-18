@@ -84,7 +84,7 @@ export async function loadExternalChatConfiguration(
   encryptionSecret?: string,
 ): Promise<ExternalChatConfiguration | null> {
   const rows = await db.prepare(
-    `SELECT key, value FROM app_setting
+    `SELECT key, value FROM org_setting
      WHERE orgId = ? AND key IN (${EXTERNAL_SETTING_KEYS.map(() => "?").join(", ")})`,
   ).bind(orgId, ...EXTERNAL_SETTING_KEYS).all<{ key: string; value: string }>();
   // The adapter name is public configuration, so it remains available even if

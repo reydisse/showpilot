@@ -345,7 +345,7 @@ it.each(["show-time", "timezone", "duration", "crew-email"])(
           .run();
       if (kind === "timezone")
         await env.DB.prepare(
-          "INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,'org-timezone','America/Toronto')",
+          "INSERT INTO org_setting(updatedAt,orgId,key,value) VALUES(?,?,'org-timezone','America/Toronto')",
         )
           .bind(crypto.randomUUID(), f.orgId)
           .run();

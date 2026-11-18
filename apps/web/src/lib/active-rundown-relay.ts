@@ -1,3 +1,4 @@
+import { readRoutedSettingRows } from "./settings-read.server";
 import { rundownRelayKey } from "@/lib/rundown-relay-key";
 import { getTodayDateString } from "@/lib/utils";
 
@@ -42,15 +43,7 @@ export async function getActiveRundownRelayTarget(
       )
       .bind(orgId)
       .all<ShowRelayRow>(),
-    db
-      .prepare(
-        `SELECT key, value
-           FROM app_setting
-          WHERE orgId = ?
-            AND key IN ('active-show-id', 'active-service-date', 'org-timezone', 'propresenter-stage-display')`,
-      )
-      .bind(orgId)
-      .all<{ key: string; value: string }>(),
+    readRoutedSettingRows(db, orgId, ["active-show-id", "active-service-date", "org-timezone", "propresenter-stage-display"]).then(results => ({ results })),
   ]);
   const settings = Object.fromEntries(
     (settingRows.results ?? []).map((setting) => [setting.key, setting.value]),

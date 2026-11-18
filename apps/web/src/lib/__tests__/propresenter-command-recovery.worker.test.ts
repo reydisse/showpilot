@@ -30,7 +30,7 @@ async function fixture() {
     ["propresenter-send-cues", "true"],
   ])
     await env.DB.prepare(
-      "INSERT INTO app_setting (id,orgId,key,value) VALUES (?,?,?,?)",
+      "INSERT INTO org_setting (updatedAt,orgId,key,value) VALUES (?,?,?,?)",
     )
       .bind(crypto.randomUUID(), orgId, key, value)
       .run();
@@ -156,7 +156,7 @@ it("rejects a changed command and changed settings instead of retargeting", asyn
     f.call({ ...f.command, command: "clear" }, f.claim, "execute"),
   ).rejects.toThrow("original");
   await env.DB.prepare(
-    "UPDATE app_setting SET value='other-device' WHERE orgId=? AND key='propresenter-host'",
+    "UPDATE org_setting SET value='other-device' WHERE orgId=? AND key='propresenter-host'",
   )
     .bind(f.command.orgId)
     .run();
@@ -209,7 +209,7 @@ it("fails closed for an expired reservation and an unsupported Bridge", async ()
 it("enforces the cue-control safety switch before preparing or executing", async () => {
   const f = await fixture();
   await env.DB.prepare(
-    "UPDATE app_setting SET value='false' WHERE orgId=? AND key='propresenter-send-cues'",
+    "UPDATE org_setting SET value='false' WHERE orgId=? AND key='propresenter-send-cues'",
   )
     .bind(f.command.orgId)
     .run();
@@ -218,7 +218,7 @@ it("enforces the cue-control safety switch before preparing or executing", async
   );
   expect(f.messages.filter((m) => m.type === "connect-device")).toHaveLength(0);
   await env.DB.prepare(
-    "UPDATE app_setting SET value='true' WHERE orgId=? AND key='propresenter-send-cues'",
+    "UPDATE org_setting SET value='true' WHERE orgId=? AND key='propresenter-send-cues'",
   )
     .bind(f.command.orgId)
     .run();
@@ -228,7 +228,7 @@ it("enforces the cue-control safety switch before preparing or executing", async
     protocol: "propresenter",
   });
   await env.DB.prepare(
-    "UPDATE app_setting SET value='false' WHERE orgId=? AND key='propresenter-send-cues'",
+    "UPDATE org_setting SET value='false' WHERE orgId=? AND key='propresenter-send-cues'",
   )
     .bind(f.command.orgId)
     .run();

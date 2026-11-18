@@ -221,8 +221,8 @@ it("inventory defaults and clean cloned execution state commit with the show and
       ]),
     },
   });
-  await getPrisma().appSetting.create({
-    data: { orgId: actor.orgId, key: "org-timezone", value: "America/Toronto" },
+  await getPrisma().orgSetting.create({
+    data: { updatedAt: new Date().toISOString(), orgId: actor.orgId, key: "org-timezone", value: "America/Toronto" },
   });
   const selected = {
     ...input,
@@ -267,7 +267,7 @@ it("inventory defaults and clean cloned execution state commit with the show and
     actualEnd: null,
   });
   await getPrisma().showInventoryItem.delete({ where: { id: inventory.id } });
-  await getPrisma().appSetting.update({
+  await getPrisma().orgSetting.update({
     where: { orgId_key: { orgId: actor.orgId, key: "org-timezone" } },
     data: { value: "Asia/Tokyo" },
   });

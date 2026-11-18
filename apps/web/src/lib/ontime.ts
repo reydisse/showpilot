@@ -12,8 +12,8 @@ import {
 async function readOntimeConfigForOrg(orgId: string) {
   const prisma = getPrisma();
   const [adapterSetting, urlSetting] = await Promise.all([
-    prisma.appSetting.findUnique({ where: { orgId_key: { orgId, key: "rundown-adapter" } } }),
-    prisma.appSetting.findUnique({ where: { orgId_key: { orgId, key: "ontime-url" } } }),
+    prisma.orgSetting.findUnique({ where: { orgId_key: { orgId, key: "rundown-adapter" } } }),
+    prisma.orgSetting.findUnique({ where: { orgId_key: { orgId, key: "ontime-url" } } }),
   ]);
   if (adapterSetting?.value !== "ontime" || !urlSetting?.value) return null;
   return { url: urlSetting.value.replace(/\/+$/, "") };
@@ -52,7 +52,7 @@ export const testOntimeConnection = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
     await assertOrgPermission(data.orgId, "settings:integrations");
     const prisma = getPrisma();
-    const urlSetting = await prisma.appSetting.findUnique({
+    const urlSetting = await prisma.orgSetting.findUnique({
       where: { orgId_key: { orgId: data.orgId, key: "ontime-url" } },
     });
     if (!urlSetting?.value) {

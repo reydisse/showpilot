@@ -55,22 +55,16 @@ describe("tenant access isolation with real D1", () => {
         createdAt,
         createdAt,
       ),
-      env.DB.prepare(
-        `INSERT INTO app_setting (id, orgId, key, value)
-         VALUES (?, ?, ?, ?)`,
-      ).bind("tenant-test-timezone-a", orgA, "org-timezone", "Africa/Accra"),
+      env.DB.prepare(`INSERT INTO org_setting (updatedAt, orgId, key, value)
+         VALUES (?, ?, ?, ?)`).bind("tenant-test-timezone-a", orgA, "org-timezone", "Africa/Accra"),
       env.DB.prepare(
         `INSERT INTO app_setting (id, orgId, key, value)
          VALUES (?, ?, ?, ?)`,
       ).bind("tenant-test-secret-a", orgA, "api-key", "org-a-secret"),
-      env.DB.prepare(
-        `INSERT INTO app_setting (id, orgId, key, value)
-         VALUES (?, ?, ?, ?)`,
-      ).bind("tenant-test-timezone-b", orgB, "org-timezone", "America/New_York"),
-      env.DB.prepare(
-        `INSERT INTO app_setting (id, orgId, key, value)
-         VALUES (?, ?, ?, ?)`,
-      ).bind("tenant-test-secret-b", orgB, "slack-token", "org-b-secret"),
+      env.DB.prepare(`INSERT INTO org_setting (updatedAt, orgId, key, value)
+         VALUES (?, ?, ?, ?)`).bind("tenant-test-timezone-b", orgB, "org-timezone", "America/New_York"),
+      env.DB.prepare(`INSERT INTO org_setting (updatedAt, orgId, key, value)
+         VALUES (?, ?, ?, ?)`).bind("tenant-test-secret-b", orgB, "slack-token", "org-b-secret"),
     ]);
 
     const accessInOwnOrg = await resolveEffectiveAccess(

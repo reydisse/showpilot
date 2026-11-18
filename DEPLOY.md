@@ -10175,3 +10175,160 @@ INSERT INTO app_setting(id,orgId,key,value)
 SELECT lower(hex(randomblob(16))),orgId,key,value FROM org_setting WHERE true
 ON CONFLICT(orgId,key) DO UPDATE SET value=excluded.value;
 ```
+
+### 0101: remaining editable organization settings (WS7 S2b)
+
+Closes safety-pass ledger row 353, requirement `4acaad0d38a10dd9`, after
+S1 (#389/0099) and S2a (#390/0100). The residual 22 editable settings shared
+`app_setting` with live state and receipts. Moving only their writes/data would
+leave direct readers silently using defaults (notably the venue timezone), and
+would leave credential encryption backfill pointed at the wrong table.
+
+0101 copies exactly the following 22 keys with INSERT…SELECT, then deletes only
+those keys from app_setting. Values, including spenc ciphertext, are copied
+verbatim without decryption/re-encryption. ORG_SETTING_KEYS now contains all 35
+editable keys; mixed reads use the existing readRoutedSettingRows funnel.
+
+`org-timezone`, `clock-format`, `rundown-adapter`, `ontime-url`, `default-call-lead-minutes`, `notify-app-chat`, `propresenter-host`, `propresenter-port`, `propresenter-api-port`, `propresenter-password`, `propresenter-send-cues`, `chat-adapter`, `slack-token`, `slack-channel`, `slack-signing-secret`, `mattermost-url`, `mattermost-token`, `mattermost-channel`, `teams-webhook-url`, `discord-bot-token`, `discord-channel-id`, `webhook-url`.
+
+Migration 0101 is NOT applied to production by this PR and is deliberately absent
+from applied-remote.txt. Apply it post-merge through the separate migration
+procedure, coordinated with the new Worker (old readers require the old table).
+No settings receipts move: `setting-write:<requestId>` remains in app_setting,
+as do live rundown state, active-show/date pointers, graphics, webhook logs,
+tombstones, per-user state, workspace and schedule-provider settings, and
+propresenter-stage-display. The latter is relay-owned output state.
+
+Reader inventory summary: direct SQL and Prisma reads, correlated CAS guards,
+mobile bootstrap/show/schedule/templates/check-in, RundownRelay details init,
+Slack ingress, external ChatRelay configuration, chat-proxy credential reads,
+OnTime, crew invitations/calendar/portal, effective access and permission guards,
+service creation, duty roster, show details, assignment writes, rundown
+replacement and PM/TM dashboards all use org_setting for these keys. Mixed state
+queries use ORG_SETTING_KEYS through readRoutedSettingRows. Dashboard legacy
+state reads explicitly exclude ORG_SETTING_KEYS and merge routed settings.
+Route/UI consumers retain their existing payloads via getOrgSettings and the
+other permission-checked settings functions. Repository-wide literal-key and
+app_setting/appSetting access inventory found no native/Bridge direct D1 reader;
+Bridge's propresenter-password CLI/env input is independently supplied, not D1.
+The PR records the exhaustive file/line grep evidence.
+
+Credential backfill: org_setting has no id. Its CAS guard is (orgId,key,value),
+including the observed plaintext so concurrent replacement/deletion is protected.
+The new `org-settings-v1` cursor starts at rowid zero; it never inherits the
+unrelated app_setting rowid checkpoint. Bounded batches still wrap to zero at
+EOF so earlier edits are revisited. The queued backfill job also retains the
+legacy sweep under `settings`, independently bounded and independently wrapped.
+A read-only remote inventory (`SELECT key,COUNT(*) AS rowCount FROM app_setting
+GROUP BY key`, filtered through isCredentialField) found mattermost-token: 1,
+propresenter-password: 2, webhook-url: 1. No other credential-field keys were
+present, and no eligible credential rows from that inventory remain after 0101.
+No credential values were selected. The legacy sweep is nevertheless retained
+for historical/custom rows rather than narrowing previous coverage.
+The known editable credential keys all move: propresenter-password, slack-token,
+slack-signing-secret, mattermost-token, teams-webhook-url, discord-bot-token and
+webhook-url. api-key stays excluded and belongs to Bridge installation migration.
+Historical/custom keys can satisfy isCredentialField (for example unknown-token
+and custom-service-token); the schema does not constrain their names. They remain
+covered by backfillLegacyCredentialSettings, rather than silently losing the
+old sweep's responsibility. The audit script counts both tables without printing
+values. Two sweeps mean at most 100 scanned rows per table per queued job.
+
+Reconciliation (capture a trusted backup before applying 0101): record counts and
+raw (orgId,key,value) rows for just the 22-key set below, then verify the old table
+has zero such rows and the destination set matches the backup byte-for-byte.
+Check per-org/key counts, not merely total counts. Do not print credentials in
+logs. A privileged scratch-D1 test performs the exact-value comparison, including
+an opaque spenc value, and checks the other 13 S2a keys plus state families.
+For the production check, use the same literal key list as migration 0101:
+
+```sql
+SELECT COUNT(*) AS remaining FROM app_setting WHERE key IN (
+  'org-timezone',
+  'clock-format',
+  'rundown-adapter',
+  'ontime-url',
+  'default-call-lead-minutes',
+  'notify-app-chat',
+  'propresenter-host',
+  'propresenter-port',
+  'propresenter-api-port',
+  'propresenter-password',
+  'propresenter-send-cues',
+  'chat-adapter',
+  'slack-token',
+  'slack-channel',
+  'slack-signing-secret',
+  'mattermost-url',
+  'mattermost-token',
+  'mattermost-channel',
+  'teams-webhook-url',
+  'discord-bot-token',
+  'discord-channel-id',
+  'webhook-url'
+);
+```
+
+Rollback: pause settings edits and the credential backfill consumer, reverse-copy
+only the 22 keys, reconcile against org_setting, then redeploy the pre-S2b Worker.
+The SQL below preserves each current value verbatim; fresh app_setting ids are
+storage identities, not setting values. Execute the copy and deletion together
+in one D1 transaction/batch after taking a backup. Rollback does not undo S2a.
+
+```sql
+INSERT INTO app_setting (id, orgId, key, value)
+SELECT lower(hex(randomblob(16))), orgId, key, value
+FROM org_setting WHERE key IN (
+  'org-timezone',
+  'clock-format',
+  'rundown-adapter',
+  'ontime-url',
+  'default-call-lead-minutes',
+  'notify-app-chat',
+  'propresenter-host',
+  'propresenter-port',
+  'propresenter-api-port',
+  'propresenter-password',
+  'propresenter-send-cues',
+  'chat-adapter',
+  'slack-token',
+  'slack-channel',
+  'slack-signing-secret',
+  'mattermost-url',
+  'mattermost-token',
+  'mattermost-channel',
+  'teams-webhook-url',
+  'discord-bot-token',
+  'discord-channel-id',
+  'webhook-url'
+)
+ON CONFLICT(orgId,key) DO UPDATE SET value=excluded.value;
+DELETE FROM org_setting WHERE key IN (
+  'org-timezone',
+  'clock-format',
+  'rundown-adapter',
+  'ontime-url',
+  'default-call-lead-minutes',
+  'notify-app-chat',
+  'propresenter-host',
+  'propresenter-port',
+  'propresenter-api-port',
+  'propresenter-password',
+  'propresenter-send-cues',
+  'chat-adapter',
+  'slack-token',
+  'slack-channel',
+  'slack-signing-secret',
+  'mattermost-url',
+  'mattermost-token',
+  'mattermost-channel',
+  'teams-webhook-url',
+  'discord-bot-token',
+  'discord-channel-id',
+  'webhook-url'
+);
+```
+
+Verbatim values make the storage reversal lossless, including encrypted values
+and existing legacy plaintext. Coordinate code and data ownership together;
+reapply the forward migration through the migration procedure for roll-forward.

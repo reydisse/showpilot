@@ -154,10 +154,7 @@ export const getProPresenterConfiguration = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => parseOrThrow(z.object({ orgId: idSchema }), data))
   .handler(async ({ data }) => {
     await assertEffectiveOrgPermission(data.orgId, ["lowerthird:trigger", "rundown:control"]);
-    const settings = await getPrisma().appSetting.findMany({
-      where: { orgId: data.orgId, key: { in: [...PROPRESENTER_PUBLIC_SETTING_KEYS] } },
-      select: { key: true, value: true },
-    });
+    const settings = await readRoutedSettingRows(env.DB, data.orgId, [...PROPRESENTER_PUBLIC_SETTING_KEYS]);
     return Object.fromEntries(settings.map(setting => [setting.key, maskSettingValue(setting.key, setting.value)]));
   });
 
@@ -203,17 +200,17 @@ export const updateOrgCredential = createServerFn({ method: "POST" })
     await assertOrgPermission(data.orgId, permissionForSettingKey(data.key));
     const prisma = getPrisma();
     if (data.change.action === "keep") {
-      const row = await prisma.appSetting.findUnique({ where: { orgId_key: { orgId: data.orgId, key: data.key } }, select: { value: true } });
+      const row = await prisma.orgSetting.findUnique({ where: { orgId_key: { orgId: data.orgId, key: data.key } }, select: { value: true } });
       return { key: data.key, value: row ? maskSettingValue(data.key, row.value) : "" };
     }
     const value = data.change.action === "clear" ? "" : data.change.value;
     await assertIntegrationPlanAllows(data.orgId, data.key, value);
     const storedValue = await encryptSettingValue(env.CREDENTIAL_ENCRYPTION_KEYS, data.orgId, data.key, value);
     const previousSetting = data.key === "webhook-url"
-      ? await prisma.appSetting.findUnique({ where: { orgId_key: { orgId: data.orgId, key: data.key } }, select: { value: true } }) : null;
-    await prisma.appSetting.upsert({
+      ? await prisma.orgSetting.findUnique({ where: { orgId_key: { orgId: data.orgId, key: data.key } }, select: { value: true } }) : null;
+    await prisma.orgSetting.upsert({
       where: { orgId_key: { orgId: data.orgId, key: data.key } },
-      create: { orgId: data.orgId, key: data.key, value: storedValue }, update: { value: storedValue },
+      create: { orgId: data.orgId, key: data.key, value: storedValue, updatedAt: new Date().toISOString() }, update: { value: storedValue, updatedAt: new Date().toISOString() },
     });
     await recordCredentialSettingChange(data.orgId, data.key, value, Boolean(previousSetting?.value));
     return { key: data.key, value: maskSettingValue(data.key, storedValue) };
@@ -279,13 +276,7 @@ export const getActiveAdapters = createServerFn({ method: "GET" })
   )
   .handler(async ({ data }): Promise<ActiveAdapters> => {
     await assertEffectiveOrgPermission(data.orgId, ["show:view", "chat:access"]);
-    const prisma = getPrisma();
-    const settings = await prisma.appSetting.findMany({
-      where: {
-        orgId: data.orgId,
-        key: { in: ["rundown-adapter", "chat-adapter"] },
-      },
-    });
+    const settings = await readRoutedSettingRows(env.DB, data.orgId, ["rundown-adapter", "chat-adapter"]);
     const map: Record<string, string> = {};
     for (const s of settings) {
       map[s.key] = s.value;
@@ -303,7 +294,7 @@ export const getClockFormat = createServerFn({ method: "GET" })
   .handler(async ({ data }): Promise<"12hr" | "24hr"> => {
     await assertOrgAccess(data.orgId);
     const prisma = getPrisma();
-    const setting = await prisma.appSetting.findUnique({
+    const setting = await prisma.orgSetting.findUnique({
       where: { orgId_key: { orgId: data.orgId, key: "clock-format" } },
     });
     return (setting?.value as "12hr" | "24hr") || "12hr";
@@ -317,7 +308,7 @@ export const getClockFormatBySlug = createServerFn({ method: "GET" })
       where: { slug: data.orgSlug },
     });
     if (!org) return "12hr";
-    const setting = await prisma.appSetting.findUnique({
+    const setting = await prisma.orgSetting.findUnique({
       where: { orgId_key: { orgId: org.id, key: "clock-format" } },
     });
     return (setting?.value as "12hr" | "24hr") || "12hr";

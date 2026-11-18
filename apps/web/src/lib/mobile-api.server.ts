@@ -1,3 +1,4 @@
+import { readRoutedSettingRows } from "./settings-read.server";
 import { escapeLikePattern } from "./sql-like";
 import { proPresenterOutputCommandSchema } from "@showpilot/shared/propresenter-output";
 import { attendanceTimestamp } from "./attendance-timestamp";
@@ -665,7 +666,7 @@ async function bootstrap(
 
   const timezone = await db
     .prepare(
-      "SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
+      "SELECT value FROM org_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
     )
     .bind(orgId)
     .first<{ value: string }>();
@@ -815,7 +816,7 @@ async function rundown(
       .first<{ id: string }>(),
     db
       .prepare(
-        "SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
+        "SELECT value FROM org_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
       )
       .bind(orgId)
       .first<{ value: string }>(),
@@ -1092,7 +1093,7 @@ async function saveMobileRundownTemplate(
       .all<MobileRundownItemRow>(),
     db
       .prepare(
-        "SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
+        "SELECT value FROM org_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
       )
       .bind(access.orgId)
       .first<{ value: string }>(),
@@ -1219,7 +1220,7 @@ async function loadMobileRundownTemplate(
   if (!template || template.id !== templateId)
     return json({ error: "Template not found." }, 404);
   const timezone = await env.DB.prepare(
-    "SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
+    "SELECT value FROM org_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
   )
     .bind(access.orgId)
     .first<{ value: string }>();
@@ -1335,7 +1336,7 @@ async function loadMobilePreviousRundown(
         location: string;
       }>(),
     env.DB.prepare(
-      "SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
+      "SELECT value FROM org_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
     )
       .bind(access.orgId)
       .first<{ value: string }>(),
@@ -1595,7 +1596,7 @@ async function updateMobileRundownMeta(
     .first<{ id: string; serviceDate: string }>();
   if (!show) return json({ error: "Show not found." }, 404);
   const timezone = await env.DB.prepare(
-    "SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
+    "SELECT value FROM org_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
   )
     .bind(access.orgId)
     .first<{ value: string }>();
@@ -2336,12 +2337,7 @@ async function schedule(
     return json({ error: "Choose a valid date and assignment." }, 400);
   }
   const [settingsResult, selectedAssignment] = await Promise.all([
-    db
-      .prepare(
-        "SELECT key, value FROM app_setting WHERE orgId = ? AND key IN ('org-timezone', 'default-service-window-minutes', 'default-call-lead-minutes', 'schedule-provider', 'schedule-provider-url', 'schedule-provider-label', 'terminology-profile', 'workspace-type', 'workspace-modules', 'workspace-custom')",
-      )
-      .bind(access.orgId)
-      .all<{ key: string; value: string }>(),
+    readRoutedSettingRows(db, access.orgId, ["org-timezone", "default-service-window-minutes", "default-call-lead-minutes", "schedule-provider", "schedule-provider-url", "schedule-provider-label", "terminology-profile", "workspace-type", "workspace-modules", "workspace-custom"]).then(results => ({ results })),
     requestedAssignmentId
       ? db
           .prepare(
@@ -2759,7 +2755,7 @@ async function readMobileAssignment(
   );
   const zone = await db
     .prepare(
-      "SELECT value FROM app_setting WHERE orgId=? AND key='org-timezone'",
+      "SELECT value FROM org_setting WHERE orgId=? AND key='org-timezone'",
     )
     .bind(access.orgId)
     .first<{ value: string }>();
@@ -3232,7 +3228,7 @@ async function updateMobileScheduleService(
     getMobileScheduleShow(db, access.orgId, showId),
     db
       .prepare(
-        "SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
+        "SELECT value FROM org_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
       )
       .bind(access.orgId)
       .first<{ value: string }>(),
@@ -4402,13 +4398,13 @@ async function showBoard(
       .all<MobileCheckInMemberRow>(),
     db
       .prepare(
-        "SELECT value FROM app_setting WHERE orgId = ? AND key = 'clock-format' LIMIT 1",
+        "SELECT value FROM org_setting WHERE orgId = ? AND key = 'clock-format' LIMIT 1",
       )
       .bind(access.orgId)
       .first<{ value: string }>(),
     db
       .prepare(
-        "SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
+        "SELECT value FROM org_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1",
       )
       .bind(access.orgId)
       .first<{ value: string }>(),
@@ -4429,15 +4425,7 @@ async function showWorkspace(
   if (access instanceof Response) return access;
   const { orgId, identity } = access;
   const [settingsResult, crewResult] = await Promise.all([
-    db
-      .prepare(
-        `SELECT key, value FROM app_setting
-       WHERE orgId = ? AND key IN (
-         'org-timezone', 'clock-format', 'rundown-adapter', 'ontime-url', 'active-show-id'
-       )`,
-      )
-      .bind(orgId)
-      .all<{ key: string; value: string }>(),
+    readRoutedSettingRows(db, orgId, ["org-timezone", "clock-format", "rundown-adapter", "ontime-url", "active-show-id"]).then(results => ({ results })),
     db
       .prepare(
         `SELECT id, memberId, name, role, photoUrl, isOnline, lastCheckIn, lastCheckOut
@@ -5753,7 +5741,7 @@ async function chatNotificationsEnabled(
 ): Promise<boolean> {
   const setting = await db
     .prepare(
-      "SELECT value FROM app_setting WHERE orgId = ? AND key = 'notify-app-chat' LIMIT 1",
+      "SELECT value FROM org_setting WHERE orgId = ? AND key = 'notify-app-chat' LIMIT 1",
     )
     .bind(orgId)
     .first<{ value: string }>();

@@ -1,3 +1,5 @@
+import { readRoutedSettingRows } from "./settings-read.server";
+import { ORG_SETTING_KEYS } from "./org-setting-keys";
 import { getWorkspaceProfileForOrg } from "@/lib/workspace/profile.server";
 /**
  * Production manager dashboard — data layer.
@@ -273,10 +275,10 @@ export const getPmDashboard = createServerFn({ method: "GET" })
     const orgId = data.orgId;
 
     const [settingRows, rundownRows, itemRows] = await Promise.all([
-      prisma.appSetting.findMany({
-        where: { orgId },
-        select: { key: true, value: true },
-      }),
+      Promise.all([
+        prisma.appSetting.findMany({ where: { orgId, key: { notIn: [...ORG_SETTING_KEYS] } }, select: { key: true, value: true } }),
+        readRoutedSettingRows(getD1(), orgId, [...ORG_SETTING_KEYS]),
+      ]).then(rows => rows.flat()),
       loadRundownRows(orgId),
       requestDatabase.prepare(`SELECT showId, serviceDate,
         SUM(CASE WHEN type != 'header' THEN 1 ELSE 0 END) AS itemCount,

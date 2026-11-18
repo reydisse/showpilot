@@ -24,7 +24,7 @@ async function fixture() {
   const member = await seedRelayMember(`private-pp-${crypto.randomUUID()}`);
   auth.userId = member.userId;
   for (const [key, value] of Object.entries({ "propresenter-host": "venue.local", "propresenter-port": "50001", "propresenter-api-port": "1025", "propresenter-password": await encryptSettingValue(env.CREDENTIAL_ENCRYPTION_KEYS, member.orgId, "propresenter-password", secret) })) {
-    await env.DB.prepare("INSERT INTO app_setting (id,orgId,key,value) VALUES (?,?,?,?)").bind(crypto.randomUUID(), member.orgId, key, value).run();
+    await env.DB.prepare("INSERT INTO org_setting (updatedAt,orgId,key,value) VALUES (?,?,?,?)").bind(crypto.randomUUID(), member.orgId, key, value).run();
   }
   return member;
 }

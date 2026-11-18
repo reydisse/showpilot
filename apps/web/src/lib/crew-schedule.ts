@@ -1,3 +1,5 @@
+import { env } from "cloudflare:workers";
+import { readRoutedSettingRows } from "./settings-read.server";
 import {
   resolveWorkspaceProfile,
   WORKSPACE_SETTING_KEYS,
@@ -105,7 +107,7 @@ export async function sendCrewScheduleInvite(input: {
         items: { select: { duration: true } },
       },
     }),
-    prisma.appSetting.findUnique({
+    prisma.orgSetting.findUnique({
       where: { orgId_key: { orgId: input.orgId, key: "org-timezone" } },
       select: { value: true },
     }),
@@ -118,7 +120,7 @@ export async function sendCrewScheduleInvite(input: {
       },
       select: { value: true },
     }),
-    prisma.appSetting.findUnique({
+    prisma.orgSetting.findUnique({
       where: {
         orgId_key: { orgId: input.orgId, key: "default-call-lead-minutes" },
       },
@@ -294,23 +296,15 @@ export const getCrewSchedulePortal = createServerFn({ method: "GET" })
         where: { id: access.orgId },
         select: { name: true },
       }),
-      prisma.appSetting.findMany({
-        where: {
-          orgId: access.orgId,
-          key: {
-            in: [
-              "terminology-profile",
-              "workspace-type",
-              "workspace-modules",
-              "workspace-custom",
-              "org-timezone",
-              "default-service-window-minutes",
-              "default-call-lead-minutes",
-            ],
-          },
-        },
-        select: { key: true, value: true },
-      }),
+      readRoutedSettingRows(env.DB, access.orgId, [
+        "terminology-profile",
+        "workspace-type",
+        "workspace-modules",
+        "workspace-custom",
+        "org-timezone",
+        "default-service-window-minutes",
+        "default-call-lead-minutes",
+      ]),
     ]);
     const settingMap = Object.fromEntries(
       settings.map((setting) => [setting.key, setting.value]),
