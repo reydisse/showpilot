@@ -52,6 +52,67 @@ forward fix instead of restoring plaintext credentials.
 
 ---
 
+## Relay and Bridge rollout / instant rollback
+
+1. Schedule a maintenance window and retain the matching previous Worker and
+   Desktop/Bridge bundle pair. Follow [Bridge connection audit protocol](#bridge-connection-audit-protocol)
+   for protocol compatibility and its compiled sidecar rehearsal; do not transition
+   mid-show. Native releases are separate from the web deployment, not automatically
+   published by it. (Sources: this protocol section; apps/bridge-desktop/RELEASE.md.)
+2. Use the normal main CI gate. Deploy checks out the exact CI-approved push SHA,
+   installs dependencies, generates Prisma, checks the production migration manifest
+   (no migrations auto-applied), and checks that the private downloads bucket exists
+   before changing either Worker. It runs the web deploy script (build including
+   client-boundary/bundle checks, then Wrangler deploy). All six Durable Object
+   relays, including BridgeRelay, deploy with this Worker from apps/web; there is
+   no separate relay deployment. (Sources: .github/workflows/ci.yml,
+   .github/workflows/deploy.yml, apps/web/package.json, apps/web/wrangler.jsonc.)
+3. Deploy verifies https://app.showpilot.tech/api/health returns status ok and the
+   exact approved commit (up to twelve attempts), saves web-release.json as an
+   artifact, then deploys landing and runs its downloads smoke check. Landing
+   release storage is independent of Worker code. (Source: .github/workflows/deploy.yml.)
+4. During the same planned window, release the compatible native pair using the
+   native release checklists, not the web workflow. Bridge version metadata, builds,
+   bridge-v tags, draft review, signing and clean-machine checks are specified in
+   apps/bridge-desktop/RELEASE.md (Desktop checklist: apps/desktop/RELEASE.md).
+   ci-release.conf.json in each native app supplies CI bundle configuration, not
+   an operator deployment command. Upload approved immutable versioned installers
+   and signed updater artifacts to showpilot-downloads, verify staged checksums,
+   then upload manifests/releases.json last. That atomic manifest controls both
+   downloads and product-specific updater feeds. Verify displayed versions, full
+   and range downloads and checksums. (Sources: apps/landing/RELEASES.md;
+   apps/bridge-desktop/ci-release.conf.json; apps/desktop/ci-release.conf.json.)
+5. Verify login → org page after production deployment (Golden rules above).
+   Rehearse the compiled browser/Worker/native/device path using
+   apps/web/scripts/smoke-bridge-command-connections.mjs as documented in
+   [Bridge connection audit protocol](#bridge-connection-audit-protocol).
+   This is a disposable local rehearsal, not a production health probe.
+   Landing verification is the workflow's
+   `pnpm --filter @showpilot/landing run smoke -- https://www.showpilot.tech`.
+   (Sources: this file's Golden rules and audit protocol; .github/workflows/deploy.yml.)
+
+For immediate Worker/relay rollback, first check data and native protocol
+compatibility, then use the showpilot dashboard Deployments rollback or
+`pnpm exec wrangler rollback` from apps/web. Restore the matching native pair,
+subject to the audit protocol's storage restrictions. Token digests require a
+digest-aware rollback build; never restore plaintext credentials. Worker rollback
+does not reverse database migrations: follow the relevant migration recovery
+procedure before restoring an incompatible build. (Sources: rollback and token
+digest notes above; migration recovery sections in this file; apps/web/wrangler.jsonc.)
+
+For landing code rollback, use its Worker deployment rollback in the Cloudflare
+dashboard (showpilot-landing); this does not revert R2 publication. For a bad
+Desktop/Bridge publication, remove bad manifest entries first, or republish the
+retained approved manifest pointing to the previous immutable bundle pair using
+the same manifest-last R2 upload procedure. Keep versioned objects intact; old
+cached downloads can survive their prior cache lifetime. Restore installed native
+clients with the retained compatible bundles; repointing the feed is not an
+automatic installed-client downgrade. Repeat the layer checks above against the
+restored versions (health commit should match the restored Worker). (Sources:
+apps/landing/wrangler.jsonc; apps/landing/RELEASES.md; Bridge connection audit protocol.)
+
+---
+
 ## Landing page (apps/landing → www.showpilot.tech)
 
 The marketing page is a zero-dependency static site served by its own Worker
