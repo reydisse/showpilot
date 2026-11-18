@@ -9,75 +9,43 @@ Final main: `332f039d6095559e8e070971efe400ddf13000a7`. Acceptance remains parti
 Verified means complete within the recorded evidence scope.
 
 
-| Phase | Complete | Partial | Deferred | Blocked |
-
+| Phase | Complete (verified) | Partial | Deferred | Blocked |
 | :--- | ---: | ---: | ---: | ---: |
-
-| global | 0 | 9 | 0 | 0 |
-
-| 0 | 37 | 1 | 0 | 0 |
-
+| global | 8 | 1 | 0 | 0 |
+| 0 | 38 | 0 | 0 | 0 |
 | 1 | 37 | 0 | 0 | 0 |
-
-| 2 | 64 | 15 | 0 | 0 |
-
-| 3 | 29 | 8 | 3 | 0 |
-
-| final | 1 | 7 | 0 | 0 |
+| 2 | 68 | 11 | 0 | 0 |
+| 3 | 26 | 10 | 3 | 1 |
+| final | 5 | 3 | 0 | 0 |
+| 0.4 | Included in Phase 0 | | | |
 
 ## Phase 0
 
-The ledger preserves each recorded verification-only closure and its original test scope. Outstanding rows are enumerated below.
+#73 ships kill switch, per-event disable/retry, honest cue failures, confirmations, deliberate shortcuts, MTC decoder contiguity and bounded concurrent execution. #74 ships per-installation hashed Bridge credentials and native vaults; #75 ships protected display access and browser show-day acceptance. The recorded verification-only gate includes 1248 unit/116 Worker tests, typecheck/build and three browser rehearsals, plus unsigned four-platform run 41965318862. Physical venue acceptance remains in Phase 2 and the end-of-pile list.
 
-- Row 54 (`7fdc93392190474b`): Requirement-wide closure not demonstrated by the accumulated evidence; clause-specific verification remains open.
+The ledger preserves each recorded verification-only closure and its original test scope. Outstanding rows and specific reasons are enumerated in the complete disposition list below.
 
 ## Phase 0.4
 
-Display-pass work is indexed under Phase 0 by the source ledger. Its accumulated verification is retained; unresolved integrated verification is not promoted.
+Display-pass work is indexed under Phase 0 by the source ledger. Merged #75, #153 and #155 gate timer/overlay/display reads, remove the legacy graphics read and bound pass checks/expiry; #366 restores Last checked. Historical smoke-display-access.mjs, smoke-display-deadlines.mjs and smoke-legacy-display-read.mjs record the concrete access/scope/expiry checks. Current main CI and deployment confirm the integrated changes are shipped.
 
 ## Phase 1
 
-The ledger preserves each recorded verification-only closure and its original test scope. Outstanding rows are enumerated below.
+#76 scopes clocks by show and validates MIDI sources. #79 to #87 harden relay claims, live authority, cached read leases and request-scoped D1 access. #88 to #93 ship feed watchdog, sequence recovery, single-writer automation and jump/format/tolerance guards. #95/#96 persist diffs; #97 makes active-show publication transactional after durable preparation. #98/#99 ship Bridge takeover and destination allowlisting; #100 to #108 hash tokens, encrypt credentials and verify ProPresenter authentication. #77 adds signing readiness, #78 removes the obsolete gateway and #94 repairs second-organisation onboarding. The ledger records the Phase 1 full-suite and named acceptance checks as verification-only closures, without claiming room-open auto-wipe was repaired; that separate Phase 3 requirement is blocked at row 337.
+
+The ledger preserves each recorded verification-only closure and its original test scope. Outstanding rows and specific reasons are enumerated in the complete disposition list below.
 
 ## Phase 2
 
-The ledger preserves each recorded verification-only closure and its original test scope. Outstanding rows are enumerated below.
+#109 to #117 ship MIDI reconnect/transport/controllers, LTC, local mode and latency compensation. #118 to #126 ship the cue catalogue and lyric controls; #127 to #170 cover editor/timeline, operator visibility, recovery, CI builds, wire tests and coverage. #171 to #307 repair onboarding, navigation, scheduling, chat, graphics, reports and native recovery. Verification-only acceptance is recorded by #213 (catalogue/failures), #215 (native/virtual MIDI), #216 (local handoff), #221 (UI/lyrics) and #225 (2710-second long run). These are fixture/software acceptance records; the parked physical gates are retained separately.
+
+The ledger preserves each recorded verification-only closure and its original test scope. Outstanding rows and specific reasons are enumerated in the complete disposition list below.
 
 WS4 shipped #356 to #365: bounded pending recovery, settled mobile content, chat wording and reactions, mobile failure reporting, role confirmation, touch targets and room naming. Items 1 and 2 remaining ledger clauses stay partial. Item 2 loading-state clauses and a fresh live sub-xl viewport pass were not verified in this run. The six (C) chat-text wording questions remain with Rey.
 
-- Row 246 (`01938da22bad50e9`): Requirement-wide closure not demonstrated by the accumulated evidence; clause-specific verification remains open.
-
-- Row 268 (`9a197d9687fde3ba`): Requirement-wide closure not demonstrated by the accumulated evidence; clause-specific verification remains open.
-
-- Row 269 (`19ab826391d68d1f`): Requirement-wide closure not demonstrated by the accumulated evidence; clause-specific verification remains open.
-
-- Row 270 (`b4ee5ed6e65805a2`): Requirement-wide closure not demonstrated by the accumulated evidence; clause-specific verification remains open.
-
-- Row 275 (`8fb2f980425e345c`): Requirement-wide closure not demonstrated by the accumulated evidence; clause-specific verification remains open.
-
-- Row 283 (`5d30364193f8508f`): Requirement-wide closure not demonstrated by the accumulated evidence; clause-specific verification remains open.
-
-- Row 284 (`409d9865b4141229`): Requirement-wide closure not demonstrated by the accumulated evidence; clause-specific verification remains open.
-
-- Row 285 (`4e2cdcca026fe871`): Requirement-wide closure not demonstrated by the accumulated evidence; clause-specific verification remains open.
-
-- Row 286 (`36fbbe0b66ff1b12`): Requirement-wide closure not demonstrated by the accumulated evidence; clause-specific verification remains open.
-
-- Row 291 (`55182c9ecbc58295`): Real APC/MTC session (start/stop/pause/reset, simultaneous APC + MTC, feedback, unplug/replug, DAW stop); LTC over audio; cloud-WS-down local mode; long-run advances at 00:35:00:00 and 00:45:00:00; real configured external-device firing remain parked. Recorded fixture coverage is retained.
-
-- Row 292 (`02774d6317504603`): Real APC/MTC session (start/stop/pause/reset, simultaneous APC + MTC, feedback, unplug/replug, DAW stop); LTC over audio; cloud-WS-down local mode; long-run advances at 00:35:00:00 and 00:45:00:00; real configured external-device firing remain parked. Recorded fixture coverage is retained.
-
-- Row 293 (`bbc36d7d1b7e4a53`): Real APC/MTC session (start/stop/pause/reset, simultaneous APC + MTC, feedback, unplug/replug, DAW stop); LTC over audio; cloud-WS-down local mode; long-run advances at 00:35:00:00 and 00:45:00:00; real configured external-device firing remain parked. Recorded fixture coverage is retained.
-
-- Row 298 (`3277f632c1aea066`): Real APC/MTC session (start/stop/pause/reset, simultaneous APC + MTC, feedback, unplug/replug, DAW stop); LTC over audio; cloud-WS-down local mode; long-run advances at 00:35:00:00 and 00:45:00:00; real configured external-device firing remain parked. Recorded fixture coverage is retained.
-
-- Row 299 (`2533590ebd67b0d8`): WS4 items 1 and 2 remaining clauses, item 2 loading-state coverage and fresh live sub-xl viewport pass remain unverified.
-
-- Row 300 (`eb3b89162acf053d`): WS4 items 1 and 2 remaining clauses, item 2 loading-state coverage and fresh live sub-xl viewport pass remain unverified.
-
 ## Phase 3
 
-The ledger preserves each recorded verification-only closure and its original test scope. Outstanding rows are enumerated below.
+The ledger preserves each recorded verification-only closure and its original test scope. Outstanding rows and specific reasons are enumerated in the complete disposition list below.
 
 Chunk map and merged work:
 
@@ -149,28 +117,6 @@ Chunk map and merged work:
 
 - #412: Fix concurrent webhook event loss with dedicated event rows; merge `bcd572f8feaafac03ac475bc9a246ddbc9f90541`.
 
-- Row 308 (`84219ae02728c669`): Annual prices must still be created in the live Stripe account.
-
-- Row 312 (`a5bc52cc92687bf4`): Documentation host corrected; Stripe dashboard webhook host verification remains with Rey.
-
-- Row 313 (`6f4a8e5e54e2beba`): Requirement-wide closure not demonstrated by the accumulated evidence; clause-specific verification remains open.
-
-- Row 325 (`34578e3f829ffc21`): Deferred avatar signed-URL follow-up from #376; other upload hardening shipped.
-
-- Row 328 (`4fa9d31819993c86`): J1 operator session-length policy remains a Rey decision; J2 nonce CSP shipped.
-
-- Row 337 (`e020640319bf917a`): Requirement-wide closure not demonstrated by the accumulated evidence; clause-specific verification remains open.
-
-- Row 345 (`04543f6834589263`): Requirement-wide closure not demonstrated by the accumulated evidence; clause-specific verification remains open.
-
-- Row 353 (`4acaad0d38a10dd9`): S3 deferred: live rundown state, active-show pointers and graphics live state remain in app_setting; moving the show-critical path requires a live rehearsal gate.
-
-- Row 356 (`646ff04058e2627b`): Cargo updates covered by Dependabot; CI cargo audit gate deferred.
-
-- Row 361 (`1036150e09dfc7f9`): Live annual prices and Stripe dashboard webhook host verification remain pending.
-
-- Row 364 (`06abe2ebc5b2979c`): Room-switch limb requires further evidence review; reconnect, queue and rollback limbs shipped.
-
 ## Dispositions
 
 S3 live-state storage is deferred pending live rehearsal. #376 avatar reads still need signed URLs. J1 session length remains with Rey. Nonce CSP from J2 prevents generate-icons.html from running. Desktop and Bridge Linux .deb packages both ship /usr/bin/showpilot-bridge. Cargo audit is not a CI gate. Chunk X retains 48 allow-listed audit findings, expiring 2027-02-28, with boilerplate rather than finding-specific reasons. Open Dependabot #401 to #411 and #413 form a triage queue; #412 is the merged S4 webhook PR.
@@ -200,3 +146,73 @@ S3 live-state storage is deferred pending live rehearsal. #376 avatar reads stil
 - Stripe follow-ups: annual prices in the live account, signing secrets, webhook host check in dashboard.
 
 - Provision the chat-pass signing secret.
+
+## Complete unresolved ledger dispositions
+
+- Row 18 (`a41fbde1046806aa`), **partial**: Phase-order acceptance is not fully satisfied: Phase 2 loading/mutation/viewport gates remained open when Phase 3 proceeded (#353, #356, #357).
+- Row 246 (`01938da22bad50e9`), **partial**: The D1 error sink and failure projections shipped (#134, #358, #365), but #356 explicitly leaves ack-success/genuine-failure/lost-ack acceptance and the full mutation checklist unestablished.
+- Row 268 (`9a197d9687fde3ba`), **partial**: Checklist-after-delete and the exhaustive equivalent-list/no-indefinite-loader audit remain open; #357 explicitly limits its six checks to mobile initial/settled reads.
+- Row 269 (`19ab826391d68d1f`), **partial**: The full catalogued mutation error-plus-retry checklist remains unverified; #356 closes reconnect requeue bounds and honest retirement wording only.
+- Row 283 (`5d30364193f8508f`), **partial**: #300 clarifies operator/output labels and #364 unifies Production Chat naming; complete differentiation of the three chat, four rundown, five dashboard, four roster, three copy and lower-thirds surfaces remains unverified.
+- Row 284 (`409d9865b4141229`), **partial**: Founding-window end date and timezone still require Rey; #185 closes landing/download mechanics, not that business input.
+- Row 285 (`4e2cdcca026fe871`), **partial**: Fresh live sub-xl viewport pass remains pending; #157 and #229 provide historical compiled-fixture navigation/calendar evidence, not the requested fresh live screen-by-screen pass.
+- Row 291 (`55182c9ecbc58295`), **partial**: Real APC/MTC session pending: pad start/stop/pause/reset, simultaneous APC + MTC, feedback, unplug/replug and DAW stop; #215 proves virtual-port/fixture coverage only.
+- Row 292 (`02774d6317504603`), **partial**: Physical LTC feed over audio pending; #215 and smoke-native-ltc-relay.mjs use generated PCM in place of audio capture hardware.
+- Row 293 (`bbc36d7d1b7e4a53`), **partial**: Venue local mode with cloud WS down pending; #216 verifies stopped local Worker, native loopback and an equipment simulator, not the installed venue setup.
+- Row 298 (`3277f632c1aea066`), **partial**: Real configured external-device firing and venue long-run advances at 00:35:00:00/00:45:00:00 remain parked; #225 run 42454853635 and simulator/lyrics rehearsals satisfy the text's stub option only.
+- Row 299 (`2533590ebd67b0d8`), **partial**: Product-wide UX acceptance remains partial on WS4 mutation checklist, Checklist-after-delete/equivalent-list loading and fresh live sub-xl screen audit (#356, #357).
+- Row 308 (`84219ae02728c669`), **partial**: #369 implements annual billing; annual Starter/Pro/Founding prices still need creation in live Stripe.
+- Row 312 (`a5bc52cc92687bf4`), **partial**: #371 fixes the documented host to app.showpilot.tech; live Stripe dashboard endpoint host verification remains pending.
+- Row 325 (`34578e3f829ffc21`), **deferred**: #376 ships byte sniffing, attachment disposition and private avatar cache; signed expiring avatar-read URLs are explicitly deferred to preserve native image loading.
+- Row 328 (`4fa9d31819993c86`), **partial**: #378 pins seven-day sessions rather than short operator expiry and leaves platform-role super-admin, second factor and use alerting for a later build; #379 ships CSP. Session policy remains with Rey.
+- Row 336 (`0a600b9ffb2beffa`), **partial**: #384 documents DO-only live chat storage but explicitly confirms no age-based retention pruning; the requirement's pruning limb remains unimplemented.
+- Row 337 (`e020640319bf917a`), **blocked**: RundownRelay.ts fetch mismatch branch (lines 711-738) still clears items/timer and persists on writable show/date mismatch; no explicit revision-checked switch-show command exists. #97 fixes active-pointer publication, not this branch.
+- Row 353 (`4acaad0d38a10dd9`), **deferred**: S3 deliberately retains live rundown state, active-show pointers and graphics live state in app_setting pending a live rehearsal gate; #389/#390/#391/#412 move templates, editable settings and webhook history only.
+- Row 356 (`646ff04058e2627b`), **deferred**: #400 omits reproducible CI cargo audit installation; Dependabot covers Cargo updates. Cargo audit gate remains an explicit deferred gap.
+- Row 361 (`1036150e09dfc7f9`), **partial**: #369/#370 implement interval/promo/preselection mechanics; live annual prices and Stripe dashboard webhook host verification remain pending.
+- Row 364 (`06abe2ebc5b2979c`), **partial**: Room-open mismatch still wipes state in RundownRelay.ts:711-738 (row 337); #383/#388/#393 satisfy reconnect snapshot, queue retries and rollback limbs.
+- Row 372 (`cffc19c3e6de5a28`), **partial**: One complete venue rehearsal is not recorded: real APC/MTC, physical LTC audio, installed cloud-down local mode, long-run venue advances, real external-device firing and live annual checkout remain pending.
+- Row 378 (`6eaf7a8e4c663b1c`), **partial**: Changes are split into reviewable PRs, but the gate-between-phases clause remains partial: #353 retains Phase 2 at 68/79 while later Phase 3 work is merged.
+- Row 381 (`f25cdee668bf2a3f`), **partial**: #356 explicitly leaves full mutation ack/failure/lost-ack acceptance open; #357 leaves product-wide loading recovery open, despite #134/#358/#365 error reporting.
+
+## Evidence corrections from WS8 review
+
+Row 337 is blocked: the writable show/date mismatch branch in RundownRelay.ts still clears room state on open. Row 364 is partial on that limb. Row 336 is partial because #384 documents DO-only storage but explicitly confirms no age-based pruning. These gaps contradict the first WS8 draft and are not hardware gates. Row 328 also retains the deferred platform-role super-admin, second-factor and use-alerting work described in #378.
+
+## Complete unresolved ledger dispositions
+
+- Row 18 (`a41fbde1046806aa`), **partial**: Phase-order acceptance is not fully satisfied: Phase 2 loading/mutation/viewport gates remained open when Phase 3 proceeded (#353, #356, #357).
+- Row 246 (`01938da22bad50e9`), **partial**: The D1 error sink and failure projections shipped (#134, #358, #365), but #356 explicitly leaves ack-success/genuine-failure/lost-ack acceptance and the full mutation checklist unestablished.
+- Row 268 (`9a197d9687fde3ba`), **partial**: Checklist-after-delete and the exhaustive equivalent-list/no-indefinite-loader audit remain open; #357 explicitly limits its six checks to mobile initial/settled reads.
+- Row 269 (`19ab826391d68d1f`), **partial**: The full catalogued mutation error-plus-retry checklist remains unverified; #356 closes reconnect requeue bounds and honest retirement wording only.
+- Row 283 (`5d30364193f8508f`), **partial**: #300 clarifies operator/output labels and #364 unifies Production Chat naming; complete differentiation of the three chat, four rundown, five dashboard, four roster, three copy and lower-thirds surfaces remains unverified.
+- Row 284 (`409d9865b4141229`), **partial**: Founding-window end date and timezone still require Rey; #185 closes landing/download mechanics, not that business input.
+- Row 285 (`4e2cdcca026fe871`), **partial**: Fresh live sub-xl viewport pass remains pending; #157 and #229 provide historical compiled-fixture navigation/calendar evidence, not the requested fresh live screen-by-screen pass.
+- Row 291 (`55182c9ecbc58295`), **partial**: Real APC/MTC session pending: pad start/stop/pause/reset, simultaneous APC + MTC, feedback, unplug/replug and DAW stop; #215 proves virtual-port/fixture coverage only.
+- Row 292 (`02774d6317504603`), **partial**: Physical LTC feed over audio pending; #215 and smoke-native-ltc-relay.mjs use generated PCM in place of audio capture hardware.
+- Row 293 (`bbc36d7d1b7e4a53`), **partial**: Venue local mode with cloud WS down pending; #216 verifies stopped local Worker, native loopback and an equipment simulator, not the installed venue setup.
+- Row 298 (`3277f632c1aea066`), **partial**: Real configured external-device firing and venue long-run advances at 00:35:00:00/00:45:00:00 remain parked; #225 run 42454853635 and simulator/lyrics rehearsals satisfy the text's stub option only.
+- Row 299 (`2533590ebd67b0d8`), **partial**: Product-wide UX acceptance remains partial on WS4 mutation checklist, Checklist-after-delete/equivalent-list loading and fresh live sub-xl screen audit (#356, #357).
+- Row 308 (`84219ae02728c669`), **partial**: #369 implements annual billing; annual Starter/Pro/Founding prices still need creation in live Stripe.
+- Row 312 (`a5bc52cc92687bf4`), **partial**: #371 fixes the documented host to app.showpilot.tech; live Stripe dashboard endpoint host verification remains pending.
+- Row 322 (`73a78966b1c11ca2`), **partial**: #375 removes public photo/role and #386 adds opt-in hashed member secrets; unusual-IP/device PM alerts are explicitly scoped out because tracking state and recipient rules do not exist.
+- Row 323 (`5ae835748463a719`), **partial**: #372 defaults links to 90 days rather than a show weekend; venue-IP binding is absent and chat passes still use KIOSK_SECRET pending a separate secret/rollover design. #373 closes guest message-type restrictions.
+- Row 325 (`34578e3f829ffc21`), **deferred**: #376 ships byte sniffing, attachment disposition and private avatar cache; signed expiring avatar-read URLs are explicitly deferred to preserve native image loading.
+- Row 327 (`56d20ede8dc26816`), **partial**: #377 escapes LIKE needles and guards interpolation, but permits 167 reviewed interpolation entries rather than banning all except the two audited files specified by the requirement.
+- Row 328 (`4fa9d31819993c86`), **partial**: #378 pins seven-day sessions rather than short operator expiry and leaves platform-role super-admin, second factor and use alerting for a later build; #379 ships script nonces/connect-src but leaves inline styles unchanged. Session policy remains with Rey.
+- Row 336 (`0a600b9ffb2beffa`), **partial**: #384 documents DO-only live chat storage but explicitly confirms no age-based retention pruning; the requirement's pruning limb remains unimplemented.
+- Row 337 (`e020640319bf917a`), **blocked**: RundownRelay.ts fetch mismatch branch (lines 711-738) still clears items/timer and persists on writable show/date mismatch; no explicit revision-checked switch-show command exists. #97 fixes active-pointer publication, not this branch.
+- Row 353 (`4acaad0d38a10dd9`), **deferred**: S3 deliberately retains live rundown state, active-show pointers and graphics live state in app_setting pending a live rehearsal gate; #389/#390/#391/#412 move templates, editable settings and webhook history only.
+- Row 356 (`646ff04058e2627b`), **deferred**: #400 omits reproducible CI cargo audit installation; Dependabot covers Cargo updates. Cargo audit gate remains an explicit deferred gap; 13 override comments still say reason unknown rather than naming an advisory.
+- Row 361 (`1036150e09dfc7f9`), **partial**: #369/#370 implement interval/promo/preselection mechanics; live annual prices and Stripe dashboard webhook host verification remain pending.
+- Row 363 (`06eea448b9fc3c26`), **partial**: #372 provides bounded 90-day token defaults, not the required short show-weekend default; #374 guest prefixes/badges and #376 spoofed-MIME rejection are satisfied.
+- Row 364 (`06abe2ebc5b2979c`), **partial**: Room-open mismatch still wipes state in RundownRelay.ts:711-738 (row 337); #383/#388/#393 satisfy reconnect snapshot, queue retries and rollback limbs.
+- Row 372 (`cffc19c3e6de5a28`), **partial**: One complete venue rehearsal is not recorded: real APC/MTC, physical LTC audio, installed cloud-down local mode, long-run venue advances, real external-device firing and live annual checkout remain pending.
+- Row 378 (`6eaf7a8e4c663b1c`), **partial**: Changes are split into reviewable PRs, but the gate-between-phases clause remains partial: #353 retains Phase 2 at 68/79 while later Phase 3 work is merged.
+- Row 381 (`f25cdee668bf2a3f`), **partial**: #356 explicitly leaves full mutation ack/failure/lost-ack acceptance open; #357 leaves product-wide loading recovery open, despite #134/#358/#365 error reporting.
+
+## Evidence corrections from WS8 review
+
+Row 337 is blocked: the writable show/date mismatch branch in RundownRelay.ts still clears room state on open. Row 364 is partial on that limb. Row 336 is partial because #384 documents DO-only storage but explicitly confirms no age-based pruning. These gaps contradict the first WS8 draft and are not hardware gates. Row 328 also retains the deferred platform-role super-admin, second-factor and use-alerting work described in #378.
+
+Additional WS8 clause findings: #386 omits unusual-IP/device PM alerts (row 322). #372 uses 90-day defaults, lacks venue-IP binding and retains shared chat-pass signing (rows 323/363). #377 guards 167 interpolation entries instead of the requested two-file exception (row 327). #379 leaves inline styles unchanged (row 328). #400 records 13 override reasons as unknown (row 356). These are retained as specific open dispositions, not treated as complete.
