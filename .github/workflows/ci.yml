@@ -38,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Audit dependencies (HIGH and CRITICAL)
+        run: node scripts/audit-gate.mjs
+
       - name: Apply numbered migrations to scratch D1
         working-directory: apps/web
         env:

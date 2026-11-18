@@ -1,24 +1,28 @@
 {
-	"name": "@showpilot/landing",
-	"private": true,
-	"type": "module",
-	"scripts": {
-		"build": "node build.mjs",
-		"preview": "node build.mjs && wrangler dev",
-		"deploy": "node build.mjs && wrangler deploy",
-		"cf-typegen": "wrangler types",
-		"typecheck": "tsc -p tsconfig.json --noEmit",
-		"test": "vitest run",
-		"verify": "wrangler types --check && tsc -p tsconfig.json --noEmit && vitest run && node build.mjs && wrangler deploy --dry-run",
-		"smoke": "node scripts/smoke-release-site.mjs"
-	},
-	"devDependencies": {
-		"esbuild": "0.28.1",
-		"typescript": "^5.7.2",
-		"vitest": "^4.1.11",
-		"wrangler": "4.127.0"
-	},
-	"dependencies": {
-		"three": "^0.186.1"
-	}
+  "name": "@showpilot/landing",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "preview": "node build.mjs && wrangler dev",
+    "deploy": "node build.mjs && wrangler deploy",
+    "cf-typegen": "wrangler types",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "verify": "wrangler types --check && tsc -p tsconfig.json --noEmit && vitest run && node build.mjs && wrangler deploy --dry-run",
+    "smoke": "node scripts/smoke-release-site.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.1",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.11",
+    "wrangler": "4.127.0"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "engines": {
+    "node": "24.x",
+    "pnpm": ">=10.30.3 <11"
+  }
 }
