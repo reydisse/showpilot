@@ -10,6 +10,7 @@ vi.mock("@napi-rs/keyring", () => ({ Entry: class {
   deleteCredential() { vault.entries.delete(this.reference); }
 } }));
 import {
+  resolveBridgeUrl,
   isTrustedSetupOrigin,
   loadConfigFile,
   saveConfigFile,
@@ -34,6 +35,7 @@ function validConfig(): BridgeConfig {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   for (const directory of temporaryDirectories.splice(0)) {
     fs.rmSync(directory, { recursive: true, force: true });
   }
@@ -276,5 +278,26 @@ describe("Bridge setup boundary", () => {
         expect(content).not.toContain(config.propresenterPassword);
       }
     } finally { await new Promise<void>((resolve) => server.close(() => resolve())); }
+  });
+});
+
+describe("Bridge URL discovery", () => {
+  it.each(["https://showpilot.tech", "https://www.showpilot.tech"])("pins %s without redirect discovery", async (site) => {
+    const fetcher = vi.fn().mockRejectedValue(new Error("offline"));
+    vi.stubGlobal("fetch", fetcher);
+    expect(await resolveBridgeUrl(site, "org")).toBe("wss://app.showpilot.tech/api/bridge/org/ws");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each(["https://custom.example", "http://localhost:3000", "https://app.showpilot.tech"])("preserves redirect discovery for %s", async (site) => {
+    const fetcher = vi.fn().mockResolvedValue({ url: "https://destination.example/" });
+    vi.stubGlobal("fetch", fetcher);
+    expect(await resolveBridgeUrl(site, "org")).toBe("wss://destination.example/api/bridge/org/ws");
+    expect(fetcher).toHaveBeenCalledWith(site, expect.objectContaining({ redirect: "follow" }));
+  });
+
+  it("falls back to the direct URL when custom-host fetch fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    expect(await resolveBridgeUrl("http://localhost:3000", "org")).toBe("ws://localhost:3000/api/bridge/org/ws");
   });
 });

@@ -199,6 +199,12 @@ function toBridgeUrl(siteUrl: string, org: string): string {
 export async function resolveBridgeUrl(site: string, org: string): Promise<string> {
   const normalized = site.startsWith("http://") || site.startsWith("https://") ? site : `https://${site}`;
 
+  const siteUrl = new URL(normalized);
+  if (siteUrl.hostname === "showpilot.tech" || siteUrl.hostname === "www.showpilot.tech") {
+    siteUrl.host = "app.showpilot.tech";
+    return toBridgeUrl(siteUrl.toString(), org);
+  }
+
   try {
     const response = await fetch(normalized, {
       method: "GET",
@@ -334,7 +340,7 @@ export function startSetupServer(
           <div class="grid">
             <div>
               <label for="site">ShowPilot site</label>
-              <input id="site" name="site" placeholder="https://showpilot.tech" value="${escapeHtml(config?.site ?? "")}" />
+              <input id="site" name="site" placeholder="https://app.showpilot.tech" value="${escapeHtml(config?.site ?? "")}" />
             </div>
             <div>
               <label for="org">Org slug</label>
