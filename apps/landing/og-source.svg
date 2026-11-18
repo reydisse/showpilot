@@ -20,7 +20,7 @@
   <text x="120" y="305" font-family="Arial, Helvetica, sans-serif" font-size="84" font-weight="800" fill="#f5f5f5"><tspan fill="#ffc107">Show</tspan>Pilot</text>
   <!-- tagline -->
   <text x="120" y="392" font-family="Arial, Helvetica, sans-serif" font-size="46" font-weight="700" fill="#f5f5f5">Run your show, not your software.</text>
-  <text x="120" y="450" font-family="Arial, Helvetica, sans-serif" font-size="28" fill="#9a9a9a">The production OS for church and live-event teams</text>
+  <text x="120" y="450" font-family="Arial, Helvetica, sans-serif" font-size="28" fill="#9a9a9a">The production OS for teams</text>
   <!-- bottom strip -->
   <rect x="120" y="505" width="960" height="2" fill="url(#fire)" opacity="0.6"/>
   <text x="120" y="555" font-family="Arial, Helvetica, sans-serif" font-size="24" fill="#9a9a9a">Rundowns · Show clock · Crew · Comms · Device control</text>

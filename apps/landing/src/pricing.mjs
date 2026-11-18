@@ -29,7 +29,7 @@ export const PRICING = {
       "Advanced permissions",
     ],
   },
-  annualNote: "Annual billing available — 2 months free",
+  annualNote: "Pay yearly and get 12 months for the price of 10",
 };
 
 export const APP_URL = "https://app.showpilot.tech";
