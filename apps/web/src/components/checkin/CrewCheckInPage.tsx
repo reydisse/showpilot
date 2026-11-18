@@ -63,23 +63,28 @@ export function CrewCheckInPage({ orgId, slug, initialMembers }: { orgId: string
     if (await confirm({ title: `Check all ${operation.members.length} crew ${isOnline ? "in" : "out"}?`, description: `This changes the ${operation.members.length} crew in the current roster, including people outside your search. If any attendance changes before confirmation, nothing will be applied.`, confirmLabel: isOnline ? "Check crew in" : "Check crew out", variant: "warning" })) void change(operation);
   }
   const failure = writes.state.kind === "uncertain" || writes.state.kind === "conflict" ? writes.state.failure : null;
+  const failedMemberId = (writes.state.kind === "uncertain" || writes.state.kind === "conflict") && writes.state.attempt.members.length === 1 ? writes.state.attempt.members[0].id : null;
+  const rowFailure = failedMemberId ? <div role="alert" className="space-y-2 text-sm text-amber-300">
+    <p>Could not be saved. {writes.state.kind === "uncertain" ? "Try again." : "Review updated crew."}</p>
+    {writes.state.kind === "uncertain" ? <button className={actionClass} onClick={() => void change()}>Retry attendance</button> : <button className={actionClass} disabled={needsRead || Boolean(crew.error) || crew.refreshing} onClick={() => { writes.clearConflict(); setSelected(null); setCompletedId(null); }}>Review updated crew</button>}
+  </div> : null;
   const selectedStale = selected !== null && crew.value.find(member => member.id === selected.id)?.revision !== selected.revision;
   const completed = completedId ? crew.value.find(member => member.id === completedId) : null;
   return <div className="h-full overflow-auto text-board-text">
     <header className="sticky top-0 z-10 border-b border-board-border bg-board-bg/95 px-4 py-4"><div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3">
       <Link to="/$slug/show" params={{ slug }} aria-label="Back to Show Flow" className={`${actionClass} flex items-center gap-2`}><ArrowLeft className="size-4" /><span className="hidden sm:inline">Show Flow</span></Link>
       <div className="min-w-36 flex-1"><h1 className="text-lg font-semibold">Crew check-in</h1><p className="mt-1 hidden text-xs text-board-muted sm:block">Search the roster and check crew in with one tap.</p></div>
-      <button aria-label={mode === "entry" ? "Back to roster" : "Enter member ID"} title={mode === "entry" ? "Back to roster" : "Enter member ID"} className={`${actionClass} ml-auto shrink-0`} onClick={() => { if (mode === "list" && !uncertain) { setCompletedId(null); setSelected(null); } setMode(mode === "entry" ? "list" : "entry"); }}>{mode === "entry" ? <Users className="size-4 sm:hidden" aria-hidden="true" /> : <Hash className="size-4 sm:hidden" aria-hidden="true" />}<span className="hidden sm:inline">{mode === "entry" ? "Back to roster" : "Enter member ID"}</span></button>
+      <button aria-label={mode === "entry" ? "Back to roster" : "Enter member ID"} title={mode === "entry" ? "Back to roster" : "Enter member ID"} className={`${actionClass} ml-auto shrink-0`} onClick={() => { if (mode === "list" && !uncertain) { setCompletedId(null); setSelected(failedMemberId ? crew.value.find(member => member.id === failedMemberId) ?? null : null); } else if (mode === "list" && failedMemberId) { setSelected(crew.value.find(member => member.id === failedMemberId) ?? null); } setMode(mode === "entry" ? "list" : "entry"); }}>{mode === "entry" ? <Users className="size-4 sm:hidden" aria-hidden="true" /> : <Hash className="size-4 sm:hidden" aria-hidden="true" />}<span className="hidden sm:inline">{mode === "entry" ? "Back to roster" : "Enter member ID"}</span></button>
     </div></header>
     <main className="mx-auto max-w-5xl space-y-4 px-4 py-5">
       {notice && <p role="status" className="rounded-md border border-green-400/25 bg-green-500/5 p-3 text-sm text-green-300">{notice}{needsRead && ""}</p>}
       <ReadFailureNotice error={crew.error} refreshing={crew.refreshing} retry={() => void refreshAfterWrite()} label="Retry crew list" />
       {writes.state.kind === "pending" && <QuietActivity label="Saving attendance…" />}
-      {failure && <section role="alert" className="space-y-3 rounded-md border border-amber-400/30 bg-amber-500/5 p-4">
+      {failure && !failedMemberId && <section role="alert" className="space-y-3 rounded-md border border-amber-400/30 bg-amber-500/5 p-4">
         <p className="break-words">{plainFailure(failure.message)}</p>
         {writes.state.kind === "uncertain" ? <button className={actionClass} onClick={() => void change()}>Retry attendance</button> : <button className={actionClass} disabled={needsRead || Boolean(crew.error) || crew.refreshing} onClick={() => { writes.clearConflict(); setSelected(null); setCompletedId(null); }}>Review updated crew</button>}
       </section>}
-      {mode === "list" ? <CheckInList members={crew.value} blocked={blocked} refreshing={crew.refreshing} onChange={single} onSetAll={value => void all(value)} /> : <div className="max-w-lg space-y-4">
+      {mode === "list" ? <CheckInList failedMemberId={failedMemberId} rowFailure={rowFailure} members={crew.value} blocked={blocked} refreshing={crew.refreshing} onChange={single} onSetAll={value => void all(value)} /> : <div className="max-w-lg space-y-4">
         {completedId && !needsRead && !crew.error ? <section className="space-y-3 rounded-md border border-board-border bg-board-card p-4">
           <h2 className="text-lg font-medium">Latest attendance</h2>
           <p className="break-words">{completed ? `${completed.name}: ${completed.isOnline ? "checked in" : "checked out"}` : "This crew member is no longer in the roster."}</p>
@@ -88,6 +93,7 @@ export function CrewCheckInPage({ orgId, slug, initialMembers }: { orgId: string
         </section> : selected ? <section className="space-y-3 rounded-md border border-board-border bg-board-card p-4">
           <h2 className="break-words text-lg font-medium">{selected.name}</h2><p className="text-sm text-board-muted">{selected.role} · Selected status: {selected.isOnline ? "Checked in" : "Checked out"}</p>
           <p className="text-sm text-amber-300">{selectedStale ? "Attendance changed since you selected this person. Find them again before making a change." : ""}</p>
+          {selected.id === failedMemberId && rowFailure}
           <button disabled={blocked || selectedStale} className={`${actionClass} bg-fire-500 text-white`} onClick={() => single(selected)}>Check {selected.name} {selected.isOnline ? "out" : "in"}</button>
           <button disabled={uncertain} className={`${actionClass} ml-2`} onClick={() => setSelected(null)}>Use another ID</button>
         </section> : <form className="space-y-3" onSubmit={event => {

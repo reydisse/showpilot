@@ -34,11 +34,16 @@ it("shows row write failures and retries the original change across view switche
   vi.mocked(changeCrewAttendance).mockRejectedValueOnce(new Error("Network failed"));
   setup();
   fireEvent.click(await screen.findByRole("button", { name: "Check Taylor in" }));
-  const alert = await screen.findByRole("alert"); expect(alert.querySelector("time")).toBeNull();
+  const alert = await screen.findByRole("alert");
+  const row = screen.getByText("Taylor").closest("div.grid")!;
+  expect(row.contains(alert)).toBe(true);
+  expect(within(row as HTMLElement).getByText("Checked out")).toBeTruthy();
+  expect(document.querySelector('section[role="alert"]')).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Enter member ID" }));
   expect(screen.getByRole("button", { name: "Retry attendance" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Retry attendance" }));
   expect(await screen.findByText("Taylor: checked in")).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
   const calls = vi.mocked(changeCrewAttendance).mock.calls;
   expect(calls[1][0]).toEqual(expect.objectContaining({ data: calls[0][0] && "data" in calls[0][0] ? calls[0][0].data : undefined }));
 });
@@ -120,4 +125,13 @@ it("refreshes and unlocks controls when a write completes while the tab is hidde
   visibility.mockReturnValue("visible"); fireEvent(document, new Event("visibilitychange"));
   await waitFor(() => expect(screen.getByRole("button", { name: "Check Taylor out" })).toHaveProperty("disabled", false));
   expect(changeCrewAttendance).toHaveBeenCalledTimes(1);
+});
+
+it("keeps multi-member write failures in the page-level section", async () => {
+  vi.mocked(changeCrewAttendance).mockRejectedValueOnce(new Error("Network failed"));
+  setup();
+  fireEvent.click(screen.getByRole("button", { name: "Check all 2 crew in" }));
+  fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Check crew in" }));
+  expect((await screen.findByRole("alert")).tagName).toBe("SECTION");
+  expect(screen.getByRole("button", { name: "Retry attendance" })).toBeTruthy();
 });
