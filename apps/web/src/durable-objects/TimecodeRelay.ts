@@ -1,3 +1,4 @@
+import { relaySocketCapReached, consumeSocketMessage, ROOM_FULL_CLOSE_CODE, ROOM_FULL_CLOSE_REASON, RATE_LIMIT_CLOSE_CODE, RATE_LIMIT_CLOSE_REASON } from "@/lib/socket-limits.server";
 import { assertAutomationWebhookResolvesPublic } from "../lib/automation-webhook.server";
 import { isTimecodeCueControl, reviewTimecodeCue, sameTimecodeCueReviews } from "@showpilot/shared";
 import { isTimecodeGateCommand, sameTimecodeGateReview } from "@showpilot/shared";
@@ -653,6 +654,11 @@ export class TimecodeRelay extends DurableObject {
       if (!canWrite) return new Response("Unauthorized", { status: 401 });
       if (request.method !== "GET" || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("WebSocket required", { status: 426 });
       const [client, server] = Object.values(new WebSocketPair());
+      if (relaySocketCapReached(this.ctx)) {
+        this.ctx.acceptWebSocket(server);
+        server.close(ROOM_FULL_CLOSE_CODE, ROOM_FULL_CLOSE_REASON);
+        return new Response(null, { status: 101, webSocket: client });
+      }
       this.ctx.acceptWebSocket(server);
       server.serializeAttachment({ canWrite: false, authClaim, orgId: this.orgId, showId: this.target.showId, sessionId: crypto.randomUUID(), media: { output: null } });
       renewSocketReadLease(server);
@@ -665,6 +671,11 @@ export class TimecodeRelay extends DurableObject {
       if (authClaim && !canWrite) return new Response("Unauthorized", { status: 401 });
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
+      if (relaySocketCapReached(this.ctx)) {
+        this.ctx.acceptWebSocket(server);
+        server.close(ROOM_FULL_CLOSE_CODE, ROOM_FULL_CLOSE_REASON);
+        return new Response(null, { status: 101, webSocket: client });
+      }
       this.ctx.acceptWebSocket(server);
       server.serializeAttachment?.({
         canWrite,
@@ -727,6 +738,10 @@ export class TimecodeRelay extends DurableObject {
   }
 
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+    if (!consumeSocketMessage(ws, Date.now())) {
+      ws.close(RATE_LIMIT_CLOSE_CODE, RATE_LIMIT_CLOSE_REASON);
+      return ;
+    }
     if (this.retired || !this.target || this.legacyExport) { ws.close(4409, "Timecode show unavailable. Reconnect."); return; }
     if (isMediaOutputSocket(ws)) {
       try {

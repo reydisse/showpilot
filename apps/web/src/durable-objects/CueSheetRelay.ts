@@ -1,3 +1,4 @@
+import { relaySocketCapReached, consumeSocketMessage, ROOM_FULL_CLOSE_CODE, ROOM_FULL_CLOSE_REASON, RATE_LIMIT_CLOSE_CODE, RATE_LIMIT_CLOSE_REASON } from "@/lib/socket-limits.server";
 /**
  * CueSheetRelay — one room per org, so operators editing the same cue
  * sheet see each other's notes appear.
@@ -49,6 +50,11 @@ export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH
       if (authClaim && !(await this.canRead(authClaim))) return new Response("Unauthorized", { status: 401 });
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
+      if (relaySocketCapReached(this.ctx)) {
+        this.ctx.acceptWebSocket(server);
+        server.close(ROOM_FULL_CLOSE_CODE, ROOM_FULL_CLOSE_REASON);
+        return new Response(null, { status: 101, webSocket: client });
+      }
       this.ctx.acceptWebSocket(server);
       server.serializeAttachment?.({
         scopes: authClaim ? this.readScopes(url) : [],
@@ -80,6 +86,10 @@ export class CueSheetRelay extends DurableObject<Pick<Env, "DB"> & { BETTER_AUTH
    * already called the server function.
    */
   async webSocketMessage(sender: WebSocket, data: string | ArrayBuffer) {
+    if (!consumeSocketMessage(sender, Date.now())) {
+      sender.close(RATE_LIMIT_CLOSE_CODE, RATE_LIMIT_CLOSE_REASON);
+      return ;
+    }
     try {
       const attachment = sender.deserializeAttachment?.() as {
         scopes?: CueRelayScope[];

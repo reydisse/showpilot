@@ -1,3 +1,4 @@
+import { relaySocketCapReached, consumeSocketMessage, ROOM_FULL_CLOSE_CODE, ROOM_FULL_CLOSE_REASON, RATE_LIMIT_CLOSE_CODE, RATE_LIMIT_CLOSE_REASON } from "@/lib/socket-limits.server";
 import { DurableObject } from "cloudflare:workers";
 import { memberPermissionGuard } from "@/lib/member-permission-guard.server";
 import { SerialCommandExecutor } from "@/lib/serial-command-executor";
@@ -221,6 +222,11 @@ export class LowerThirdsRelay extends DurableObject<
         return new Response("Unauthorized", { status: 401 });
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
+      if (relaySocketCapReached(this.ctx)) {
+        this.ctx.acceptWebSocket(server);
+        server.close(ROOM_FULL_CLOSE_CODE, ROOM_FULL_CLOSE_REASON);
+        return new Response(null, { status: 101, webSocket: client });
+      }
       this.ctx.acceptWebSocket(server);
       server.serializeAttachment?.({
         canWrite,
@@ -312,6 +318,10 @@ export class LowerThirdsRelay extends DurableObject<
   }
 
   async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+    if (!consumeSocketMessage(ws, Date.now())) {
+      ws.close(RATE_LIMIT_CLOSE_CODE, RATE_LIMIT_CLOSE_REASON);
+      return ;
+    }
     return this.commands.run(() => this.handleWebSocketMessage(ws, data));
   }
   private async handleWebSocketMessage(
