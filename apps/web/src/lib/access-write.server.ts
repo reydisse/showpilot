@@ -101,7 +101,7 @@ async function readAuthority(
     (
       await db
         .prepare(
-          "SELECT value FROM app_setting WHERE orgId=? AND key='org-timezone'",
+          "SELECT value FROM org_setting WHERE orgId=? AND key='org-timezone'",
         )
         .bind(orgId)
         .first<{ value: string }>()
@@ -125,7 +125,7 @@ async function readAuthority(
     );
   const guard = [
     `EXISTS(SELECT 1 FROM member m JOIN session s ON s.userId=m.userId WHERE m.organizationId=? AND m.id=? AND m.userId=? AND m.role=? AND m.managementRevision=? AND s.id=? AND ${activeSession})`,
-    `COALESCE((SELECT value FROM app_setting WHERE orgId=? AND key='org-timezone'),'')=?`,
+    `COALESCE((SELECT value FROM org_setting WHERE orgId=? AND key='org-timezone'),'')=?`,
   ];
   const params: (string | number | null)[] = [
     orgId,

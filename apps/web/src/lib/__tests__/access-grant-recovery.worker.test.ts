@@ -370,7 +370,7 @@ it.each(["actor", "target", "session", "duty", "timezone"] as const)(
           .bind(assignmentId)
           .run();
       return env.DB.prepare(
-        "INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,'org-timezone','Pacific/Kiritimati') ON CONFLICT(orgId,key) DO UPDATE SET value=excluded.value",
+        "INSERT INTO org_setting(updatedAt,orgId,key,value) VALUES(?,?,'org-timezone','Pacific/Kiritimati') ON CONFLICT(orgId,key) DO UPDATE SET value=excluded.value",
       )
         .bind(crypto.randomUUID(), f.orgId)
         .run();

@@ -27,7 +27,7 @@ export async function readMobileShowDetails(
     readShowDetailsSnapshot(db, data.orgId, data.showId),
     db
       .prepare(
-        "SELECT value FROM app_setting WHERE orgId=? AND key='org-timezone'",
+        "SELECT value FROM org_setting WHERE orgId=? AND key='org-timezone'",
       )
       .bind(data.orgId)
       .first<{ value: string }>(),

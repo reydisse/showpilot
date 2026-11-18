@@ -171,7 +171,7 @@ export async function writeScheduleAssignment(
       const showRow = await db
         .prepare(
           `SELECT updatedAt,scheduledStartTime,scheduledCallTime,
-        COALESCE((SELECT value FROM app_setting WHERE orgId=? AND key='org-timezone'),'UTC') AS timeZone
+        COALESCE((SELECT value FROM org_setting WHERE orgId=? AND key='org-timezone'),'UTC') AS timeZone
         FROM rundown WHERE orgId=? AND id=? AND serviceDate=?`,
         )
         .bind(orgId, orgId, fields.showId, fields.serviceDate)
@@ -203,7 +203,7 @@ export async function writeScheduleAssignment(
       });
       checks.push(`EXISTS(SELECT 1 FROM rundown WHERE orgId=? AND id=? AND serviceDate=?
         AND updatedAt IS ? AND scheduledStartTime IS ? AND scheduledCallTime IS ?)
-        AND COALESCE((SELECT value FROM app_setting WHERE orgId=? AND key='org-timezone'),'UTC')=?`);
+        AND COALESCE((SELECT value FROM org_setting WHERE orgId=? AND key='org-timezone'),'UTC')=?`);
       checkArgs.push(
         orgId,
         fields.showId,

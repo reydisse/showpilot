@@ -573,7 +573,7 @@ export class RundownRelay extends DurableObject {
         if (input.mode === "read") {
           const access = await rundownDetailsAuthority(this.env.DB, scope.orgId, { userId: scope.userId, sessionId: input.sessionId }, input.pin);
           const snapshot = (await readShowDetailsSnapshot(this.env.DB, scope.orgId, scope.showId))?.snapshot ?? null;
-          const timeZone = (await this.env.DB.prepare("SELECT value FROM app_setting WHERE orgId=? AND key='org-timezone'")
+          const timeZone = (await this.env.DB.prepare("SELECT value FROM org_setting WHERE orgId=? AND key='org-timezone'")
             .bind(scope.orgId).first<{ value: string }>())?.value || "UTC";
           if (!await this.env.DB.prepare(`SELECT 1 WHERE ${access.guard}`).bind(...access.guardArgs).first())
             throw new RundownDetailsAccessError("Your rundown editing authority changed. Reopen the editor.");

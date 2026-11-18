@@ -145,7 +145,7 @@ async function writeDetails(
           (
             await db
               .prepare(
-                "SELECT value FROM app_setting WHERE orgId=? AND key='org-timezone'",
+                "SELECT value FROM org_setting WHERE orgId=? AND key='org-timezone'",
               )
               .bind(orgId)
               .first<{ value: string }>()

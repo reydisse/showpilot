@@ -176,7 +176,7 @@ it.each(["revoked", "expired", "permissions", "timezone"])(
       batch: async (statements) => {
         if (kind === "timezone")
           await env.DB.prepare(
-            "INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,'org-timezone','Pacific/Honolulu')",
+            "INSERT INTO org_setting(updatedAt,orgId,key,value) VALUES(?,?,'org-timezone','Pacific/Honolulu')",
           )
             .bind(crypto.randomUUID(), data.orgId)
             .run();
@@ -280,7 +280,7 @@ it("evaluates temporary access on the organization day rather than the UTC date"
     next = new Date(`${today}T12:00:00Z`);
   next.setUTCDate(next.getUTCDate() + 1);
   await env.DB.prepare(
-    "INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,'org-timezone',?)",
+    "INSERT INTO org_setting(updatedAt,orgId,key,value) VALUES(?,?,'org-timezone',?)",
   )
     .bind(crypto.randomUUID(), data.orgId, timezone)
     .run();

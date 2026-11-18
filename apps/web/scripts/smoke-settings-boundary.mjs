@@ -61,7 +61,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
   rejected(await rpc("getManageableOrgSettings", { orgId }, ""), /Unauthorized/);
   rejected(await rpc("updateOrgSetting", { orgId: "display-other", key: "org-timezone", value: "UTC" }), /Forbidden/);
   await stopServer();
-  const rows = await queryFixture(`SELECT key,value FROM app_setting WHERE orgId='${orgId}'`);
+  const rows = await queryFixture(`SELECT key,value FROM app_setting WHERE orgId='${orgId}' UNION ALL SELECT key,value FROM org_setting WHERE orgId='${orgId}'`);
   const stored = Object.fromEntries(rows.map(row => [row.key, row.value]));
   assert.equal(stored["rundown-message:smoke-show"], "Fixture private stage message");
   assert.equal(stored["active-graphics"], '["smoke-graphic"]');

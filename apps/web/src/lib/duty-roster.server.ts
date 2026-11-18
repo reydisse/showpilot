@@ -29,7 +29,7 @@ export async function createDueDutyReminders(database: DutyDatabase, now = new D
     FROM roster_assignment a
     JOIN member m ON m.organizationId = a.orgId AND m.userId = a.userId
     LEFT JOIN roster_role r ON r.orgId = a.orgId AND r.id = a.roleId
-    LEFT JOIN app_setting tz ON tz.orgId = a.orgId AND tz.key = 'org-timezone'
+    LEFT JOIN org_setting tz ON tz.orgId = a.orgId AND tz.key = 'org-timezone'
     WHERE a.weekStart BETWEEN ? AND ?
       AND NOT EXISTS(SELECT 1 FROM app_setting WHERE orgId=a.orgId AND key='organization-deleting')
   `).bind(start, end).all<{ id: string; orgId: string; userId: string; weekStart: string; roleName: string; timeZone: string }>();

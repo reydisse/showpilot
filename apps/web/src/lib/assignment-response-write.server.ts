@@ -97,9 +97,9 @@ export async function writeAssignmentResponse(
   'crewName',c.name,'crewEmail',lower(c.email),'assignedByUserId',a.assignedByUserId,
   'scheduledStartTime',r.scheduledStartTime,'scheduledCallTime',r.scheduledCallTime,
   'plannedDurationMs',COALESCE((SELECT SUM(duration) FROM rundown_item WHERE orgId=a.orgId AND showId=a.showId),0),
-  'timeZone',COALESCE((SELECT value FROM app_setting WHERE orgId=a.orgId AND key='org-timezone'),'UTC'),
+  'timeZone',COALESCE((SELECT value FROM org_setting WHERE orgId=a.orgId AND key='org-timezone'),'UTC'),
   'window',COALESCE((SELECT value FROM app_setting WHERE orgId=a.orgId AND key='default-service-window-minutes'),''),
-  'lead',COALESCE((SELECT value FROM app_setting WHERE orgId=a.orgId AND key='default-call-lead-minutes'),'')
+  'lead',COALESCE((SELECT value FROM org_setting WHERE orgId=a.orgId AND key='default-call-lead-minutes'),'')
 ) AS state FROM service_assignment a
 JOIN crew_member c ON c.orgId=a.orgId AND c.id=a.crewMemberId
 JOIN schedule_assignment_revision v ON v.orgId=a.orgId AND v.assignmentId=a.id

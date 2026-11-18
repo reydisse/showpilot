@@ -84,7 +84,7 @@ async function resolveOrgToday(
 ): Promise<string> {
   if (todayOverride) return todayOverride;
   const setting = await db
-    .prepare("SELECT value FROM app_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
+    .prepare("SELECT value FROM org_setting WHERE orgId = ? AND key = 'org-timezone' LIMIT 1")
     .bind(orgId)
     .first<SettingRow>();
   return getTodayDateString(setting?.value || undefined);

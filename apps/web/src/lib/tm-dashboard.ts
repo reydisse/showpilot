@@ -1,3 +1,5 @@
+import { readRoutedSettingRows } from "./settings-read.server";
+import { ORG_SETTING_KEYS } from "./org-setting-keys";
 import { getWorkspaceProfileForOrg } from "@/lib/workspace/profile.server";
 /**
  * Tech manager dashboard: reads and fault actions.
@@ -88,10 +90,10 @@ export const getTmDashboard = createServerFn({ method: "GET" })
     const prisma = getPrisma();
     const orgId = data.orgId;
 
-    const settings = await prisma.appSetting.findMany({
-      where: { orgId },
-      select: { key: true, value: true },
-    });
+    const settings = await Promise.all([
+        prisma.appSetting.findMany({ where: { orgId, key: { notIn: [...ORG_SETTING_KEYS] } }, select: { key: true, value: true } }),
+        readRoutedSettingRows(getD1(), orgId, [...ORG_SETTING_KEYS]),
+      ]).then(rows => rows.flat());
     const settingMap: Record<string, string> = {};
     for (const row of settings) settingMap[row.key] = row.value;
 

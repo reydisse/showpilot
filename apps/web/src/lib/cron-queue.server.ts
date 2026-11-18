@@ -1,6 +1,6 @@
 import { pruneOperationalErrors } from "./operational-errors.server";
 import { backfillDeviceCredentials } from "./device-settings.server";
-import { backfillCredentialSettings } from "./credential-settings.server";
+import { backfillCredentialSettings, backfillLegacyCredentialSettings } from "./credential-settings.server";
 import { backfillScopedTokenDigests } from "./scoped-token-store.server";
 import { backfillLegacyBridgeInstallations } from "./bridge-credentials.server";
 import { withDatabaseTask } from "./request-database.server";
@@ -15,7 +15,10 @@ export async function runCronJob(job: CronMessage["job"], e: CronEnv): Promise<v
     case "create-due-post-show-reminders": await (await import("./show-report-notes")).createDuePostShowReminders(e.DB); return;
     case "create-due-duty-reminders": await (await import("./duty-roster.server")).createDueDutyReminders(e.DB); return;
     case "backfill-scoped-token-digests": await backfillScopedTokenDigests(e.DB); return;
-    case "backfill-credential-settings": await backfillCredentialSettings(e.DB, e.CREDENTIAL_ENCRYPTION_KEYS); return;
+    case "backfill-credential-settings":
+      await backfillCredentialSettings(e.DB, e.CREDENTIAL_ENCRYPTION_KEYS);
+      await backfillLegacyCredentialSettings(e.DB, e.CREDENTIAL_ENCRYPTION_KEYS);
+      return;
     case "backfill-device-credentials": await backfillDeviceCredentials(e.DB, e.CREDENTIAL_ENCRYPTION_KEYS).then(result => { if (result.invalid) throw new Error(`Device credential migration found ${result.invalid} invalid settings rows.`); }); return;
     case "backfill-legacy-bridge-installations": await backfillLegacyBridgeInstallations(e.DB).then(result => { if (result.failed > 0) throw new Error(`Bridge credential migration failed for ${result.failed} installations; ${result.remaining} remain.`); }); return;
     default: throw new Error(`Unknown cron job: ${job}`);

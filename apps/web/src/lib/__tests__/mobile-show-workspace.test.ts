@@ -56,13 +56,13 @@ function fakeDatabase(fixtures: WorkspaceFixtures = {}): MobileApiDatabase {
         throw new Error(`Unhandled first query: ${sql}`);
       },
       async all<T>() {
-        if (sql.includes("SELECT key, value FROM app_setting")) {
+        if (sql.includes("SELECT key, value FROM app_setting") || sql.includes("SELECT key, value FROM org_setting")) {
           return { results: [
             { key: "org-timezone", value: "Africa/Accra" },
             { key: "clock-format", value: "24hr" },
             { key: "rundown-adapter", value: "native" },
             { key: "active-show-id", value: "show-1" },
-          ] as T[] };
+          ].filter(row => params.includes(row.key)) as T[] };
         }
         if (sql.includes("FROM crew_member WHERE orgId = ?")) {
           return { results: params[0] === "org-1" ? [{

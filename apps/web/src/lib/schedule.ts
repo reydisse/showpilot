@@ -1,3 +1,4 @@
+import { readRoutedSettingRows } from "./settings-read.server";
 import {
   resolveWorkspaceProfile,
   legacyTerminologyProfile,
@@ -123,26 +124,18 @@ export const getSchedule = createServerFn({ method: "GET" })
         select: { id: true, name: true, role: true, email: true },
         orderBy: { name: "asc" },
       }),
-      prisma.appSetting.findMany({
-        where: {
-          orgId: data.orgId,
-          key: {
-            in: [
-              "schedule-provider",
-              "schedule-provider-url",
-              "schedule-provider-label",
-              "terminology-profile",
-              "workspace-type",
-              "workspace-modules",
-              "workspace-custom",
-              "org-timezone",
-              "default-service-window-minutes",
-              "default-call-lead-minutes",
-            ],
-          },
-        },
-        select: { key: true, value: true },
-      }),
+      readRoutedSettingRows(env.DB, data.orgId, [
+        "schedule-provider",
+        "schedule-provider-url",
+        "schedule-provider-label",
+        "terminology-profile",
+        "workspace-type",
+        "workspace-modules",
+        "workspace-custom",
+        "org-timezone",
+        "default-service-window-minutes",
+        "default-call-lead-minutes",
+      ]),
     ]);
     const providerMap = Object.fromEntries(
       providerSettings.map((setting) => [setting.key, setting.value]),
@@ -303,13 +296,7 @@ export const getServiceAssignments = createServerFn({ method: "GET" })
           items: { select: { duration: true } },
         },
       }),
-      prisma.appSetting.findMany({
-        where: {
-          orgId: data.orgId,
-          key: { in: ["org-timezone", "default-service-window-minutes", "default-call-lead-minutes"] },
-        },
-        select: { key: true, value: true },
-      }),
+      readRoutedSettingRows(env.DB, data.orgId, ["org-timezone", "default-service-window-minutes", "default-call-lead-minutes"]),
     ]);
     const settingMap = Object.fromEntries(
       settings.map((setting) => [setting.key, setting.value]),
@@ -394,13 +381,7 @@ export const getMyAssignments = createServerFn({ method: "GET" })
         orderBy: [{ serviceDate: "desc" }, { createdAt: "desc" }],
         take: 50,
       }),
-      prisma.appSetting.findMany({
-        where: {
-          orgId: data.orgId,
-          key: { in: ["org-timezone", "default-service-window-minutes", "default-call-lead-minutes"] },
-        },
-        select: { key: true, value: true },
-      }),
+      readRoutedSettingRows(env.DB, data.orgId, ["org-timezone", "default-service-window-minutes", "default-call-lead-minutes"]),
     ]);
     const settingMap = Object.fromEntries(
       settings.map((setting) => [setting.key, setting.value]),
@@ -496,13 +477,7 @@ export const respondToMyAssignment = createServerFn({ method: "POST" })
           },
         },
       }),
-      prisma.appSetting.findMany({
-        where: {
-          orgId: data.orgId,
-          key: { in: ["org-timezone", "default-service-window-minutes", "default-call-lead-minutes"] },
-        },
-        select: { key: true, value: true },
-      }),
+      readRoutedSettingRows(env.DB, data.orgId, ["org-timezone", "default-service-window-minutes", "default-call-lead-minutes"]),
     ]);
     if (!assignment) throw new Error("Assignment not found");
     const settingMap = Object.fromEntries(

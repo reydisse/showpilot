@@ -1,3 +1,4 @@
+import { ORG_SETTING_KEYS } from "../org-setting-keys";
 import { env } from "cloudflare:workers";
 import { expect, it, vi } from "vitest";
 import { seedRelayMember } from "@/test/relay-fixtures";
@@ -25,7 +26,7 @@ function change(orgId: string, value: string, expectedValue: string | null = nul
   return { orgId, key: "org-timezone", value, expectedValue, requestId: crypto.randomUUID() };
 }
 const save = (data: SettingWrite) => updateOrgSetting({ data });
-const stored = (orgId: string, key = "org-timezone") => env.DB.prepare("SELECT value FROM app_setting WHERE orgId=? AND key=?").bind(orgId, key).first<string>("value");
+const stored = (orgId: string, key = "org-timezone") => env.DB.prepare(`SELECT value FROM ${ORG_SETTING_KEYS.has(key) ? "org_setting" : "app_setting"} WHERE orgId=? AND key=?`).bind(orgId, key).first<string>("value");
 
 it("commits a receipt and value once and never replays an old save over a later edit", async () => {
   const { orgId } = await fixture(); const first = change(orgId, "UTC");
@@ -41,7 +42,7 @@ it("serializes duplicate concurrent delivery without duplicate receipts", async 
   const { orgId, userId } = await fixture(); const input = change(orgId, "UTC");
   const results = await Promise.all([applySettingWrite(env.DB, input, userId), applySettingWrite(env.DB, input, userId), applySettingWrite(env.DB, input, userId)]);
   expect(results.every(result => result.outcome === "applied")).toBe(true);
-  expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM app_setting WHERE orgId=?").bind(orgId).first<number>("count")).toBe(2);
+  expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM app_setting WHERE orgId=?").bind(orgId).first<number>("count")).toBe(1);
 });
 
 it("allows only one competing edit against the same prior value", async () => {
@@ -124,7 +125,7 @@ it("routes migrated defaults through web reads and preserves conflict and replay
   expect(await save(stale)).toMatchObject({ outcome: "conflict", currentValue: "old" });
   expect(await save(first)).toMatchObject({ outcome: "applied", currentValue: "old" });
   await expect(save({ ...first, value: "changed" })).rejects.toThrow("different setting change");
-  expect(await stored(orgId, first.key)).toBeNull();
+  expect(await env.DB.prepare("SELECT value FROM app_setting WHERE orgId=? AND key=?").bind(orgId, first.key).first("value")).toBeNull();
   expect(await env.DB.prepare("SELECT value FROM org_setting WHERE orgId=? AND key=?").bind(orgId, first.key).first("value")).toBe("old");
   expect(await getManageableOrgSettings({ data: { orgId } })).toEqual({ [first.key]: "old" });
   const { getOrgSettings } = await import("../settings");
@@ -141,13 +142,15 @@ it("round-trips every migrated key through the web funnel without broadening mem
   const { isEditableSettingKey } = await import("../editable-settings");
   for (const key of ORG_SETTING_KEYS) {
     if (!isEditableSettingKey(key)) throw new Error(`Non-editable migrated key: ${key}`);
+    const { isCredentialField } = await import("../credential-fields");
+    if (isCredentialField(key)) continue;
     const value = key === "default-confidence-layout" ? JSON.stringify(DEFAULT_CONFIDENCE_LAYOUT) : `value:${key}`;
     expected[key] = value;
     expect((await save({ ...change(orgId, value), key })).outcome).toBe("applied");
-    expect(await stored(orgId, key)).toBeNull();
+    expect(await env.DB.prepare("SELECT value FROM app_setting WHERE orgId=? AND key=?").bind(orgId, key).first("value")).toBeNull();
   }
   expect(await getManageableOrgSettings({ data: { orgId } })).toEqual(expected);
-  const memberKeys = ["timezone-display", "default-timer-mode", "default-countdown-minutes", "overtime-behavior", "lyrics-output", "default-confidence-layout"];
+  const memberKeys = ["org-timezone", "clock-format", "default-call-lead-minutes", "timezone-display", "default-timer-mode", "default-countdown-minutes", "overtime-behavior", "lyrics-output", "default-confidence-layout"];
   expect(await getOrgSettings({ data: { orgId } })).toEqual(Object.fromEntries(memberKeys.map(key => [key, expected[key]])));
 });
 

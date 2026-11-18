@@ -60,7 +60,7 @@ export async function createServiceForOrg(
     const prisma = getPrisma();
     const timezone =
       (
-        await prisma.appSetting.findUnique({
+        await prisma.orgSetting.findUnique({
           where: { orgId_key: { orgId, key: "org-timezone" } },
           select: { value: true },
         })
@@ -138,7 +138,7 @@ export async function createServiceForOrg(
         .prepare(
           `INSERT INTO show_creation_request(orgId,requestId,actorId,fingerprint,nonce,serviceDate,createdAt)
         SELECT ?,?,?,?,?,?,? WHERE ${access.guard} AND ${sourceGuard}
-          AND COALESCE((SELECT value FROM app_setting WHERE orgId=? AND key='org-timezone'),'')=?
+          AND COALESCE((SELECT value FROM org_setting WHERE orgId=? AND key='org-timezone'),'')=?
           AND NOT EXISTS(SELECT 1 FROM rundown WHERE id=?)
           AND (SELECT COUNT(*) FROM rundown WHERE orgId=?)<${capacity}
         ON CONFLICT(orgId,requestId) DO NOTHING`,

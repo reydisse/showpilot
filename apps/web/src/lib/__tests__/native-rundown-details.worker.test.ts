@@ -472,3 +472,20 @@ it("concurrent save and review agree on the original result", async () => {
   expect(results[0]).toEqual(results[1]);
   expect(await f.receiptCount()).toBe(1);
 });
+
+
+it("relay initialization resolves org-timezone from org_setting even with a conflicting legacy row", async () => {
+  const f = await fixture();
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO org_setting(orgId,key,value,updatedAt) VALUES (?,'org-timezone','Pacific/Honolulu','fixture')").bind(f.orgId),
+    env.DB.prepare("INSERT INTO app_setting(id,orgId,key,value) VALUES (?,?,'org-timezone','Asia/Tokyo')").bind(crypto.randomUUID(), f.orgId),
+  ]);
+  const sessionId = (await getAuth().api.getSession({ headers: f.headers }))!.session.id;
+  const response = await f.relay.fetch(new Request(
+    `https://rundown.test/internal/rundown-details?orgId=${f.orgId}&showId=${f.showId}&serviceDate=${f.serviceDate}`,
+    { method: "POST", headers: { "Content-Type": "application/json", "x-showpilot-internal-secret": env.BETTER_AUTH_SECRET },
+      body: JSON.stringify({ mode: "read", scope: { orgId: f.orgId, userId: f.userId, showId: f.showId }, pin: null, sessionId }) },
+  ));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ timeZone: "Pacific/Honolulu" });
+});

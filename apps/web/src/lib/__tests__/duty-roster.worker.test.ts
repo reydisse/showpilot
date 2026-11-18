@@ -131,7 +131,7 @@ describe("weekly duty notifications on real D1", () => {
     const f = await fixture();
     const { org, users } = f;
     await env.DB.prepare(
-      "INSERT INTO app_setting (id, orgId, key, value) VALUES (?, ?, 'org-timezone', 'America/Toronto')",
+      "INSERT INTO org_setting (updatedAt, orgId, key, value) VALUES (?, ?, 'org-timezone', 'America/Toronto')",
     )
       .bind(crypto.randomUUID(), org)
       .run();

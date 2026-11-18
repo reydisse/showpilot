@@ -80,7 +80,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, stopServer, 
     assert.equal(await evaluate("window.clarityPayments"), 0);
   });
   await stopServer();
-  assert.deepEqual(await queryFixture(`SELECT value FROM app_setting WHERE orgId='${orgId}' AND key='org-timezone'`), [{ value: "America/Toronto" }]);
+  assert.deepEqual(await queryFixture(`SELECT value FROM org_setting WHERE orgId='${orgId}' AND key='org-timezone'`), [{ value: "America/Toronto" }]);
   assert.deepEqual(await queryFixture("SELECT key FROM app_setting WHERE orgId='display-other'"), []);
   console.log(JSON.stringify({ passed: true, billingScenarios: 7, realTimezoneWriteAndReload: true, searchDoesNotWrite: true, widths: [320,768,1440], paymentCalls: 0 }));
 }, { settingsBilling: true });

@@ -57,11 +57,11 @@ export async function getCrewScheduleCalendar(
         location: true,
       },
     }),
-    getPrisma().appSetting.findUnique({
+    getPrisma().orgSetting.findUnique({
       where: { orgId_key: { orgId: access.orgId, key: "org-timezone" } },
       select: { value: true },
     }),
-    getPrisma().appSetting.findUnique({
+    getPrisma().orgSetting.findUnique({
       where: {
         orgId_key: { orgId: access.orgId, key: "default-call-lead-minutes" },
       },

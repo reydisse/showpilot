@@ -114,7 +114,7 @@ it("reports a receipt conflict as failed and requires re-arming before posting e
 
 it("acknowledges the native post but exposes a linked chat configuration failure separately", async () => {
   const test = await fixture();
-  await env.DB.prepare("INSERT INTO app_setting (id,orgId,key,value) VALUES (?,?,'chat-adapter','slack')").bind(crypto.randomUUID(), test.orgId).run();
+  await env.DB.prepare("INSERT INTO org_setting (updatedAt,orgId,key,value) VALUES (?,?,'chat-adapter','slack')").bind(crypto.randomUUID(), test.orgId).run();
   await test.command("add-event", cue);
   await test.command("fire-event", { id: cue.id });
   expect((await test.events())[0]).toMatchObject({ fired: true, executionStatus: "acknowledged" });
