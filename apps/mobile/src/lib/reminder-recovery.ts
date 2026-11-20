@@ -64,7 +64,9 @@ export function reminderMessage(
       return `Email was rejected. Retry the same ${noun}.` + app;
     case "uncertain":
       return (
-        `Email acceptance is unknown. Retry checks the assignment response and recovers the same ${noun}.` + app
+        (noun === "invitation"
+          ? "Email acceptance is unknown. Retry checks the same invitation."
+          : "Email acceptance is unknown. Retry checks the assignment response and recovers the same reminder.") + app
       );
     case "sending":
       return (

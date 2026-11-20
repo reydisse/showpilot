@@ -11,7 +11,7 @@ overrides:
   # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
   "defu": "6.1.5"
   # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
-  "effect": "3.20.0"
+  "effect": "3.22.1"
   # Security dependency pin introduced by e8bfa5d0 (fix(security): upgrade auth and release dependencies).
   "esbuild": "0.28.1"
   # reason unknown — investigate before removing
