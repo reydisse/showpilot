@@ -27,6 +27,8 @@ export const scheduleReminderResultSchema = z
           id: idSchema,
           label: z.string(),
           email: z.enum([
+            "confirmed",
+            "declined",
             "accepted",
             "failed",
             "uncertain",
@@ -52,13 +54,17 @@ export function reminderMessage(
 ) {
   const app = item.inAppDelivered ? " App invitation available." : "";
   switch (item.email) {
+    case "confirmed":
+      return "Assignment accepted by the recipient.";
+    case "declined":
+      return "Assignment declined by the recipient.";
     case "accepted":
       return "Email accepted by the delivery service." + app;
     case "failed":
       return `Email was rejected. Retry the same ${noun}.` + app;
     case "uncertain":
       return (
-        `Email acceptance is unknown. Retry checks the same ${noun}.` + app
+        `Email acceptance is unknown. Retry checks the assignment response and recovers the same ${noun}.` + app
       );
     case "sending":
       return (

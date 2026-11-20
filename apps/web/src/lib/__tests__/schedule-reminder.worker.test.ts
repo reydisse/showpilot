@@ -290,7 +290,7 @@ it("keeps a bulk target set fixed and never repeats an accepted email or app ale
     .run();
   expect(
     (await sendScheduleReminders({ data: f.command })).items.every(
-      (item) => item.email === "accepted",
+      (item) => item.email === "confirmed",
     ),
   ).toBe(true);
   expect(mail.send).toHaveBeenCalledTimes(3);
@@ -349,4 +349,27 @@ it("does not include another organization's selection", async () => {
     sendScheduleReminders({ data: { ...f.command, orgId: other.orgId } }),
   ).rejects.toThrow();
   expect(mail.send).not.toHaveBeenCalled();
+});
+
+it.each(["confirmed", "declined"] as const)("Demo scheduling acceptance end-to-end (%s)", async (decision) => {
+  const f = await fixture();
+  const { getCrewSchedulePortal, respondToCrewScheduleInvite } = await import("../crew-schedule");
+  await sendScheduleReminders({ data: f.command });
+  const payload = mail.send.mock.calls.map(call => call[0]).find(value => value.to === `${f.userId}@example.test`);
+  const token = payload.html.match(/\/crew\/schedule\/([A-Za-z0-9_-]+)/)[1];
+  const portal = await getCrewSchedulePortal({ data: { token } });
+  const assignment = portal.assignments.find(item => item.id === f.first.id)!;
+  const response = await respondToCrewScheduleInvite({ data: {
+    token, assignmentId: f.first.id, requestId: crypto.randomUUID(),
+    expectedRevision: assignment.revision, reviewedVersion: assignment.responseVersion,
+    response: decision, reason: "",
+  } });
+  expect(response).toMatchObject({ outcome: "applied" });
+  // A stale transport receipt must never obscure a recorded recipient response.
+  await env.DB.prepare("UPDATE schedule_invitation_delivery SET state='uncertain' WHERE orgId=? AND assignmentId=?")
+    .bind(f.orgId, f.first.id).run();
+  const sends = mail.send.mock.calls.length;
+  const retry = await sendScheduleReminders({ data: f.command });
+  expect(retry.items.find(item => item.id === f.first.id)?.email).toBe(decision);
+  expect(mail.send).toHaveBeenCalledTimes(sends);
 });
