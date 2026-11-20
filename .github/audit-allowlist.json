@@ -286,5 +286,11 @@
     "package": "picomatch",
     "expiry": "2027-02-28",
     "reason": "Existing locked dependency; accepted temporarily pending a separately reviewed dependency upgrade."
+  },
+  {
+    "advisory": "GHSA-7589-6fvf-x4pw",
+    "package": "effect",
+    "expiry": "2027-02-28",
+    "reason": "Existing locked dependency; accepted temporarily pending a separately reviewed dependency upgrade."
   }
 ]
