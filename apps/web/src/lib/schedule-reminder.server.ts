@@ -92,7 +92,7 @@ export async function runScheduleReminders(
   markDatabaseWrite();
   const targets = targetsSchema.parse(JSON.parse(receipt.targets));
   const items = await Promise.all(
-    targets.map(async (target) => {
+    targets.map(async (target): Promise<ScheduleReminderResult["items"][number]> => {
       const common = {
         id: target.id,
         label: `${target.role} · ${target.name}`,
