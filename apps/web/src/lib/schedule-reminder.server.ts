@@ -92,13 +92,20 @@ export async function runScheduleReminders(
   markDatabaseWrite();
   const targets = targetsSchema.parse(JSON.parse(receipt.targets));
   const items = await Promise.all(
-    targets.map(async (target) => {
+    targets.map(async (target): Promise<ScheduleReminderResult["items"][number]> => {
       const common = {
         id: target.id,
         label: `${target.role} · ${target.name}`,
         updatedAt: Date.now(),
       };
       try {
+        // Recipient responses belong to the assignment, not the provider receipt.
+        // Re-read on every retry, including requests whose email outcome is unknown.
+        const response = await db.prepare(
+          "SELECT status FROM service_assignment WHERE orgId=? AND id=? AND crewMemberId=? AND serviceDate=? AND role=? AND callTime=? AND showId IS ?",
+        ).bind(orgId, target.id, target.crewMemberId, target.serviceDate, target.role, target.callTime, target.showId).first<{ status: string }>();
+        if (response?.status === "confirmed" || response?.status === "declined")
+          return { ...common, email: response.status, inAppDelivered: false, reason: null };
         const result = await sendCrewScheduleInvite({
           orgId,
           assignmentId: target.id,
