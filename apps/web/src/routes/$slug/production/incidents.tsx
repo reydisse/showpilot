@@ -38,7 +38,7 @@ import {
   hasEffectivePermission,
 } from "@/lib/app-permissions";
 import { getTodayDateString, formatTime } from "@/lib/utils";
-import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
+
 import { getOrgSettings } from "@/lib/settings";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
@@ -168,6 +168,8 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
   const loadingIncidents = !snapshotRead.value && !snapshotRead.error;
   const writes = useIncidentWrite({ orgId, showId, serviceDate });
   const writeLocked = writes.state.kind !== "idle";
+  const [showQuery, setShowQuery] = useState("");
+  const [showUntitled, setShowUntitled] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<ReportFields>(emptyReport);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
@@ -266,15 +268,6 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
               <History className="h-3.5 w-3.5" />
               History
             </Link>
-            <ShowSwitcherMenu
-              disabled={writes.state.kind === "pending"}
-              selectedId={showId}
-              shows={shows}
-              timeZone={orgTimezone}
-              onSelect={(selected) => {
-                void selectShow({ showId: selected.id, serviceDate: selected.serviceDate });
-              }}
-            />
             {canReportIncidents && showId && (
               <button
                 onClick={() => setShowForm(true)}
@@ -291,14 +284,16 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
         {!showForm && writeNotice}
       </div>
 
-      <div className="mx-auto max-w-6xl p-4 sm:px-10 sm:py-8">
+      <div className="mx-auto grid max-w-7xl items-start gap-6 p-4 sm:px-10 sm:py-8 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0">
+        <section className="rounded-xl border border-board-border bg-board-card p-4">
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-fire-400">
               {serviceDate === today ? "Today" : "Selected date"}
             </p>
             <h2 className="mt-1 text-sm font-semibold text-board-text">
-              {serviceDate === today ? "Current incidents" : "Incident details"}
+              This show
             </h2>
           </div>
           <span className="text-xs text-board-muted">
@@ -515,7 +510,8 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
           />
         ) : null}
 
-        <section className="mt-10 border-t border-board-border pt-6">
+        </section>
+        <section className="mt-6 overflow-hidden rounded-xl border border-board-border bg-board-card p-4">
           <div className="mb-3 flex items-end justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-board-muted">
@@ -571,6 +567,21 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
             </div>
           )}
         </section>
+        </div>
+        <aside className="overflow-hidden rounded-xl border border-board-border bg-board-card" aria-label="Shows">
+          <div className="space-y-3 p-4">
+            <h2 className="text-sm font-semibold text-board-text">Shows</h2>
+            <input aria-label="Find a show or date" placeholder="Find a show or date" value={showQuery} onChange={event => setShowQuery(event.target.value)} className="min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm text-board-text" />
+          </div>
+          {["Upcoming", "Past"].map(group => <div key={group} className="px-2 pb-2">
+            <h3 className="px-3 py-2 text-xs font-medium uppercase tracking-wider text-board-muted">{group}</h3>
+            {shows.filter(show => (group === "Upcoming" ? show.serviceDate >= today : show.serviceDate < today) && (showUntitled || !!show.name.trim()) && (show.name + " " + show.serviceDate).toLowerCase().includes(showQuery.toLowerCase())).map(show => <button key={show.id} type="button" disabled={writes.state.kind === "pending"} aria-pressed={show.id === showId} onClick={() => void selectShow({ showId: show.id, serviceDate: show.serviceDate })} className={`flex min-h-16 w-full items-center gap-3 rounded-lg px-3 py-2 text-left disabled:opacity-50 ${show.id === showId ? "bg-fire-500/10 text-board-text" : "text-board-muted hover:bg-board-bg"}`}>
+              <span className="shrink-0 rounded-lg border border-board-border px-2 py-1 text-sm tabular-nums">{show.serviceDate.slice(8)}</span>
+              <span className="min-w-0"><span className="block truncate text-sm font-medium">{show.name || "Untitled show"}</span><span className="block text-xs text-board-muted">{formatDisplayDate(show.serviceDate)}</span></span>
+            </button>)}
+          </div>)}
+          {shows.some(show => !show.name.trim()) && <button type="button" onClick={() => setShowUntitled(value => !value)} className="min-h-11 w-full border-t border-board-border px-4 text-left text-xs text-board-muted">{showUntitled ? "Hide untitled shows" : `Show ${shows.filter(show => !show.name.trim()).length} untitled shows`}</button>}
+        </aside>
       </div>
 
       <Dialog open={showForm && canReportIncidents && !!showId} onOpenChange={setShowForm}>
