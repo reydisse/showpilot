@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "typescript": "^5.7.2"
+    "typescript": "^7.0.2"
   },
   "exports": {
     ".": "./src/index.ts",
@@ -48,7 +48,7 @@
     "./ui-feedback": "./src/ui-feedback.ts"
   },
   "dependencies": {
-    "zod": "4.4.3"
+    "zod": "4.6.7"
   },
   "engines": {
     "node": "24.x",
