@@ -24,6 +24,8 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
+  UserPlus,
+  Users,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -504,13 +506,14 @@ function SchedulePage() {
               ) : null}
               <ReadFailureNotice error={roster.error} refreshing={roster.refreshing} retry={roster.retry} label="Try again" title="We couldn't load the crew for this show." description="Check your connection and try again. Nothing you changed has been lost." />
               {!assignments.length && !roster.refreshing && !roster.error ? (
-                <div className="m-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                <div className="space-y-2 rounded-xl border border-dashed border-board-border p-8 text-sm text-board-muted" role="status">
-                  <p className="font-semibold text-board-text">{selectedAssignments.length ? "No crew match this response filter." : "No crew on this show yet"}</p>
-                  {!selectedAssignments.length && <><p className="max-w-md leading-6">Add positions one at a time, or start from a team you've already built. Everyone you add gets one invite they can accept in a single tap.</p>{data.canManage && <div className="flex gap-2 pt-2"><button onClick={() => setAssignmentOpen(true)} className="rounded-lg bg-fire-500 px-3 py-2 font-medium text-black">+ Add position</button></div>}</>}
+                <div className="mx-6 my-5 flex flex-col gap-6">
+                <div className="flex flex-col items-start gap-4 rounded-2xl border border-dashed border-board-border p-10 text-sm text-board-muted" role="status">
+                  {!selectedAssignments.length && <span className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-board-border text-board-muted"><UserPlus className="h-5 w-5" strokeWidth={1.5} /></span>}
+                  <p className="text-lg font-semibold tracking-[-0.01em] text-board-text">{selectedAssignments.length ? "No crew match this response filter." : "No crew on this show yet"}</p>
+                  {!selectedAssignments.length && <><p className="-mt-2 max-w-[520px] leading-[1.6]">Add positions one at a time, or start from a team you've already built. Everyone you add gets one invite they can accept in a single tap.</p>{data.canManage && data.provider.type === "native" && <div className="flex flex-wrap gap-2 pt-1"><button onClick={() => setAssignmentOpen(true)} className="flex h-8 items-center gap-2 rounded-lg bg-fire-500 px-3 text-xs font-medium text-black focus-visible:outline-2 focus-visible:outline-fire-500"><Plus className="h-3.5 w-3.5" />Add position</button>{savedTeams.length > 0 && <button onClick={() => document.getElementById("schedule-saved-teams")?.focus()} className="flex h-8 items-center gap-2 rounded-lg border border-board-border bg-board-card px-3 text-xs font-medium text-board-text focus-visible:outline-2 focus-visible:outline-fire-500"><Users className="h-3.5 w-3.5" />Start from a team</button>}</div>}</>}
                   {filter !== "all" ? <button type="button" className="rounded-lg px-3 text-fire-400" onClick={() => setFilter("all")}>Show all responses</button> : null}
                 </div>
-                {!selectedAssignments.length && data.canManage && data.provider.type === "native" && savedTeams.length > 0 && <section aria-label="Saved teams" className="py-4">
+                {!selectedAssignments.length && data.canManage && data.provider.type === "native" && savedTeams.length > 0 && <section id="schedule-saved-teams" tabIndex={-1} aria-label="Saved teams" className="py-4 focus-visible:outline-2 focus-visible:outline-fire-500">
                   <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-board-muted">Saved teams</h3>
                   <ul className="divide-y divide-board-border">{savedTeams.map(({ show, count, departments }) => <li key={show.id} className="flex items-center justify-between gap-4 py-3">
                     <div className="min-w-0"><p className="text-sm font-medium text-board-text">{show.name}</p><p className="text-xs text-board-muted">{count} {count === 1 ? "position" : "positions"}{departments && ` · ${departments}`}</p></div>
