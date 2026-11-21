@@ -1,7 +1,4 @@
-/** Progress is visible without narrating background work. */
+/** Quiet progress treatment shared by controls, static with reduced motion. */
 export function QuietActivity({ label = "Loading" }: { label?: string }) {
-  return <span className="inline-flex size-4 shrink-0 items-center justify-center align-middle">
-    <span role="progressbar" aria-label={label} className="size-3.5 animate-spin rounded-full border-2 border-current border-r-transparent motion-reduce:animate-none" />
-    <span className="sr-only">{label}</span>
-  </span>;
+  return <span role="progressbar" aria-label={label} className="inline-block h-1 w-8 rounded-full bg-current opacity-40 motion-safe:animate-pulse" />;
 }

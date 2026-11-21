@@ -74,7 +74,7 @@ it("starts on the current date and proposes the next start time", () => {
   );
   expect(
     screen
-      .getByLabelText("Rundown source")
+      .getByLabelText("Start from a saved show")
       .querySelector("option:checked")
       ?.getAttribute("value"),
   ).toBe("show:current");

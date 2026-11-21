@@ -168,7 +168,7 @@ it("retries only the unconfirmed team row and preserves the successful position"
   click("Add another person");
   await tick();
   change("Position 2", "Camera");
-  click("Add team & send invitations");
+  click("Add team & invite 0");
   await tick();
   const second = sent(1);
   expect(screen.getByText(/Audio: Assignment saved/)).toBeTruthy();

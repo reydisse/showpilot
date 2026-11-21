@@ -32,6 +32,7 @@ export function ShowInventoryEditor({
   onUse: (item: ShowInventorySummary) => void;
   onChanged: (signal: AbortSignal) => Promise<void>;
 }) {
+  const [creating, setCreating] = useState(false);
   const work = useShowInventory({ orgId, userId }, onChanged);
   const [confirmation, setConfirmation] = useState<ShowInventorySummary | null>(
     null,
@@ -118,6 +119,7 @@ export function ShowInventoryEditor({
           )}
         </section>
       )}
+      {!creating && <>
       <div className="space-y-2" aria-label="Reusable shows">
         {inventory.length ? (
           inventory.map((item) => (
@@ -193,7 +195,9 @@ export function ShowInventoryEditor({
           </div>
         </details>
       )}
-      {canManage && (
+      </>}
+      {canManage && !creating && <button type="button" className={button} onClick={() => setCreating(true)}>+ New saved show</button>}
+      {canManage && creating && (
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -201,7 +205,7 @@ export function ShowInventoryEditor({
           }}
           className="space-y-3 border-t border-board-border pt-4"
         >
-          <h3 className="font-semibold text-board-text">Add reusable show</h3>
+          <h3 className="font-semibold text-board-text">New saved show</h3>
           <fieldset disabled={work.locked} className="min-w-0 space-y-3">
             <label className="block text-board-muted">
               Show name
@@ -297,9 +301,10 @@ export function ShowInventoryEditor({
               className={`${button} w-full bg-fire-500 font-semibold text-black`}
               disabled={work.locked || !draft.name.trim() || missingSource}
             >
-              Add to inventory
+              Save show
             </button>
           </fieldset>
+          <button type="button" className={button} onClick={() => setCreating(false)}>Back</button>
         </form>
       )}
       <ConfirmDialog

@@ -78,6 +78,7 @@ it("requires an explicit archive confirmation with its scope and keeps cancellat
 });
 it("preserves an unavailable source and requires an explicit replacement", () => {
   const view = setup();
+  fireEvent.click(screen.getByRole("button", { name: "+ New saved show" }));
   fireEvent.change(screen.getByLabelText("Show name"), {
     target: { value: "Draft" },
   });
@@ -93,7 +94,7 @@ it("preserves an unavailable source and requires an explicit replacement", () =>
   expect(
     (
       screen.getByRole("button", {
-        name: "Add to inventory",
+        name: "Save show",
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(true);
@@ -103,7 +104,7 @@ it("preserves an unavailable source and requires an explicit replacement", () =>
   expect(
     (
       screen.getByRole("button", {
-        name: "Add to inventory",
+        name: "Save show",
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(false);
@@ -112,7 +113,7 @@ it("preserves an unavailable source and requires an explicit replacement", () =>
 it("view-only members have no creation, archive, or restore controls", () => {
   setup(false);
   expect(
-    screen.queryByRole("button", { name: /Archive|Restore|Add to inventory/ }),
+    screen.queryByRole("button", { name: /Archive|Restore|Save show/ }),
   ).toBeNull();
   expect(
     screen.getByRole("button", { name: "Use Reusable show" }),

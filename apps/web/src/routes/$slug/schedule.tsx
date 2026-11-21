@@ -1,3 +1,4 @@
+import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { groupRosterRows, rosterDepartment } from "@/lib/schedule-roster";
 import { ShowInventoryEditor } from "@/components/shows/ShowInventoryEditor";
 import { useShowDeletions } from "@/hooks/useShowDeletions";
@@ -5,7 +6,7 @@ import { ShowDeletionProgress } from "@/components/shows/ShowDeletionProgress";
 import { ShowDetailsEditor } from "@/components/shows/ShowDetailsEditor";
 import { CopyTeamControl } from "@/components/schedule/CopyTeamControl";
 import { useScheduleRoster } from "@/hooks/useScheduleRoster";
-import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
+
 import { AssignmentEditor } from "@/components/schedule/AssignmentEditor";
 import { ReminderControl } from "@/components/schedule/ReminderControl";
 import { ScheduleProviderControl } from "@/components/schedule/ScheduleProviderControl";
@@ -24,7 +25,6 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
-  Check,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -32,7 +32,6 @@ import {
   MapPin,
   Pencil,
   Plus,
-  Send,
   Trash2,
   X,
 } from "lucide-react";
@@ -53,7 +52,7 @@ import { getOrgSettings } from "@/lib/settings";
 import { formatTimeInput, getTodayDateString } from "@/lib/utils";
 import { type OrgTerminologyProfile } from "@/lib/org-terminology";
 import { hasEffectivePermission } from "@/lib/app-permissions";
-import { StatusMetric } from "@/components/ui/status-metric";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import {
   getScheduleSelectionDeps,
   getScheduleMonthWindow,
@@ -409,6 +408,7 @@ function SchedulePage() {
               <section className="border-b border-board-border bg-board-card px-4 py-5 md:px-6">
                 <div className="flex flex-wrap items-start gap-4">
                   <div className="min-w-0 flex-[1_1_18rem]">
+                    <p className="mb-2 text-xs uppercase tracking-wider text-board-muted tabular-nums">{longDate(selected.serviceDate, locale)}</p>
                     <button
                       disabled={!data.canManage}
                       onClick={() => setServiceOpen(true)}
@@ -425,11 +425,11 @@ function SchedulePage() {
                     <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-board-muted">
                       <span className="flex items-center gap-1.5">
                         <CalendarDays className="h-3.5 w-3.5" />
-                        {longDate(selected.serviceDate, locale)}
+                        Starts
                       </span>
                       <span className="flex items-center gap-1.5">
                         <Clock3 className="h-3.5 w-3.5" />
-                        {timeLabel(selected.scheduledStartTime, deviceTimeZone, locale)}
+                        {timeLabel(selected.scheduledStartTime, deviceTimeZone, locale)}{selected.effectiveCallTime ? ` · Crew call ${timeLabel(selected.effectiveCallTime, deviceTimeZone, locale)}` : ""}
                       </span>
                       {selected.location ? (
                         <span className="flex items-center gap-1.5">
@@ -441,13 +441,7 @@ function SchedulePage() {
                   </div>
                   {data.provider.type === "native" && data.canManage ? (
                     <div className="flex flex-wrap gap-2">
-                      <ReminderControl
-                        orgId={data.orgId}
-                        target={{ kind: "show", id: selected.id }}
-                        label={`Remind awaiting crew (${stats.awaiting})`}
-                        disabled={stats.awaiting === 0}
-                        onChanged={async () => { await router.invalidate(); const match = router.state.matches.find(value => value.routeId === Route.id); if (match?.status === "error") throw match.error; }}
-                      />
+
                       <button
                         onClick={() => {
                           setTeamBuilderOpen(true);
@@ -486,27 +480,17 @@ function SchedulePage() {
                   ) : null}
                 </div>
               </section>
-              <section className="grid grid-cols-2 gap-2 border-b border-board-border bg-board-card px-4 py-3 @min-[520px]/schedule-main:grid-cols-4 md:px-6">
-                <StatusMetric label="Filled" value={stats.filled} tone="success" compact />
-                <StatusMetric label="Open" value={stats.open} tone="danger" compact />
-                <StatusMetric label="Awaiting" value={stats.awaiting} tone="warning" compact />
-                <StatusMetric label="Declined" value={stats.declined} tone="danger" compact />
-                <div className="col-span-full flex flex-wrap items-center justify-end gap-2">
-                  <select
-                    aria-label="Filter crew responses"
-                    value={filter}
-                    onChange={(event) =>
-                      setFilter(event.target.value as ResponseFilter)
-                    }
-                    className="min-h-11 rounded-lg border border-board-border bg-board-bg px-3 py-2 text-xs text-board-text outline-none focus-visible:ring-2 focus-visible:ring-fire-500"
-                  >
-                    <option value="all">All responses</option>
-                    <option value="confirmed">Complete</option>
-                    <option value="assigned">Awaiting</option>
-                    <option value="closed">Closed</option>
-                    <option value="declined">Declined</option>
-                    <option value="open">Open</option>
-                  </select>
+              <section className="space-y-3 border-b border-board-border bg-board-card px-4 py-4 md:px-6">
+                {stats.awaiting > 0 && (                      <ReminderControl
+                        orgId={data.orgId}
+                        target={{ kind: "show", id: selected.id }}
+                        label={`Remind awaiting crew (${stats.awaiting})`}
+                        disabled={stats.awaiting === 0}
+                        onChanged={async () => { await router.invalidate(); const match = router.state.matches.find(value => value.routeId === Route.id); if (match?.status === "error") throw match.error; }}
+                      />) }
+                <p className="text-sm text-board-muted tabular-nums">{stats.filled} filled · {stats.awaiting} awaiting · {stats.open} open</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {([['all', 'All'], ['confirmed', 'Confirmed'], ['assigned', 'Awaiting'], ['closed', 'Closed'], ['open', 'Open'], ['declined', 'Declined']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)} className={`rounded-md px-3 py-2 text-xs focus-visible:outline focus-visible:outline-fire-500 ${filter === value ? 'bg-board-border text-board-text' : 'text-board-muted hover:text-board-text'}`}>{label}</button>)}
                   <Link
                     to="/$slug/rundown"
                     params={{ slug }}
@@ -528,10 +512,11 @@ function SchedulePage() {
                   layer.
                 </div>
               ) : null}
-              <ReadFailureNotice error={roster.error} refreshing={roster.refreshing} retry={roster.retry} label="Retry roster" />
+              <ReadFailureNotice error={roster.error} refreshing={roster.refreshing} retry={roster.retry} label="Try again" title="We couldn't load the crew for this show." description="Check your connection and try again. Nothing you changed has been lost." />
               {!assignments.length && !roster.refreshing && !roster.error ? (
-                <div className="space-y-2 border-b border-board-border p-4 text-sm text-board-muted" role="status">
-                  <p>{selectedAssignments.length ? "No crew match this response filter." : "No positions assigned to this show."}</p>
+                <div className="m-4 space-y-2 rounded-xl border border-dashed border-board-border p-8 text-sm text-board-muted" role="status">
+                  <p className="font-semibold text-board-text">{selectedAssignments.length ? "No crew match this response filter." : "No crew on this show yet"}</p>
+                  {!selectedAssignments.length && <><p className="max-w-md leading-6">Add positions one at a time, or start from a team you've already built. Everyone you add gets one invite they can accept in a single tap.</p>{data.canManage && <div className="flex gap-2 pt-2"><button onClick={() => setAssignmentOpen(true)} className="rounded-lg bg-fire-500 px-3 py-2 font-medium text-black">+ Add position</button></div>}</>}
                   {filter !== "all" ? <button type="button" className="rounded-lg px-3 text-fire-400" onClick={() => setFilter("all")}>Show all responses</button> : null}
                 </div>
               ) : null}
@@ -786,6 +771,8 @@ function MonthCalendar({
     </div>
   );
 }
+// TODO(design): bounce status is not exposed by the roster contract; add the flagged failure row when available.
+// TODO(design): surface-2, surface-3 and border-strong reuse board-border, the nearest existing neutral token.
 function RosterTable({
   assignments,
   departments,
@@ -806,149 +793,13 @@ function RosterTable({
   confirm: ReturnType<typeof useConfirmDialog>["confirm"];
 }) {
   const groups = groupRosterRows(assignments, departments);
-  return (
-    <>
-      <div className="divide-y divide-board-border @min-[960px]/schedule-main:hidden">
-        {groups.map((group) => (
-          <section key={`mobile-${group.name}`}>
-            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 bg-board-card/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-board-muted">
-              <span>{group.name} <span className="ml-1 text-board-muted/50">{group.rows.length}</span></span>
-              {canManage ? (
-                <button onClick={() => onAdd(group.name)} className="shrink-0 rounded-lg px-2 text-fire-400">Add position</button>
-              ) : null}
-            </div>
-            <div className="divide-y divide-board-border">
-              {group.rows.map((assignment) => (
-                <RosterMobileCard
-                  key={assignment.id}
-                  assignment={assignment}
-                  orgId={orgId}
-                  canManage={canManage}
-                  onEdit={() => onEdit(assignment)}
-                  onChanged={onChanged}
-                  confirm={confirm}
-                />
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
-      <div className="hidden @min-[960px]/schedule-main:block">
-      <div className="min-w-0">
-        <div className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.8fr)_140px] border-b border-board-border bg-board-bg px-6 py-2.5 text-xs uppercase tracking-wider text-board-muted">
-          <span>Position</span>
-          <span>Assigned to</span>
-          <span>Invitation</span>
-          <span>Response</span>
-          <span />
-        </div>
-        {groups.map((group) => (
-          <section key={group.name}>
-            <div className="border-b border-board-border bg-board-card/70 px-6 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-board-muted">
-              {group.name}{" "}
-              <span className="ml-1 text-board-muted/50">
-                {group.rows.length}
-              </span>
-            </div>
-            {group.rows.map((assignment) => (
-              <RosterRow
-                key={assignment.id}
-                assignment={assignment}
-                orgId={orgId}
-                canManage={canManage}
-                onEdit={() => onEdit(assignment)}
-                onChanged={onChanged}
-                confirm={confirm}
-              />
-            ))}
-            {canManage ? (
-              <button
-                onClick={() => onAdd(group.name)}
-                className="flex w-full items-center gap-2 border-b border-board-border px-6 py-2.5 text-left text-xs text-fire-400 hover:bg-board-card"
-              >
-                <Plus className="h-3 w-3" />
-                Add position
-              </button>
-            ) : null}
-          </section>
-        ))}
-      </div>
-      </div>
-    </>
-  );
-}
-
-function RosterMobileCard({
-  assignment,
-  orgId,
-  canManage,
-  onEdit,
-  onChanged,
-  confirm,
-}: {
-  assignment: Assignment;
-  orgId: string;
-  canManage: boolean;
-  onEdit: () => void;
-  onChanged: () => Promise<void>;
-  confirm: ReturnType<typeof useConfirmDialog>["confirm"];
-}) {
-  const locale = useDeviceLocale();
-  const deviceTimeZone = useDeviceTimeZone();
-  const responseOpen = assignment.responseWindow.status === "open";
-  const closed =
-    assignment.status === "assigned" &&
-    Boolean(assignment.crewMemberId) &&
-    !responseOpen;
-  const pending =
-    assignment.status === "assigned" &&
-    Boolean(assignment.crewMemberId) &&
-    responseOpen;
-  const responseLabel = assignment.crewMemberId
-    ? assignment.status === "assigned"
-      ? closed
-        ? "Closed"
-        : "Awaiting response"
-      : assignment.status
-    : "Open position";
-  const statusClass = assignment.status === "confirmed"
-    ? "text-green-400"
-    : assignment.status === "declined"
-      ? "text-red-400"
-      : closed
-        ? "text-board-muted"
-        : "text-yellow-300";
-  return (
-    <article id={`assignment-mobile-${assignment.id}`} className="min-w-0 space-y-3 bg-board-bg px-4 py-4">
-      <div className="flex min-w-0 flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="break-words text-sm font-medium text-board-text">{assignment.role}</p>
-          <p className="mt-1 text-xs text-board-muted">Call {timeLabel(assignment.effectiveCallTime, deviceTimeZone, locale)} · {rosterDepartment(assignment)}</p>
-        </div>
-        <span className={`shrink-0 text-xs font-medium capitalize ${statusClass}`}>{responseLabel}</span>
-      </div>
-      <div className="rounded-xl border border-board-border bg-board-card/45 p-3">
-        <p className="break-words text-xs font-medium text-board-text">{assignment.crewMember?.name ?? "Nobody assigned"}</p>
-        <p className="mt-0.5 break-all text-xs text-board-muted">{assignment.crewMember?.email || "This position is open"}</p>
-        <p className="mt-2 text-xs text-board-muted">{assignment.invitedAt ? "Invitation sent" : assignment.crewMember ? "Invitation not sent" : "No invitation needed"}</p>
-      </div>
-      {assignment.responseNote ? (
-        <details className="min-w-0 rounded-xl border border-red-500/20 bg-red-500/[0.045] px-3 py-2.5">
-          <summary className="min-h-11 cursor-pointer rounded-lg py-3 text-xs font-semibold text-red-300 outline-none focus-visible:ring-2 focus-visible:ring-fire-500">Read response note</summary>
-          <p className="mt-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xs leading-5 text-board-text">{assignment.responseNote}</p>
-        </details>
-      ) : null}
-      {canManage ? (
-        <div className="flex flex-wrap gap-2">
-          <button onClick={onEdit} aria-label={`Edit ${assignment.role}`} className="rounded-lg border border-board-border px-3 py-2 text-xs text-board-text">Edit</button>
-          {assignment.crewMemberId ? (
-            <ReminderControl orgId={orgId} target={{ kind: "assignment", id: assignment.id }} label="Resend invite" disabled={!pending} onChanged={onChanged} />
-          ) : null}
-          <RemoveAssignmentButton orgId={orgId} assignment={assignment} confirm={confirm} onChanged={onChanged} />
-        </div>
-      ) : null}
-    </article>
-  );
+  return <div className="space-y-3">{groups.map(group => group.rows.length ? <details key={group.name} open className="rounded-xl border border-board-border bg-board-card">
+    <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-4 text-xs text-board-muted focus-visible:outline focus-visible:outline-fire-500">
+      <span className="uppercase tracking-wider">{group.name} {group.rows.length} · {group.rows.filter(row => row.status === "confirmed").length} confirmed · {group.rows.filter(row => row.status === "declined").length} needs attention</span>
+      {canManage && <button onClick={event => { event.preventDefault(); onAdd(group.name); }} className="rounded-md p-2 hover:text-board-text">+ Add position</button>}
+    </summary>
+    {group.rows.map(assignment => <RosterRow key={assignment.id} assignment={assignment} orgId={orgId} canManage={canManage} onEdit={() => onEdit(assignment)} onChanged={onChanged} confirm={confirm} />)}
+  </details> : canManage ? <button key={group.name} onClick={() => onAdd(group.name)} className="w-full rounded-xl border border-dashed border-board-border p-3 text-left text-xs text-board-muted">+ {group.name}</button> : null)}</div>;
 }
 
 function RosterRow({
@@ -985,81 +836,19 @@ function RosterRow({
         : closed
           ? "text-board-muted"
           : "text-yellow-300";
-  return (
-    <div id={`assignment-${assignment.id}`} className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.8fr)_140px] items-center border-b border-board-border px-6 py-3 text-xs hover:bg-board-card/60">
-      <button
-        disabled={!canManage}
-        onClick={onEdit}
-        className="min-w-0 rounded-lg pr-3 text-left font-medium text-board-text disabled:cursor-default"
-      >
-        {assignment.role}
-        <span className="mt-0.5 block text-xs font-normal text-board-muted">Call {timeLabel(assignment.effectiveCallTime, deviceTimeZone, locale)}</span>
-      </button>
-      <button
-        disabled={!canManage}
-        onClick={onEdit}
-        className={`min-w-0 rounded-lg pr-3 text-left disabled:cursor-default ${assignment.crewMember ? "text-board-text" : "text-fire-400"}`}
-      >
-        {assignment.crewMember?.name ?? "Open position"}
-        <p className="mt-0.5 text-xs text-board-muted">
-          {assignment.crewMember?.email || "Click to assign a roster contact"}
-        </p>
-      </button>
-      <div className="text-xs text-board-muted">
-        {assignment.invitedAt ? (
-          <>
-            <Send className="mr-1 inline h-3 w-3 text-green-400" />
-            Invitation sent
-          </>
-        ) : assignment.crewMember ? (
-          "Not sent"
-        ) : (
-          "—"
-        )}
-      </div>
-      <div className={`min-w-0 text-xs ${statusColor}`}>
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5 capitalize">
-          {assignment.status === "confirmed" ? (
-            <Check className="h-3 w-3 shrink-0" />
-          ) : assignment.status === "declined" ? (
-            <X className="h-3 w-3 shrink-0" />
-          ) : (
-            <Clock3 className="h-3 w-3 shrink-0" />
-          )}
-          <span>{assignment.crewMemberId
-            ? assignment.status === "assigned"
-              ? closed
-                ? "Closed"
-                : "Awaiting"
-              : assignment.status
-            : "Open"}</span>
-          {canManage && assignment.crewMemberId ? (
-            <ReminderControl orgId={orgId} target={{ kind: "assignment", id: assignment.id }} label="Resend invite" disabled={!pending} onChanged={onChanged} />
-          ) : null}
-        </div>
-        {assignment.responseNote ? (
-          <details className="mt-1 min-w-0 normal-case">
-            <summary className="min-h-11 cursor-pointer rounded-lg py-3 text-xs font-semibold outline-none focus-visible:ring-2 focus-visible:ring-fire-500">Read response note</summary>
-            <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-xs leading-5 text-board-text">{assignment.responseNote}</p>
-          </details>
-        ) : null}
-      </div>
-      <div className="flex flex-wrap items-center gap-1">
-        {canManage ? (
-          <>
-            <button
-              onClick={onEdit}
-              aria-label={`Edit ${assignment.role}`}
-              className="min-h-11 min-w-11 rounded p-1.5 text-board-muted hover:bg-board-border hover:text-board-text"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-            <RemoveAssignmentButton orgId={orgId} assignment={assignment} confirm={confirm} onChanged={onChanged} />
-          </>
-        ) : null}
-      </div>
-    </div>
-  );
+  return <div id={`assignment-${assignment.id}`} className="grid h-12 grid-cols-[28px_minmax(0,1fr)_auto_28px] items-center gap-3 border-t border-board-border px-4 text-xs hover:bg-board-border/30 @min-[520px]/schedule-main:grid-cols-[28px_minmax(0,1.3fr)_minmax(0,1fr)_100px_28px] @min-[960px]/schedule-main:grid-cols-[28px_minmax(0,1.3fr)_minmax(0,1fr)_72px_110px_28px]">
+    <span aria-hidden="true" className={`flex h-7 w-7 items-center justify-center rounded-full border border-board-border text-board-muted ${assignment.crewMember ? "bg-board-border" : "border-dashed"}`}>{assignment.crewMember?.name.split(" ").map(part => part[0]).slice(0,2).join("")}</span>
+    <span className="truncate font-medium text-board-text">{assignment.crewMember?.name ?? "Open — nobody assigned"}</span>
+    <span className="hidden truncate text-board-muted @min-[520px]/schedule-main:block">{assignment.role}</span>
+    <span className="hidden tabular-nums text-board-muted @min-[960px]/schedule-main:block">{timeLabel(assignment.effectiveCallTime, deviceTimeZone, locale)}</span>
+    <span className={`truncate capitalize ${statusColor}`}>{!assignment.crewMemberId ? canManage ? <button onClick={onEdit} className="rounded-md border border-board-border px-2 py-1">Assign</button> : "Open" : `● ${assignment.status === "assigned" ? closed ? "Closed" : "Awaiting" : assignment.status}`}</span>
+    <DropdownMenu><DropdownMenuTrigger aria-label={`Actions for ${assignment.crewMember?.name ?? assignment.role}`} className="h-8 rounded-md text-lg text-board-muted focus-visible:outline focus-visible:outline-fire-500">⋯</DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72 border-board-border bg-board-card text-board-text">
+        <div className="space-y-1 border-b border-board-border p-3 text-xs text-board-muted"><p className="break-all">{assignment.crewMember?.email ?? "Nobody assigned"}</p><p>{assignment.invitedAt ? `Invitation sent ${new Date(assignment.invitedAt).toLocaleString(locale)}` : "Invitation not sent"}</p>{assignment.responseNote && <p className="whitespace-pre-wrap">{assignment.responseNote}</p>}</div>
+        {canManage && <><div className="p-2">{assignment.crewMemberId && <ReminderControl orgId={orgId} target={{kind: "assignment", id: assignment.id}} label="Resend invite" disabled={!pending} onChanged={onChanged} />}</div><DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem><div className="mt-1 border-t border-board-border"><RemoveAssignmentButton orgId={orgId} assignment={assignment} confirm={confirm} onChanged={onChanged} /></div></>}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  </div>;
 }
 
 function RemoveAssignmentButton({ orgId, assignment, confirm, onChanged }: {

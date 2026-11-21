@@ -373,7 +373,7 @@ export function AssignmentEditor({
                     {draft.rows.map((row, index) => (
                       <div
                         key={row.key}
-                        className="min-w-0 space-y-3 rounded-xl border border-board-border p-3"
+                        className={target.kind === "team" ? "grid min-w-0 grid-cols-2 items-start gap-2" : "min-w-0 space-y-3"}
                       >
                         <label className="block space-y-1 text-sm">
                           <span>
@@ -514,7 +514,7 @@ export function AssignmentEditor({
                       : target.kind === "edit"
                         ? "Save assignment"
                         : target.kind === "team"
-                          ? "Add team & send invitations"
+                          ? `Add team & invite ${draft.rows.filter(row => row.crewMemberId).length}`
                           : "Add position"}
                   </button>
                 )}

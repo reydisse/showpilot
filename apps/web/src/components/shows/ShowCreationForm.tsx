@@ -117,6 +117,53 @@ export function ShowCreationForm({
         className="min-w-0 space-y-3 disabled:opacity-70"
       >
         <label className="block text-sm text-board-muted">
+          Start from a saved show
+          <select
+            className={control}
+            value={selected}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (!value) {
+                change("source", { kind: "blank" });
+                return;
+              }
+              const show = shows.find((item) => `show:${item.id}` === value);
+              if (show) {
+                change("source", { kind: "show", ...show });
+                return;
+              }
+              const item = inventory.find(
+                (item) => `inventory:${item.id}` === value,
+              );
+              if (item)
+                work.setDraft((current) =>
+                  inventoryDraft(current, item, venueTimeZone),
+                );
+            }}
+          >
+            <option value="">Start blank</option>
+            {!known && draft.source.kind !== "blank" && (
+              <option value={selected}>
+                {draft.source.name || "Previous selection"} (unavailable)
+              </option>
+            )}
+            {shows.map((show) => (
+              <option key={show.id} value={`show:${show.id}`}>
+                {show.name || "Show"} · {show.serviceDate}
+              </option>
+            ))}
+            {inventory.length > 0 && (
+              <optgroup label="Show inventory">
+                {inventory.map((item) => (
+                  <option key={item.id} value={`inventory:${item.id}`}>
+                    {item.name} · {item.itemCount} items
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </label>
+        <label className="block text-sm text-board-muted">
           Show name
           <input
             autoFocus
@@ -172,53 +219,7 @@ export function ShowCreationForm({
             onChange={(e) => change("location", e.target.value)}
           />
         </label>
-        <label className="block text-sm text-board-muted">
-          Rundown source
-          <select
-            className={control}
-            value={selected}
-            onChange={(e) => {
-              const value = e.target.value;
-              if (!value) {
-                change("source", { kind: "blank" });
-                return;
-              }
-              const show = shows.find((item) => `show:${item.id}` === value);
-              if (show) {
-                change("source", { kind: "show", ...show });
-                return;
-              }
-              const item = inventory.find(
-                (item) => `inventory:${item.id}` === value,
-              );
-              if (item)
-                work.setDraft((current) =>
-                  inventoryDraft(current, item, venueTimeZone),
-                );
-            }}
-          >
-            <option value="">Start blank</option>
-            {!known && draft.source.kind !== "blank" && (
-              <option value={selected}>
-                {draft.source.name || "Previous selection"} (unavailable)
-              </option>
-            )}
-            {shows.map((show) => (
-              <option key={show.id} value={`show:${show.id}`}>
-                {show.name || "Show"} · {show.serviceDate}
-              </option>
-            ))}
-            {inventory.length > 0 && (
-              <optgroup label="Show inventory">
-                {inventory.map((item) => (
-                  <option key={item.id} value={`inventory:${item.id}`}>
-                    {item.name} · {item.itemCount} items
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-        </label>
+
       </fieldset>
       <CreationRecovery work={work} />
       <div className="flex flex-wrap gap-2">
