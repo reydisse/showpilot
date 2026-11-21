@@ -116,7 +116,7 @@ function IncidentHistoryPage() {
             </Link>
           </PageBreadcrumb>
           <div>
-            <h1 className="text-base font-semibold text-board-text">
+            <h1 className="text-2xl font-semibold tracking-tight text-board-text">
               Incident history
             </h1>
             <p className="text-xs text-board-muted">
@@ -207,7 +207,7 @@ function IncidentHistoryPage() {
           </button>
         </div>
       </header>
-      <main className="mx-auto max-w-5xl p-4 md:p-6">
+      <main className="mx-auto max-w-6xl p-4 md:px-10 md:py-8">
         {result.incidents.length ? (
           <div className="overflow-hidden rounded-xl border border-board-border bg-board-card">
             {result.incidents.map((incident) => (

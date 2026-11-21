@@ -243,7 +243,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
       <RelaySyncNotice error={syncError} occurredAt={syncErrorAt} status={syncStatus} onRetry={retrySync} />
       <div className="sticky top-0 z-10 border-b border-board-border bg-board-bg/80 px-4 py-4 backdrop-blur-xl sm:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="text-lg font-semibold text-board-text">
+          <h1 className="text-2xl font-semibold tracking-tight text-board-text">
             Incident Log
           </h1>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end [&_button]:min-h-11">
@@ -279,10 +279,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
               <button
                 onClick={() => setShowForm(true)}
                 className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
-                style={{
-                  background:
-                    "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
-                }}
+                style={{ background: "var(--color-fire-500)" }}
               >
                 <Plus className="w-3.5 h-3.5" />
                 Report
@@ -294,7 +291,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
         {!showForm && writeNotice}
       </div>
 
-      <div className="mx-auto max-w-3xl p-4 sm:p-6">
+      <div className="mx-auto max-w-6xl p-4 sm:px-10 sm:py-8">
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-fire-400">
@@ -509,7 +506,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
         ) : !loadingIncidents && !snapshotRead.error ? (
           <EmptyState
             icon={ShieldCheck}
-            title="No incidents for this date"
+            title="All clear for this show"
             description={
               canReportIncidents
                 ? "All clear. Use Report above to log anything that goes wrong during the show — audio dropouts, camera faults, stream issues."
@@ -577,7 +574,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
       </div>
 
       <Dialog open={showForm && canReportIncidents && !!showId} onOpenChange={setShowForm}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto border-board-border bg-board-card text-board-text sm:max-w-lg">
+        <DialogContent className="max-h-[85vh] overflow-y-auto border-board-border bg-board-card text-board-text sm:max-w-[560px]">
           <DialogHeader><DialogTitle>Report incident</DialogTitle><DialogDescription>Log an issue for {formatDisplayDate(serviceDate)}.</DialogDescription></DialogHeader>
           <ReadFailureNotice error={snapshotRead.error} refreshing={snapshotRead.refreshing} retry={snapshotRead.retry} label="Retry incidents" />
           {writeNotice}
@@ -592,11 +589,11 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
                 setForm({ ...form, description: e.target.value })
               }
               placeholder="What happened?"
-              rows={3}
+              rows={5}
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 resize-none"
             />
-            <div className="grid gap-3 sm:grid-cols-3">
-              <label className="sr-only" htmlFor="incident-category">Category</label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-medium text-board-muted" htmlFor="incident-category">Category</label>
               <select
                 id="incident-category"
                 disabled={writeLocked}
@@ -610,7 +607,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
                   </option>
                 ))}
               </select>
-              <label className="sr-only" htmlFor="incident-severity">Severity</label>
+              <label className="text-xs font-medium text-board-muted" htmlFor="incident-severity">Severity</label>
               <select
                 id="incident-severity"
                 disabled={writeLocked}
@@ -623,7 +620,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
                 <option value="high">High</option>
                 <option value="critical">Critical</option>
               </select>
-              <label className="sr-only" htmlFor="incident-reporter">Reported by</label>
+              <label className="text-xs font-medium text-board-muted" htmlFor="incident-reporter">Reported by</label>
               <input
                 id="incident-reporter"
                 maxLength={200}
@@ -648,10 +645,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
                 type="submit"
                 disabled={!canWrite || !form.description.trim()}
                 className="min-h-11 rounded-xl px-4 py-2.5 text-sm font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98] disabled:opacity-50"
-                style={{
-                  background:
-                    "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
-                }}
+                style={{ background: "var(--color-fire-500)" }}
               >
                 Submit report
               </button>
