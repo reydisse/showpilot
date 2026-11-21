@@ -1,3 +1,4 @@
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
@@ -150,15 +151,14 @@ export function ShowInventoryEditor({
                 Use
               </button>
               {canManage && (
-                <button
-                  type="button"
-                  className={button}
-                  aria-label={`Archive ${item.name}`}
-                  disabled={work.locked}
-                  onClick={() => setConfirmation(item)}
-                >
-                  Archive
-                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger className={button} aria-label={`Actions for ${item.name}`} disabled={work.locked}>⋯</DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="border-board-border bg-board-card text-board-text">
+                    {/* TODO: Rename requires an inventory update operation; the contract only supports create/archive. */}
+                    <DropdownMenuItem disabled>Rename (unavailable)</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => setConfirmation(item)}>Archive</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
             </div>
           ))
@@ -197,7 +197,7 @@ export function ShowInventoryEditor({
         </details>
       )}
       </>}
-      {canManage && !creating && <button type="button" className={button} onClick={() => setCreating(true)}>+ New saved show</button>}
+      {canManage && !creating && <button type="button" className={button} onClick={() => setCreating(true)}>+ Add reusable show</button>}
       {canManage && creating && (
         <form
           onSubmit={(event) => {
@@ -206,7 +206,7 @@ export function ShowInventoryEditor({
           }}
           className="space-y-3 border-t border-board-border pt-4"
         >
-          <h3 className="font-semibold text-board-text">New saved show</h3>
+          <h3 className="font-semibold text-board-text">Add reusable show</h3>
           <fieldset disabled={work.locked} className="min-w-0 space-y-3">
             <label className="block text-board-muted">
               Show name

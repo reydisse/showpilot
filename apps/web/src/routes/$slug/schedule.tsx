@@ -1029,7 +1029,8 @@ function ServiceDetailsModal({
         refresh={onSaved} onRefreshed={onClose} disabled={deleting}
       >
       {(locked) => <>
-      <div className="mt-5 border-t border-board-border pt-4">
+      <div className="mt-5 border-t border-board-border pt-4" aria-label="Delete show">
+        <h3 className="mb-1 text-sm font-medium text-board-text">Delete show</h3>
         <p className="text-xs leading-5 text-board-muted">Deleting removes this stopped show’s rundown, crew assignments, notes, checklist, incidents and related notifications.</p>
         <button
           type="button"

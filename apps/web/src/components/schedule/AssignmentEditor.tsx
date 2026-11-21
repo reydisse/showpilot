@@ -348,7 +348,7 @@ export function AssignmentEditor({
                     <label className="block space-y-1 text-sm">
                       <span>
                         {target.kind === "team"
-                          ? "Team or category name"
+                          ? "Team name"
                           : "Department"}
                       </span>
                       <input

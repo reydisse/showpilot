@@ -58,16 +58,14 @@ it("requires an explicit archive confirmation with its scope and keeps cancellat
     item: null,
   }));
   setup();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Archive Reusable show" }),
-  );
+  fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Reusable show" }), { key: "ArrowDown" });
+  fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
   expect(screen.getByText(/Scheduled shows are unchanged/)).toBeTruthy();
   expect(rpc.mutate).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   expect(rpc.mutate).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Archive Reusable show" }),
-  );
+  fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Reusable show" }), { key: "ArrowDown" });
+  fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
   fireEvent.click(screen.getByRole("button", { name: "Archive show" }));
   await waitFor(() => expect(rpc.mutate).toHaveBeenCalledTimes(1));
   expect(rpc.mutate.mock.calls[0][0].data.operation).toMatchObject({
@@ -78,7 +76,7 @@ it("requires an explicit archive confirmation with its scope and keeps cancellat
 });
 it("preserves an unavailable source and requires an explicit replacement", () => {
   const view = setup();
-  fireEvent.click(screen.getByRole("button", { name: "+ New saved show" }));
+  fireEvent.click(screen.getByRole("button", { name: "+ Add reusable show" }));
   fireEvent.change(screen.getByLabelText("Show name"), {
     target: { value: "Draft" },
   });
