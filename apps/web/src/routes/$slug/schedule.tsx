@@ -292,57 +292,6 @@ function SchedulePage() {
       {selected ? (
         <ScheduleLiveDetails key={selected.id} orgId={data.orgId} service={selected} />
       ) : null}
-      <header className="z-20 border-b border-board-border bg-board-bg/95 px-4 py-3 backdrop-blur-xl sm:sticky sm:top-0 md:px-6">
-        <div className="mx-auto flex max-w-[1700px] flex-wrap items-center gap-3">
-          <h1 className="min-w-0 basis-full text-xl font-semibold tracking-tight text-board-text sm:basis-auto sm:flex-1">
-            Schedule
-          </h1>
-          {data.canManage ? (
-            <ScheduleProviderControl
-              key={`${user.id}:${data.orgId}`}
-              userId={user.id}
-              orgId={data.orgId}
-              workspaceSettingsLink={
-                <Link
-                  to="/$slug/settings"
-                  params={{ slug }}
-                  search={{ section: "workspace" }}
-                  className="inline-flex min-h-11 items-center text-fire-500 underline focus-visible:outline-2 focus-visible:outline-fire-500"
-                >
-                  Change wording in Settings → Workspace
-                </Link>
-              }
-              refresh={async () => {
-                await router.invalidate();
-                const schedule = router.state.matches.find(
-                  (match) => match.routeId === Route.id,
-                );
-                if (schedule?.status === "error") throw schedule.error;
-              }}
-            />
-          ) : null}
-          {data.canManage && data.provider.type === "native" ? (
-            <button
-              onClick={() => setInventoryOpen(true)}
-              className="flex min-h-11 items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-muted hover:text-board-text"
-            >
-              Inventory
-            </button>
-          ) : null}
-          {data.canManage && data.provider.type === "native" ? (
-            <button
-              onClick={() => {
-                setInventorySeedId(undefined);
-                setCreateOpen(true);
-              }}
-              className="flex min-h-11 items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-text"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              New {terms.event}
-            </button>
-          ) : null}
-        </div>
-      </header>
       <ShowDeletionProgress controller={deletions} />
       <div className="mx-auto grid min-h-[calc(100vh-58px)] max-w-[1700px] grid-cols-[minmax(0,1fr)] border-x border-board-border lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="border-b border-board-border bg-board-card lg:border-b-0 lg:border-r">
@@ -431,10 +380,7 @@ function SchedulePage() {
                       Starts {timeLabel(selected.scheduledStartTime, deviceTimeZone, locale)}{selected.effectiveCallTime ? ` · Crew call ${timeLabel(selected.effectiveCallTime, deviceTimeZone, locale)}` : ""}{selected.location ? ` · ${selected.location}` : ""}
                     </p>
                   </div>
-                  {data.provider.type === "native" && data.canManage ? (
-                    <div className="flex flex-wrap gap-2">
-
-                      <button
+                  {data.canManage ? (<div className="flex items-center gap-2"><details className="relative"><summary className="cursor-pointer list-none rounded-md border border-board-border px-3 py-2 text-board-muted" aria-label="Show actions">•••</summary><div className="absolute right-0 z-30 mt-2 flex w-72 flex-col gap-2 rounded-lg border border-board-border bg-board-card p-3 shadow-lg">{data.provider.type === "native" ? <><button
                         onClick={() => {
                           setTeamBuilderOpen(true);
                         }}
@@ -443,7 +389,55 @@ function SchedulePage() {
                         <Plus className="h-3.5 w-3.5" />
                         Build a team
                       </button>
-                      <button
+                      <CopyTeamControl orgId={data.orgId} userId={user.id} showId={selected.id}
+                        selection={previous ? { showId: selected.id, serviceDate: selected.serviceDate, copyFromShowId: previous.id, copyFrom: previous.serviceDate } : null}
+                        canCopy={selectedAssignments.length === 0 && selected.status !== "running" && selected.status !== "paused"}
+                        onChanged={refreshAssignments} /></> : null}
+          {data.canManage ? (
+            <ScheduleProviderControl
+              key={`${user.id}:${data.orgId}`}
+              userId={user.id}
+              orgId={data.orgId}
+              workspaceSettingsLink={
+                <Link
+                  to="/$slug/settings"
+                  params={{ slug }}
+                  search={{ section: "workspace" }}
+                  className="inline-flex min-h-11 items-center text-fire-500 underline focus-visible:outline-2 focus-visible:outline-fire-500"
+                >
+                  Change wording in Settings → Workspace
+                </Link>
+              }
+              refresh={async () => {
+                await router.invalidate();
+                const schedule = router.state.matches.find(
+                  (match) => match.routeId === Route.id,
+                );
+                if (schedule?.status === "error") throw schedule.error;
+              }}
+            />
+          ) : null}
+          {data.canManage && data.provider.type === "native" ? (
+            <button
+              onClick={() => setInventoryOpen(true)}
+              className="flex min-h-11 items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-muted hover:text-board-text"
+            >
+              Inventory
+            </button>
+          ) : null}
+          {data.canManage && data.provider.type === "native" ? (
+            <button
+              onClick={() => {
+                setInventorySeedId(undefined);
+                setCreateOpen(true);
+              }}
+              className="flex min-h-11 items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-text"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New {terms.event}
+            </button>
+          ) : null}
+<button onClick={() => setServiceOpen(true)} className="px-3 py-2 text-left text-xs text-board-muted">Show details</button></div></details>{data.provider.type === "native" ? <button
                         onClick={() => {
                           setAssignmentDepartment(departments[0] ?? "");
                           setAssignmentOpen(true);
@@ -452,13 +446,8 @@ function SchedulePage() {
                       >
                         <Plus className="h-3.5 w-3.5" />
                         Add position
-                      </button>
-                      <CopyTeamControl orgId={data.orgId} userId={user.id} showId={selected.id}
-                        selection={previous ? { showId: selected.id, serviceDate: selected.serviceDate, copyFromShowId: previous.id, copyFrom: previous.serviceDate } : null}
-                        canCopy={selectedAssignments.length === 0 && selected.status !== "running" && selected.status !== "paused"}
-                        onChanged={refreshAssignments} />
-                    </div>
-                  ) : data.provider.url ? (
+                      </button> : null}
+</div>                  ) : data.provider.url ? (
                     <a
                       href={data.provider.url}
                       target="_blank"
@@ -473,6 +462,7 @@ function SchedulePage() {
                 </div>
               </section>
               <section className="space-y-3 border-b border-board-border bg-board-card px-4 py-4 md:px-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">                <p className="text-sm text-board-text tabular-nums">{stats.filled} of {selectedAssignments.length} filled · {stats.awaiting} awaiting · {stats.open} open</p>
                 {stats.awaiting > 0 && (                      <ReminderControl
                         orgId={data.orgId}
                         target={{ kind: "show", id: selected.id }}
@@ -480,7 +470,7 @@ function SchedulePage() {
                         disabled={stats.awaiting === 0}
                         onChanged={async () => { await router.invalidate(); const match = router.state.matches.find(value => value.routeId === Route.id); if (match?.status === "error") throw match.error; }}
                       />) }
-                <p className="text-sm text-board-text tabular-nums">{stats.filled} of {selectedAssignments.length} filled · {stats.awaiting} awaiting · {stats.open} open</p>
+</div>
                 <div className="flex flex-wrap items-center gap-2">
                   {([['all', 'All'], ['confirmed', 'Confirmed'], ['assigned', 'Awaiting'], ['open', 'Open'], ['declined', 'Declined']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)} className={`rounded-md px-3 py-2 text-xs focus-visible:outline focus-visible:outline-fire-500 ${filter === value ? 'bg-board-border text-board-text' : 'text-board-muted hover:text-board-text'}`}>{label}</button>)}
                   <Link
