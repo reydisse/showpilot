@@ -709,3 +709,12 @@ textarea {
 @media (max-width: 639px) {
   .cue-sheet-grid .cue-pinned { left: auto !important; }
 }
+
+@keyframes schedule-skeleton-shimmer {
+  0%, 100% { opacity: .65; }
+  50% { opacity: .9; }
+}
+.schedule-skeleton { animation: schedule-skeleton-shimmer 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .schedule-skeleton { animation: none; }
+}

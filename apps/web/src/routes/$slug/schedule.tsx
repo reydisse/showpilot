@@ -35,7 +35,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { PageSkeleton } from "@/components/ui/Skeleton";
+import { ScheduleSkeleton } from "@/components/ui/Skeleton";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ShowCreationForm, inventoryDraft, type ShowDraft } from "@/components/shows/ShowCreationForm";
@@ -115,7 +115,7 @@ export const Route = createFileRoute("/$slug/schedule")({
   validateSearch: (search: Record<string, unknown>): ScheduleSearch =>
     normalizeScheduleSearch(search),
   loaderDeps: ({ search }) => getScheduleSelectionDeps(search),
-  pendingComponent: PageSkeleton,
+  pendingComponent: ScheduleSkeleton,
   loader: async ({ context, deps }) => {
     const { withPermission } = await import("@/lib/route-permissions");
     await withPermission(

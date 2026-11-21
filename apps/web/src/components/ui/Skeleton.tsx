@@ -122,3 +122,21 @@ export function Spinner({ size = 16 }: { size?: number }) {
     </svg>
   );
 }
+
+/** One loading surface follows the Schedule rail and compact roster geometry. */
+export function ScheduleSkeleton() {
+  const bar = (width: string) => <div className={`h-3 rounded bg-board-border ${width}`} />;
+  return <div className="min-h-screen bg-board-bg text-board-text">
+    <header className="flex h-[58px] items-center border-b border-board-border px-6"><h1 className="font-semibold">Schedule</h1></header>
+    <div aria-busy="true" aria-label="Schedule" className="schedule-skeleton mx-auto grid min-h-[calc(100vh-58px)] max-w-[1700px] border-x border-board-border lg:grid-cols-[344px_minmax(0,1fr)]">
+      <aside className="space-y-6 border-b border-board-border bg-board-card p-4 lg:border-r">
+        {bar("w-32")}<div className="grid grid-cols-7 gap-3">{Array.from({length:35},(_,i)=><div key={i} className="h-8 rounded bg-board-border" />)}</div>
+        {Array.from({length:3},(_,i)=><div key={i} className="space-y-3 border-t border-board-border py-4">{bar("w-40")}{bar("w-24")}</div>)}
+      </aside>
+      <main className="min-w-0"><div className="space-y-5 border-b border-board-border p-6">{bar("w-48")}{bar("w-64")}{bar("w-40")}</div>
+        <div className="border-b border-board-border p-4">{bar("w-56")}</div>
+        {Array.from({length:3},(_,i)=><section key={i}><div className="bg-board-card p-4">{bar("w-32")}</div>{Array.from({length:3},(_,j)=><div key={j} className="flex h-12 items-center gap-4 border-t border-board-border px-4"><div className="h-7 w-7 rounded-full bg-board-border" />{bar("w-1/3")}<div className="ml-auto h-3 w-16 rounded bg-board-border" /></div>)}</section>)}
+      </main>
+    </div>
+  </div>;
+}
