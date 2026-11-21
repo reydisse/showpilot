@@ -27,9 +27,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  Clock3,
   ExternalLink,
-  MapPin,
   Pencil,
   Plus,
   Trash2,
@@ -413,7 +411,7 @@ function SchedulePage() {
               <section className="border-b border-board-border bg-board-card px-4 py-5 md:px-6">
                 <div className="flex flex-wrap items-start gap-4">
                   <div className="min-w-0 flex-[1_1_18rem]">
-                    <p className="mb-2 text-xs uppercase tracking-wider text-board-muted tabular-nums">{longDate(selected.serviceDate, locale)}</p>
+                    <p className="mb-2 text-xs uppercase tracking-wider text-board-muted tabular-nums">{new Date(`${selected.serviceDate}T12:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })}{selected.serviceDate === data.today ? " · Today" : Math.round((Date.parse(selected.serviceDate) - Date.parse(data.today)) / 86400000) === 1 ? " · Tomorrow" : Math.round((Date.parse(selected.serviceDate) - Date.parse(data.today)) / 86400000) === -1 ? " · Yesterday" : ""}</p>
                     <button
                       disabled={!data.canManage}
                       onClick={() => setServiceOpen(true)}
@@ -427,21 +425,8 @@ function SchedulePage() {
                         <Pencil className="h-3.5 w-3.5 shrink-0 text-board-muted" />
                       ) : null}
                     </button>
-                    <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-board-muted tabular-nums">
-                      <span className="flex items-center gap-1.5">
-                        <CalendarDays className="h-3.5 w-3.5" />
-                        Starts
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <Clock3 className="h-3.5 w-3.5" />
-                        {timeLabel(selected.scheduledStartTime, deviceTimeZone, locale)}{selected.effectiveCallTime ? ` · Crew call ${timeLabel(selected.effectiveCallTime, deviceTimeZone, locale)}` : ""}
-                      </span>
-                      {selected.location ? (
-                        <span className="flex items-center gap-1.5">
-                          <MapPin className="h-3.5 w-3.5" />
-                          {selected.location}
-                        </span>
-                      ) : null}
+                    <p className="mt-2 text-xs text-board-muted tabular-nums">
+                      Starts {timeLabel(selected.scheduledStartTime, deviceTimeZone, locale)}{selected.effectiveCallTime ? ` · Crew call ${timeLabel(selected.effectiveCallTime, deviceTimeZone, locale)}` : ""}{selected.location ? ` · ${selected.location}` : ""}
                     </p>
                   </div>
                   {data.provider.type === "native" && data.canManage ? (
@@ -451,7 +436,7 @@ function SchedulePage() {
                         onClick={() => {
                           setTeamBuilderOpen(true);
                         }}
-                        className="flex items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-text"
+                        className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-board-muted hover:text-board-text"
                       >
                         <Plus className="h-3.5 w-3.5" />
                         Build a team
@@ -461,7 +446,7 @@ function SchedulePage() {
                           setAssignmentDepartment(departments[0] ?? "");
                           setAssignmentOpen(true);
                         }}
-                        className="flex items-center gap-2 rounded-lg border border-board-border px-3 py-2 text-xs text-board-text"
+                        className="flex items-center gap-2 rounded-lg bg-fire-500 px-3 py-2 text-xs font-semibold text-black"
                       >
                         <Plus className="h-3.5 w-3.5" />
                         Add position
@@ -489,13 +474,13 @@ function SchedulePage() {
                 {stats.awaiting > 0 && (                      <ReminderControl
                         orgId={data.orgId}
                         target={{ kind: "show", id: selected.id }}
-                        label={`Remind awaiting crew (${stats.awaiting})`}
+                        label={`Remind awaiting (${stats.awaiting})`}
                         disabled={stats.awaiting === 0}
                         onChanged={async () => { await router.invalidate(); const match = router.state.matches.find(value => value.routeId === Route.id); if (match?.status === "error") throw match.error; }}
                       />) }
-                <p className="text-sm text-board-muted tabular-nums">{stats.filled} filled · {stats.awaiting} awaiting · {stats.open} open</p>
+                <p className="text-sm text-board-text tabular-nums">{stats.filled} of {selectedAssignments.length} filled · {stats.awaiting} awaiting · {stats.open} open</p>
                 <div className="flex flex-wrap items-center gap-2">
-                  {([['all', 'All'], ['confirmed', 'Confirmed'], ['assigned', 'Awaiting'], ['closed', 'Closed'], ['open', 'Open'], ['declined', 'Declined']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)} className={`rounded-md px-3 py-2 text-xs focus-visible:outline focus-visible:outline-fire-500 ${filter === value ? 'bg-board-border text-board-text' : 'text-board-muted hover:text-board-text'}`}>{label}</button>)}
+                  {([['all', 'All'], ['confirmed', 'Confirmed'], ['assigned', 'Awaiting'], ['open', 'Open'], ['declined', 'Declined']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)} className={`rounded-md px-3 py-2 text-xs focus-visible:outline focus-visible:outline-fire-500 ${filter === value ? 'bg-board-border text-board-text' : 'text-board-muted hover:text-board-text'}`}>{label}</button>)}
                   <Link
                     to="/$slug/rundown"
                     params={{ slug }}
