@@ -102,10 +102,16 @@ export async function runScheduleReminders(
         // Recipient responses belong to the assignment, not the provider receipt.
         // Re-read on every retry, including requests whose email outcome is unknown.
         const response = await db.prepare(
-          "SELECT status FROM service_assignment WHERE orgId=? AND id=? AND crewMemberId=? AND serviceDate=? AND role=? AND callTime=? AND showId IS ?",
-        ).bind(orgId, target.id, target.crewMemberId, target.serviceDate, target.role, target.callTime, target.showId).first<{ status: string }>();
+          "SELECT status,serviceDate,role,callTime,showId FROM service_assignment WHERE orgId=? AND id=? AND crewMemberId=?",
+        ).bind(orgId, target.id, target.crewMemberId).first<{ status: string; serviceDate: string; role: string; callTime: string; showId: string | null }>();
         if (response?.status === "confirmed" || response?.status === "declined")
           return { ...common, email: response.status, inAppDelivered: false, reason: null };
+        if (!response || response.serviceDate !== target.serviceDate || response.role !== target.role || response.callTime !== target.callTime || response.showId !== target.showId)
+          return { ...common, email: "changed", inAppDelivered: false, reason: "assignment-changed" };
+        const accepted = await db.prepare("SELECT updatedAt,inAppDelivered FROM schedule_invitation_delivery WHERE orgId=? AND assignmentId=? AND state='accepted' ORDER BY updatedAt DESC LIMIT 1")
+          .bind(orgId, target.id).first<{ updatedAt: number; inAppDelivered: number }>();
+        if (accepted)
+          return { ...common, email: "accepted", inAppDelivered: !!accepted.inAppDelivered, reason: null, updatedAt: accepted.updatedAt };
         const result = await sendCrewScheduleInvite({
           orgId,
           assignmentId: target.id,
@@ -138,12 +144,15 @@ export async function runScheduleReminders(
           inAppDelivered: false,
           reason: result.reason,
         };
-      } catch {
+      } catch (error) {
+        console.error("schedule-reminder-check-failed", { orgId, assignmentId: target.id, requestId, userId,
+          errorName: error instanceof Error ? error.name : "UnknownError",
+          errorMessage: error instanceof Error ? error.message : String(error) });
         return {
           ...common,
-          email: "uncertain" as const,
+          email: "failed" as const,
           inAppDelivered: false,
-          reason: "delivery-not-confirmed",
+          reason: "status-check-failed",
         };
       }
     }),
