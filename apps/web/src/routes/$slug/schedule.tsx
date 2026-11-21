@@ -73,13 +73,6 @@ function nextAvailableServiceDate(today: string, serviceDates: string[]) {
   }
   return candidate;
 }
-function dayLabel(date: string, locale: string) {
-  return new Date(`${date}T12:00:00`).toLocaleDateString(locale, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
 function longDate(date: string, locale: string) {
   return new Date(`${date}T12:00:00`).toLocaleDateString(locale, {
     weekday: "long",
@@ -294,7 +287,8 @@ function SchedulePage() {
       ) : null}
       <ShowDeletionProgress controller={deletions} />
       <div className="mx-auto grid min-h-[calc(100vh-58px)] max-w-[1700px] grid-cols-[minmax(0,1fr)] border-x border-board-border lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="border-b border-board-border bg-board-card lg:border-b-0 lg:border-r">
+        <aside className="flex flex-col gap-4 border-b border-board-border bg-board-bg px-3 pb-4 pt-5 lg:border-b-0 lg:border-r">
+          <div className="flex items-center justify-between pl-2 pr-1.5"><h2 className="text-xl font-semibold tracking-[-0.015em] text-board-text">Schedule</h2>{data.canManage && data.provider.type === "native" && <button onClick={() => setCreateOpen(true)} className="flex h-7 items-center gap-1.5 rounded-md border border-board-border bg-board-card px-2.5 text-xs font-medium text-board-text"><Plus className="h-3.5 w-3.5" />New show</button>}</div>
           <MonthCalendar
             calendarMonth={data.calendarMonth}
             onMonthChange={(month) => {
@@ -306,40 +300,20 @@ function SchedulePage() {
             serviceDates={data.services.map((service) => service.serviceDate)}
             onSelect={chooseDate}
           />
-          <div className="border-y border-board-border px-4 py-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-board-muted">
-                {workspaceCopy(
-                  "\n                Services\n              ",
-                  workspaceTerms,
-                )}
-              </p>
-              <button
-                onClick={() => chooseDate(data.today)}
-                className="min-h-11 min-w-11 text-xs text-fire-400 focus-visible:outline focus-visible:outline-fire-400"
-              >
-                Today
-              </button>
-            </div>
-          </div>
-          <div className="flex snap-x overflow-x-auto lg:block lg:max-h-[calc(100vh-430px)] lg:overflow-y-auto">
+          <div className="flex items-baseline justify-between px-2.5 pt-1 text-board-muted"><h3 className="text-[11px] font-medium uppercase tracking-[0.07em]">Upcoming</h3><span className="text-xs">{data.services.length} {data.services.length === 1 ? "show" : "shows"}</span></div>
+          <div className="flex snap-x gap-0.5 overflow-x-auto lg:flex lg:flex-col lg:max-h-[calc(100vh-430px)] lg:overflow-y-auto">
             {data.services.map((service) => (
               <button
                 key={service.id}
                 onClick={() => chooseShow(service.id, service.serviceDate)}
-                className={`min-w-[210px] snap-start border-b border-board-border border-l-[3px] px-3 py-2 text-left lg:w-full ${service.id === selected?.id ? "border-l-fire-500 bg-fire-500/[0.055]" : "border-l-transparent hover:bg-board-bg"}`}
+                className={`flex min-w-[210px] snap-start items-center gap-3 rounded-lg px-2.5 py-2 text-left lg:w-full ${service.id === selected?.id ? "bg-board-border" : "hover:bg-board-card"}`}
               >
-                <p
-                  className={`text-xs font-semibold uppercase tracking-wider ${service.serviceDate === data.today ? "text-fire-400" : "text-board-muted"}`}
-                >
-                  {service.serviceDate === data.today
-                    ? "Today"
-                    : dayLabel(service.serviceDate, locale)}
-                </p>
-                <p className="mt-1 truncate text-sm font-medium text-board-text">
+                <span className="flex w-8 shrink-0 flex-col items-center"><span className="text-[10px] font-medium uppercase tracking-[0.06em] text-board-muted">{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString(locale, { weekday: "short" })}</span><span className={`font-mono text-[15px] font-medium leading-[1.2] ${service.id === selected?.id ? "text-fire-400" : "text-board-muted"}`}>{Number(service.serviceDate.slice(-2))}</span></span>
+                <span className="flex min-w-0 flex-col gap-0.5">
+                <p className="truncate text-[13px] font-medium text-board-text">
                   {service.name}
                 </p>
-                <p className="mt-1 text-xs text-board-muted">
+                <p className="text-xs text-board-muted">
                   {timeLabel(service.scheduledStartTime, deviceTimeZone, locale)} ·{" "}
                   {service.id === selected?.id
                     ? selectedAssignments.filter(
@@ -352,6 +326,7 @@ function SchedulePage() {
                     : service.crewTotal}{" "}
                   confirmed
                 </p>
+                </span>
               </button>
             ))}
           </div>
@@ -520,7 +495,7 @@ function SchedulePage() {
             </>
           ) : (
             <div className="py-24 text-center">
-              <CalendarDays className="mx-auto h-9 w-9 text-board-muted/40" />
+              <CalendarDays className="mx-auto h-9 w-9 text-board-muted" />
               <p className="mt-4 text-sm text-board-muted">
                 {workspaceCopy(
                   "\n                Create your first service.\n              ",
@@ -647,9 +622,7 @@ function MonthCalendar({
   onSelect: (date: string) => void;
 }) {
   const locale = useDeviceLocale();
-  const workspaceTerms = useWorkspaceTerms();
   const month = new Date(`${calendarMonth}-01T12:00:00`);
-  const [expanded, setExpanded] = useState(false);
   const shiftMonth = (offset: number) => {
     const value = new Date(`${calendarMonth}-01T12:00:00Z`);
     value.setUTCMonth(value.getUTCMonth() + offset);
@@ -662,56 +635,34 @@ function MonthCalendar({
     month.getMonth() + 1,
     0,
   ).getDate();
-  const cells = Array.from({ length: 42 }, (_, index) => {
+  const cells = Array.from({ length: Math.ceil((startDay + daysInMonth) / 7) * 7 }, (_, index) => {
     const day = index - startDay + 1;
     return day > 0 && day <= daysInMonth ? day : null;
   });
   const dateFor = (day: number) =>
     `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   return (
-    <div className="p-1 sm:p-4">
-      <button
-        type="button"
-        aria-controls="schedule-calendar"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}
-        className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg text-sm text-board-text focus-visible:outline focus-visible:outline-fire-400 lg:hidden"
-      >
-        <CalendarDays className="h-4 w-4" />
-        {expanded ? "Hide calendar" : "Show calendar"}
-      </button>
-      <div id="schedule-calendar" className={expanded ? "" : "hidden lg:block"}>
+    <div className="rounded-xl border border-board-border bg-board-card p-3">
+      <div id="schedule-calendar">
         <div className="flex items-center justify-between gap-1">
-          <button
-            onClick={() => shiftMonth(-1)}
-            aria-label="Previous month"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-board-muted hover:bg-board-bg hover:text-board-text focus-visible:outline focus-visible:outline-fire-400"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <input
-            type="month"
-            aria-label="Calendar month"
-            value={calendarMonth}
-            onChange={(event) => onMonthChange(event.target.value)}
-            className="h-11 min-w-0 w-full rounded-lg border border-board-border bg-board-bg px-2 text-sm text-board-text focus-visible:outline focus-visible:outline-fire-400"
-          />
-          <button
-            onClick={() => shiftMonth(1)}
-            aria-label="Next month"
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-board-muted hover:bg-board-bg hover:text-board-text focus-visible:outline focus-visible:outline-fire-400"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
+          <label className="relative min-w-0 pl-1 text-[13px] font-semibold text-board-text">
+            {month.toLocaleDateString(locale, { month: "long", year: "numeric" })}
+            <input type="month" aria-label="Calendar month" value={calendarMonth} onChange={event => onMonthChange(event.target.value)} className="absolute inset-0 w-full cursor-pointer opacity-0" />
+          </label>
+          <div className="flex items-center gap-0.5 text-board-muted">
+            <button onClick={() => shiftMonth(-1)} aria-label="Previous month" className="flex h-6 w-6 items-center justify-center rounded hover:bg-board-bg"><ChevronLeft className="h-3.5 w-3.5" /></button>
+            <button onClick={() => onSelect(today)} className="h-6 rounded px-2 text-xs hover:bg-board-bg">Today</button>
+            <button onClick={() => shiftMonth(1)} aria-label="Next month" className="flex h-6 w-6 items-center justify-center rounded hover:bg-board-bg"><ChevronRight className="h-3.5 w-3.5" /></button>
+          </div>
         </div>
-        <div className="mt-4 grid grid-cols-7 text-center text-xs font-medium uppercase text-board-muted">
+        <div className="mt-2 grid grid-cols-7 text-center text-[10px] font-medium uppercase text-board-muted">
           {["S", "M", "T", "W", "T", "F", "S"].map((label, index) => (
-            <span key={`${label}-${index}`}>{label}</span>
+            <span className="flex h-6 items-center justify-center" key={`${label}-${index}`}>{label}</span>
           ))}
         </div>
-        <div className="mt-2 grid grid-cols-7 gap-y-1">
+        <div className="grid grid-cols-7 gap-y-0.5">
           {cells.map((day, index) => {
-            if (!day) return <span key={`empty-${index}`} className="h-11" />;
+            if (!day) return <span key={`empty-${index}`} className="h-[30px]" />;
             const date = dateFor(day);
             const hasService = serviceSet.has(date);
             const selected = date === selectedDate;
@@ -724,34 +675,17 @@ function MonthCalendar({
                 aria-label={longDate(date, locale)}
                 aria-pressed={selected}
                 onClick={() => onSelect(date)}
-                className={`relative mx-auto flex h-11 w-11 items-center justify-center rounded-full text-xs transition-colors focus-visible:outline focus-visible:outline-fire-400 ${selected ? "bg-fire-500 font-semibold text-black" : hasService ? "text-board-text hover:bg-board-bg" : "text-board-muted/40"} ${isToday && !selected ? "ring-1 ring-fire-500/50" : ""}`}
+                className={`relative mx-0.5 flex h-[30px] items-center justify-center rounded-md font-mono text-xs transition-colors focus-visible:outline focus-visible:outline-fire-400 ${selected ? "bg-fire-500 font-semibold text-black" : hasService ? "text-board-text hover:bg-board-bg" : "text-board-muted"} ${isToday && !selected ? "ring-1 ring-inset ring-board-border" : ""}`}
               >
                 {day}
-                {hasService && !selected ? (
-                  <span className="absolute bottom-0.5 h-0.5 w-0.5 rounded-full bg-fire-400" />
+                {hasService ? (
+                  <span className="absolute bottom-[3px] h-1 w-1 rounded-full bg-current" />
                 ) : null}
               </button>
             );
           })}
         </div>
-        <div className="mt-4 flex items-center justify-between border-t border-board-border pt-3 text-xs text-board-muted">
-          <span>
-            <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-fire-400" />
-            {workspaceCopy(
-              "\n          Service scheduled\n        ",
-              workspaceTerms,
-            )}
-          </span>
-          <button
-            onClick={() => {
-              onMonthChange(today.slice(0, 7));
-            }}
-            className="min-h-11 min-w-11 text-fire-400 focus-visible:outline focus-visible:outline-fire-400"
-          >
-            This month
-          </button>
-        </div>
-      </div>
+    </div>
     </div>
   );
 }
