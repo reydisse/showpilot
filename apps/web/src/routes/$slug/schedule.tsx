@@ -473,15 +473,7 @@ function SchedulePage() {
 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {([['all', 'All'], ['confirmed', 'Confirmed'], ['assigned', 'Awaiting'], ['open', 'Open'], ['declined', 'Declined']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)} className={`rounded-md px-3 py-2 text-xs focus-visible:outline focus-visible:outline-fire-500 ${filter === value ? 'bg-board-border text-board-text' : 'text-board-muted hover:text-board-text'}`}>{label}</button>)}
-                  <Link
-                    to="/$slug/rundown"
-                    params={{ slug }}
-                    search={{ show: selected.id, date: selected.serviceDate }}
-                    className="flex min-h-11 items-center gap-1 rounded-lg border border-board-border px-3 py-2 text-xs text-board-text focus-visible:outline-2 focus-visible:outline-fire-500"
-                  >
-                    Rundown
-                    <ChevronRight className="h-3 w-3" />
-                  </Link>
+
                 </div>
               </section>
               {data.provider.type !== "native" ? (
@@ -787,8 +779,8 @@ function RosterTable({
   const groups = groupRosterRows(assignments, departments);
   return <div className="space-y-3">{groups.map(group => group.rows.length ? <details key={group.name} open className="rounded-xl border border-board-border bg-board-card">
     <summary className="flex min-h-11 cursor-pointer items-center justify-between gap-3 px-4 text-xs text-board-muted focus-visible:outline focus-visible:outline-fire-500">
-      <span className="uppercase tracking-wider">{group.name} {group.rows.length} · {group.rows.filter(row => row.status === "confirmed").length} confirmed · {group.rows.filter(row => row.status === "declined").length} needs attention</span>
-      {canManage && <button onClick={event => { event.preventDefault(); onAdd(group.name); }} className="rounded-md p-2 hover:text-board-text">+ Add position</button>}
+      <span className="flex min-w-0 items-center gap-2 whitespace-nowrap"><span className="truncate font-semibold uppercase tracking-wider text-board-text">{group.name}</span><span className="font-mono">{group.rows.length}</span><span className="ml-2 truncate">{group.rows.filter(row => row.status === "confirmed").length} confirmed · {group.rows.filter(row => row.status === "assigned" && row.crewMemberId).length} awaiting · {group.rows.filter(row => !row.crewMemberId).length} open</span></span>
+      {canManage && <button onClick={event => { event.preventDefault(); onAdd(group.name); }} className="shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 hover:text-board-text">+ Add position</button>}
     </summary>
     {group.rows.map(assignment => <RosterRow key={assignment.id} assignment={assignment} orgId={orgId} canManage={canManage} onEdit={() => onEdit(assignment)} onChanged={onChanged} confirm={confirm} />)}
   </details> : canManage ? <button key={group.name} onClick={() => onAdd(group.name)} className="w-full rounded-xl border border-dashed border-board-border p-3 text-left text-xs text-board-muted">+ {group.name}</button> : null)}</div>;
@@ -828,14 +820,14 @@ function RosterRow({
         : closed
           ? "text-board-muted"
           : "text-yellow-300";
-  return <div id={`assignment-${assignment.id}`} className="grid h-12 grid-cols-[28px_minmax(64px,1.3fr)_minmax(48px,1fr)_64px_76px_28px] items-center gap-3 border-t border-board-border px-4 text-xs hover:bg-board-border/30 @min-[520px]/schedule-main:grid-cols-[28px_minmax(0,1.3fr)_minmax(0,1fr)_100px_28px] @min-[960px]/schedule-main:grid-cols-[28px_minmax(0,1.3fr)_minmax(0,1fr)_72px_110px_28px]">
-    <span aria-hidden="true" className={`flex h-7 w-7 items-center justify-center rounded-full border border-board-border text-board-muted ${assignment.crewMember ? "bg-board-border" : "border-dashed"}`}>{assignment.crewMember?.name.split(" ").map(part => part[0]).slice(0,2).join("")}</span>
+  return <div id={`assignment-${assignment.id}`} className="grid h-12 min-w-0 grid-cols-[28px_minmax(0,1.3fr)_minmax(0,1fr)_56px_100px_28px] items-center gap-x-1 border-t border-board-border pl-2 pr-2 text-xs hover:bg-board-border/30 @min-[520px]/schedule-main:gap-x-3 @min-[520px]/schedule-main:pl-4 @min-[520px]/schedule-main:pr-3 @min-[700px]/schedule-main:grid-cols-[28px_minmax(0,1.3fr)_minmax(0,1fr)_56px_128px_28px]">
+    <span aria-hidden="true" className={`flex h-7 w-7 items-center justify-center rounded-full border border-board-border text-board-muted ${assignment.crewMemberId ? "bg-board-border" : "border-dashed"}`}>{assignment.crewMember?.name.split(" ").map(part => part[0]).slice(0,2).join("")}</span>
     <span className="truncate font-medium text-board-text">{assignment.crewMember?.name ?? "Open — nobody assigned"}</span>
     <span className="truncate text-board-muted">{assignment.role}</span>
     <span className="truncate tabular-nums text-board-muted">{timeLabel(assignment.effectiveCallTime, deviceTimeZone, locale)}</span>
-    <span className={`truncate capitalize ${statusColor}`}>{!assignment.crewMemberId ? canManage ? <button onClick={onEdit} className="rounded-md border border-board-border px-2 py-1">Assign</button> : "Open" : `● ${assignment.status === "assigned" ? closed ? "Closed" : "Awaiting" : assignment.status}`}</span>
-    <DropdownMenu><DropdownMenuTrigger aria-label={`Actions for ${assignment.crewMember?.name ?? assignment.role}`} className="h-8 rounded-md text-lg text-board-muted focus-visible:outline focus-visible:outline-fire-500">⋯</DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72 border-board-border bg-board-card text-board-text">
+    <span className={`flex items-center gap-1.5 whitespace-nowrap capitalize ${statusColor}`}>{!assignment.crewMemberId ? canManage ? <button onClick={onEdit} className="rounded-md border border-board-border px-2 py-1">Assign</button> : "Open" : `● ${assignment.status === "assigned" ? closed ? "Closed" : "Awaiting" : assignment.status}`}</span>
+    <DropdownMenu><DropdownMenuTrigger aria-label={`Actions for ${assignment.crewMember?.name ?? assignment.role}`} className="h-7 w-7 shrink-0 rounded-md text-lg text-board-muted focus-visible:outline focus-visible:outline-fire-500">⋯</DropdownMenuTrigger>
+      <DropdownMenuContent align="end" collisionPadding={12} className="w-72 max-w-[calc(100vw-24px)] rounded-lg border-board-border bg-board-card text-board-text">
         <div className="space-y-1 border-b border-board-border p-3 text-xs text-board-muted"><p className="break-all">{assignment.crewMember?.email ?? "Nobody assigned"}</p><p>{assignment.invitedAt ? `Invitation sent ${new Date(assignment.invitedAt).toLocaleString(locale)}` : "Invitation not sent"}</p>{assignment.responseNote && <p className="whitespace-pre-wrap">{assignment.responseNote}</p>}</div>
         {canManage && <><div className="p-2">{assignment.crewMemberId && <ReminderControl orgId={orgId} target={{kind: "assignment", id: assignment.id}} label="Resend invite" disabled={!pending} onChanged={onChanged} />}</div><DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem><div className="mt-1 border-t border-board-border"><RemoveAssignmentButton orgId={orgId} assignment={assignment} confirm={confirm} onChanged={onChanged} /></div></>}
       </DropdownMenuContent>
