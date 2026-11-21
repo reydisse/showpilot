@@ -26,10 +26,10 @@ it("coalesces relay hydration and the page read and never confirms a timed-out s
 it("hides the old discussion during another show's load and never combines loading with empty",async()=>{
  render(<IncidentsWorkspace initial={initial} slug="org"/>);await tick();let finish:(value:unknown)=>void=()=>{};
  api.read.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));fireEvent.click(screen.getByRole("button",{name:"Other show"}));await tick();
- expect(screen.queryByText("Line lost")).toBeNull();expect(screen.queryByText("No incidents for this date")).toBeNull();expect(screen.getByRole("progressbar")).toBeTruthy();
- await tick(8000);expect(screen.queryByText(/Loading incidents for/)).toBeNull();expect(screen.queryByText("No incidents for this date")).toBeNull();
+ expect(screen.queryByText("Line lost")).toBeNull();expect(screen.queryByText("All clear for this show")).toBeNull();expect(screen.getByRole("progressbar")).toBeTruthy();
+ await tick(8000);expect(screen.queryByText(/Loading incidents for/)).toBeNull();expect(screen.queryByText("All clear for this show")).toBeNull();
  await act(async()=>finish(snapshot));expect(screen.queryByText("Line lost")).toBeNull();
- api.read.mockResolvedValue({...snapshot,incidents:[],comments:[]});fireEvent.click(screen.getByRole("button",{name:"Retry incidents"}));await tick();expect(screen.getByText("No incidents for this date")).toBeTruthy();
+ api.read.mockResolvedValue({...snapshot,incidents:[],comments:[]});fireEvent.click(screen.getByRole("button",{name:"Retry incidents"}));await tick();expect(screen.getByText("All clear for this show")).toBeTruthy();
 });
 it("keeps a report through response loss and separates its acknowledgement from a failed refresh",async()=>{
  render(<IncidentsWorkspace initial={initial} slug="org"/>);await tick();fireEvent.click(screen.getByRole("button",{name:"Report"}));
