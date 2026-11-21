@@ -373,3 +373,39 @@ it.each(["confirmed", "declined"] as const)("Demo scheduling acceptance end-to-e
   expect(retry.items.find(item => item.id === f.first.id)?.email).toBe(decision);
   expect(mail.send).toHaveBeenCalledTimes(sends);
 });
+
+it.each(["confirmed", "declined"] as const)("pre-fix %s response survives call-time drift and a new request key", async (status) => {
+  const f = await fixture();
+  await sendScheduleReminders({ data: f.command });
+  await env.DB.prepare("UPDATE service_assignment SET status=?,callTime='09:17' WHERE orgId=? AND id=?").bind(status, f.orgId, f.first.id).run();
+  expect((await sendScheduleReminders({ data: f.command })).items.find(i => i.id === f.first.id)?.email).toBe(status);
+  // Preserve an existing frozen request while the response belongs to an earlier send.
+  const next = { ...f.command, requestId: crypto.randomUUID() };
+  await env.DB.prepare("INSERT INTO schedule_reminder_request SELECT orgId,actorId,?,selection,targets,createdAt FROM schedule_reminder_request WHERE orgId=? AND requestId=?").bind(next.requestId, f.orgId, f.command.requestId).run();
+  expect((await sendScheduleReminders({ data: next })).items.find(i => i.id === f.first.id)?.email).toBe(status);
+});
+
+it("healthy provider acceptance is reused across request keys", async () => {
+  const f = await fixture();
+  expect((await sendScheduleReminders({ data: f.command })).items.every(i => i.email === "accepted")).toBe(true);
+  expect((await sendScheduleReminders({ data: { ...f.command, requestId: crypto.randomUUID() } })).items.every(i => i.email === "accepted")).toBe(true);
+  expect(mail.send).toHaveBeenCalledTimes(2);
+});
+
+it("internal reconciliation exception reports a failed check and logs context", async () => {
+  const f = await fixture();
+  await sendScheduleReminders({ data: f.command });
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const { reminderMessage } = await import("../schedule-reminder-contract");
+  // A malformed stored assignment causes the reconciliation read to fail at D1.
+  await env.DB.prepare("ALTER TABLE service_assignment RENAME TO reconciliation_failure_fixture").run();
+  try {
+    const result = await sendScheduleReminders({ data: f.command });
+    expect(result.items.every(i => i.email === "failed" && i.reason === "status-check-failed")).toBe(true);
+    expect(reminderMessage(result.items[0])).toContain("check the email status");
+    expect(log).toHaveBeenCalledWith("schedule-reminder-check-failed", expect.objectContaining({ orgId: f.orgId, requestId: f.command.requestId, errorName: expect.any(String), errorMessage: expect.any(String) }));
+  } finally {
+    await env.DB.prepare("ALTER TABLE reconciliation_failure_fixture RENAME TO service_assignment").run();
+    log.mockRestore();
+  }
+});
