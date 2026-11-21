@@ -344,7 +344,7 @@ function SchedulePage() {
         </div>
       </header>
       <ShowDeletionProgress controller={deletions} />
-      <div className="mx-auto grid min-h-[calc(100vh-58px)] max-w-[1700px] grid-cols-[minmax(0,1fr)] border-x border-board-border lg:grid-cols-[344px_minmax(0,1fr)]">
+      <div className="mx-auto grid min-h-[calc(100vh-58px)] max-w-[1700px] grid-cols-[minmax(0,1fr)] border-x border-board-border lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="border-b border-board-border bg-board-card lg:border-b-0 lg:border-r">
           <MonthCalendar
             calendarMonth={data.calendarMonth}
@@ -378,7 +378,7 @@ function SchedulePage() {
               <button
                 key={service.id}
                 onClick={() => chooseShow(service.id, service.serviceDate)}
-                className={`min-w-[210px] snap-start border-b border-board-border border-l-[3px] px-4 py-4 text-left lg:w-full ${service.id === selected?.id ? "border-l-fire-500 bg-fire-500/[0.055]" : "border-l-transparent hover:bg-board-bg"}`}
+                className={`min-w-[210px] snap-start border-b border-board-border border-l-[3px] px-3 py-2 text-left lg:w-full ${service.id === selected?.id ? "border-l-fire-500 bg-fire-500/[0.055]" : "border-l-transparent hover:bg-board-bg"}`}
               >
                 <p
                   className={`text-xs font-semibold uppercase tracking-wider ${service.serviceDate === data.today ? "text-fire-400" : "text-board-muted"}`}
@@ -387,7 +387,7 @@ function SchedulePage() {
                     ? "Today"
                     : dayLabel(service.serviceDate, locale)}
                 </p>
-                <p className="mt-2 truncate text-sm font-medium text-board-text">
+                <p className="mt-1 truncate text-sm font-medium text-board-text">
                   {service.name}
                 </p>
                 <p className="mt-1 text-xs text-board-muted">
@@ -407,7 +407,7 @@ function SchedulePage() {
             ))}
           </div>
         </aside>
-        <main className="@container/schedule-main min-w-0 bg-board-bg [overflow-wrap:anywhere] [&_button]:min-h-11 [&_button]:min-w-11 [&_button]:outline-none [&_button]:focus-visible:ring-2 [&_button]:focus-visible:ring-fire-500">
+        <main className="@container/schedule-main min-w-0 overflow-x-auto bg-board-bg [&_button]:outline-none [&_button]:focus-visible:ring-2 [&_button]:focus-visible:ring-fire-500">
           {selected ? (
             <>
               <section className="border-b border-board-border bg-board-card px-4 py-5 md:px-6">
@@ -427,7 +427,7 @@ function SchedulePage() {
                         <Pencil className="h-3.5 w-3.5 shrink-0 text-board-muted" />
                       ) : null}
                     </button>
-                    <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-board-muted">
+                    <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-board-muted tabular-nums">
                       <span className="flex items-center gap-1.5">
                         <CalendarDays className="h-3.5 w-3.5" />
                         Starts
@@ -850,11 +850,11 @@ function RosterRow({
         : closed
           ? "text-board-muted"
           : "text-yellow-300";
-  return <div id={`assignment-${assignment.id}`} className="grid h-12 grid-cols-[28px_minmax(0,1fr)_auto_28px] items-center gap-3 border-t border-board-border px-4 text-xs hover:bg-board-border/30 @min-[520px]/schedule-main:grid-cols-[28px_minmax(0,1.3fr)_minmax(0,1fr)_100px_28px] @min-[960px]/schedule-main:grid-cols-[28px_minmax(0,1.3fr)_minmax(0,1fr)_72px_110px_28px]">
+  return <div id={`assignment-${assignment.id}`} className="grid h-12 grid-cols-[28px_minmax(64px,1.3fr)_minmax(48px,1fr)_64px_76px_28px] items-center gap-3 border-t border-board-border px-4 text-xs hover:bg-board-border/30 @min-[520px]/schedule-main:grid-cols-[28px_minmax(0,1.3fr)_minmax(0,1fr)_100px_28px] @min-[960px]/schedule-main:grid-cols-[28px_minmax(0,1.3fr)_minmax(0,1fr)_72px_110px_28px]">
     <span aria-hidden="true" className={`flex h-7 w-7 items-center justify-center rounded-full border border-board-border text-board-muted ${assignment.crewMember ? "bg-board-border" : "border-dashed"}`}>{assignment.crewMember?.name.split(" ").map(part => part[0]).slice(0,2).join("")}</span>
     <span className="truncate font-medium text-board-text">{assignment.crewMember?.name ?? "Open — nobody assigned"}</span>
-    <span className="hidden truncate text-board-muted @min-[520px]/schedule-main:block">{assignment.role}</span>
-    <span className="hidden tabular-nums text-board-muted @min-[960px]/schedule-main:block">{timeLabel(assignment.effectiveCallTime, deviceTimeZone, locale)}</span>
+    <span className="truncate text-board-muted">{assignment.role}</span>
+    <span className="truncate tabular-nums text-board-muted">{timeLabel(assignment.effectiveCallTime, deviceTimeZone, locale)}</span>
     <span className={`truncate capitalize ${statusColor}`}>{!assignment.crewMemberId ? canManage ? <button onClick={onEdit} className="rounded-md border border-board-border px-2 py-1">Assign</button> : "Open" : `● ${assignment.status === "assigned" ? closed ? "Closed" : "Awaiting" : assignment.status}`}</span>
     <DropdownMenu><DropdownMenuTrigger aria-label={`Actions for ${assignment.crewMember?.name ?? assignment.role}`} className="h-8 rounded-md text-lg text-board-muted focus-visible:outline focus-visible:outline-fire-500">⋯</DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72 border-board-border bg-board-card text-board-text">
@@ -1086,7 +1086,7 @@ function Modal({
           // Inventory can open a new-show dialog directly. Let that dialog keep focus.
           if (!document.querySelector('[role="dialog"][data-state="open"]')) opener?.focus();
         }}
-        className="flex max-h-[calc(100dvh-2rem)] min-w-0 flex-col gap-0 overflow-hidden border-board-border bg-board-card p-0 text-board-text sm:max-w-md [&_button]:min-h-11 [&_button]:min-w-11 [&_button]:outline-none [&_button]:focus-visible:ring-2 [&_button]:focus-visible:ring-fire-500"
+        className="flex max-h-[calc(100dvh-2rem)] min-w-0 flex-col gap-0 overflow-hidden border-board-border bg-board-card p-0 text-board-text sm:max-w-md [&_button]:outline-none [&_button]:focus-visible:ring-2 [&_button]:focus-visible:ring-fire-500"
       >
         <header className="flex shrink-0 items-start gap-3 border-b border-board-border p-4">
           <div className="min-w-0 flex-1">

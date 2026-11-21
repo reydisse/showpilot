@@ -128,7 +128,7 @@ export function ScheduleSkeleton() {
   const bar = (width: string) => <div className={`h-3 rounded bg-board-border ${width}`} />;
   return <div className="min-h-screen bg-board-bg text-board-text">
     <header className="flex h-[58px] items-center border-b border-board-border px-6"><h1 className="font-semibold">Schedule</h1></header>
-    <div aria-busy="true" aria-label="Schedule" className="schedule-skeleton mx-auto grid min-h-[calc(100vh-58px)] max-w-[1700px] border-x border-board-border lg:grid-cols-[344px_minmax(0,1fr)]">
+    <div aria-busy="true" aria-label="Schedule" className="schedule-skeleton mx-auto grid min-h-[calc(100vh-58px)] max-w-[1700px] border-x border-board-border lg:grid-cols-[280px_minmax(0,1fr)]">
       <aside className="space-y-6 border-b border-board-border bg-board-card p-4 lg:border-r">
         {bar("w-32")}<div className="grid grid-cols-7 gap-3">{Array.from({length:35},(_,i)=><div key={i} className="h-8 rounded bg-board-border" />)}</div>
         {Array.from({length:3},(_,i)=><div key={i} className="space-y-3 border-t border-board-border py-4">{bar("w-40")}{bar("w-24")}</div>)}
