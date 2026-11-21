@@ -1,3 +1,4 @@
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import type { ReactNode } from "react";
@@ -57,25 +58,25 @@ export function ShowDetailsEditor({
           </label>
           <label className="block text-xs text-board-muted">
             Start time
-            <input
+            <DateTimePicker
               aria-label="Start time"
-              type="time"
+              kind="time"
               className={`${inputClass} mt-1.5`}
               value={draft.startTime}
-              onChange={(event) =>
-                work.changeDraft({ startTime: event.target.value })
+              onValueChange={(value) =>
+                work.changeDraft({ startTime: value })
               }
             />
           </label>
           <label className="block text-xs text-board-muted">
             Crew call time
-            <input
+            <DateTimePicker
               aria-label="Crew call time"
-              type="time"
+              kind="time"
               className={`${inputClass} mt-1.5`}
               value={draft.callTime}
-              onChange={(event) =>
-                work.changeDraft({ callTime: event.target.value })
+              onValueChange={(value) =>
+                work.changeDraft({ callTime: value })
               }
             />
           </label>

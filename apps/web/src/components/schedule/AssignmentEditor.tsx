@@ -1,3 +1,4 @@
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useState } from "react";
@@ -433,19 +434,19 @@ export function AssignmentEditor({
                           <>
                             <label className="block space-y-1 text-sm">
                               <span>Custom call time (optional)</span>
-                              <input
-                                type="time"
+                              <DateTimePicker
+                                kind="time"
                                 className={control}
                                 value={row.callTime}
-                                onChange={(event) =>
+                                onValueChange={(value) =>
                                   updateRow(row.key, {
-                                    callTime: event.target.value,
+                                    callTime: value,
                                   })
                                 }
                               />
                             </label>
                             <p className="text-xs text-board-muted">
-                              Uses {draft.timeZone}. Leave blank to use the
+                              Times use {draft.timeZone}. Leave blank to use the
                               show's crew call time.
                             </p>
                             <label className="block space-y-1 text-sm">

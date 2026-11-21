@@ -1,3 +1,4 @@
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useState } from "react";
@@ -222,17 +223,18 @@ export function ShowInventoryEditor({
                 }
               />
             </label>
+            <p className="text-xs text-board-muted">Times use America/Toronto</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="block min-w-0 text-board-muted">
                 Default start
-                <input
-                  type="time"
+                <DateTimePicker
+                  kind="time"
                   className={input}
                   value={draft.defaultStartTime}
-                  onChange={(event) =>
+                  onValueChange={(time) =>
                     work.setDraft((value) => ({
                       ...value,
-                      defaultStartTime: event.target.value,
+                      defaultStartTime: time,
                     }))
                   }
                 />

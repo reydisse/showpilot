@@ -1,3 +1,4 @@
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import {
   useShowCreation,
   type OpenCreatedShow,
@@ -177,33 +178,33 @@ export function ShowCreationForm({
         <div className="grid min-w-0 gap-3 sm:grid-cols-2">
           <label className="block min-w-0 text-sm text-board-muted">
             Date
-            <input
-              type="date"
+            <DateTimePicker
+              kind="date"
               required
               min={minDate}
               className={control}
               value={draft.serviceDate}
-              onChange={(e) => change("serviceDate", e.target.value)}
+              onValueChange={(value) => change("serviceDate", value)}
             />
           </label>
           <label className="block min-w-0 text-sm text-board-muted">
             Start time
-            <input
-              type="time"
+            <DateTimePicker
+              kind="time"
               required={requireStart}
               className={control}
               value={draft.startTime}
-              onChange={(e) => change("startTime", e.target.value)}
+              onValueChange={(value) => change("startTime", value)}
             />
           </label>
         </div>
         <label className="block text-sm text-board-muted">
           Crew call time (optional)
-          <input
-            type="time"
+          <DateTimePicker
+            kind="time"
             className={control}
             value={draft.callTime}
-            onChange={(e) => change("callTime", e.target.value)}
+            onValueChange={(value) => change("callTime", value)}
           />
         </label>
         <p className="text-xs text-board-muted">
