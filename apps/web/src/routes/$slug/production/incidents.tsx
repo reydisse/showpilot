@@ -27,7 +27,7 @@ import {
 import { EmptyState } from "@/components/ui/empty-state";
 import { objectionableContentReason } from "@/lib/user-content-safety";
 import { getIncidentSnapshot } from "@/lib/incidents";
-import { INCIDENT_CATEGORIES, REACTION_EMOJIS, incidentCategorySchema, incidentSeveritySchema, type IncidentOperation, type IncidentRow, type IncidentComment, type ContentReaction } from "@/lib/incident-writes";
+import { INCIDENT_CATEGORIES, REACTION_EMOJIS, type IncidentOperation, type IncidentRow, type IncidentComment, type ContentReaction } from "@/lib/incident-writes";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { useIncidentWrite } from "@/hooks/useIncidentWrite";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
@@ -604,33 +604,18 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 resize-none"
             />
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="text-xs font-medium text-board-muted" htmlFor="incident-category">Category</label>
-              <select
-                id="incident-category"
-                disabled={writeLocked}
-                value={form.category}
-                onChange={(e) => setForm({ ...form, category: incidentCategorySchema.parse(e.target.value) })}
-                className="min-h-11 min-w-0 px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
-              >
-                {INCIDENT_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-              <label className="text-xs font-medium text-board-muted" htmlFor="incident-severity">Severity</label>
-              <select
-                id="incident-severity"
-                disabled={writeLocked}
-                value={form.severity}
-                onChange={(e) => setForm({ ...form, severity: incidentSeveritySchema.parse(e.target.value) })}
-                className="min-h-11 min-w-0 px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="critical">Critical</option>
-              </select>
+              <fieldset disabled={writeLocked} className="col-span-full space-y-2">
+                <legend className="text-xs font-medium uppercase tracking-wider text-board-muted">Category</legend>
+                <div className="flex flex-wrap gap-1.5">
+                  {INCIDENT_CATEGORIES.map(value => <button key={value} type="button" aria-pressed={form.category === value} onClick={() => setForm({ ...form, category: value })} className={`min-h-8 rounded-md border px-3 text-sm capitalize disabled:opacity-50 ${form.category === value ? "border-fire-500/40 bg-fire-500/10 text-fire-400" : "border-board-border bg-board-bg text-board-muted hover:text-board-text"}`}>{value}</button>)}
+                </div>
+              </fieldset>
+              <fieldset disabled={writeLocked} className="col-span-full space-y-2">
+                <legend className="text-xs font-medium uppercase tracking-wider text-board-muted">Severity</legend>
+                <div className="flex flex-wrap gap-1.5">
+                  {(["low", "medium", "high", "critical"] as const).map(value => <button key={value} type="button" aria-pressed={form.severity === value} onClick={() => setForm({ ...form, severity: value })} className={`min-h-8 rounded-md border px-3 text-sm capitalize disabled:opacity-50 ${form.severity === value ? "border-fire-500/40 bg-fire-500/10 text-fire-400" : "border-board-border bg-board-bg text-board-muted hover:text-board-text"}`}>{value}</button>)}
+                </div>
+              </fieldset>
               <label className="text-xs font-medium text-board-muted" htmlFor="incident-reporter">Reported by</label>
               <input
                 id="incident-reporter"
