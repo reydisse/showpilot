@@ -108,9 +108,11 @@ export function CopyTeamControl({
   selection,
   canCopy,
   onChanged,
+  label = "Copy team",
 }: Scope & {
   selection: CopyTeamSelection | null;
   canCopy: boolean;
+  label?: string;
   onChanged: () => Promise<void>;
 }) {
   const client = useQueryClient(),
@@ -152,7 +154,7 @@ export function CopyTeamControl({
             disabled={!selection || !canCopy}
             onClick={start}
           >
-            Copy team
+            {label}
           </button>
           {!selection && (
             <p className="text-board-muted">

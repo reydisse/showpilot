@@ -227,6 +227,11 @@ function SchedulePage() {
   const previous = selectedIndex > 0 ? data.services[selectedIndex - 1] : null;
   const roster = useScheduleRoster({ orgId: data.orgId, userId: user.id, showId: selected?.id, assignments: data.assignments });
   const selectedAssignments = roster.value;
+  const savedTeams = selected ? data.services.filter(show => show.serviceDate < selected.serviceDate).map(show => {
+    const crew = data.assignments.filter(row => row.showId === show.id);
+    return { show, count: crew.length, departments: Array.from(new Set(crew.map(rosterDepartment).filter(Boolean))).join(" · ") };
+  }).filter(team => team.count > 0).reverse() : [];
+
   const liveAssignments = useMemo(() => [...data.assignments.filter(row => row.showId !== selected?.id), ...selectedAssignments], [data.assignments, selected?.id, selectedAssignments]);
   const departments = Array.from(
     new Set(
@@ -514,10 +519,19 @@ function SchedulePage() {
               ) : null}
               <ReadFailureNotice error={roster.error} refreshing={roster.refreshing} retry={roster.retry} label="Try again" title="We couldn't load the crew for this show." description="Check your connection and try again. Nothing you changed has been lost." />
               {!assignments.length && !roster.refreshing && !roster.error ? (
-                <div className="m-4 space-y-2 rounded-xl border border-dashed border-board-border p-8 text-sm text-board-muted" role="status">
+                <div className="m-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                <div className="space-y-2 rounded-xl border border-dashed border-board-border p-8 text-sm text-board-muted" role="status">
                   <p className="font-semibold text-board-text">{selectedAssignments.length ? "No crew match this response filter." : "No crew on this show yet"}</p>
                   {!selectedAssignments.length && <><p className="max-w-md leading-6">Add positions one at a time, or start from a team you've already built. Everyone you add gets one invite they can accept in a single tap.</p>{data.canManage && <div className="flex gap-2 pt-2"><button onClick={() => setAssignmentOpen(true)} className="rounded-lg bg-fire-500 px-3 py-2 font-medium text-black">+ Add position</button></div>}</>}
                   {filter !== "all" ? <button type="button" className="rounded-lg px-3 text-fire-400" onClick={() => setFilter("all")}>Show all responses</button> : null}
+                </div>
+                {!selectedAssignments.length && data.canManage && data.provider.type === "native" && savedTeams.length > 0 && <section aria-label="Saved teams" className="py-4">
+                  <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-board-muted">Saved teams</h3>
+                  <ul className="divide-y divide-board-border">{savedTeams.map(({ show, count, departments }) => <li key={show.id} className="flex items-center justify-between gap-4 py-3">
+                    <div className="min-w-0"><p className="text-sm font-medium text-board-text">{show.name}</p><p className="text-xs text-board-muted">{count} {count === 1 ? "position" : "positions"}{departments && ` · ${departments}`}</p></div>
+                    <CopyTeamControl orgId={data.orgId} userId={user.id} showId={selected.id} label="Use" selection={{ showId: selected.id, serviceDate: selected.serviceDate, copyFromShowId: show.id, copyFrom: show.serviceDate }} canCopy={selected.status !== "running" && selected.status !== "paused"} onChanged={refreshAssignments} />
+                  </li>)}</ul>
+                </section>}
                 </div>
               ) : null}
               <RosterTable
