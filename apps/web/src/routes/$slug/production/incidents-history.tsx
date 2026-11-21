@@ -1,6 +1,6 @@
 import { PageBreadcrumb } from "@/components/ui/PageBreadcrumb";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   Archive,
   ArrowLeft,
@@ -101,7 +101,7 @@ function IncidentHistoryPage() {
 
   return (
     <div className="h-full overflow-auto [overflow-wrap:anywhere]">
-      <header className="border-b border-board-border bg-board-bg/90 px-4 py-3 backdrop-blur-xl md:px-6">
+      <header className="mx-auto max-w-7xl px-4 pt-8 md:px-10">
         <div className="flex flex-wrap items-center gap-3">
           <PageBreadcrumb current="History">
             <Link activeOptions={{ exact: true }}
@@ -127,7 +127,7 @@ function IncidentHistoryPage() {
             {result.total} result{result.total === 1 ? "" : "s"}
           </span>
         </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-6 flex flex-wrap items-center gap-2 rounded-t-xl border border-board-border bg-board-card p-3 [&>label]:flex-1 [&>label]:basis-64">
           <label className="relative min-w-0">
             <span className="sr-only">Search incident history</span>
             <Search className="absolute left-3 top-3.5 h-3.5 w-3.5 text-board-muted" />
@@ -181,7 +181,7 @@ function IncidentHistoryPage() {
             options={["newest", "oldest", "severity"]}
           />
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 rounded-b-xl border border-t-0 border-board-border bg-board-card px-3 pb-3">
           <input
             type="date"
             aria-label="From date"
@@ -207,17 +207,40 @@ function IncidentHistoryPage() {
           </button>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl p-4 md:px-10 md:py-8">
+      <main className="mx-auto max-w-7xl p-4 md:px-10 md:py-6">
         {result.incidents.length ? (
+          <div>
+            <div aria-hidden="true" className="hidden grid-cols-[minmax(0,1fr)_84px_108px_156px_76px] gap-2 px-4 py-3 text-[11px] font-medium uppercase tracking-wider text-board-muted md:grid"><span>Incident</span><span>Category</span><span>Status</span><span>Assignee</span><span>Reported</span></div>
           <div className="overflow-hidden rounded-xl border border-board-border bg-board-card">
-            {result.incidents.map((incident) => (
+            {result.incidents.map((incident, index) => (
+              <Fragment key={incident.id}>
+                {(index === 0 || result.incidents[index - 1].serviceDate.slice(0, 7) !== incident.serviceDate.slice(0, 7)) && <h2 className="border-b border-board-border bg-board-bg/50 px-4 py-3 text-xs font-medium text-board-muted">{new Date(incident.serviceDate + "T12:00:00Z").toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })}</h2>}
               <Link
                 key={incident.id}
                 to="/$slug/production/incidents"
                 params={{ slug }}
                 search={{ incident: incident.id, date: incident.serviceDate, show: incident.showId ?? undefined }}
-                className="grid gap-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fire-500 border-t border-board-border/70 p-4 first:border-t-0 hover:bg-board-bg/55 md:grid-cols-[110px_minmax(0,1fr)_150px]"
+                className="grid gap-2 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-fire-500 border-t border-board-border/70 p-4 first:border-t-0 hover:bg-board-bg/55 md:grid-cols-[minmax(0,1fr)_84px_108px_156px_76px]"
               >
+                <div className="min-w-0">
+                  <p className="mt-1 text-sm text-board-text">
+                    {incident.description}
+                  </p>
+                  <p className="mt-1 text-xs text-board-muted">
+                    Reported by {incident.reportedBy || "Unknown"}
+                  </p>
+                </div>
+                <span className="text-xs text-board-muted">{incident.category}</span>
+                <span className={`text-xs capitalize ${incident.status === "open" ? "text-red-400" : "text-green-400"}`}>{incident.status}<span className="block text-board-muted">{incident.severity}</span></span>
+                <div className="md:text-right">
+                  <p className="text-xs text-board-text">
+                    {incident.assignedName || "Unassigned"}
+                  </p>
+                  <p className="mt-1 inline-flex items-center gap-1 text-xs text-board-muted">
+                    <MessageCircle className="h-3 w-3" />
+                    {incident.commentCount} {incident.commentCount === 1 ? "comment" : "comments"}
+                  </p>
+                </div>
                 <div>
                   <p className="text-xs font-medium text-board-text">
                     {incident.serviceDate}
@@ -230,38 +253,10 @@ function IncidentHistoryPage() {
                     })}
                   </p>
                 </div>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`text-xs font-semibold uppercase ${incident.status === "open" ? "text-red-400" : "text-green-400"}`}
-                    >
-                      {incident.status}
-                    </span>
-                    <span className="text-xs uppercase text-board-muted">
-                      {incident.severity}
-                    </span>
-                    <span className="text-xs text-board-muted">
-                      {incident.category}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-sm text-board-text">
-                    {incident.description}
-                  </p>
-                  <p className="mt-1 text-xs text-board-muted">
-                    Reported by {incident.reportedBy || "Unknown"}
-                  </p>
-                </div>
-                <div className="md:text-right">
-                  <p className="text-xs text-board-text">
-                    {incident.assignedName || "Unassigned"}
-                  </p>
-                  <p className="mt-1 inline-flex items-center gap-1 text-xs text-board-muted">
-                    <MessageCircle className="h-3 w-3" />
-                    {incident.commentCount} {incident.commentCount === 1 ? "comment" : "comments"}
-                  </p>
-                </div>
               </Link>
+              </Fragment>
             ))}
+          </div>
           </div>
         ) : (
           <div className="py-20 text-center">

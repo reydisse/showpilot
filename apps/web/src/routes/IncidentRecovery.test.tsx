@@ -9,11 +9,10 @@ vi.mock("@/lib/rundown",()=>({getRundownOpeningDate:vi.fn()}));
 vi.mock("@/lib/incident-history",()=>({getIncidentHistory:vi.fn()}));
 vi.mock("@/hooks/useCueSheetSync",()=>({useCueSheetSync:(options:{onRefresh:(signal:AbortSignal)=>Promise<void>})=>{api.refresh=options.onRefresh;return {publish:api.publish,syncError:null,syncErrorAt:null,status:"connected",retrySync:vi.fn()};}}));
 vi.mock("@tanstack/react-router",async original=>({...await original<typeof import("@tanstack/react-router")>(),useBlocker:()=>({status:"idle"}),Link:({children}:{children:React.ReactNode})=><a>{children}</a>}));
-vi.mock("@/components/show-switcher-menu",()=>({ShowSwitcherMenu:({onSelect}:{onSelect:(show:{id:string;serviceDate:string})=>void})=><button onClick={()=>onSelect({id:"other-show",serviceDate:"2026-11-06"})}>Other show</button>}));
 const incident={id:"incident",category:"Audio",severity:"high",description:"Line lost",reportedBy:"Desk",timestamp:"2026-11-06T15:00:00Z",status:"open",assignedTo:null,assignedName:"",acknowledgedAt:null,deleteSnapshot:"snapshot"};
 const comment={id:"comment",incidentId:"incident",userId:"viewer",authorName:"Fixture",body:"Checking cable",parentId:null,createdAt:"2026-11-06T15:01:00Z"};
 const snapshot={incidents:[incident],comments:[comment],reactions:[],viewerId:"viewer"};
-const initial={snapshot,recentHistory:{incidents:[],total:0,page:1,pageSize:10,categories:[]},orgId:"org",role:"owner",grantedPermissions:[],orgTimezone:"UTC",initialServiceDate:"2026-11-06",initialShowId:"show",shows:[]} satisfies ComponentProps<typeof IncidentsWorkspace>["initial"];
+const initial={snapshot,recentHistory:{incidents:[],total:0,page:1,pageSize:10,categories:[]},orgId:"org",role:"owner",grantedPermissions:[],orgTimezone:"UTC",initialServiceDate:"2026-11-06",initialShowId:"show",shows:[{id:"other-show",name:"Other show",serviceDate:"2026-11-06",scheduledStartTime:null,status:"draft"}]} satisfies ComponentProps<typeof IncidentsWorkspace>["initial"];
 const tick=async(ms=0)=>act(async()=>{await vi.advanceTimersByTimeAsync(ms);});
 beforeEach(()=>{vi.useFakeTimers();vi.resetAllMocks();api.read.mockResolvedValue(snapshot);api.write.mockImplementation(async({data})=>({requestId:data.requestId,outcome:"applied"}));});
 afterEach(()=>{cleanup();vi.useRealTimers();});
@@ -25,7 +24,7 @@ it("coalesces relay hydration and the page read and never confirms a timed-out s
 });
 it("hides the old discussion during another show's load and never combines loading with empty",async()=>{
  render(<IncidentsWorkspace initial={initial} slug="org"/>);await tick();let finish:(value:unknown)=>void=()=>{};
- api.read.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));fireEvent.click(screen.getByRole("button",{name:"Other show"}));await tick();
+ api.read.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));fireEvent.click(screen.getByRole("button",{name:/Other show/}));await tick();
  expect(screen.queryByText("Line lost")).toBeNull();expect(screen.queryByText("All clear for this show")).toBeNull();expect(screen.getByRole("progressbar")).toBeTruthy();
  await tick(8000);expect(screen.queryByText(/Loading incidents for/)).toBeNull();expect(screen.queryByText("All clear for this show")).toBeNull();
  await act(async()=>finish(snapshot));expect(screen.queryByText("Line lost")).toBeNull();
