@@ -58,7 +58,9 @@ export function reminderMessage(item: ScheduleReminderResult["items"][number]) {
     case "accepted":
       return "Email accepted by the delivery service." + app;
     case "failed":
-      return "Email was rejected. Retry the same reminder." + app;
+      return item.reason === "status-check-failed"
+        ? "We couldn’t check the email status. Retry the same reminder." + app
+        : "Email was rejected. Retry the same reminder." + app;
     case "uncertain":
       return (
         "Email acceptance is unknown. Retry checks the assignment response and recovers the same reminder." + app
