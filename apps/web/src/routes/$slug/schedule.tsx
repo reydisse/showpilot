@@ -461,7 +461,7 @@ function SchedulePage() {
                   ) : null}
                 </div>
               </section>
-              <section className="space-y-3 border-b border-board-border bg-board-card px-4 py-4 md:px-6">
+              {selectedAssignments.length > 0 && <section className="space-y-3 border-b border-board-border bg-board-card px-4 py-4 md:px-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">                <p className="text-sm text-board-text tabular-nums">{stats.filled} of {selectedAssignments.length} filled · {stats.awaiting} awaiting · {stats.open} open</p>
                 {stats.awaiting > 0 && (                      <ReminderControl
                         orgId={data.orgId}
@@ -475,7 +475,7 @@ function SchedulePage() {
                   {([['all', 'All'], ['confirmed', 'Confirmed'], ['assigned', 'Awaiting'], ['open', 'Open'], ['declined', 'Declined']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)} className={`rounded-md px-3 py-2 text-xs focus-visible:outline focus-visible:outline-fire-500 ${filter === value ? 'bg-board-border text-board-text' : 'text-board-muted hover:text-board-text'}`}>{label}</button>)}
 
                 </div>
-              </section>
+              </section>}
               {data.provider.type !== "native" ? (
                 <div className="border-b border-fire-500/20 bg-fire-500/[0.045] px-6 py-3 text-xs text-board-muted">
                   Assignments and confirmations are managed in{" "}
@@ -504,7 +504,7 @@ function SchedulePage() {
                 </section>}
                 </div>
               ) : null}
-              <RosterTable
+              {selectedAssignments.length > 0 && <RosterTable
                 assignments={assignments}
                 departments={departments}
                 orgId={data.orgId}
@@ -516,7 +516,7 @@ function SchedulePage() {
                 onEdit={setEditing}
                 onChanged={() => router.invalidate()}
                 confirm={confirm}
-              />
+              />}
             </>
           ) : (
             <div className="py-24 text-center">
