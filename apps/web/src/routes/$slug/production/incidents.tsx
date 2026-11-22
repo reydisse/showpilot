@@ -149,7 +149,9 @@ export function IncidentsWorkspace({ initial, slug, openReport = false }: { init
   const [savedNotice, setSavedNotice] = useState("");
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const canReportIncidents = hasAnyEffectivePermission(role, grantedPermissions, ["incidents:report", "incidents:access"]);
-  const canWrite = canReportIncidents && !!snapshotRead.value && !snapshotRead.error && !snapshotRead.refreshing && !writeLocked;
+  // Only reports are written from this page, and a report carries no revision, so a background
+  // refresh never disables Submit (a click that lands mid-refresh used to be dropped silently).
+  const canWrite = canReportIncidents && !!snapshotRead.value && !snapshotRead.error && !writeLocked;
   const today = getTodayDateString(orgTimezone);
   void hasEffectivePermission;
   const dirty = writeLocked || !!form.description.trim();
@@ -219,7 +221,7 @@ export function IncidentsWorkspace({ initial, slug, openReport = false }: { init
 
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="flex min-w-0 flex-col gap-6">
-            <SectionCard title="This show" count={loadingIncidents ? undefined : `${incidents.length} ${incidents.length === 1 ? "incident" : "incidents"}`}>
+            <SectionCard title="This show" count={loadingIncidents || snapshotRead.error ? undefined : `${incidents.length} ${incidents.length === 1 ? "incident" : "incidents"}`}>
               {loadingIncidents ? <div className="schedule-skeleton flex flex-col"><span className="sr-only"><QuietActivity label="Loading incidents" /></span>{[0, 1].map(row => <div key={row} className="flex items-center gap-4 border-t border-[var(--sa-border)] px-4 py-4 first:border-t-0"><span className="h-3 w-4 rounded bg-[var(--sa-surface-3)]" /><span className="h-3 w-1/2 rounded bg-[var(--sa-surface-3)]" /></div>)}</div>
                 : incidents.length ? incidents.map(incident => <IncidentRowLink key={incident.id} slug={slug} incident={incident} comments={commentCount(incident.id)} timeZone={timeZone} />)
                 : !snapshotRead.error ? <div className="p-4">
@@ -248,7 +250,7 @@ export function IncidentsWorkspace({ initial, slug, openReport = false }: { init
               <h2 className="text-[13px] font-semibold text-board-text">Shows</h2>
               <label className="relative block">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--sa-ink-3)]" />
-                <input aria-label="Find a show or date" placeholder="Find a show or date" value={showQuery} onChange={event => setShowQuery(event.target.value)} className="h-9 w-full rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] pl-9 pr-3 text-[13px] text-board-text outline-none placeholder:text-[var(--sa-ink-3)] focus:border-fire-500" />
+                <input aria-label="Find a show or date" placeholder="Find a show or date" value={showQuery} onChange={event => setShowQuery(event.target.value)} className="h-9 w-full rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] pl-9 pr-3 text-[13px] max-lg:h-11 max-lg:text-base text-board-text outline-none placeholder:text-[var(--sa-ink-3)] focus:border-fire-500" />
               </label>
             </div>
             {(["Upcoming", "Past"] as const).map(group => {
@@ -279,6 +281,7 @@ export function IncidentsWorkspace({ initial, slug, openReport = false }: { init
         <ModalA title="Report incident" description={`${selectedShow?.name || "This show"} · ${longDate(dateOf(serviceDate), "UTC")}`} onClose={() => setShowForm(false)}>
           <form onSubmit={event => { event.preventDefault(); submitReport(); }} onKeyDown={onReportKey} className="flex flex-col gap-4">
             {writeNotice}
+            {snapshotRead.error ? <ReadFailureNotice variant="panel" error={snapshotRead.error} refreshing={snapshotRead.refreshing} retry={snapshotRead.retry} label="Retry incidents" title="We couldn't load this show's incidents." description="You can keep writing. Submit unlocks once the log loads." /> : null}
             <label className="block">
               <span className="sr-only">What happened?</span>
               <textarea id="incident-description" autoFocus aria-label="What happened?" maxLength={10_000} disabled={writeLocked} value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder="What happened?"
@@ -289,7 +292,7 @@ export function IncidentsWorkspace({ initial, slug, openReport = false }: { init
               <legend className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--sa-ink-3)]">Category</legend>
               <div className="flex flex-wrap gap-1.5">
                 {INCIDENT_CATEGORIES.map(value => <button key={value} type="button" aria-pressed={form.category === value} onClick={() => setForm({ ...form, category: value })}
-                  className={`h-8 rounded-lg border px-3 text-[13px] disabled:opacity-50 ${form.category === value ? "border-[var(--sa-border-strong)] bg-[var(--sa-surface-3)] font-medium text-board-text shadow-[inset_0_0_0_1px_var(--sa-border-strong)]" : "border-[var(--sa-border-strong)] text-[var(--sa-ink-2)] hover:text-board-text"}`}>{value}</button>)}
+                  className={`h-8 rounded-lg border px-3 text-[13px] disabled:opacity-50 max-lg:h-11 ${form.category === value ? "border-[var(--sa-border-strong)] bg-[var(--sa-surface-3)] font-medium text-board-text shadow-[inset_0_0_0_1px_var(--sa-border-strong)]" : "border-[var(--sa-border-strong)] text-[var(--sa-ink-2)] hover:text-board-text"}`}>{value}</button>)}
               </div>
             </fieldset>
             <fieldset disabled={writeLocked} className="flex flex-col gap-2">
@@ -298,12 +301,12 @@ export function IncidentsWorkspace({ initial, slug, openReport = false }: { init
             </fieldset>
             <label className="block">
               <span className="block text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--sa-ink-3)]">Reported by</span>
-              <input id="incident-reporter" maxLength={200} disabled={writeLocked} value={form.reportedBy} onChange={event => setForm({ ...form, reportedBy: event.target.value })} placeholder="Who noticed it" className="w-full" />
+              <input id="incident-reporter" maxLength={200} disabled={writeLocked} value={form.reportedBy} onChange={event => setForm({ ...form, reportedBy: event.target.value })} placeholder="Who noticed it" className="w-full max-lg:!h-11 max-lg:!text-base" />
             </label>
             <div className="-mx-5 -mb-5 mt-1 flex flex-wrap items-center gap-2 border-t border-[var(--sa-border)] bg-board-bg px-5 py-3.5">
               <span className="mr-auto hidden items-center gap-1.5 text-xs text-[var(--sa-ink-3)] sm:inline-flex"><kbd className="rounded border border-[var(--sa-border-strong)] px-1.5 py-0.5 text-[11px]">⌘</kbd><kbd className="rounded border border-[var(--sa-border-strong)] px-1.5 py-0.5 text-[11px]">Enter</kbd>to submit</span>
-              <button type="button" onClick={() => setShowForm(false)} className={modalCancel}>Cancel</button>
-              <button type="submit" disabled={!canWrite || !form.description.trim()} className={modalPrimary}>Submit report</button>
+              <button type="button" onClick={() => setShowForm(false)} className={`${modalCancel} max-lg:h-11`}>Cancel</button>
+              <button type="submit" disabled={!canWrite || !form.description.trim()} className={`${modalPrimary} max-lg:h-11`}>Submit report</button>
             </div>
           </form>
         </ModalA>

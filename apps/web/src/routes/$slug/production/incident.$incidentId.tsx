@@ -1,7 +1,9 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useBlocker, useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronUp, ClipboardCheck, Link2, Trash2 } from "lucide-react";
 import { PageSkeleton } from "@/components/ui/Skeleton";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -83,6 +85,11 @@ export function IncidentDetailWorkspace({ initial, slug, incidentId }: { initial
   const [noteDraft, setNoteDraft] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const busy = writes.state.kind !== "idle";
+  const [commentDraft, setCommentDraft] = useState("");
+  // An unconfirmed save or an unsent comment/note never disappears on navigation without a decision.
+  // Once the incident is gone (a delete landed), nothing on this page is left to lose.
+  const dirty = !!incident && (busy || !!commentDraft.trim() || (noteDraft !== null && noteDraft.trim() !== (incident?.resolutionNote ?? "")));
+  const blocker = useBlocker({ shouldBlockFn: () => dirty, enableBeforeUnload: dirty, withResolver: true });
 
   if (!incident) {
     return <div className="schedule-a flex h-full flex-col items-start gap-4 bg-board-bg px-8 py-10">
@@ -118,7 +125,7 @@ export function IncidentDetailWorkspace({ initial, slug, incidentId }: { initial
     if (await save({ kind: "delete", id: incident.id, snapshot: incident.deleteSnapshot })) void navigate({ to: "/$slug/production/incidents-history", params: { slug }, search: HISTORY_DEFAULTS });
   };
   const noteProblem = noteDraft ? objectionableContentReason(noteDraft) : null;
-  const select = "h-9 w-full appearance-none rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] pl-3 pr-8 text-[13px] text-board-text outline-none focus:border-fire-500 disabled:opacity-60";
+  const select = "h-9 max-lg:h-11 w-full appearance-none rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] pl-3 pr-8 text-[13px] text-board-text outline-none focus:border-fire-500 disabled:opacity-60";
 
   return (
     <div className="schedule-a h-full overflow-auto bg-board-bg [overflow-wrap:anywhere]">
@@ -128,14 +135,14 @@ export function IncidentDetailWorkspace({ initial, slug, incidentId }: { initial
           {position >= 0 ? <div className="flex items-center gap-2">
             <span className="text-xs tabular-nums text-[var(--sa-ink-2)]">{position + 1} <span className="text-[var(--sa-ink-3)]">of</span> {initial.total}</span>
             {[{ id: newer, label: "Newer incident", icon: ChevronUp }, { id: older, label: "Older incident", icon: ChevronDown }].map(({ id, label, icon: Icon }) => id
-              ? <Link key={label} to="/$slug/production/incident/$incidentId" params={{ slug, incidentId: id }} aria-label={label} className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--sa-border-strong)] text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)] hover:text-board-text"><Icon className="h-4 w-4" /></Link>
-              : <span key={label} aria-hidden="true" className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--sa-border)] text-[var(--sa-ink-3)] opacity-40"><Icon className="h-4 w-4" /></span>)}
+              ? <Link key={label} to="/$slug/production/incident/$incidentId" params={{ slug, incidentId: id }} aria-label={label} className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--sa-border-strong)] max-lg:h-11 max-lg:w-11 text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)] hover:text-board-text"><Icon className="h-4 w-4" /></Link>
+              : <span key={label} aria-hidden="true" className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--sa-border)] max-lg:h-11 max-lg:w-11 text-[var(--sa-ink-3)] opacity-40"><Icon className="h-4 w-4" /></span>)}
           </div> : null}
         </div>
 
         <ReadFailureNotice variant="panel" error={detailRead.error} refreshing={detailRead.refreshing} retry={detailRead.retry} label="Try again" />
         {writes.state.kind === "uncertain" || writes.state.kind === "conflict"
-          ? <ReadFailureNotice variant="panel" error={writes.state.failure} refreshing={false} retry={() => writes.state.kind === "conflict" ? writes.clearConflict() : void save()} label={writes.state.kind === "conflict" ? "Got it" : "Retry save"} title={writes.state.kind === "conflict" ? "Someone changed this incident first." : "Your change wasn't confirmed."} description={writes.state.failure.message} />
+          ? <ReadFailureNotice variant="panel" error={writes.state.failure} refreshing={false} retry={() => writes.state.kind === "conflict" ? writes.clearConflict() : void save()} label={writes.state.kind === "conflict" ? "Got it" : "Retry incident save"} title={writes.state.kind === "conflict" ? "Someone changed this incident first." : "Your change wasn't confirmed."} description={writes.state.failure.message} />
           : null}
 
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
@@ -191,6 +198,7 @@ export function IncidentDetailWorkspace({ initial, slug, incidentId }: { initial
                 timeZone={timeZone}
                 disabled={busy || !!detailRead.error}
                 onSave={save}
+                onDraftChange={setCommentDraft}
               />
             </SectionCard>
           </div>
@@ -239,13 +247,17 @@ export function IncidentDetailWorkspace({ initial, slug, incidentId }: { initial
               <button type="button" onClick={() => { void navigator.clipboard?.writeText(window.location.href).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); }} className={ghostButton}>
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Link2 className="h-3.5 w-3.5" />}{copied ? "Link copied" : "Copy link"}
               </button>
-              {canManage ? <button type="button" disabled={busy} onClick={() => void remove()} className={`${ghostButton} text-[var(--sa-danger)] hover:bg-[var(--sa-danger)]/10 hover:text-[var(--sa-danger)]`}><Trash2 className="h-3.5 w-3.5" />Delete</button> : null}
+              {canManage ? <button type="button" aria-label={`Delete incident: ${title}`} disabled={busy} onClick={() => void remove()} className={`${ghostButton} text-[var(--sa-danger)] hover:bg-[var(--sa-danger)]/10 hover:text-[var(--sa-danger)]`}><Trash2 className="h-3.5 w-3.5" />Delete</button> : null}
             </div>
             {writes.state.kind === "pending" ? <p role="status" className="border-t border-[var(--sa-border)] px-4 py-2 text-xs text-[var(--sa-ink-3)]"><QuietActivity label="Saving…" /></p> : null}
           </aside>
         </div>
       </div>
       {ConfirmDialogEl}
+      <Dialog open={blocker.status === "blocked"} onOpenChange={open => { if (!open) blocker.reset?.(); }}>
+        <DialogContent><DialogHeader><DialogTitle>Leave this incident?</DialogTitle><DialogDescription>{busy ? "A change is still waiting for confirmation. Leaving discards its retry controls." : "Leaving discards what you were writing."}</DialogDescription></DialogHeader>
+          <DialogFooter><Button variant="outline" onClick={() => blocker.reset?.()}>Stay</Button><Button onClick={() => blocker.proceed?.()}>Leave</Button></DialogFooter></DialogContent>
+      </Dialog>
     </div>
   );
 }

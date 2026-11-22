@@ -70,9 +70,9 @@ export function longDate(date: Date, timeZone: string) {
 }
 
 export const card = "rounded-xl border border-[var(--sa-border)] bg-[var(--sa-surface)]";
-export const secondaryButton = "inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-3 text-[13px] font-medium text-board-text hover:bg-[var(--sa-surface-3)] disabled:opacity-40";
-export const primaryButton = "inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-fire-500 px-3 text-[13px] font-semibold text-[#1a1300] hover:bg-fire-400 disabled:opacity-40";
-export const ghostButton = "inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-[13px] font-medium text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)] hover:text-board-text disabled:opacity-40";
+export const secondaryButton = "inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg max-lg:h-11 border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-3 text-[13px] font-medium text-board-text hover:bg-[var(--sa-surface-3)] disabled:opacity-40";
+export const primaryButton = "inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg max-lg:h-11 bg-fire-500 px-3 text-[13px] font-semibold text-[#1a1300] hover:bg-fire-400 disabled:opacity-40";
+export const ghostButton = "inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg max-lg:h-11 px-3 text-[13px] font-medium text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)] hover:text-board-text disabled:opacity-40";
 
 export function SectionCard({ title, count, action, children, className = "" }: { title: string; count?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return <section className={`${card} ${className}`}>
@@ -90,7 +90,7 @@ export function SeverityPicker({ value, onChange, disabled, compact = false }: {
     {SEVERITIES.map(severity => {
       const active = asSeverity(value) === severity;
       return <button key={severity} type="button" role="radio" aria-checked={active} disabled={disabled} onClick={() => onChange(severity)}
-        className={`inline-flex h-8 items-center justify-center gap-2 whitespace-nowrap rounded-md text-[13px] disabled:opacity-50 ${active ? "bg-[var(--sa-surface-3)] font-medium text-board-text shadow-[inset_0_0_0_1px_var(--sa-border-strong)]" : "text-[var(--sa-ink-2)] hover:text-board-text"}`}>
+        className={`inline-flex h-8 items-center justify-center gap-2 whitespace-nowrap rounded-md text-[13px] max-lg:h-11 disabled:opacity-50 ${active ? "bg-[var(--sa-surface-3)] font-medium text-board-text shadow-[inset_0_0_0_1px_var(--sa-border-strong)]" : "text-[var(--sa-ink-2)] hover:text-board-text"}`}>
         <SeverityBars severity={severity} />{severityLabel(severity)}
       </button>;
     })}

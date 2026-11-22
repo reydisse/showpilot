@@ -65,7 +65,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, capturedEmai
       });
       for (const control of controls) {
         await control.scrollIntoViewIfNeeded();
-        const b = await control.boundingBox(); assert.ok(b && b.height >= 44 && b.x >= 0 && b.x + b.width <= width + 1, `${await control.getAttribute("aria-label")} at ${width}: ${JSON.stringify(b)}`);
+        const b = await control.boundingBox(); assert.ok(b && b.height >= (width < 1024 ? 44 : 32) && b.x >= 0 && b.x + b.width <= width + 1, `${await control.getAttribute("aria-label")} at ${width}: ${JSON.stringify(b)}`);
         await control.click({ trial: true });
       }
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
@@ -105,7 +105,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, capturedEmai
       await page.getByText("Date-only fixture incident", { exact: true }).waitFor();
       const search = page.getByRole("textbox", { name: "Search incident history", exact: true });
       await page.waitForFunction(() => {
-        const input = document.querySelector('input[placeholder="Search issues, people, categories…"]');
+        const input = document.querySelector('input[placeholder="Search incidents, people, notes"]');
         return input && Object.keys(input).some(key => key.startsWith("__reactProps$"));
       });
       await search.fill("fixture");
@@ -113,13 +113,19 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, capturedEmai
       await page.waitForURL(url => url.searchParams.get("query") === "fixture" && url.searchParams.get("status") === "open");
       await page.getByText("Date-only fixture incident", { exact: true }).waitFor();
       await search.fill("discard this"); await button("Clear filters").click();
-      await page.waitForFunction(() => document.querySelector('input[placeholder="Search issues, people, categories…"]')?.value === "");
+      await page.waitForFunction(() => document.querySelector('input[placeholder="Search incidents, people, notes"]')?.value === "");
       await new Promise(done => setTimeout(done, 500));
       assert.equal(new URL(page.url()).searchParams.get("query") || "", "");
-      await widths("filters", [search, page.getByRole("combobox", { name: "Status", exact: true }), page.getByRole("combobox", { name: "Severity", exact: true }), page.getByRole("combobox", { name: "Category", exact: true }), page.getByRole("textbox", { name: "Assignee", exact: true }), page.getByLabel("From date", { exact: true }), page.getByLabel("To date", { exact: true }), button("Clear filters")]);
+      // Filter chips wrap a transparent native select; a custom range reveals the date inputs.
+      await page.getByRole("combobox", { name: "Dates", exact: true }).selectOption("custom");
+      await page.getByRole("combobox", { name: "Status", exact: true }).selectOption("open");
+      await page.getByText("Date-only fixture incident", { exact: true }).waitFor();
+      await widths("filters", [search, ...["Status", "Severity", "Category", "Assignee", "Dates", "Sort"].map(name => page.getByRole("combobox", { name, exact: true })), page.getByLabel("From date", { exact: true }), page.getByLabel("To date", { exact: true }), button("Clear filters")]);
       const card = page.getByRole("link").filter({ hasText: "Date-only fixture incident" });
       await card.scrollIntoViewIfNeeded(); await card.focus(); await page.keyboard.press("Enter");
-      await page.getByRole("button", { name: "Delete incident: Date-only fixture incident", exact: true }).waitFor();
+      await page.waitForURL(url => url.pathname.endsWith("/production/incident/smoke-date-incident"));
+      await page.getByRole("heading", { name: "Date-only fixture incident" }).waitFor();
+      await button("Delete incident: Date-only fixture incident").waitFor();
     }
     assert.deepEqual(errors, []); const emails = await capturedEmails(); assert.equal(emails.length, 0);
     console.log(JSON.stringify({ passed: true, native, widths: [320, 768, 1440], historyReads: reads, errors, emails: emails.length }));

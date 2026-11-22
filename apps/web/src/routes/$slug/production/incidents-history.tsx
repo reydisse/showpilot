@@ -129,7 +129,7 @@ function IncidentHistoryPage() {
   const shown = result.incidents.length;
   const remaining = result.total - shown;
   const sortNote = search.sort === "oldest" ? "Showing oldest first" : search.sort === "severity" ? "Showing most severe first" : "Showing newest first";
-  const grid = "grid grid-cols-[16px_minmax(0,1fr)_76px] items-center gap-x-4 md:grid-cols-[16px_minmax(0,1fr)_88px_100px_170px_44px_76px]";
+  const grid = "grid grid-cols-[16px_minmax(0,1fr)_76px] items-center gap-x-4 md:grid-cols-[16px_minmax(0,1fr)_88px_100px_24px_44px_76px] lg:grid-cols-[16px_minmax(0,1fr)_88px_100px_170px_44px_76px]";
 
   return (
     <div className="schedule-a h-full overflow-auto bg-board-bg [overflow-wrap:anywhere]">
@@ -148,7 +148,7 @@ function IncidentHistoryPage() {
             <span className="sr-only">Search incident history</span>
             <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--sa-ink-3)]" />
             <input ref={searchRef} maxLength={200} value={queryDraft} onChange={event => setQueryDraft(event.target.value)} placeholder="Search incidents, people, notes"
-              className="h-9 w-full rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] pl-9 pr-9 text-[13px] text-board-text outline-none placeholder:text-[var(--sa-ink-3)] focus:border-fire-500" />
+              className="h-11 w-full rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] pl-9 pr-9 text-base lg:h-9 lg:text-[13px] text-board-text outline-none placeholder:text-[var(--sa-ink-3)] focus:border-fire-500" />
             <kbd aria-hidden="true" className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded border border-[var(--sa-border-strong)] px-1.5 text-[11px] text-[var(--sa-ink-3)]">/</kbd>
           </label>
           <ChipSelect label="Status" value={search.status} onChange={value => update({ status: value as typeof search.status })} options={[["all", "Any"], ["open", "Open"], ["resolved", "Resolved"]]} />
@@ -160,12 +160,12 @@ function IncidentHistoryPage() {
             setCustomDates(false); const preset = presets.find(item => item.id === value); if (preset) update({ from: preset.from, to: preset.to });
           }} options={[...presets.map(preset => [preset.id, preset.label] as [string, string]), ["custom", "Custom range…"]]} />
           {customDates ? <span className="flex items-center gap-1.5 text-[13px] text-[var(--sa-ink-3)]">
-            <input type="date" aria-label="From date" max={search.to || undefined} value={search.from} onChange={event => update({ from: event.target.value })} className="h-9 rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-2 text-[13px] text-board-text" />
+            <input type="date" aria-label="From date" max={search.to || undefined} value={search.from} onChange={event => update({ from: event.target.value })} className="h-11 rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-2 text-[13px] text-board-text lg:h-9" />
             to
-            <input type="date" aria-label="To date" min={search.from || undefined} value={search.to} onChange={event => update({ to: event.target.value })} className="h-9 rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-2 text-[13px] text-board-text" />
+            <input type="date" aria-label="To date" min={search.from || undefined} value={search.to} onChange={event => update({ to: event.target.value })} className="h-11 rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-2 text-[13px] text-board-text lg:h-9" />
           </span> : null}
           <span className="ml-auto flex shrink-0 items-center gap-2">
-            {filtered ? <button type="button" onClick={clearFilters} className={ghostButton}>Clear filters</button> : null}
+            {filtered ? <button type="button" onClick={clearFilters} className={`${ghostButton} h-11 lg:h-8`}>Clear filters</button> : null}
             <ChipSelect label="Sort" value={search.sort} onChange={value => update({ sort: value as typeof search.sort })} options={[["newest", "Newest"], ["oldest", "Oldest"], ["severity", "Severity"]]} neutral />
           </span>
         </div>
@@ -177,7 +177,7 @@ function IncidentHistoryPage() {
 
         {result.incidents.length ? <div className="flex flex-col gap-2">
           <div aria-hidden="true" className={`${grid} hidden px-4 text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--sa-ink-3)] md:grid`}>
-            <span /><span>Incident</span><span>Category</span><span>Status</span><span>Assignee</span><span /><span className="text-right">Reported</span>
+            <span /><span>Incident</span><span>Category</span><span>Status</span><span className="invisible lg:visible">Assignee</span><span /><span className="text-right">Reported</span>
           </div>
           <div className={`${card} overflow-hidden`}>
             {result.incidents.map((incident, index) => {
@@ -200,7 +200,7 @@ function IncidentHistoryPage() {
                   </span>
                   <span className="hidden truncate text-[13px] text-[var(--sa-ink-2)] md:block">{incident.category}</span>
                   <span className="hidden md:block"><StatusLabel status={incident.status} /></span>
-                  <span className="hidden min-w-0 items-center gap-2 text-[13px] md:flex"><PersonAvatar name={incident.assignedName || null} size={24} /><span className={`truncate ${incident.assignedName ? "text-board-text" : "text-[var(--sa-ink-3)]"}`}>{incident.assignedName || "Unassigned"}</span></span>
+                  <span className="hidden min-w-0 items-center gap-2 text-[13px] md:flex"><PersonAvatar name={incident.assignedName || null} size={24} /><span className={`truncate max-lg:sr-only ${incident.assignedName ? "text-board-text" : "text-[var(--sa-ink-3)]"}`}>{incident.assignedName || "Unassigned"}</span></span>
                   <span className="hidden items-center gap-1.5 text-[13px] tabular-nums text-[var(--sa-ink-2)] md:inline-flex"><MessageCircle className="h-3.5 w-3.5 text-[var(--sa-ink-3)]" />{incident.commentCount}</span>
                   <span className="flex flex-col items-end text-xs tabular-nums"><span className="text-board-text">{dayMonth(reported, timeZone)}</span><span className="text-[var(--sa-ink-3)]">{clockTime(reported, timeZone)}</span></span>
                 </Link>
@@ -229,11 +229,11 @@ function IncidentHistoryPage() {
 function ChipSelect({ label, value, onChange, options, neutral = false }: { label: string; value: string; onChange: (value: string) => void; options: [string, string][]; neutral?: boolean }) {
   const display = options.find(([option]) => option === value)?.[1] ?? value;
   const active = !neutral && value !== options[0]?.[0];
-  return <label className={`relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-[13px] focus-within:border-fire-500 ${active ? "border-[var(--sa-border-strong)] bg-[var(--sa-surface-3)]" : "border-[var(--sa-border-strong)] bg-[var(--sa-surface)]"}`}>
+  return <label className={`relative inline-flex h-11 shrink-0 lg:h-9 items-center gap-1.5 rounded-lg border px-3 text-[13px] focus-within:border-fire-500 ${active ? "border-[var(--sa-border-strong)] bg-[var(--sa-surface-3)]" : "border-[var(--sa-border-strong)] bg-[var(--sa-surface)]"}`}>
     <span className="text-[var(--sa-ink-3)]">{label}</span>
     <span className={active ? "font-semibold text-board-text" : "text-board-text"}>{display}</span>
     <ChevronDown className="h-3.5 w-3.5 text-[var(--sa-ink-3)]" />
-    <select aria-label={label} value={value} onChange={event => onChange(event.target.value)} className="absolute inset-0 cursor-pointer opacity-0">
+    <select aria-label={label} value={value} onChange={event => onChange(event.target.value)} className="absolute -inset-px cursor-pointer rounded-lg opacity-0">
       {options.map(([option, text]) => <option key={option || "any"} value={option}>{text}</option>)}
     </select>
   </label>;

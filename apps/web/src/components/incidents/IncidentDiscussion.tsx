@@ -9,7 +9,7 @@ import { clockTime, dayMonth, PersonAvatar, secondaryButton } from "./incident-a
  * Threaded incident comments with reactions and a single-line composer.
  * Writes go through the caller's incident write queue (`onSave`).
  */
-export function IncidentDiscussion({ incidentId, comments, reactions, viewerId, timeZone, disabled, onSave }: {
+export function IncidentDiscussion({ incidentId, comments, reactions, viewerId, timeZone, disabled, onSave, onDraftChange }: {
   incidentId: string;
   comments: IncidentComment[];
   reactions: ContentReaction[];
@@ -17,10 +17,15 @@ export function IncidentDiscussion({ incidentId, comments, reactions, viewerId, 
   timeZone: string;
   disabled: boolean;
   onSave: (operation: IncidentOperation) => Promise<boolean>;
+  /** Lets the page guard navigation while a comment is unsent. */
+  onDraftChange?: (draft: string) => void;
 }) {
-  const [draft, setDraft] = useState("");
+  const [draft, setDraftState] = useState("");
+  const setDraft = (value: string) => { setDraftState(value); onDraftChange?.(value); };
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  // The picker opens upward when there isn't room for it below the button.
+  const [pickerUp, setPickerUp] = useState(false);
   const [customReaction, setCustomReaction] = useState("");
   const problem = objectionableContentReason(draft);
   const replyTarget = replyTo ? comments.find(comment => comment.id === replyTo) : null;
@@ -53,16 +58,16 @@ export function IncidentDiscussion({ incidentId, comments, reactions, viewerId, 
               const count = itemReactions.filter(reaction => reaction.emoji === emoji).length;
               const mine = itemReactions.some(reaction => reaction.emoji === emoji && reaction.userId === viewerId);
               return <button key={emoji} type="button" disabled={disabled} onClick={() => react(item.id, emoji)} aria-label={`React ${emoji}`} aria-pressed={mine}
-                className={`inline-flex h-6 items-center gap-[5px] rounded-full border pl-[7px] pr-2 text-xs disabled:opacity-50 [@media(pointer:coarse)]:h-9 ${mine ? "border-board-text/40 bg-board-text/[0.13] text-board-text" : "border-[var(--sa-border-strong)] bg-[var(--sa-surface)] text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)]"}`}>
+                className={`inline-flex h-6 items-center gap-[5px] rounded-full border pl-[7px] pr-2 text-xs disabled:opacity-50 max-lg:h-11 ${mine ? "border-board-text/40 bg-board-text/[0.13] text-board-text" : "border-[var(--sa-border-strong)] bg-[var(--sa-surface)] text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)]"}`}>
                 <span>{emoji}</span><span className="text-[11px] tabular-nums">{count}</span>
               </button>;
             })}
             <span className="relative">
-              <button type="button" disabled={disabled} onClick={() => setPickerFor(current => current === item.id ? null : item.id)} aria-label="Add reaction"
-                className="inline-flex h-6 w-[30px] items-center justify-center rounded-full border border-dashed border-[var(--sa-border-strong)] text-[var(--sa-ink-3)] hover:border-solid hover:text-board-text disabled:opacity-50 [@media(pointer:coarse)]:h-9 [@media(pointer:coarse)]:w-11">
+              <button type="button" disabled={disabled} onClick={event => { setPickerUp(event.currentTarget.getBoundingClientRect().bottom + 260 > window.innerHeight); setPickerFor(current => current === item.id ? null : item.id); }} aria-label="Add reaction"
+                className="inline-flex h-6 w-[30px] items-center justify-center rounded-full border border-dashed border-[var(--sa-border-strong)] text-[var(--sa-ink-3)] hover:border-solid hover:text-board-text disabled:opacity-50 max-lg:h-11 max-lg:w-11">
                 <SmilePlus className="h-3.5 w-3.5" />
               </button>
-              {pickerFor === item.id ? <span className="fixed inset-x-4 bottom-4 z-40 block rounded-xl border border-[var(--sa-border-strong)] bg-[var(--sa-surface)] p-2 shadow-xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:top-full sm:mt-1 sm:w-72">
+              {pickerFor === item.id ? <span className={`fixed inset-x-4 bottom-4 z-40 block rounded-xl border border-[var(--sa-border-strong)] bg-[var(--sa-surface)] p-2 shadow-xl sm:absolute sm:inset-x-auto sm:left-0 sm:w-72 ${pickerUp ? "sm:bottom-full sm:top-auto sm:mb-1" : "sm:bottom-auto sm:top-full sm:mt-1"}`}>
                 <span className="grid max-h-40 grid-cols-6 gap-1 overflow-y-auto">{REACTION_EMOJIS.map(emoji => <button key={emoji} type="button" disabled={disabled} onClick={() => { setPickerFor(null); react(item.id, emoji); }} aria-label={`React ${emoji}`} className="min-h-11 min-w-11 rounded-md p-1.5 text-base hover:bg-[var(--sa-surface-2)]">{emoji}</button>)}</span>
                 <form className="mt-2 flex gap-1 border-t border-[var(--sa-border)] pt-2" onSubmit={event => { event.preventDefault(); if (!isEmojiReaction(customReaction)) return; setPickerFor(null); setCustomReaction(""); react(item.id, customReaction); }}>
                   <input aria-label="Type or paste any emoji" value={customReaction} onChange={event => setCustomReaction(event.target.value)} maxLength={32} placeholder="Any emoji" className="min-h-11 min-w-0 flex-1 rounded-md border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-2 text-xs text-board-text outline-none focus:border-fire-500" />
@@ -70,7 +75,7 @@ export function IncidentDiscussion({ incidentId, comments, reactions, viewerId, 
                 </form>
               </span> : null}
             </span>
-            <button type="button" disabled={disabled} onClick={() => setReplyTo(item.id)} className="ml-1 inline-flex h-6 items-center rounded-md px-1.5 text-xs font-medium text-[var(--sa-ink-3)] hover:text-board-text disabled:opacity-50 [@media(pointer:coarse)]:h-11">Reply</button>
+            <button type="button" disabled={disabled} onClick={() => setReplyTo(item.id)} className="ml-1 inline-flex h-6 items-center rounded-md px-1.5 text-xs font-medium text-[var(--sa-ink-3)] hover:text-board-text disabled:opacity-50 max-lg:h-11">Reply</button>
           </div>
         </div>
       </div>
