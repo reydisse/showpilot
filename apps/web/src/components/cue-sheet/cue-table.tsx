@@ -114,7 +114,7 @@ export function CueTable({ rows, columns, hidden, currentItemId, canEdit, canMan
   }, [focusRequest]);
   const widthFor = (column: CueColumnRow) => focusedDepartment ? Math.max(96, Math.min(520, (viewportWidth || 1004) - titleLeft - titleWidth)) : collapsed.has(column.id) ? 44 : narrow ? Math.max(160, Math.min(column.width, (viewportWidth || 360) - titleLeft - titleWidth)) : Math.min(480, Math.max(160, column.width));
   const tableWidth = titleLeft + titleWidth + details.reduce((sum, column) => sum + column.width, 0) + visible.reduce((sum, column) => sum + widthFor(column), 0);
-  return <table style={{ width: tableWidth, minWidth: tableWidth }} ref={table} onFocusCapture={event => { const cell = event.target.closest<HTMLElement>("[data-cue-cell]"); if (cell) revealCell(cell); }} role="grid" aria-label="Cue sheet" aria-rowcount={rows.length + 1} aria-colcount={fieldCount + visible.length} className="cue-sheet-grid">
+  return <table style={{ width: tableWidth, minWidth: tableWidth }} ref={table} onFocusCapture={event => { const cell = event.target.closest<HTMLElement>("[data-cue-cell]"); if (cell) revealCell(cell); }} role="grid" data-focus={!!focusedDepartment} aria-label="Cue sheet" aria-rowcount={rows.length + 1} aria-colcount={fieldCount + visible.length} className="cue-sheet-grid">
     <colgroup>
       <col style={{ width: indexWidth }} />{showCue && <col style={{ width: cueWidth }} />}{timeFields.length > 0 && <col style={{ width: timeWidth }} />}
       <col style={{ width: titleWidth }} />{details.map(column => <col key={column.key} style={{ width: column.width }} />)}
