@@ -135,7 +135,7 @@ function LiveRundownWorkspace(props: LiveRundownBarProps) {
   const retry = lookup.status === "unavailable" ? <Button type="button" variant="outline" className="mt-2 min-h-11 text-xs" disabled={refreshPending} onClick={() => setAttempt(value => value + 1)}>{refreshPending ? <QuietActivity label="Checking live rundown…" /> : "Retry live rundown"}</Button> : null;
   const target = "target" in lookup ? lookup.target : undefined;
   return target ? <ActiveRundownSession key={JSON.stringify([target.showId ?? null, target.serviceDate])} {...props} target={target} targetFresh={lookup.status === "ready"} refresh={retry} />
-    : <Bar compact={props.compact}><p role="status" aria-live="polite" className="text-xs text-board-text">{lookup.status === "loading" ? <QuietActivity label="Checking live rundown…" /> : "Live rundown unavailable"}</p>{retry}</Bar>;
+    : <Bar compact={props.compact}><div className="flex min-w-0 items-center gap-3"><p role="status" aria-live="polite" className="text-xs text-board-text">{lookup.status === "loading" ? <QuietActivity label="Checking live rundown…" /> : "Live rundown unavailable"}</p>{typeof props.toolbar === "function" ? props.toolbar(null) : props.toolbar}</div>{retry}</Bar>;
 }
 
 /** Replacing the workspace clears its target, timer and pending confirmation synchronously. */

@@ -90,6 +90,17 @@ describe("LiveRundownBar", () => {
     expect(document.querySelector("[data-live-rundown-timer]")?.textContent).toBe(current);
   });
 
+  it("keeps workspace actions reachable while the target loads or fails without inventing transport controls", async () => {
+    mocks.getTarget.mockRejectedValueOnce(new Error("offline"));
+    const toolbar = vi.fn(controls => <div><button>Workspace actions</button>{controls}</div>);
+    render(<LiveRundownBar {...props} compact toolbar={toolbar} />);
+    expect(screen.getByRole("button", { name: "Workspace actions" })).toBeTruthy();
+    await screen.findByText("Live rundown unavailable");
+    expect(screen.getByRole("button", { name: "Workspace actions" })).toHaveProperty("disabled", false);
+    expect(screen.queryByRole("button", { name: "Resume rundown" })).toBeNull();
+    expect(toolbar).toHaveBeenLastCalledWith(null);
+  });
+
   it("shows unavailable and a retry after target lookup fails", async () => {
     mocks.getTarget.mockRejectedValueOnce(new Error("offline"));
     render(<LiveRundownBar {...props} />);
