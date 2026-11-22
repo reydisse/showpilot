@@ -1,7 +1,7 @@
 import { QuietActivity } from "@/components/ui/QuietActivity";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ModalA, modalCancel, modalPrimary } from "@/components/schedule/modal-a";
 import { formatServicePickerLabel } from "@/lib/service-picker";
 
 export interface RundownShowOption {
@@ -52,77 +52,68 @@ export function ShowOptionsModal({
   startTime: string;
   timeZone?: string;
 }) {
+  // Name and times are a draft until Save changes; picking another show or date opens it at once.
+  const [draft, setDraft] = useState({ name: serviceName, start: startTime, call: callTime });
+  useEffect(() => { setDraft({ name: serviceName, start: startTime, call: callTime }); }, [selectedShowId, selectedDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  const changed = draft.name !== serviceName || draft.start !== startTime || draft.call !== callTime;
+  const save = () => {
+    if (draft.name !== serviceName) onNameChange(draft.name);
+    if (draft.start !== startTime) onStartTimeChange(draft.start);
+    if (draft.call !== callTime) onCallTimeChange(draft.call);
+    onClose();
+  };
+  const field = "h-10 w-full rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-3 text-base text-board-text outline-none placeholder:text-[var(--sa-ink-3)] focus:border-fire-500 disabled:opacity-60 sm:text-[13px] max-lg:h-11";
+  const label = "mb-1.5 block text-[13px] font-medium text-board-text";
+  const step = "inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-3 text-[13px] font-medium text-board-text hover:bg-[var(--sa-surface-3)] disabled:opacity-50 max-lg:h-11";
   return (
-    <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
-      <DialogContent aria-describedby={undefined} showCloseButton={false} className="rundown-modal block max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-2xl border border-board-border bg-board-card p-0 shadow-2xl sm:max-w-md">
-        <div className="flex items-start justify-between gap-4 border-b border-board-border px-5 py-4">
-          <div>
-            <DialogTitle className="text-base font-semibold text-board-text">Show options</DialogTitle>
-            <p className="mt-1 text-xs text-board-muted">Switch shows or change this show's details.</p>
+    <ModalA className="rundown-modal sm:max-w-[560px]" title="Show options" description="Switch shows or change this show's details." closeLabel="Close show options" onClose={() => { if (!busy) onClose(); }}>
+      <form onSubmit={(event) => { event.preventDefault(); save(); }} className="flex flex-col gap-5">
+        <div>
+          <label htmlFor="rundown-show-picker" className={label}>Show</label>
+          <div className="relative">
+            <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--sa-ink-3)]" />
+            <select id="rundown-show-picker" value={selectedShowId ?? ""} disabled={busy}
+              onChange={(event) => { const selected = shows.find((show) => show.id === event.target.value); if (selected) onSelectShow(selected); }}
+              className={`${field} appearance-none pl-9 pr-9`}>
+              {!selectedShowId ? <option value="">No planned show</option> : null}
+              {shows.map((show) => <option key={show.id} value={show.id}>{formatServicePickerLabel(show, { timeZone })}</option>)}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--sa-ink-3)]" />
           </div>
-          <Button variant="ghost" type="button" onClick={onClose} disabled={busy} aria-label="Close show options" className="rounded-lg p-2 text-board-muted transition-colors hover:bg-board-border/60 hover:text-board-text disabled:opacity-50">
-            <X className="h-4 w-4" />
-          </Button>
         </div>
-
-        <div className="space-y-5 p-5">
-          <section className="space-y-2">
-            <label htmlFor="rundown-show-picker" className="text-xs font-semibold uppercase tracking-[0.12em] text-board-muted">Show</label>
-            <div className="relative">
-              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-board-muted" />
-              <select
-                id="rundown-show-picker"
-                value={selectedShowId ?? ""}
-                onChange={(event) => {
-                  const selected = shows.find((show) => show.id === event.target.value);
-                  if (selected) onSelectShow(selected);
-                }}
-                disabled={busy}
-                className="w-full appearance-none rounded-xl border border-board-border bg-board-bg py-2.5 pl-10 pr-4 text-sm text-board-text outline-none transition-colors focus:border-fire-500/50"
-              >
-                {!selectedShowId ? <option value="">No planned show</option> : null}
-                {shows.map((show) => <option key={show.id} value={show.id}>{formatServicePickerLabel(show, { timeZone })}</option>)}
-              </select>
+        <div>
+          <label htmlFor="rundown-show-date" className={label}>Date</label>
+          <div className="flex flex-wrap gap-2">
+            <input id="rundown-show-date" type="date" value={selectedDate} disabled={busy} onChange={(event) => event.target.value && onDateChange(event.target.value)} className={`${field} min-w-[160px] flex-1 tabular-nums`} />
+            <div className="flex gap-1.5">
+              <button type="button" onClick={() => onShiftDate(-1)} disabled={busy} className={step}><ChevronLeft className="h-3.5 w-3.5" />Previous</button>
+              <button type="button" onClick={onToday} disabled={busy} className={step}>Today</button>
+              <button type="button" onClick={() => onShiftDate(1)} disabled={busy} className={step}><ChevronRight className="h-3.5 w-3.5" />Next</button>
             </div>
-          </section>
-
-          <section className="space-y-2">
-            <label htmlFor="rundown-show-date" className="text-xs font-semibold uppercase tracking-[0.12em] text-board-muted">Date</label>
-            <input
-              id="rundown-show-date"
-              type="date"
-              value={selectedDate}
-              onChange={(event) => event.target.value && onDateChange(event.target.value)}
-              disabled={busy}
-              className="w-full rounded-xl border border-board-border bg-board-bg px-3 py-2.5 text-sm text-board-text outline-none transition-colors focus:border-fire-500/50"
-            />
-            <div className="grid grid-cols-3 gap-1 [&_.sp-button]:px-1 [&_.sp-button]:gap-1">
-              <Button variant="ghost" type="button" onClick={() => onShiftDate(-1)} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-board-border text-xs font-medium text-board-muted hover:text-board-text disabled:opacity-50"><ChevronLeft className="h-4 w-4" />Previous</Button>
-              <Button variant="ghost" type="button" onClick={onToday} disabled={busy} className="min-h-10 rounded-lg border border-board-border text-xs font-medium text-board-text hover:bg-board-border/40 disabled:opacity-50">Today</Button>
-              <Button variant="ghost" type="button" onClick={() => onShiftDate(1)} disabled={busy} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg border border-board-border text-xs font-medium text-board-muted hover:text-board-text disabled:opacity-50">Next<ChevronRight className="h-4 w-4" /></Button>
-            </div>
-          </section>
-
-          {canEdit ? <section className="grid gap-3 border-t border-board-border pt-5 sm:grid-cols-2">
-            <label className="space-y-2 text-xs font-semibold uppercase tracking-[0.12em] text-board-muted">
-              <span>Show name</span>
-              <input type="text" value={serviceName} onChange={(event) => onNameChange(event.target.value)} maxLength={120} placeholder="Name this show" className="w-full rounded-xl border border-board-border bg-board-bg px-3 py-2.5 text-sm font-normal normal-case tracking-normal text-board-text outline-none focus:border-fire-500/50 sm:col-span-2" />
-            </label>
-            <label className="space-y-2 text-xs font-semibold uppercase tracking-[0.12em] text-board-muted">
-              <span>Start time · {timeZone || "UTC"}</span>
-              <input type="time" value={startTime} onChange={(event) => onStartTimeChange(event.target.value)} className="w-full rounded-xl border border-board-border bg-board-bg px-3 py-2.5 text-sm font-normal normal-case tracking-normal text-board-text outline-none focus:border-fire-500/50" />
-            </label>
-            <label className="space-y-2 text-xs font-semibold uppercase tracking-[0.12em] text-board-muted">
-              <span>Crew call · {timeZone || "UTC"}</span>
-              <input type="time" value={callTime} onChange={(event) => onCallTimeChange(event.target.value)} className="w-full rounded-xl border border-board-border bg-board-bg px-3 py-2.5 text-sm font-normal normal-case tracking-normal text-board-text outline-none focus:border-fire-500/50" />
-              <span className="block text-xs font-normal normal-case tracking-normal">Leave blank to use the organization default.</span>
-            </label>
-          </section> : null}
-
-          {busy ? <QuietActivity label="Saving changes…" /> : null}
-          {canCreate ? <Button variant="ghost" type="button" onClick={onCreate} disabled={busy} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-fire-500 px-4 text-sm font-semibold text-black transition-colors hover:bg-fire-400 disabled:opacity-50"><Plus className="h-4 w-4" />Create another show</Button> : null}
+          </div>
         </div>
-      </DialogContent>
-    </Dialog>
+        {canEdit ? <div className="grid gap-4 border-t border-[var(--sa-border)] pt-5 sm:grid-cols-2">
+          <div>
+            <label htmlFor="rundown-show-name" className={label}>Show name</label>
+            <input id="rundown-show-name" type="text" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} maxLength={120} placeholder="Name this show" className={field} />
+          </div>
+          <div>
+            <label htmlFor="rundown-show-start" className={label}>Start time <span className="font-normal text-[var(--sa-ink-3)]">· {timeZone || "UTC"}</span></label>
+            <input id="rundown-show-start" type="time" value={draft.start} onChange={(event) => setDraft({ ...draft, start: event.target.value })} className={`${field} tabular-nums`} />
+          </div>
+          <div>
+            <label htmlFor="rundown-show-call" className={label}>Crew call <span className="font-normal text-[var(--sa-ink-3)]">· {timeZone || "UTC"}</span></label>
+            <input id="rundown-show-call" type="time" value={draft.call} onChange={(event) => setDraft({ ...draft, call: event.target.value })} className={`${field} tabular-nums`} />
+            <p className="mt-1.5 text-xs text-[var(--sa-ink-3)]">Leave blank to use the organization default.</p>
+          </div>
+        </div> : null}
+        {busy ? <p role="status" className="text-xs text-[var(--sa-ink-3)]"><QuietActivity label="Saving changes…" /></p> : null}
+        <div className="-mx-5 -mb-5 flex flex-wrap items-center gap-2 border-t border-[var(--sa-border)] bg-board-bg px-5 py-3.5">
+          {canCreate ? <button type="button" onClick={onCreate} disabled={busy} className="mr-auto inline-flex h-9 items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)] hover:text-board-text disabled:opacity-50 max-lg:h-11"><Plus className="h-3.5 w-3.5" />Create another show</button> : <span className="mr-auto" />}
+          <button type="button" onClick={onClose} disabled={busy} className={`${modalCancel} max-lg:h-11`}>Cancel</button>
+          {canEdit ? <button type="submit" disabled={busy || !changed} className={`${modalPrimary} max-lg:h-11`}>Save changes</button> : null}
+        </div>
+      </form>
+    </ModalA>
   );
 }

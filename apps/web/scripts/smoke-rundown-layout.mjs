@@ -48,18 +48,25 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
     assert.ok(layout.pageFits && layout.sheetFits, JSON.stringify(layout));
     for (const entry of layout.rows) {
       assert.ok(entry.fits, JSON.stringify(entry));
-      for (const button of entry.buttons) assert.ok(button.width >= 44 && button.height >= 44 && button.fits && button.opacity === "1" && button.shared, JSON.stringify(button));
+      // Touch-size targets below the desktop breakpoint; desktop rows keep their density.
+      for (const button of entry.buttons) assert.ok(button.width >= (width < 1024 ? 44 : 24) && button.height >= (width < 1024 ? 44 : 24) && button.fits && (width >= 1024 || button.opacity === "1"), JSON.stringify(button));
     }
     await assertOperatorReadability(browser, ".rundown-page");
     await browser("screenshot", `/tmp/showpilot-rundown-layout-${width}.png`);
   }
   await browser("set", "viewport", "1440", "900");
-  await browser("focus", `${row("first")} button[title="Move down"]`);
-  await browser("press", "Enter");
+  // Keyboard reorder through the row's actions menu; focus returns to the menu button.
+  const menuMove = async direction => {
+    await browser("focus", `${row("first")} button[title="Item actions"]`);
+    await browser("press", "Enter");
+    await browser("find", "role", "menuitem", "click", "--name", direction, "--exact");
+  };
+  await menuMove("Move down");
   await poll(async () => (await state()).items.at(-1)?.id === "first", "keyboard move down");
-  assert.equal(await evaluate("document.activeElement.getAttribute('aria-label')"), "Move up Welcome");
-  await browser("press", "Enter");
+  await browser("wait", "--fn", "document.activeElement?.getAttribute('aria-label') === 'Actions for Welcome'");
+  await menuMove("Move up");
   await poll(async () => (await state()).items[1]?.id === "first", "keyboard move up");
+  await browser("wait", "--fn", "document.activeElement?.getAttribute('aria-label') === 'Actions for Welcome'");
   const focus = await evaluate("({ visible: document.activeElement.matches(':focus-visible'), shadow: getComputedStyle(document.activeElement).boxShadow })");
   assert.ok(focus.visible && focus.shadow !== "none", JSON.stringify(focus));
   await browser("screenshot", "/tmp/showpilot-rundown-keyboard-focus.png");
@@ -69,11 +76,13 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
   await browser("press", "Space");
   await poll(async () => { const value = await state(); return value.timer.playback === "play" && value.timer.currentItemId === "first"; }, "keyboard row Start");
   await browser("wait", "--fn", `document.querySelector(${JSON.stringify(row("first"))}).textContent.includes('Welcome')`);
-  assert.equal(await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(`${row("first")} .rundown-row-actions`)})).opacity`), "1");
+  await browser("focus", `${row("first")} button[title="Item actions"]`);
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(`${row("first")} .rundown-row-actions`)})).opacity`), "1", "Row actions show on keyboard focus");
   await browser("set", "viewport", "320", "480");
-  await browser("scrollintoview", `${row("first")} button[title="Edit"]`);
-  await browser("click", `${row("first")} button[title="Edit"]`);
-  await browser("wait", "text=Edit Item");
+  await browser("scrollintoview", `${row("first")} button[title="Item actions"]`);
+  await browser("click", `${row("first")} button[title="Item actions"]`);
+  await browser("find", "role", "menuitem", "click", "--name", "Edit", "--exact");
+  await browser("wait", "text=Edit rundown item");
   const checkDialog = async () => {
     const bounds = await evaluate(`(() => { const dialog = document.querySelector('[role="dialog"]'); const r = dialog.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: innerWidth, height: innerHeight, fits: dialog.scrollWidth <= dialog.clientWidth + 1, focused: dialog.contains(document.activeElement) }; })()`);
     await assertOperatorReadability(browser, '[role="dialog"]');
@@ -82,7 +91,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
   await checkDialog();
   await browser("screenshot", "/tmp/showpilot-rundown-edit-320.png");
   await fillDialogTitle("Welcome updated");
-  await click("Save");
+  await click("Save changes");
   await poll(async () => (await state()).items.find(item => item.id === "first")?.title === "Welcome updated", "narrow edit saved");
   assert.equal((await state()).timer.currentItemId, "first");
   await click("Add item");
@@ -90,7 +99,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
   await checkDialog();
   await fillDialogTitle("Closing section");
   await click("Section");
-  await click("Add");
+  await click("Add section");
   await poll(async () => (await state()).items.some(item => item.title === "Closing section" && item.type === "header" && item.duration === 0), "narrow section saved");
   await click("Rundown actions");
   await browser("find", "role", "menuitem", "click", "--name", "Save as template", "--exact");
@@ -111,5 +120,5 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
   await browser("screenshot", "/tmp/showpilot-rundown-new-show-320.png");
   await click("Cancel");
   await browser("wait", "--fn", "document.querySelector('[role=dialog]') === null");
-  console.log(JSON.stringify({ passed: true, skipLinkCrossRouteFocus: true, fiveViewportLayouts: true, minimum44pxRows: true, rowActionsAlwaysVisible: true, keyboardReorderPersists: true, focusRingVisible: true, dragReorderPersists: true, keyboardStart: true, narrowEditAndSectionSaved: true, allSixDialogsFitAndFocus: true, plainTabButtonsKeyboard: true, operationalTextFloorAndMutedContrast: true }));
+  console.log(JSON.stringify({ passed: true, skipLinkCrossRouteFocus: true, fiveViewportLayouts: true, minimum44pxRows: true, rowActionsOnHoverFocusOrTouch: true, keyboardReorderPersists: true, focusRingVisible: true, dragReorderPersists: true, keyboardStart: true, narrowEditAndSectionSaved: true, allSixDialogsFitAndFocus: true, plainTabButtonsKeyboard: true, operationalTextFloorAndMutedContrast: true }));
 });

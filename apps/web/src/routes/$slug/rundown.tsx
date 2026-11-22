@@ -4,18 +4,20 @@ import { ProPresenterOutputControl } from "@/components/rundown/ProPresenterOutp
 import { ProPresenterSlideControls } from "@/components/rundown/ProPresenterSlideControls";
 import { runRouteLoad } from "@/lib/route-load-deadlines";
 import { VirtualRows } from "@/components/ui/virtual-rows";
-import { RundownClockCard, RundownOffset, RundownProgress, formatOperatorDuration as formatDuration } from "@/components/rundown/RundownClock";
+import { RundownOffset, RundownProgress, formatOperatorDuration as formatDuration } from "@/components/rundown/RundownClock";
 import { useProPresenterCommands } from "@/hooks/useProPresenterCommands";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ResetRundownDialog } from "@/components/rundown/ResetRundownDialog";
 import { SaveRundownModal } from "@/components/rundown/SaveRundownModal";
 import { LoadRundownModal } from "@/components/rundown/LoadRundownModal";
 import { restoreRundownItem } from "@/lib/rundown-undo";
 import { rundownShortcut } from "@/lib/rundown-shortcuts";
-import { RundownShortcutBanner, RundownShortcutList } from "@/components/rundown/RundownShortcutHelp";
+import { RundownShortcutList } from "@/components/rundown/RundownShortcutHelp";
+import { RUNDOWN_SHORTCUTS } from "@/lib/rundown-shortcuts";
+import { Kbd, KeyCombo, Panel, RundownTimerCard, TakeLiveDialog, Toggle, WallClock, eyebrow, projectRundown, rundownButton, runningLabel, useCoarseNow, RundownSkeleton } from "@/components/rundown/rundown-a";
+import { dayTime, minutesClock as formatMinutes } from "@/components/show/show-flow-a";
 import { workspaceCopy } from "@showpilot/shared";
 import { useTerms as useWorkspaceTerms } from "@/components/workspace/WorkspaceProvider";
 import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
@@ -37,7 +39,6 @@ import {
   ChevronUp,
   ChevronDown,
   GripVertical,
-  Clock,
   Music,
   Heart,
   Megaphone,
@@ -54,10 +55,13 @@ import {
   Save,
   CalendarDays,
   Tv,
-  Wifi,
-  WifiOff,
   Download,
   MoreHorizontal,
+  Keyboard,
+  List as ListIcon,
+  Timer,
+  Eye,
+  Lock,
 } from "lucide-react";
 import {
   getRundownEditAccess,
@@ -73,7 +77,7 @@ import type {
 import { exportShowReport } from "@/lib/report";
 import { rundownItemNumbers } from "@/types/rundown";
 import { hasEffectivePermission } from "@/lib/app-permissions";
-import { computeCascadedTimes, itemOverrunMs } from "@/lib/rundown-timing";
+import { computeCascadedTimes } from "@/lib/rundown-timing";
 import {
   exportRundownCsv,
   exportRundownPdf,
@@ -88,6 +92,7 @@ import {
 } from "@/lib/utils";
 import { RundownUnlock } from "@/components/rundown/RundownUnlock";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { ModalA, modalCancel, modalPrimary } from "@/components/schedule/modal-a";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -222,10 +227,20 @@ function formatDisplayDate(dateStr: string): string {
 }
 
 const rundownRowKey = (item: RundownItem) => item.id;
+const transportBase = "inline-flex h-12 min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl border px-3 text-sm disabled:opacity-40 sm:px-4 [&_svg]:shrink-0";
+const transportButton = `${transportBase} border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] font-medium text-board-text hover:bg-[var(--sa-surface-3)]`;
+const transportGo = `${transportBase} border-transparent bg-[var(--sa-ok)] font-semibold text-[#04140c] hover:brightness-110`;
+const transportPause = `${transportBase} border-fire-500/40 bg-fire-500/[0.08] font-medium text-fire-400 hover:bg-fire-500/15`;
+const transportEnd = `${transportBase} border-[var(--sa-danger)]/30 bg-[var(--sa-danger)]/[0.08] font-medium text-[var(--sa-danger)] hover:bg-[var(--sa-danger)]/15`;
+const rowIconButton = "inline-flex h-11 w-11 items-center justify-center rounded-lg text-[var(--sa-ink-3)] hover:bg-[var(--sa-surface-3)] hover:text-board-text disabled:opacity-30 lg:h-8 lg:w-8";
 const estimateRundownRow = () => 100;
 function rundownScrollParent(body: HTMLElement) {
-  const section = body.closest<HTMLElement>("#rundown-runsheet");
-  return section && getComputedStyle(section).overflowY !== "visible" ? section : body.closest<HTMLElement>(".rundown-columns");
+  // Side by side the runsheet scrolls on its own; stacked, the whole page scrolls.
+  for (let node = body.parentElement; node; node = node.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(node).overflowY)) return node;
+    if (node.classList.contains("rundown-page")) return node;
+  }
+  return null;
 }
 
 export const Route = createFileRoute("/$slug/rundown")({
@@ -1085,6 +1100,11 @@ function RundownPage() {
     { orgId, showId, serviceDate }, stopConfirmed,
     !transportAvailable ? "Reconnect to live state before ending this show."
       : timer.playback === "stop" ? "This show is already stopped." : undefined,
+    (() => {
+      const current = items.find((item) => item.id === timer.currentItemId);
+      const left = items.filter((item) => item.type !== "header" && item.status !== "complete" && item.id !== timer.currentItemId).length;
+      return `The timer stops${current ? ` on ${current.title || "the current item"}` : ""} and the run ends for everyone following ${serviceName || "this show"}.${left ? ` ${left} ${left === 1 ? "item hasn't" : "items haven't"} run yet.` : ""}`;
+    })(),
   );
 
   const handleStop = useCallback(() => {
@@ -1253,6 +1273,7 @@ function RundownPage() {
     durationStr: string,
     assignee: string,
     notes: string,
+    index: number | null = null,
   ) => {
     if (!canEditRundown) return;
     setSaveError(null);
@@ -1268,8 +1289,10 @@ function RundownPage() {
       sortOrder: items.length,
       hardStop: false,
     };
+    const at = index === null || index >= items.length ? null : Math.max(0, index);
+    const ordered = (at === null ? [...items, item] : [...items.slice(0, at), item, ...items.slice(at)]).map((entry, sortOrder) => ({ ...entry, sortOrder }));
     if (!showId) {
-      const nextItems = [...items, item];
+      const nextItems = ordered;
       try {
         const targetShowId = await ensureShowId();
         await saveRundownItems({
@@ -1288,7 +1311,12 @@ function RundownPage() {
         "add-item",
         item as unknown as Record<string, unknown>,
       );
-      setItems((prev) => [...prev, item]);
+      if (at === null) setItems((prev) => [...prev, item]);
+      else {
+        // The relay appends; a second command places the item at the end of the chosen section.
+        setItems(ordered);
+        sendRundownCommand("reorder", { order: ordered.map((entry) => entry.id) });
+      }
     }
     setShowAddForm(false);
   };
@@ -1333,9 +1361,8 @@ function RundownPage() {
     if (!pending) return;
     pendingRowFocus.current = null;
     const row = Array.from(document.querySelectorAll<HTMLElement>("[data-rundown-item-id]")).find(element => element.dataset.rundownItemId === pending.id);
-    const preferred = row?.querySelector<HTMLButtonElement>(`button[title="Move ${pending.direction}"]`);
-    const fallback = row?.querySelector<HTMLButtonElement>(`button[title="Move ${pending.direction === "up" ? "down" : "up"}"]`);
-    (preferred && !preferred.disabled ? preferred : fallback && !fallback.disabled ? fallback : row?.querySelector<HTMLButtonElement>('button[title="Edit"]'))?.focus();
+    // Moves come from the row's actions menu; focus returns to that menu's button so the next move is one keypress away.
+    requestAnimationFrame(() => row?.querySelector<HTMLButtonElement>('button[title="Item actions"]')?.focus());
   }, [items]);
 
   const handleMoveItem = (id: string, direction: "up" | "down") => {
@@ -1578,6 +1605,28 @@ function RundownPage() {
       }
     : undefined;
   const timedItems = computeCascadedTimes(items, rundownMeta);
+  const hour12 = settings["clock-format"] !== "24hr";
+  const liveItem = items.find((item) => item.id === timer.currentItemId);
+  const renderNow = Date.now();
+  const runningOver = timer.playback === "play" && !!liveItem && timer.startedAt !== null && timer.elapsed + Math.max(0, renderNow - timer.startedAt) > liveItem.duration;
+  const projectionNow = Math.max(renderNow, useCoarseNow(runningOver, 15_000));
+  const projection = projectRundown(items, scheduledStartIso, timer.currentItemId, timer.elapsed + (timer.playback === "play" && timer.startedAt !== null ? Math.max(0, projectionNow - timer.startedAt) : 0), projectionNow);
+  const firstPlayable = items.find((i) => i.status !== "complete" && i.type !== "header") ?? null;
+  const upNextId = timer.playback === "stop" ? firstPlayable?.id ?? null : nextItem?.id ?? null;
+  const addPositions: ItemPosition[] = (() => {
+    const headers = items.map((item, index) => ({ item, index })).filter(({ item }) => item.type === "header");
+    const startAt = (index: number) => {
+      if (projection.plan.plannedStart === null) return null;
+      const before = items.slice(0, index).reduce((sum, item) => sum + (item.type === "header" ? 0 : item.duration), 0);
+      return formatWallTime(new Date(projection.plan.plannedStart + before).toISOString());
+    };
+    if (!headers.length) return [{ key: "end", label: "End of rundown", index: null, startsAt: startAt(items.length) }];
+    return headers.map(({ item }, n) => {
+      const end = n + 1 < headers.length ? headers[n + 1].index : items.length;
+      return { key: item.id, label: `End of ${item.title || "section"}`, index: end === items.length ? null : end, startsAt: startAt(end) };
+    });
+  })();
+  const sectionTitleOf = (id: string) => { const sectionId = projection.plan.sectionOf.get(id); return sectionId ? projection.plan.sections.get(sectionId)?.title ?? null : null; };
   const itemNumbers = rundownItemNumbers(items);
   const selectedShowName =
     serviceName ||
@@ -1586,19 +1635,33 @@ function RundownPage() {
   const selectedShowIsLive =
     liveTarget.serviceDate === serviceDate &&
     liveTarget.showId === (showId ?? null);
+  const [takeLiveResult, setTakeLiveResult] = useState<{ kind: "success" | "failed"; scope: string; message: string } | null>(null);
+  useEffect(() => {
+    if (takeLiveResult?.kind !== "success") return;
+    const timeout = window.setTimeout(() => setTakeLiveResult(null), 10_000);
+    return () => window.clearTimeout(timeout);
+  }, [takeLiveResult]);
   const takeSelectedShowLive = useCallback(async () => {
-    if (!showId || activePublishPending) return;
-    setSelectionError(null);
+    if (!showId || activePublishPending) return false;
+    setTakeLiveResult(null);
     try {
       await publishTarget(serviceDate, showId);
+      setTakeLiveResult({ kind: "success", scope: rundownScope, message: "" });
+      return true;
     } catch (error) {
-      setSelectionError(
-        error instanceof Error
-          ? error.message
-          : "Could not route this show to venue outputs",
-      );
+      setTakeLiveResult({
+        kind: "failed",
+        scope: rundownScope,
+        message: error instanceof Error ? error.message : "Could not route this show to venue outputs.",
+      });
+      return false;
     }
-  }, [activePublishPending, publishTarget, serviceDate, showId]);
+  }, [activePublishPending, publishTarget, rundownScope, serviceDate, showId]);
+  const offerTakeLive = canEditRundown && !!showId && !selectedShowIsLive;
+  const lockedFromTakeLive = !canEditRundown && rundownAccess.pin === "locked" && !!showId && !selectedShowIsLive;
+  const liveShowName = liveTarget.showId
+    ? shows.find((show) => show.id === liveTarget.showId)?.name || "another show"
+    : liveTarget.serviceDate ? `the ${formatDisplayDate(liveTarget.serviceDate)} rundown` : null;
   const selectedShowStart = scheduledStartTime
     ? formatWallTime(scheduledStartTime)
     : "";
@@ -1621,71 +1684,60 @@ function RundownPage() {
   }, [loading, showId]);
 
   return (
-    <div className="rundown-page h-full flex flex-col overflow-hidden">
-      <div className="relative z-10 shrink-0 border-b border-board-border bg-board-bg/80 backdrop-blur-xl">
-        <div className="flex min-h-[68px] flex-wrap items-center gap-3 px-4 py-3 sm:px-6">
-          <div className="min-w-0 flex-1 basis-full sm:basis-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-board-muted">
-              Rundown
-            </p>
-            <h1 className="truncate font-[family-name:var(--font-display)] text-lg font-semibold text-board-text">
+    <div data-unconfirmed={unconfirmedCount > 0 || undefined} className="rundown-page schedule-a relative h-full flex flex-col overflow-x-hidden overflow-y-auto bg-board-bg">
+      <div className="relative z-10 shrink-0">
+        <div className="mx-auto flex w-full max-w-[1400px] flex-wrap items-end justify-between gap-x-6 gap-y-3 px-4 pb-1 pt-6 sm:px-6 lg:px-7">
+          <div className="flex min-w-0 flex-col gap-1">
+            <p className={eyebrow}>Rundown</p>
+            <h1 className="truncate text-[22px] font-semibold leading-[1.2] tracking-[-0.02em] text-board-text">
               {selectedShowName}
             </h1>
-            <p className="mt-0.5 hidden truncate text-xs text-board-muted sm:block">
+            <p className="truncate text-[13px] text-[var(--sa-ink-3)]">
               {formatDisplayDate(serviceDate)}
-              {selectedShowStart ? ` · ${selectedShowStart} start` : ""}
-              {selectedShowCall
-                ? ` · ${formatWallTime(selectedShowCall)} call`
-                : ""}
-              {` · ${items.length} items · ${formatDuration(totalDuration)}`}
+              {selectedShowStart ? <> · <span className="tabular-nums text-[var(--sa-ink-2)]">{selectedShowStart}</span> start</> : null}
+              {selectedShowCall ? <span className="hidden sm:inline"> · <span className="tabular-nums text-[var(--sa-ink-2)]">{formatWallTime(selectedShowCall)}</span> call</span> : null}
+              {" · "}<span className="tabular-nums text-[var(--sa-ink-2)]">{items.length}</span> items
+              <span className="hidden sm:inline"> · <span className="tabular-nums text-[var(--sa-ink-2)]">{formatDuration(totalDuration)}</span></span>
             </p>
           </div>
-          <div className="ml-auto flex max-w-full flex-wrap items-center gap-2">
+          <div className="flex max-w-full flex-wrap items-center gap-2">
+            <WallClock timeZone={deviceTimeZone} hour12={hour12} />
             <RundownUnlock orgId={orgId} pinAccess={rundownAccess.pin} />
             {selectedShowIsLive ? (
-              <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-green-500/25 bg-green-500/10 px-3 text-xs font-semibold text-green-300">
-                <span className="h-2 w-2 rounded-full bg-green-400" />
+              <span className="inline-flex h-8 items-center gap-2 rounded-full border border-[var(--sa-ok)]/35 bg-[var(--sa-ok)]/[0.08] px-3 text-xs font-medium text-board-text">
+                <span aria-hidden="true" className="h-[7px] w-[7px] rounded-full bg-[var(--sa-ok)]" />
                 Live output
               </span>
-            ) : canEditRundown && showId ? (
-              <Button variant="ghost"
-                type="button"
-                onClick={() => setShowTakeLiveConfirmation(true)}
-                disabled={selectionBusy}
-                className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-fire-500/35 bg-fire-500/10 px-3 text-xs font-semibold text-fire-300 transition-colors hover:bg-fire-500/20 disabled:opacity-50"
-              >
-                <Tv className="h-4 w-4" />
-                Take live
-              </Button>
+            ) : showId ? (
+              <span className="inline-flex h-8 items-center gap-2 rounded-full border border-dashed border-[var(--sa-border-strong)] px-3 text-xs font-medium text-[var(--sa-ink-2)]">
+                <span aria-hidden="true" className="h-[7px] w-[7px] rounded-full shadow-[inset_0_0_0_1.5px_var(--sa-ink-2)]" />
+                Viewing · not live
+              </span>
             ) : null}
-            <Button variant="ghost"
+            <button
               type="button"
               onClick={() => setShowOptionsModal(true)}
-              disabled={selectionBusy}
-              className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-board-border bg-board-card px-3 text-xs font-semibold text-board-text transition-colors hover:border-fire-500/40 disabled:opacity-50"
+              disabled={loading}
+              className={`${rundownButton} max-lg:w-11 max-lg:px-0 lg:min-w-[164px] lg:justify-between`}
               aria-label="Show options"
             >
-              <CalendarDays className="h-4 w-4 text-board-muted" />
-              <span className="hidden sm:inline">Show options</span>
-              {selectionBusy ? (
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-fire-400" />
-              ) : (
-                <ChevronDown className="h-3.5 w-3.5 text-board-muted" />
-              )}
-            </Button>
+              <span className="inline-flex items-center gap-2"><CalendarDays className="h-3.5 w-3.5 text-[var(--sa-ink-3)]" /><span className="hidden lg:inline">Show options</span></span>
+              <ChevronDown className="hidden h-3.5 w-3.5 text-[var(--sa-ink-3)] lg:block" />
+            </button>
             {canEditRundown ? (
               <>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost"
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-board-muted hover:text-board-text hover:bg-board-border/50 text-xs font-medium transition-colors min-h-[44px]"
+                    <button
+                      type="button"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)] hover:text-board-text max-lg:h-11 max-lg:w-11"
                       title="Rundown actions"
                       aria-label="Rundown actions"
                     >
-                      <MoreHorizontal className="w-4 h-4" />
-                    </Button>
+                      <MoreHorizontal className="h-4 w-4" />
+                    </button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="min-w-[190px]">
+                  <DropdownMenuContent align="end" className="min-w-[240px]">
                     <DropdownMenuItem
                       onSelect={() => {
                         void (async () => {
@@ -1741,7 +1793,7 @@ function RundownPage() {
 
                     <DropdownMenuItem onSelect={handleReset} disabled={timer.playback === "play"}>
                       <RotateCcw className="w-3.5 h-3.5" />
-                      Reset timer
+                      Reset timer…
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       variant="destructive"
@@ -1749,62 +1801,80 @@ function RundownPage() {
                       onSelect={() => setShowClearConfirmation(true)}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
-                      Clear all items
+                      Clear all items…
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
 
-                <Button variant="ghost"
+                <button
+                  type="button"
                   onClick={() => setShowAddForm(true)}
                   aria-label="Add item"
-                  className="group flex min-h-[44px] shrink-0 items-center gap-2.5 rounded-xl px-2 py-1.5 text-black transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_rgba(255,193,7,0.24)] active:translate-y-0 sm:px-2.5 sm:pr-3.5"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
-                  }}
+                  className={offerTakeLive ? rundownButton : "inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-fire-500 px-3.5 text-[13px] font-semibold text-[#1a1300] hover:bg-fire-400 max-lg:h-11"}
                 >
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-black/12 ring-1 ring-black/10 transition-colors group-hover:bg-black/16">
-                    <Plus className="w-3.5 h-3.5" />
-                  </span>
-                  <span className="hidden whitespace-nowrap font-[family-name:var(--font-display)] text-sm font-bold tracking-tight sm:inline">
-                    Add Item
-                  </span>
-                </Button>
+                  <Plus className="h-3.5 w-3.5" strokeWidth={2.25} />
+                  Add item
+                </button>
               </>
             ) : (
-              <span className="hidden rounded-lg border border-board-border px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-board-muted sm:inline">
+              <span className="inline-flex h-8 items-center rounded-full border border-[var(--sa-border)] px-3 text-xs text-[var(--sa-ink-2)]">
                 View only
               </span>
             )}
+            {offerTakeLive || (lockedFromTakeLive) ? (
+              <button
+                type="button"
+                onClick={() => setShowTakeLiveConfirmation(true)}
+                disabled={loading || activePublishPending || lockedFromTakeLive}
+                title={lockedFromTakeLive ? "Unlock the rundown to take a show live" : undefined}
+                className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-fire-500 px-3.5 text-[13px] font-semibold text-[#1a1300] hover:bg-fire-400 disabled:opacity-50 max-lg:h-11"
+              >
+                {activePublishPending ? <RotateCcw className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <Tv className="h-3.5 w-3.5" />}
+                {activePublishPending ? "Switching…" : "Take live"}
+              </button>
+            ) : null}
           </div>
-          <p className="basis-full truncate text-xs text-board-muted sm:hidden">
-            {formatDisplayDate(serviceDate)}
-            {selectedShowStart ? ` · ${selectedShowStart} start` : ""}
-            {selectedShowCall
-              ? ` · ${formatWallTime(selectedShowCall)} call`
-              : ""}
-            {` · ${items.length} items · ${formatDuration(totalDuration)}`}
-          </p>
         </div>
       </div>
 
+      {showId && !selectedShowIsLive && !loading ? (
+        <div className="mx-auto w-full max-w-[1400px] shrink-0 px-4 pt-4 sm:px-6 lg:px-7">
+          {takeLiveResult?.kind === "failed" && takeLiveResult.scope === rundownScope ? (
+            <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--sa-danger)]/30 bg-[var(--sa-danger)]/[0.07] px-4 py-3 text-[13px]">
+              <X aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--sa-danger)]" />
+              <p className="min-w-0 flex-1 text-[var(--sa-ink-2)]"><span className="font-semibold text-[var(--sa-danger)]">Show unchanged.</span> {plainFailure(takeLiveResult.message)}{liveShowName ? ` Outputs are still following ${liveShowName}.` : ""}</p>
+              {canEditRundown ? <button type="button" className={rundownButton} disabled={activePublishPending} onClick={() => void takeSelectedShowLive()}><RotateCcw className="h-3.5 w-3.5" />Retry</button> : null}
+            </div>
+          ) : lockedFromTakeLive ? (
+            <p className="flex items-center gap-3 rounded-xl border border-[var(--sa-border)] bg-[var(--sa-surface)] px-4 py-3 text-[13px] text-[var(--sa-ink-2)]"><Lock aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--sa-ink-3)]" />Unlock the rundown to take a show live.</p>
+          ) : liveShowName ? (
+            <p className="flex items-start gap-3 rounded-xl border border-[var(--sa-border)] bg-[var(--sa-surface)] px-4 py-3 text-[13px] leading-[1.5] text-[var(--sa-ink-2)]"><Eye aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[var(--sa-ink-3)]" /><span>You're viewing <span className="font-semibold text-board-text">{selectedShowName}</span>. Venue outputs are following <span className="font-semibold text-board-text">{liveShowName}</span>, which is live now. Browsing alone never changes them.</span></p>
+          ) : null}
+        </div>
+      ) : selectedShowIsLive && takeLiveResult?.kind === "success" && takeLiveResult.scope === rundownScope ? (
+        <div className="mx-auto w-full max-w-[1400px] shrink-0 px-4 pt-4 sm:px-6 lg:px-7">
+          <p role="status" className="flex items-center gap-3 rounded-xl border border-[var(--sa-ok)]/35 bg-[var(--sa-ok)]/[0.07] px-4 py-3 text-[13px] text-[var(--sa-ink-2)]"><Tv aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--sa-ok)]" /><span><span className="font-semibold text-[var(--sa-ok)]">Live: {selectedShowName}</span> · Timer, lyrics, kiosk, Show Flow and other venue outputs now follow this show.</span></p>
+        </div>
+      ) : null}
 
       {(selectionError || saveError || syncError) && (
-        <div
-          role="alert"
-          className="shrink-0 flex items-start gap-2 px-6 py-2 bg-red-500/15 border-b border-red-500/30 text-[12px] text-red-300"
-        >
-          <span>{selectionError ? "This show could not be opened." : saveError ? "Your rundown changes need attention." : "The rundown could not be updated."}</span>
-          {syncError && !selectionError && !saveError && <Button type="button" variant="outline" className="min-h-11" onClick={reconnectRundown}>Retry rundown</Button>}
+        <div className="mx-auto w-full max-w-[1400px] shrink-0 px-4 pt-4 sm:px-6 lg:px-7">
+          <div role="alert" className="flex flex-wrap items-start gap-3 rounded-xl border border-[var(--sa-danger)]/30 bg-[var(--sa-danger)]/[0.07] p-4">
+            <X aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[var(--sa-danger)]" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-semibold text-board-text">{selectionError ? "We couldn't open this show." : saveError ? "Your rundown changes need attention." : "We couldn't update this rundown."}</p>
+              <p className="mt-1 text-[13px] leading-[1.55] text-[var(--sa-ink-2)]">{selectionError ? plainFailure(selectionError) : saveError ? plainFailure(saveError) : "Check your connection and try again. Nothing in the rundown has been changed."}</p>
+            </div>
+            {syncError && !selectionError && !saveError && <button type="button" className={rundownButton} onClick={reconnectRundown}>Retry rundown</button>}
+          </div>
         </div>
       )}
 
       <ReadFailureNotice {...ppConfiguration} label="Retry ProPresenter configuration" />
-      {canControlRundown && <RundownShortcutBanner />}
-      {(!syncConnected || unconfirmedCount > 0) && !syncError && !saveError && !selectionError && <div className="shrink-0 px-4 py-2"><QuietActivity /></div>}
+      {!syncConnected && !syncError && !saveError && !selectionError && <p role="status" className="pointer-events-none absolute right-4 top-2 z-20 inline-flex items-center gap-2 rounded-full border border-[var(--sa-border)] bg-[var(--sa-surface)] px-3 py-1 text-xs text-[var(--sa-ink-2)] sm:right-6 lg:right-7"><span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[var(--sa-warn)]" />Reconnecting…</p>}
       {/* Page body — flex-col container, never scrolls itself */}
       <div
-        className="rundown-page-body flex-1 overflow-hidden flex flex-col"
+        className="rundown-page-body flex-1 min-h-0 flex flex-col"
         style={{ containerType: "inline-size" }}
       >
         {/* Export error */}
@@ -1828,9 +1898,10 @@ function RundownPage() {
 
         {/* Message bar */}
         {activeStageMessage.text && (
-          <div className="shrink-0 bg-amber-500/10 border-b border-amber-500/20 px-6 py-2.5 flex items-center gap-3">
-            <MessageSquare className="w-4 h-4 text-amber-400 shrink-0" />
-            <p className="text-sm font-medium text-amber-300 flex-1">
+          <div className="mx-auto mt-4 flex w-[calc(100%-2rem)] max-w-[calc(1400px-3.5rem)] shrink-0 items-center gap-3 rounded-xl border border-[var(--sa-warn)]/30 bg-[var(--sa-warn)]/[0.07] px-4 py-2.5 sm:w-[calc(100%-3rem)]">
+            <MessageSquare className="w-4 h-4 text-[var(--sa-warn)] shrink-0" />
+            <span className={eyebrow}>On stage</span>
+            <p className="text-[13px] font-medium text-board-text flex-1 truncate">
               {activeStageMessage.text}
             </p>
             <Button variant="ghost"
@@ -1846,420 +1917,240 @@ function RundownPage() {
         )}
 
         {loading ? (
-          <QuietActivity label="Loading rundown..." />
+          <RundownSkeleton />
         ) : (
-          <div className="rundown-columns flex-1 overflow-hidden flex flex-row gap-6 px-4 py-5 sm:px-6 max-w-[1400px] mx-auto w-full min-h-0">
+          <div className="rundown-columns flex-1 overflow-hidden flex flex-row gap-5 px-4 pt-5 sm:px-6 lg:px-7 max-w-[1400px] mx-auto w-full min-h-0">
             {/* Left: Timer + Controls + Message */}
-            <div className="rundown-panel-left w-[360px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar min-h-0">
-              <RundownClockCard timer={timer} currentItem={currentItem} nextItem={nextItem}
-                initialNow={initialNow} overtimeBehavior={overtimeBehavior} />
-
-              {/* Timer controls */}
-              {canControlRundown && (
-                <div className="flex gap-2">
-                  {timer.playback === "play" ? (
-                    <Button variant="ghost"
-                      disabled={!transportAvailable}
-                      onClick={handlePause}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 font-medium text-sm hover:bg-yellow-500/25 transition-colors disabled:opacity-40"
-                    >
-                      <Pause className="w-4 h-4" /> Pause
-                    </Button>
-                  ) : timer.playback === "pause" ? (
-                    <Button variant="ghost"
-                      disabled={!transportAvailable}
-                      onClick={handleResume}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors disabled:opacity-40"
-                    >
-                      <Play className="w-4 h-4" /> Resume
-                    </Button>
-                  ) : (
-                    <Button variant="ghost"
-                      onClick={() => {
-                        const first = items.find(
-                          (i) => i.status !== "complete" && i.type !== "header",
-                        );
-                        if (first) handleStart(first.id);
-                      }}
-                      disabled={!transportAvailable || items.length === 0}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-500/15 text-green-400 border border-green-500/25 font-medium text-sm hover:bg-green-500/25 transition-colors disabled:opacity-40"
-                    >
-                      <Play className="w-4 h-4" /> Start
-                    </Button>
-                  )}
-
-                  <Button variant="ghost"
-                    onClick={handlePrev}
-                    disabled={!transportAvailable || timer.playback === "stop"}
-                    className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40"
-                    title="Previous item"
-                    aria-label="Previous rundown item"
-                  >
-                    <SkipBack className="w-4 h-4" />
-                  </Button>
-                  <Button variant="ghost"
-                    onClick={handleNext}
-                    disabled={!transportAvailable || timer.playback === "stop"}
-                    className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-board-card border border-board-border text-board-text font-medium text-sm hover:bg-board-border/50 transition-colors disabled:opacity-40"
-                    title="Next item"
-                    aria-label="Next rundown item"
-                  >
-                    <SkipForward className="w-4 h-4" />
-                  </Button>
-                  <Button variant="ghost"
-                    onClick={handleStop}
-                    disabled={!transportAvailable || timer.playback === "stop"}
-                    className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 font-medium text-sm hover:bg-red-500/20 transition-colors disabled:opacity-40"
-                    aria-label="Stop rundown"
-                  >
-                    <Square className="w-4 h-4" />
-                  </Button>
-                </div>
-              )}
+            <div className="rundown-panel-left w-[420px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar min-h-0 pb-6">
+              <RundownTimerCard timer={timer} current={currentItem} next={nextItem} first={firstPlayable}
+                section={currentItem ? sectionTitleOf(currentItem.id) : null} firstSection={firstPlayable ? sectionTitleOf(firstPlayable.id) : null}
+                cueIndex={currentItem ? projection.plan.cues.findIndex(cue => cue.id === currentItem.id) + 1 : 0} cueCount={projection.plan.cues.length}
+                startsAt={selectedShowStart || null} plannedStart={currentItem ? projection.plan.starts.get(currentItem.id) ?? null : null}
+                plannedShowEnd={projection.plan.plannedEnd} timeZone={deviceTimeZone} hour12={hour12}
+                initialNow={initialNow} overtimeBehavior={overtimeBehavior}
+                transport={canControlRundown ? (
+                  <div className="flex gap-2">
+                    {timer.playback === "play" ? (
+                      <button type="button" disabled={!transportAvailable} onClick={handlePause}
+                        className={`${transportPause} flex-1`}>
+                        <Pause className="h-4 w-4" /><span className="max-sm:sr-only">Pause</span>
+                      </button>
+                    ) : timer.playback === "pause" ? (
+                      <button type="button" disabled={!transportAvailable} onClick={handleResume}
+                        className={`${transportGo} flex-1`}>
+                        <Play className="h-4 w-4" /><span className="max-sm:sr-only">Resume</span>
+                      </button>
+                    ) : (
+                      <button type="button"
+                        onClick={() => { if (firstPlayable) handleStart(firstPlayable.id); }}
+                        disabled={!transportAvailable || !firstPlayable}
+                        className={`${transportGo} flex-[2]`}>
+                        <Play className="h-4 w-4" /> Start show
+                      </button>
+                    )}
+                    <button type="button" onClick={handlePrev} disabled={!transportAvailable || timer.playback === "stop"}
+                      className={`${transportButton} w-12 shrink-0 px-0`} title="Previous item" aria-label="Previous rundown item">
+                      <SkipBack className="h-4 w-4" />
+                    </button>
+                    {timer.playback === "stop" ? (
+                      <button type="button" onClick={handleNext} disabled
+                        className={`${transportButton} w-12 shrink-0 px-0`} title="Next item" aria-label="Next rundown item">
+                        <SkipForward className="h-4 w-4" />
+                      </button>
+                    ) : (
+                      <button type="button" onClick={handleNext} disabled={!transportAvailable}
+                        className={`${transportGo} flex-[2]`} title="Next item (Shift N)" aria-label="Next rundown item">
+                        <SkipForward className="h-4 w-4" /> Next item
+                      </button>
+                    )}
+                    <button type="button" onClick={requestEndShow} disabled={!transportAvailable || timer.playback === "stop"}
+                      className={`${transportEnd} w-12 shrink-0 px-0`} aria-label="Stop rundown" title="End show (S)">
+                      <Square className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : null}
+                hint={canControlRundown && timer.playback === "stop" ? (
+                  <p className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-[var(--sa-ink-3)]">
+                    <KeyCombo keys="Shift + Space" /> start <span aria-hidden="true">·</span> <KeyCombo keys="Shift + N" /> next <span aria-hidden="true">·</span> <Kbd>S</Kbd> end, asks first
+                  </p>
+                ) : null}
+              />
 
               {/* Add / Subtract time (OnTime-style) */}
               {canControlRundown && (
-                <div className="rounded-xl border border-board-border bg-board-card p-3">
-                  <p className="text-xs font-medium text-board-muted uppercase tracking-widest mb-2">
-                    Adjust Time
-                  </p>
-                  {/* Preset buttons */}
-                  <div className="flex gap-1.5 mb-2">
-                    <Button variant="ghost"
-                      onClick={() => handleAdjustTime(-60_000)}
-                      disabled={!transportAvailable || timer.playback === "stop"}
-                      aria-label="Subtract 1 minute from current item"
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-xs hover:bg-board-border/50 transition-colors disabled:opacity-40"
-                    >
-                      <Minus className="w-3 h-3" /> 1m
-                    </Button>
-                    <Button variant="ghost"
-                      onClick={() => handleAdjustTime(-15_000)}
-                      disabled={!transportAvailable || timer.playback === "stop"}
-                      aria-label="Subtract 15 seconds from current item"
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-xs hover:bg-board-border/50 transition-colors disabled:opacity-40"
-                    >
-                      <Minus className="w-3 h-3" /> 15s
-                    </Button>
-                    <Button variant="ghost"
-                      onClick={() => handleAdjustTime(15_000)}
-                      disabled={!transportAvailable || timer.playback === "stop"}
-                      aria-label="Add 15 seconds to current item"
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-xs hover:bg-board-border/50 transition-colors disabled:opacity-40"
-                    >
-                      <Plus className="w-3 h-3" /> 15s
-                    </Button>
-                    <Button variant="ghost"
-                      onClick={() => handleAdjustTime(60_000)}
-                      disabled={!transportAvailable || timer.playback === "stop"}
-                      aria-label="Add 1 minute to current item"
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg bg-board-bg border border-board-border text-board-text font-medium text-xs hover:bg-board-border/50 transition-colors disabled:opacity-40"
-                    >
-                      <Plus className="w-3 h-3" /> 1m
-                    </Button>
+                <Panel icon={Timer} title="Adjust time" labelledBy="rundown-adjust-title"
+                  aside={timer.playback === "stop"
+                    ? <span className="text-xs text-[var(--sa-ink-3)]">Available once the show is running</span>
+                    : <span className="inline-flex items-center gap-1.5 text-xs text-[var(--sa-ink-3)]">±1 min <Kbd>−</Kbd><Kbd>+</Kbd></span>}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {([[-60_000, "1m", "Subtract 1 minute from current item"], [-15_000, "15s", "Subtract 15 seconds from current item"], [15_000, "15s", "Add 15 seconds to current item"], [60_000, "1m", "Add 1 minute to current item"]] as const).map(([amount, text, label]) => (
+                      <button key={label} type="button" onClick={() => handleAdjustTime(amount)} disabled={!transportAvailable || timer.playback === "stop"} aria-label={label}
+                        className={`${rundownButton} min-w-0 flex-1 px-2 tabular-nums`}>
+                        {amount < 0 ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}{text}
+                      </button>
+                    ))}
+                    <span aria-hidden="true" className="mx-0.5 hidden h-6 w-px bg-[var(--sa-border)] sm:block" />
+                    <div className="flex h-9 items-center rounded-lg border border-[var(--sa-border-strong)] bg-board-bg max-lg:h-11 max-sm:w-full">
+                      <button type="button" onClick={() => handleAdjustTime(-parseAdjustInput(customAdjust))}
+                        disabled={!transportAvailable || timer.playback === "stop" || parseAdjustInput(customAdjust) === 0}
+                        className="inline-flex h-full w-9 items-center justify-center text-[var(--sa-ink-2)] hover:text-board-text disabled:opacity-40 max-lg:w-11" title="Subtract custom time" aria-label="Subtract custom time">
+                        <Minus className="h-3.5 w-3.5" />
+                      </button>
+                      <input type="text" value={customAdjust} onChange={(e) => setCustomAdjust(e.target.value)} placeholder="m:ss" aria-label="Custom time adjustment"
+                        className="h-full w-14 min-w-0 bg-transparent text-center text-[13px] tabular-nums text-board-text outline-none placeholder:text-[var(--sa-ink-3)] max-sm:flex-1 max-lg:text-base" />
+                      <button type="button" onClick={() => handleAdjustTime(parseAdjustInput(customAdjust))}
+                        disabled={!transportAvailable || timer.playback === "stop" || parseAdjustInput(customAdjust) === 0}
+                        className="inline-flex h-full w-9 items-center justify-center text-[var(--sa-ink-2)] hover:text-board-text disabled:opacity-40 max-lg:w-11" title="Add custom time" aria-label="Add custom time">
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
-                  {/* Custom time input */}
-                  <div className="flex gap-1.5">
-                    <Button variant="ghost"
-                      onClick={() =>
-                        handleAdjustTime(-parseAdjustInput(customAdjust))
-                      }
-                      disabled={
-                        !transportAvailable || timer.playback === "stop" ||
-                        parseAdjustInput(customAdjust) === 0
-                      }
-                      className="px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-medium hover:bg-red-500/20 transition-colors disabled:opacity-40"
-                      title="Subtract custom time"
-                    >
-                      <Minus className="w-3.5 h-3.5" />
-                    </Button>
-                    <input
-                      type="text"
-                      value={customAdjust}
-                      onChange={(e) => setCustomAdjust(e.target.value)}
-                      placeholder="secs or m:ss"
-                      aria-label="Custom time adjustment"
-                      className="min-w-0 flex-1 px-3 py-1.5 rounded-lg bg-board-bg border border-board-border text-xs text-board-text text-center font-mono placeholder:text-board-muted focus:outline-none focus:border-fire-500/50 transition-colors"
-                    />
-                    <Button variant="ghost"
-                      onClick={() =>
-                        handleAdjustTime(parseAdjustInput(customAdjust))
-                      }
-                      disabled={
-                        !transportAvailable || timer.playback === "stop" ||
-                        parseAdjustInput(customAdjust) === 0
-                      }
-                      className="px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-medium hover:bg-green-500/20 transition-colors disabled:opacity-40"
-                      title="Add custom time"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </Button>
-                  </div>
-                </div>
+                </Panel>
               )}
 
               {/* Send message to stage */}
               {canEditRundown && (
-                <div className="rounded-xl border border-board-border bg-board-card p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <label htmlFor="stage-message" className="text-xs font-medium text-board-muted uppercase tracking-widest">
-                      Stage Message
-                    </label>
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={messagePriority}
-                        onChange={(e) => setMessagePriority(e.target.checked)}
-                        className="w-3 h-3 rounded border-board-border accent-amber-500"
-                      />
-                      <span
-                        className={`text-xs font-medium uppercase tracking-wider ${messagePriority ? "text-amber-400" : "text-board-muted"}`}
-                      >
-                        Priority
-                      </span>
-                    </label>
-                  </div>
-                  {messagePriority && (
-                    <p className="text-xs text-amber-400 mb-2">
-                      Message shown large, timer shown small on kiosk
-                    </p>
-                  )}
+                <Panel icon={MessageSquare} title={<label htmlFor="stage-message">Stage message</label>}
+                  aside={<span className="inline-flex items-center gap-1"><Toggle checked={messagePriority} onChange={setMessagePriority} label="Priority stage message" tone="warn" /><span className={`text-[13px] ${messagePriority ? "text-[var(--sa-warn)]" : "text-[var(--sa-ink-2)]"}`}>Priority</span></span>}>
                   <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={message}
-                      onChange={(e) => setMessage(e.target.value)}
-                      onKeyDown={(e) =>
-                        e.key === "Enter" && handleSendMessage()
-                      }
-                      id="stage-message"
-                      placeholder="Message to stage display..."
-                      className="min-w-0 min-h-11 flex-1 px-3 py-2 rounded-lg bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500/50 transition-colors"
-                    />
-                    <Button variant="ghost"
-                      onClick={handleSendMessage}
-                      disabled={!message.trim()}
-                      className={`p-2 rounded-lg transition-colors disabled:opacity-40 ${messagePriority ? "bg-amber-500/25 text-amber-300 hover:bg-amber-500/35" : "bg-amber-500/15 text-amber-400 hover:bg-amber-500/25"}`}
-                      aria-label="Send stage message"
-                    >
-                      <Send className="w-4 h-4" />
-                    </Button>
+                    <div className={`flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg border bg-board-bg px-3 focus-within:border-fire-500 ${messagePriority ? "border-[var(--sa-warn)]/50" : "border-[var(--sa-border-strong)]"}`}>
+                      {messagePriority ? <span className="shrink-0 rounded bg-[var(--sa-warn)]/15 px-1.5 py-0.5 text-xs font-semibold text-[var(--sa-warn)]">Priority</span> : null}
+                      <input
+                        type="text"
+                        value={message}
+                        onChange={(e) => setMessage(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+                        id="stage-message"
+                        placeholder="Message to stage display…"
+                        className="min-w-0 flex-1 bg-transparent text-base text-board-text outline-none placeholder:text-[var(--sa-ink-3)] lg:text-[13px]"
+                      />
+                    </div>
+                    <button type="button" onClick={handleSendMessage} disabled={!message.trim()} aria-label="Send stage message"
+                      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border disabled:opacity-40 ${messagePriority ? "border-[var(--sa-warn)]/50 bg-[var(--sa-warn)]/10 text-[var(--sa-warn)]" : "border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] text-board-text hover:bg-[var(--sa-surface-3)]"}`}>
+                      <Send className="h-4 w-4" />
+                    </button>
                   </div>
-                </div>
+                  {messagePriority ? <p className="-mt-2 text-xs text-[var(--sa-ink-3)]">Shown large on stage displays, with the timer small.</p> : null}
+                </Panel>
               )}
 
               {/* ProPresenter Slide Feed */}
               {(ppHost || syncedPpSlide) && (
-                <div
-                  className={`rounded-xl border p-4 transition-colors ${ppEnabled ? "border-purple-500/30 bg-purple-500/5" : "border-board-border bg-board-card"}`}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2">
-                      <Tv className="w-3.5 h-3.5 text-purple-400" />
-                      <p className="text-xs font-medium text-board-muted uppercase tracking-widest">
-                        ProPresenter
-                      </p>
-                    </div>
-                    {(canEditRundown || canControlRundown) && (
-                      <>
-                        <Button variant="ghost"
-                          onClick={togglePP}
-                          className={`min-h-11 flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium uppercase tracking-wider transition-colors ${
-                            ppEnabled
-                              ? "bg-purple-500/20 text-purple-300 hover:bg-purple-500/30"
-                              : "bg-board-bg text-board-muted hover:bg-board-border"
-                          }`}
-                        >
-                          {ppEnabled ? (
-                            <Wifi className="w-3 h-3" />
-                          ) : (
-                            <WifiOff className="w-3 h-3" />
-                          )}
-                          {ppEnabled ? pp.isStreaming ? "Streaming" : <QuietActivity label="Reconnecting" /> : "Off"}
-                        </Button>
-                      </>
-                    )}
-                  </div>
+                <Panel icon={Tv} title="ProPresenter"
+                  aside={(canEditRundown || canControlRundown) ? <Toggle checked={ppEnabled} onChange={() => togglePP()} label="Stream ProPresenter slides" /> : null}>
+                  {!ppEnabled ? (
+                    <p className="flex items-center gap-2 text-[13px] text-board-text"><span aria-hidden="true" className="h-[7px] w-[7px] rounded-full shadow-[inset_0_0_0_1.5px_var(--sa-ink-2)]" />Slides off <span className="text-[var(--sa-ink-3)]">· stage displays show the timer only</span></p>
+                  ) : (
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-board-text">
+                      <span aria-hidden="true" className={`h-[7px] w-[7px] rounded-full ${ppIsConnected ? "bg-[var(--sa-ok)]" : pp.status === "error" ? "bg-[var(--sa-danger)]" : "bg-[var(--sa-warn)]"}`} />
+                      {ppIsConnected ? <>Connected <span className="text-[var(--sa-ink-3)]">· through Venue Bridge</span></>
+                        : pp.status === "error" ? "Venue Bridge is offline"
+                        : pp.status === "connecting" ? <>Reconnecting to Venue Bridge… <span className="text-[var(--sa-ink-3)]">Slide controls come back when it connects</span></>
+                        : <>Waiting for Venue Bridge <span className="text-[var(--sa-ink-3)]">· slides start when it connects</span></>}
+                    </p>
+                  )}
 
                   {(canEditRundown || canControlRundown) && <ProPresenterOutputControl orgId={orgId} userId={user.id} surface="rundown" enabled /> }
                   {ppCommands.failure && (
-                    <div role="alert" aria-label="ProPresenter command confirmation" className="my-3 space-y-2 text-sm text-amber-200">
+                    <div role="alert" aria-label="ProPresenter command confirmation" className="space-y-2 text-[13px] text-[var(--sa-warn)]">
                       <p>{plainFailure(ppCommands.failure.message)} </p>
-                      {ppCommands.canCheck && <Button type="button" variant="outline" className="min-h-11 h-auto whitespace-normal" onClick={() => void ppCommands.checkStatus()}>Check command status</Button>}
-                      {ppCommands.canAcknowledge && <Button type="button" variant="outline" className="min-h-11 h-auto whitespace-normal" onClick={ppCommands.acknowledgeReview}>I've checked the output</Button>}
+                      {ppCommands.canCheck && <button type="button" className={rundownButton} onClick={() => void ppCommands.checkStatus()}>Check command status</button>}
+                      {ppCommands.canAcknowledge && <button type="button" className={rundownButton} onClick={ppCommands.acknowledgeReview}>I've checked the output</button>}
                     </div>
                   )}
-                  {ppCommands.previousContext && <p role="status" className="my-2 text-sm text-board-muted">This action started before the show or ProPresenter settings changed. Its result belongs to that earlier action.</p>}
-                  {ppCommands.pending && <p role="status" aria-live="polite" className="my-2 text-sm text-board-muted">{<QuietActivity label="Checking the original command status…" />}</p>}
+                  {ppCommands.previousContext && <p role="status" className="text-[13px] text-[var(--sa-ink-2)]">This action started before the show or ProPresenter settings changed. Its result belongs to that earlier action.</p>}
+                  {ppCommands.pending && <p role="status" aria-live="polite" className="text-[13px] text-[var(--sa-ink-2)]">{<QuietActivity label="Checking the original command status…" />}</p>}
 
                   {ppEnabled && (
                     <>
-                      {/* Connection status */}
-                      <div className="flex items-center gap-2 mb-2">
-                        <div
-                          className={`w-2 h-2 rounded-full ${
-                            ppIsConnected
-                              ? "bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.5)]"
-                              : pp.status === "connecting"
-                                ? "bg-amber-500 animate-pulse"
-                                : pp.status === "error"
-                                  ? "bg-red-500"
-                                  : "bg-gray-500"
-                          }`}
-                        />
-                        <span className="text-xs text-board-muted">
-                          {pp.status === "error"
-                            ? ""
-                            : ppIsConnected
-                              ? "Connected through venue Bridge"
-                              : pp.status === "connecting"
-                                ? <QuietActivity label="Connecting..." />
-                                : <QuietActivity label="Waiting for venue Bridge..." />}
-                        </span>
-                      </div>
-
+                      {pp.status === "error" ? <p className="text-[13px] leading-[1.55] text-[var(--sa-ink-2)]">Stage slides are paused until Venue Bridge is back. Check that the Venue Bridge app is running on the ProPresenter computer.</p> : null}
                       <ReadFailureNotice error={pp.error && pp.errorAt !== null ? { message: pp.error, occurredAt: pp.errorAt } : null} refreshing={pp.refreshing} retry={pp.connect} label="Reconnect ProPresenter feed" />
 
-                      {/* PP Control Buttons */}
                       {canControlRundown && (ppCuesEnabled && ppApiPort ? (
-                        <div className="mb-2"><ProPresenterSlideControls scope={ppCommandScope}
+                        <div><ProPresenterSlideControls scope={ppCommandScope}
                           disabled={ppControlsBlocked || !showId || !syncConnected || !pp.isStreaming}
                           onCommand={command => void handleProPresenterCommand(command)} />
-                          {!showId && <p className="mt-2 text-xs text-board-muted">Open or create a show before controlling ProPresenter.</p>}
+                          {!showId && <p className="mt-2 text-xs text-[var(--sa-ink-3)]">Open or create a show before controlling ProPresenter.</p>}
                         </div>
-                      ) : <p className="text-xs text-board-muted mb-2">{!ppCuesEnabled
+                      ) : <p className="text-xs text-[var(--sa-ink-3)]">{!ppCuesEnabled
                         ? 'Enable "Send cues" in Settings → ProPresenter to control slides'
                         : "Set API Port in Settings → ProPresenter to control slides"}</p>)}
 
-                      {/* Current slide preview */}
                       {activePpSlide && activePpSlide.text ? (
-                        <div
-                          className={`rounded-lg p-3 ${activePpSlide.isScripture ? "bg-purple-500/10 border border-purple-500/20" : "bg-blue-500/10 border border-blue-500/20"}`}
-                        >
-                          {activePpSlide.presentationName && (
-                            <p
-                              className={`text-xs font-medium uppercase tracking-wider mb-1 ${activePpSlide.isScripture ? "text-purple-400" : "text-blue-400"}`}
-                            >
-                              {activePpSlide.presentationName}
-                            </p>
-                          )}
-                          <p
-                            className={`text-sm leading-snug ${activePpSlide.isScripture ? "text-purple-200 italic" : "text-blue-100"}`}
-                          >
-                            {activePpSlide.text.length > 120
-                              ? activePpSlide.text.slice(0, 120) + "..."
-                              : activePpSlide.text}
+                        <div className="rounded-lg border border-[var(--sa-border)] bg-board-bg p-3">
+                          {activePpSlide.presentationName && <p className={`${eyebrow} mb-1`}>{activePpSlide.presentationName}</p>}
+                          <p className={`text-[13px] leading-snug text-board-text ${activePpSlide.isScripture ? "italic" : ""}`}>
+                            {activePpSlide.text.length > 120 ? activePpSlide.text.slice(0, 120) + "…" : activePpSlide.text}
                           </p>
-                          <p className="text-xs text-board-muted mt-1.5">
-                            {ppSource === "bridge"
-                              ? "Rundown preview"
-                              : "Direct ProPresenter preview"}
-                          </p>
+                          <p className="mt-1.5 text-xs text-[var(--sa-ink-3)]">{ppSource === "bridge" ? "Rundown preview" : "Direct ProPresenter preview"}</p>
                         </div>
-                      ) : (
-                        <div>
-                          <QuietActivity label="Waiting for slide content from ProPresenter..." />
-                          {/* Debug info — helps troubleshoot why slides aren't appearing */}
-                          {pp.debugInfo && (
-                            <div className="mt-2 rounded-lg bg-board-bg/80 border border-board-border/50 p-2 space-y-1">
-                              <p className="text-xs font-medium text-board-muted uppercase tracking-wider">
-                                Debug
-                              </p>
-                              <div className="text-xs text-board-muted font-mono space-y-0.5">
-                                <p>
-                                  Bridge:{" "}
-                                  {pp.debugInfo.wsConnected ? "open" : "closed"}{" "}
-                                  | msgs: {pp.debugInfo.wsMessagesReceived}
-                                </p>
-                                {pp.debugInfo.lastWsMessage && (
-                                  <p
-                                    className="truncate max-w-full"
-                                    title={pp.debugInfo.lastWsMessage}
-                                  >
-                                    Last event:{" "}
-                                    {pp.debugInfo.lastWsMessage.slice(0, 80)}
-                                  </p>
-                                )}
-                                <p>
-                                  Poll:{" "}
-                                  {pp.debugInfo.pollingActive
-                                    ? "active"
-                                    : "inactive"}{" "}
-                                  | ok: {pp.debugInfo.pollSuccessCount}
-                                </p>
-                                {pp.debugInfo.lastPollResult && (
-                                  <p
-                                    className="truncate max-w-full"
-                                    title={pp.debugInfo.lastPollResult}
-                                  >
-                                    Poll:{" "}
-                                    {pp.debugInfo.lastPollResult.slice(0, 80)}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                      ) : pp.status !== "error" ? (
+                        <p className="text-[13px] text-[var(--sa-ink-3)]">No slide on screen yet.</p>
+                      ) : null}
+                      {pp.debugInfo && (
+                        <details className="group text-[13px] text-[var(--sa-ink-3)]">
+                          <summary className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 hover:text-board-text max-lg:min-h-11"><ChevronDown className="h-3.5 w-3.5 -rotate-90 transition-transform group-open:rotate-0" />Diagnostics</summary>
+                          <div className="mt-2 space-y-0.5 rounded-lg border border-[var(--sa-border)] bg-board-bg p-3 font-mono text-xs text-[var(--sa-ink-2)]">
+                            <p>Bridge: {pp.debugInfo.wsConnected ? "open" : "closed"} | msgs: {pp.debugInfo.wsMessagesReceived}</p>
+                            {pp.debugInfo.lastWsMessage && <p className="truncate" title={pp.debugInfo.lastWsMessage}>Last event: {pp.debugInfo.lastWsMessage.slice(0, 80)}</p>}
+                            <p>Poll: {pp.debugInfo.pollingActive ? "active" : "inactive"} | ok: {pp.debugInfo.pollSuccessCount}</p>
+                            {pp.debugInfo.lastPollResult && <p className="truncate" title={pp.debugInfo.lastPollResult}>Poll: {pp.debugInfo.lastPollResult.slice(0, 80)}</p>}
+                          </div>
+                        </details>
                       )}
                     </>
                   )}
-
-                  {!ppEnabled && (
-                    <p className="text-xs text-board-muted">
-                      Stream lyrics & scripture from ProPresenter to stage
-                      display
-                    </p>
-                  )}
-                </div>
+                </Panel>
               )}
 
               {/* Shortcuts */}
               {canControlRundown && (
-                <div className="rounded-xl border border-board-border bg-board-card/50 p-4">
-                  <p className="text-xs font-medium text-board-muted uppercase tracking-widest mb-2">
-                    Shortcuts
-                  </p>
-                  <RundownShortcutList />
-                </div>
+                <details open={timer.playback === "stop"} className="group rounded-2xl border border-[var(--sa-border)] bg-[var(--sa-surface)]">
+                  <summary className="flex min-h-[52px] cursor-pointer list-none items-center justify-between gap-3 px-5 max-lg:min-h-14">
+                    <span className={`flex items-center gap-2.5 ${eyebrow} text-[var(--sa-ink-2)]`}><Keyboard aria-hidden="true" className="h-3.5 w-3.5 text-[var(--sa-ink-3)]" strokeWidth={1.75} />Keyboard shortcuts <span className="tabular-nums text-[var(--sa-ink-3)]">{RUNDOWN_SHORTCUTS.length}</span></span>
+                    <ChevronDown aria-hidden="true" className="h-4 w-4 -rotate-90 text-[var(--sa-ink-3)] transition-transform group-open:rotate-0" />
+                  </summary>
+                  <div className="px-5 pb-5"><RundownShortcutList /></div>
+                </details>
               )}
             </div>
 
             {/* Right: Runsheet */}
-            <section id="rundown-runsheet" tabIndex={-1} aria-label="Rundown items" className="rundown-panel-right flex-1 min-w-0 flex flex-col overflow-y-auto hide-scrollbar rounded focus-visible:outline-2 focus-visible:outline-fire-500">
-              <div className="flex min-w-0 flex-col min-h-full">
-                <p id="rundown-reorder-help" className="sr-only">Drag the handle to reorder, or use the Move up and Move down buttons with a keyboard.</p>
+            <section id="rundown-runsheet" tabIndex={-1} aria-label="Rundown items" className="rundown-panel-right flex-1 min-w-0 flex flex-col overflow-y-auto hide-scrollbar rounded-2xl pb-6 focus-visible:outline-2 focus-visible:outline-fire-500">
+              <div className="flex min-w-0 flex-col rounded-2xl border border-[var(--sa-border)] bg-[var(--sa-surface)]">
+                <p id="rundown-reorder-help" className="sr-only">Drag the handle to reorder, or use Move up and Move down in the item's actions menu.</p>
                 {/* Runsheet header — sticky within its own scroll container */}
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-3 shrink-0 sticky top-0 z-10 bg-board-bg/95 backdrop-blur-sm py-1 -mt-1">
-                  <h2 className="text-xs font-medium text-board-muted uppercase tracking-widest">
-                    Runsheet
-                  </h2>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums text-board-muted">
-                    <span>{items.length} items</span>
-                    {completedDuration > 0 && (
-                      <span>
-                        {formatDuration(completedDuration)} /{" "}
-                        {formatDuration(totalDuration)}
-                      </span>
-                    )}
-                    <span>{formatDuration(remainingDuration)} remaining</span>
+                <div className="rundown-sheet-header sticky top-0 z-10 flex flex-wrap items-start justify-between gap-x-4 gap-y-1 rounded-t-2xl bg-[var(--sa-surface)] px-5 pb-3.5 pt-4">
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <h2 className="text-[15px] font-semibold text-board-text">Runsheet</h2>
+                    <p className="text-xs text-[var(--sa-ink-3)]">
+                      {projection.plan.plannedStart === null
+                        ? items.length ? "Set a start time in Show options to see when each item begins." : "Add items to build the runsheet."
+                        : projection.behind !== null
+                          ? <>Planned <span className="tabular-nums">{dayTime(projection.plan.plannedStart, deviceTimeZone, hour12)} → {dayTime(projection.plan.plannedEnd, deviceTimeZone, hour12)}</span> · projected end <span className={`tabular-nums ${projection.behind > 30_000 ? "text-[var(--sa-warn)]" : "text-[var(--sa-ink-2)]"}`}>{dayTime(projection.projectedEnd, deviceTimeZone, hour12)}</span> · running <span className={projection.behind > 30_000 ? "text-[var(--sa-warn)]" : "text-[var(--sa-ink-2)]"}>{runningLabel(projection.behind)}</span></>
+                          : <>Start <span className="tabular-nums">{dayTime(projection.plan.plannedStart, deviceTimeZone, hour12)}</span> · ends <span className="tabular-nums">{dayTime(projection.plan.plannedEnd, deviceTimeZone, hour12)}</span> · start times computed from durations</>}
+                    </p>
                   </div>
+                  <p className="text-xs text-[var(--sa-ink-3)]"><span className="tabular-nums">{items.length}</span> items · <span className="tabular-nums text-board-text">{formatDuration(remainingDuration)}</span> remaining</p>
                 </div>
 
                 {items.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center gap-3">
-                    <Clock className="w-10 h-10 text-board-muted" />
-                    <p className="text-sm text-board-muted">
-                      No items in the rundown
-                    </p>
-                    <p className="text-xs text-board-muted">
-                      {canEditRundown
-                        ? 'Click "Add Item" or "Load" to get started'
-                        : "No rundown items are available for this date"}
-                    </p>
+                  <div className="px-5 pb-5">
+                    <div className="flex flex-col items-start gap-3 rounded-xl border border-dashed border-[var(--sa-border-strong)] p-7">
+                      <span aria-hidden="true" className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-[var(--sa-surface-2)] text-[var(--sa-ink-2)]"><ListIcon className="h-4 w-4" /></span>
+                      <h3 className="text-base font-semibold text-board-text">No items in this rundown yet</h3>
+                      <p className="max-w-[440px] text-[13px] leading-[1.6] text-[var(--sa-ink-2)]">
+                        {canEditRundown ? "Add sections and items to build the runsheet, or load one from another date or a saved template." : "No rundown items are available for this show yet."}
+                      </p>
+                      {canEditRundown ? <div className="flex flex-wrap gap-2 pt-1">
+                        <button type="button" onClick={() => setShowAddForm(true)} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-fire-500 px-3.5 text-[13px] font-semibold text-[#1a1300] hover:bg-fire-400 max-lg:h-11"><Plus className="h-3.5 w-3.5" strokeWidth={2.25} />Add item</button>
+                        <button type="button" onClick={() => setShowLoadModal(true)} className={rundownButton}><FolderOpen className="h-3.5 w-3.5" />Load from date or template</button>
+                      </div> : null}
+                    </div>
                   </div>
                 ) : (
                   <VirtualRows items={timedItems} getKey={rundownRowKey} getScrollParent={rundownScrollParent}
-                    estimateSize={estimateRundownRow} pinnedIds={[timer.currentItemId, draggedItemId]} gap={2} className="pr-1"
+                    estimateSize={estimateRundownRow} pinnedIds={[timer.currentItemId, draggedItemId]} gap={0} className="overflow-hidden rounded-b-2xl"
                     renderRow={(item, idx, rowProps) => {
                       const isCurrent = item.id === timer.currentItemId;
                       const config = TYPE_CONFIG[item.type];
@@ -2268,314 +2159,133 @@ function RundownPage() {
                       const isDropTarget =
                         dropTargetItemId === item.id &&
                         draggedItemId !== item.id;
+                      const number = itemNumbers.get(item.id) ?? String(idx + 1);
+                      const label = item.title || (item.type === "header" ? "Section" : "item");
+                      const dragHandle = canEditRundown ? (
+                        <button type="button" aria-label={`Reorder ${label}`} aria-describedby="rundown-reorder-help"
+                          draggable
+                          onDragStart={(event) => handleItemDragStart(event, item.id)}
+                          onDragEnd={handleItemDragEnd}
+                          onTouchStart={() => handleItemTouchStart(item.id)}
+                          onTouchMove={handleItemTouchMove}
+                          onTouchEnd={handleItemTouchEnd}
+                          onTouchCancel={handleItemDragEnd}
+                          className={`rundown-drag-handle inline-flex h-11 w-7 cursor-grab touch-none select-none items-center justify-center rounded-md active:cursor-grabbing max-lg:w-11 ${isDraggingItem ? "text-fire-400" : "text-[var(--sa-ink-3)] hover:text-board-text lg:[@media(hover:hover)_and_(pointer:fine)]:opacity-0 lg:[@media(hover:hover)_and_(pointer:fine)]:group-hover:opacity-100 lg:[@media(hover:hover)_and_(pointer:fine)]:focus-visible:opacity-100"}`}
+                          title="Drag to reorder"
+                        >
+                          <GripVertical className="h-3.5 w-3.5" />
+                        </button>
+                      ) : <span />;
+                      const actions = (extra?: React.ReactNode) => canEditRundown ? (
+                        <span className="rundown-row-actions flex w-[88px] shrink-0 items-center justify-end transition-opacity lg:w-[68px] lg:[@media(hover:hover)_and_(pointer:fine)]:opacity-0 lg:[@media(hover:hover)_and_(pointer:fine)]:group-hover:opacity-100 lg:[@media(hover:hover)_and_(pointer:fine)]:focus-within:opacity-100 lg:[@media(hover:hover)_and_(pointer:fine)]:has-[[data-state=open]]:opacity-100">
+                          {extra}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button type="button" className={rowIconButton} title="Item actions" aria-label={`Actions for ${label}`}>
+                                <MoreHorizontal className="h-4 w-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="min-w-[180px]">
+                              <DropdownMenuItem onSelect={() => setEditingItem(item)}><Pencil className="h-3.5 w-3.5" />Edit</DropdownMenuItem>
+                              <DropdownMenuItem disabled={idx === 0} onSelect={() => handleMoveItem(item.id, "up")}><ChevronUp className="h-3.5 w-3.5" />Move up</DropdownMenuItem>
+                              <DropdownMenuItem disabled={idx === items.length - 1} onSelect={() => handleMoveItem(item.id, "down")}><ChevronDown className="h-3.5 w-3.5" />Move down</DropdownMenuItem>
+                              {!isCurrent ? <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem variant="destructive" onSelect={() => handleRemoveItem(item.id)}><Trash2 className="h-3.5 w-3.5" />Delete…</DropdownMenuItem>
+                              </> : null}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </span>
+                      ) : <span />;
 
                       // A section band is structure, not running order: no
-                      // duration, no clock, no play button. It reorders and
-                      // deletes like anything else so the blocks can be moved
-                      // as the service is planned.
+                      // clock and no play button. It reorders and deletes like
+                      // anything else so the blocks can be moved as the
+                      // service is planned.
                       if (item.type === "header") {
+                        const section = projection.plan.sections.get(item.id);
                         return (
                           <div
                             key={item.id}
                             {...rowProps}
                             data-rundown-item-id={item.id}
                             data-editable={canEditRundown}
-                            onDragOver={(event) =>
-                              handleItemDragOver(event, item.id)
-                            }
+                            onDragOver={(event) => handleItemDragOver(event, item.id)}
                             onDrop={(event) => handleItemDrop(event, item.id)}
-                            className={`rundown-section-row group flex items-center gap-2 px-3 py-1.5 border-l-2 border-board-muted/40 bg-board-border/25 ${
+                            className={`rundown-section-row group grid min-h-11 grid-cols-[28px_36px_minmax(0,1fr)_56px_auto] items-center gap-x-3 bg-board-bg pr-3 shadow-[inset_0_1px_0_var(--sa-border),inset_0_-1px_0_var(--sa-border)] max-lg:grid-cols-[44px_32px_minmax(0,1fr)_48px_auto] ${
                               isDraggingItem ? "opacity-60" : ""
-                            } ${isDropTarget ? "shadow-[0_0_0_1px_rgba(255,193,7,0.28)]" : ""}`}
+                            } ${isDropTarget ? "shadow-[inset_0_0_0_1px_rgba(255,193,7,0.4)]" : ""}`}
                           >
-                            {canEditRundown && (
-                              <Button variant="ghost" size="icon" type="button" aria-label={`Reorder ${item.title || "item"}`} aria-describedby="rundown-reorder-help"
-                                draggable
-                                onDragStart={(event) =>
-                                  handleItemDragStart(event, item.id)
-                                }
-                                onDragEnd={handleItemDragEnd}
-                                onTouchStart={() =>
-                                  handleItemTouchStart(item.id)
-                                }
-                                onTouchMove={handleItemTouchMove}
-                                onTouchEnd={handleItemTouchEnd}
-                                onTouchCancel={handleItemDragEnd}
-                                className="rundown-drag-handle h-11 w-11 shrink-0 rounded cursor-grab active:cursor-grabbing touch-none select-none text-board-muted hover:text-board-text"
-                                title="Drag to reorder"
-                              >
-                                <GripVertical className="w-3.5 h-3.5" />
-                                </Button>
-                            )}
-                            <p className="rundown-row-title flex-1 min-w-0 break-words text-xs font-semibold uppercase tracking-[0.12em] text-board-muted">
-                              {item.title || "Section"}
+                            {dragHandle}
+                            <span className="rundown-row-number tabular-nums text-xs text-[var(--sa-ink-3)]">{number}</span>
+                            <p className="rundown-row-title flex min-w-0 flex-wrap items-baseline gap-x-2.5">
+                              <span className="break-words text-xs font-semibold uppercase tracking-[0.07em] text-board-text">{item.title || "Section"}</span>
+                              {section?.start != null && section.duration > 0 ? <span className="tabular-nums text-xs text-[var(--sa-ink-3)]">{dayTime(section.start, deviceTimeZone, hour12)}–{dayTime(section.start + section.duration, deviceTimeZone, hour12)}</span> : null}
                             </p>
-                            {canEditRundown && (
-                              <div className="rundown-row-actions flex flex-wrap shrink-0 items-center gap-0.5">
-                                <Button variant="ghost"
-                                  onClick={() => setEditingItem(item)}
-                                  className="p-1.5 rounded text-board-muted hover:text-fire-500 hover:bg-fire-500/10 transition-colors"
-                                  title="Edit" aria-label={`Edit ${item.title || "item"}`}
-                                >
-                                  <Pencil className="w-3.5 h-3.5" />
-                                </Button>
-                                <Button variant="ghost"
-                                  onClick={() => handleMoveItem(item.id, "up")}
-                                  disabled={idx === 0}
-                                  className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20"
-                                  title="Move up" aria-label={`Move up ${item.title || "item"}`}
-                                >
-                                  <ChevronUp className="w-3.5 h-3.5" />
-                                </Button>
-                                <Button variant="ghost"
-                                  onClick={() =>
-                                    handleMoveItem(item.id, "down")
-                                  }
-                                  disabled={idx === items.length - 1}
-                                  className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20"
-                                  title="Move down" aria-label={`Move down ${item.title || "item"}`}
-                                >
-                                  <ChevronDown className="w-3.5 h-3.5" />
-                                </Button>
-                                <Button variant="ghost"
-                                  onClick={() => handleRemoveItem(item.id)}
-                                  className="p-1 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                                  title="Delete" aria-label={`Delete ${item.title || "item"}`}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </Button>
-                              </div>
-                            )}
+                            <span className="rundown-row-duration text-right tabular-nums text-xs text-[var(--sa-ink-3)]">{formatMinutes(section?.duration ?? 0)}</span>
+                            {actions()}
                           </div>
                         );
                       }
 
-                      // Extract the bg color class for the binder bar
-                      const binderColor = isCurrent
-                        ? "bg-fire-500"
-                        : item.status === "complete"
-                          ? "bg-green-500/40"
-                          : config.color.split(" ")[0].replace("/15", "/60");
-
+                      const done = item.status === "complete";
+                      const upNext = item.id === upNextId;
+                      const planned = projection.plan.starts.get(item.id) ?? null;
+                      const actual = projection.projected.get(item.id);
                       return (
                         <div
                           key={item.id}
                           {...rowProps}
                           data-rundown-item-id={item.id}
-                            data-editable={canEditRundown}
-                          onDragOver={(event) =>
-                            handleItemDragOver(event, item.id)
-                          }
+                          data-editable={canEditRundown}
+                          aria-current={isCurrent ? "step" : undefined}
+                          onDragOver={(event) => handleItemDragOver(event, item.id)}
                           onDrop={(event) => handleItemDrop(event, item.id)}
-                          className={`group flex border transition-[colors,opacity,box-shadow] ${
-                            isDraggingItem
-                              ? "opacity-60 border-fire-500/30"
-                              : isDropTarget
-                                ? "border-fire-500/50 shadow-[0_0_0_1px_rgba(255,193,7,0.28)]"
-                                : "border-transparent"
+                          className={`rundown-row group relative grid min-h-[52px] grid-cols-[28px_36px_44px_16px_minmax(0,1fr)_auto_56px_auto] items-center gap-x-3 py-1 pr-3 transition-[background-color,opacity,box-shadow] max-lg:grid-cols-[44px_32px_44px_minmax(0,1fr)_auto_48px_auto] ${
+                            isDraggingItem ? "opacity-60" : ""
                           } ${
                             isCurrent
-                              ? "bg-fire-500/8"
-                              : item.status === "complete"
-                                ? "bg-board-card/15"
-                                : "bg-board-card/30 hover:bg-board-card/50"
+                              ? "bg-fire-500/[0.10] shadow-[inset_0_1px_0_var(--sa-border),inset_2px_0_0_var(--color-fire-500)]"
+                              : isDropTarget
+                                ? "shadow-[inset_0_0_0_1px_rgba(255,193,7,0.4)]"
+                                : "shadow-[inset_0_1px_0_var(--sa-border)] hover:bg-[var(--sa-surface-2)]"
                           }`}
                         >
-                          {/* Left binder bar (OnTime-style) */}
-                          <div
-                            className={`rundown-row-binder w-10 shrink-0 flex flex-col items-center justify-center gap-1 ${binderColor} ${
-                              isCurrent ? "text-black" : "text-white"
-                            }`}
-                          >
-                            <span className="text-xs font-bold tabular-nums">
-                              {itemNumbers.get(item.id) ?? idx + 1}
-                            </span>
-                            {item.status === "live" && (
-                              <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                          {dragHandle}
+                          <span className={`rundown-row-number tabular-nums text-xs ${isCurrent ? "text-fire-400" : "text-[var(--sa-ink-3)]"}`}>{number}</span>
+                          <span className={`rundown-row-time tabular-nums text-[13px] ${isCurrent ? "text-fire-400" : done ? "text-[var(--sa-ink-3)]" : "text-[var(--sa-ink-2)]"}`}>{dayTime(planned, deviceTimeZone, hour12)}</span>
+                          <Icon aria-hidden="true" className={`rundown-row-icon h-3.5 w-3.5 max-lg:hidden ${isCurrent ? "text-fire-400" : "text-[var(--sa-ink-3)]"}`} strokeWidth={1.75} />
+                          <div className="rundown-row-title flex min-w-0 flex-col gap-0.5">
+                            <p className={`rundown-item-title truncate text-[13px] ${isCurrent ? "font-semibold text-fire-400" : done ? "text-[var(--sa-ink-2)]" : "font-medium text-board-text"}`}>
+                              {item.title || "Untitled"}
+                            </p>
+                            {(item.assignee || item.notes || actual) && (
+                              <p className="truncate text-xs text-[var(--sa-ink-3)]">
+                                {item.assignee}
+                                {item.assignee && item.notes ? " · " : ""}
+                                {item.notes}
+                                {actual ? <span className={`tabular-nums text-[var(--sa-warn)] ${item.assignee || item.notes ? "ml-2" : ""}`}>{dayTime(actual.start, deviceTimeZone, hour12)} – {dayTime(actual.end, deviceTimeZone, hour12)}</span> : null}
+                              </p>
                             )}
                           </div>
-
-                          {/* Content area */}
-                          <div className="flex-1 min-w-0 flex flex-col">
-                            {/* Main row */}
-                            <div className="rundown-row-main flex items-center gap-3 px-3 py-2">
-                              {canEditRundown && (
-                                <Button variant="ghost" size="icon" type="button" aria-label={`Reorder ${item.title || "item"}`} aria-describedby="rundown-reorder-help"
-                                  draggable
-                                  onDragStart={(event) =>
-                                    handleItemDragStart(event, item.id)
-                                  }
-                                  onDragEnd={handleItemDragEnd}
-                                  onTouchStart={() =>
-                                    handleItemTouchStart(item.id)
-                                  }
-                                  onTouchMove={handleItemTouchMove}
-                                  onTouchEnd={handleItemTouchEnd}
-                                  onTouchCancel={handleItemDragEnd}
-                                  className={`rundown-drag-handle h-11 w-11 shrink-0 rounded cursor-grab active:cursor-grabbing touch-none select-none ${
-                                    isDraggingItem
-                                      ? "text-fire-400 bg-fire-500/10"
-                                      : "text-board-muted hover:text-board-text hover:bg-board-border/30"
-                                  } transition-colors`}
-                                  title="Drag to reorder"
-                                >
-                                  <GripVertical className="w-3.5 h-3.5" />
-                                </Button>
-                              )}
-
-                              {/* Duration */}
-                              <span
-                                className={`rundown-row-duration shrink-0 text-xs font-mono tabular-nums ${isCurrent ? "text-board-text" : "text-board-muted"}`}
-                              >
-                                {formatDuration(item.duration)}
-                              </span>
-
-                              {/* Divider */}
-                              <div
-                                className={`rundown-row-divider w-px h-7 shrink-0 ${isCurrent ? "bg-fire-500/30" : "bg-board-border/30"}`}
-                              />
-
-                              {/* Title section */}
-                              <div className="rundown-row-title flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <Icon
-                                    className={`w-3.5 h-3.5 shrink-0 ${
-                                      isCurrent
-                                        ? "text-fire-400"
-                                        : config.color.split(" ")[1]
-                                    }`}
-                                  />
-                                  <p
-                                    className={`rundown-item-title text-sm font-medium truncate ${
-                                      isCurrent
-                                        ? "text-fire-400"
-                                        : item.status === "complete"
-                                          ? "text-board-muted line-through"
-                                          : "text-board-text"
-                                    }`}
-                                  >
-                                    {item.title || "Untitled"}
-                                  </p>
-                                </div>
-                                {/* Assignee / notes inline */}
-                                {(item.assignee || item.notes) && (
-                                  <p className="text-xs text-board-muted truncate mt-0.5 pl-6">
-                                    {item.assignee}
-                                    {item.assignee && item.notes ? " · " : ""}
-                                    {item.notes}
-                                  </p>
-                                )}
-                                {/* Time display: scheduled start and actual times */}
-                                {(item.scheduledStart || item.actualStart) && (
-                                  <div className="flex flex-wrap items-center gap-2 mt-0.5 pl-6">
-                                    {item.scheduledStart && (
-                                      <span className="text-xs text-board-muted tabular-nums font-mono">
-                                        {formatTimeInput(
-                                          item.scheduledStart,
-                                          deviceTimeZone,
-                                        )}{" "}
-                                        sched
-                                      </span>
-                                    )}
-                                    {item.actualStart && (
-                                      <span
-                                        className={`text-xs tabular-nums font-mono ${
-                                          item.status === "complete"
-                                            ? (() => {
-                                                const overrun =
-                                                  itemOverrunMs(item);
-                                                return overrun !== null &&
-                                                  overrun > 30000
-                                                  ? "text-red-400"
-                                                  : "text-green-400";
-                                              })()
-                                            : "text-fire-400"
-                                        }`}
-                                      >
-                                        {formatTimeInput(
-                                          item.actualStart,
-                                          deviceTimeZone,
-                                        )}
-                                        {item.actualEnd &&
-                                          ` – ${formatTimeInput(item.actualEnd, deviceTimeZone)}`}
-                                        {item.status === "complete" &&
-                                          (() => {
-                                            const overrun = itemOverrunMs(item);
-                                            if (overrun === null) return null;
-                                            const sign = overrun > 0 ? "+" : "";
-                                            return ` (${sign}${Math.round(overrun / 1000)}s)`;
-                                          })()}
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-
-                              {isCurrent && <RundownOffset timer={timer} duration={item.duration} initialNow={initialNow} />}
-
-                              {/* Row actions stay visible for pointer, keyboard and touch operators */}
-                              {canEditRundown && (
-                                <div
-                                  className="rundown-row-actions flex flex-wrap items-center gap-0.5 shrink-0"
-                                >
-                                  {!isCurrent && item.status !== "complete" && (
-                                    <Button variant="ghost"
-                                      disabled={!transportAvailable}
-                                      onClick={() => handleStart(item.id)}
-                                      className="p-1.5 rounded text-board-muted hover:text-green-400 hover:bg-green-500/10 transition-colors"
-                                      title="Start" aria-label={`Start ${item.title || "item"}`}
-                                    >
-                                      <Play className="w-3.5 h-3.5" />
-                                    </Button>
-                                  )}
-                                  <Button variant="ghost"
-                                    onClick={() => setEditingItem(item)}
-                                    className="p-1.5 rounded text-board-muted hover:text-fire-500 hover:bg-fire-500/10 transition-colors"
-                                    title="Edit" aria-label={`Edit ${item.title || "item"}`}
-                                  >
-                                    <Pencil className="w-3.5 h-3.5" />
-                                  </Button>
-                                  <Button variant="ghost"
-                                    onClick={() =>
-                                      handleMoveItem(item.id, "up")
-                                    }
-                                    disabled={idx === 0}
-                                    className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20"
-                                    title="Move up" aria-label={`Move up ${item.title || "item"}`}
-                                  >
-                                    <ChevronUp className="w-3.5 h-3.5" />
-                                  </Button>
-                                  <Button variant="ghost"
-                                    onClick={() =>
-                                      handleMoveItem(item.id, "down")
-                                    }
-                                    disabled={idx === items.length - 1}
-                                    className="p-1 rounded text-board-muted hover:text-board-text hover:bg-board-border/30 transition-colors disabled:opacity-20"
-                                    title="Move down" aria-label={`Move down ${item.title || "item"}`}
-                                  >
-                                    <ChevronDown className="w-3.5 h-3.5" />
-                                  </Button>
-                                  {!isCurrent && (
-                                    <Button variant="ghost"
-                                      onClick={() => handleRemoveItem(item.id)}
-                                      className="p-1 rounded text-board-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                                      title="Delete" aria-label={`Delete ${item.title || "item"}`}
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </Button>
-                                  )}
-                                </div>
-                              )}
+                          <span className="rundown-row-badge flex justify-end">
+                            {isCurrent ? <RundownOffset timer={timer} duration={item.duration} initialNow={initialNow} />
+                              : done ? <Check aria-label="Done" className="h-3.5 w-3.5 text-[var(--sa-ink-3)]" strokeWidth={2} />
+                              : upNext ? <span className="inline-flex h-5 items-center rounded-full border border-[var(--sa-border-strong)] px-2 text-xs text-[var(--sa-ink-2)]">Next</span> : null}
+                          </span>
+                          <span className={`rundown-row-duration text-right tabular-nums text-[13px] ${done ? "text-[var(--sa-ink-3)]" : "font-medium text-board-text"}`}>{formatMinutes(item.duration)}</span>
+                          {actions(!isCurrent && !done ? (
+                              <button type="button" disabled={!transportAvailable} onClick={() => handleStart(item.id)}
+                                className={`${rowIconButton} hover:text-[var(--sa-ok)]`} title="Start" aria-label={`Start ${label}`}>
+                                <Play className="h-3.5 w-3.5" />
+                              </button>
+                            ) : undefined)}
+                          {isCurrent && (
+                            <div className="absolute inset-x-0 bottom-0 h-0.5">
+                              <RundownProgress timer={timer} duration={item.duration} initialNow={initialNow}
+                                overtimeBehavior={overtimeBehavior} id="rundown-item-progress" />
                             </div>
-
-                            {/* Progress bar for current item */}
-                            {isCurrent && (
-                              <div className="h-0.5 w-full bg-board-border/20">
-                                <RundownProgress timer={timer} duration={item.duration} initialNow={initialNow}
-                                  overtimeBehavior={overtimeBehavior} id="rundown-item-progress" />
-                              </div>
-                            )}
-                          </div>
+                          )}
                         </div>
                       );
                     }} />
@@ -2586,16 +2296,21 @@ function RundownPage() {
         )}
 
         {canEditRundown && showAddForm && (
-          <AddItemModal
-            defaultDuration={defaultItemDuration}
-            onAdd={handleAddItem}
+          <ItemFormModal
+            mode="add"
+            showLabel={`Goes into ${selectedShowName} · ${formatDisplayDate(serviceDate)}`}
+            initial={{ title: "", type: "segment", duration: defaultItemDuration, assignee: "", notes: "" }}
+            positions={addPositions}
+            onSubmit={handleAddItem}
             onClose={() => setShowAddForm(false)}
           />
         )}
         {canEditRundown && editingItem && (
-          <EditItemModal
-            item={editingItem}
-            onSave={(title, type, duration, assignee, notes) =>
+          <ItemFormModal
+            mode="edit"
+            showLabel={`${selectedShowName} · ${formatDisplayDate(serviceDate)}`}
+            initial={{ title: editingItem.title, type: editingItem.type, duration: formatDurationForInput(editingItem.duration), assignee: editingItem.assignee, notes: editingItem.notes }}
+            onSubmit={(title, type, duration, assignee, notes) =>
               handleEditItem(
                 editingItem.id,
                 title,
@@ -2708,22 +2423,20 @@ function RundownPage() {
           </div>
         )}
         {endShowDialog}
-        <ConfirmDialog
+        <TakeLiveDialog
           open={showTakeLiveConfirmation}
           onOpenChange={setShowTakeLiveConfirmation}
-          title={`Take ${selectedShowName} live?`}
-          description="Timer, lyrics, kiosk, Show Flow, and other venue outputs will switch to this show. Browsing alone never changes them."
-          confirmLabel="Take live"
-          variant="warning"
-          loading={activePublishPending}
-          onConfirm={() => void takeSelectedShowLive()}
+          showName={selectedShowName}
+          liveName={liveShowName}
+          pending={activePublishPending}
+          onConfirm={takeSelectedShowLive}
         />
         <ConfirmDialog
           open={showClearConfirmation}
           onOpenChange={setShowClearConfirmation}
-          title="Clear this rundown?"
-          description="This removes every rundown item and stops the timer for all connected operators. This action cannot be undone."
-          confirmLabel="Clear rundown"
+          title={`Clear all ${items.length} ${items.length === 1 ? "item" : "items"}?`}
+          description={`Every section and item in ${selectedShowName} will be removed, including durations and notes, and the timer stops for everyone following it. Save it as a template first if you might want it back.`}
+          confirmLabel="Clear all items"
           variant="danger"
           onConfirm={handleClearAll}
         />
@@ -2732,157 +2445,104 @@ function RundownPage() {
   );
 }
 
-function AddItemModal({
-  defaultDuration,
-  onAdd,
+export type ItemPosition = { key: string; label: string; index: number | null; startsAt: string | null };
+
+/** Add or edit a rundown item (Rundown — A "Add rundown item"). Sections take no time. */
+function ItemFormModal({
+  mode,
+  showLabel,
+  initial,
+  positions,
+  onSubmit,
   onClose,
 }: {
-  defaultDuration: string;
-  onAdd: (
-    title: string,
-    type: ItemType,
-    duration: string,
-    assignee: string,
-    notes: string,
-  ) => void;
+  mode: "add" | "edit";
+  showLabel: string;
+  initial: { title: string; type: ItemType; duration: string; assignee: string; notes: string };
+  positions?: ItemPosition[];
+  onSubmit: (title: string, type: ItemType, duration: string, assignee: string, notes: string, index: number | null) => void;
   onClose: () => void;
 }) {
   const fieldId = useId();
   const workspaceTerms = useWorkspaceTerms();
-  const [title, setTitle] = useState("");
-  const [type, setType] = useState<ItemType>("segment");
-  const [duration, setDuration] = useState(defaultDuration);
-  const [assignee, setAssignee] = useState("");
-  const [notes, setNotes] = useState("");
+  const [title, setTitle] = useState(initial.title);
+  const [type, setType] = useState<ItemType>(initial.type);
+  const [duration, setDuration] = useState(initial.duration);
+  const [assignee, setAssignee] = useState(initial.assignee);
+  const [notes, setNotes] = useState(initial.notes);
+  const [position, setPosition] = useState(positions?.at(-1)?.key ?? "end");
+  const isSection = type === "header";
+  const chosen = positions?.find((option) => option.key === position) ?? null;
+  const durationOk = isSection || parseDurationInput(duration) > 0;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-    const isSection = type === "header";
-    onAdd(
-      title.trim(),
-      type,
-      isSection ? "0:00" : duration,
-      isSection ? "" : assignee.trim(),
-      isSection ? "" : notes.trim(),
-    );
+  const submit = () => {
+    if (!title.trim() || !durationOk) return;
+    onSubmit(title.trim(), type, isSection ? "0:00" : duration, isSection ? "" : assignee.trim(), isSection ? "" : notes.trim(), chosen?.index ?? null);
   };
+  const label = "mb-1.5 block text-[13px] font-medium text-board-text";
+  const field = "h-10 w-full rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-3 text-base text-board-text outline-none placeholder:text-[var(--sa-ink-3)] focus:border-fire-500 sm:text-[13px] max-lg:h-11";
 
   return (
-    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-      <DialogContent aria-describedby={undefined} showCloseButton={false} className="rundown-modal block max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto bg-board-card border-board-border rounded-2xl p-4 sm:p-6 max-w-md sm:max-w-md shadow-2xl">
-        <DialogTitle className="text-lg font-semibold text-board-text mb-5">
-          {type === "header" ? "Add section" : "Add rundown item"}
-        </DialogTitle>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm text-board-muted mb-1.5">
-              Type
-            </label>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {(Object.keys(TYPE_CONFIG) as ItemType[]).map((t) => {
-                const config = TYPE_CONFIG[t];
-                const Icon = config.icon;
-                return (
-                  <Button variant="ghost"
-                    key={t}
-                    type="button"
-                    onClick={() => setType(t)}
-                    aria-pressed={type === t}
-                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium border transition-colors ${type === t ? "bg-fire-500/15 text-fire-500 border-fire-500/25" : "text-board-muted border-board-border hover:border-board-muted/50"}`}
-                  >
-                    <Icon className="w-3 h-3" />
-                    {config.label}
-                  </Button>
-                );
-              })}
-            </div>
+    <ModalA className="rundown-modal sm:max-w-[560px]" title={mode === "add" ? isSection ? "Add section" : "Add rundown item" : isSection ? "Edit section" : "Edit rundown item"} description={showLabel} onClose={onClose}>
+      <form onSubmit={(event) => { event.preventDefault(); submit(); }} onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); submit(); } }} className="flex flex-col gap-5">
+        <fieldset>
+          <legend className={label}>Type</legend>
+          <div className="flex flex-wrap gap-1.5">
+            {(Object.keys(TYPE_CONFIG) as ItemType[]).map((t) => {
+              const config = TYPE_CONFIG[t];
+              const Icon = config.icon;
+              return (
+                <button key={t} type="button" onClick={() => setType(t)} aria-pressed={type === t}
+                  className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[13px] max-lg:h-11 ${type === t ? "border-[var(--sa-border-strong)] bg-[var(--sa-surface-3)] font-medium text-board-text shadow-[inset_0_0_0_1px_var(--sa-border-strong)]" : "border-[var(--sa-border)] text-[var(--sa-ink-2)] hover:text-board-text"}`}>
+                  <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                  {config.label}
+                </button>
+              );
+            })}
           </div>
-          <div>
-            <label htmlFor={`${fieldId}-title`} className="block text-sm text-board-muted mb-1.5">
-              Title
-            </label>
-            <input
-              type="text"
-              id={`${fieldId}-title`}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={
-                type === "header"
-                  ? workspaceCopy("e.g. Pre-service", workspaceTerms)
-                  : workspaceCopy("e.g. Worship Set", workspaceTerms)
-              }
-              autoFocus
-              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm"
-            />
-          </div>
-          {type !== "header" && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label htmlFor={`${fieldId}-duration`} className="block text-sm text-board-muted mb-1.5">
-                  Duration (mm:ss)
-                </label>
-                <input
-                  type="text"
-                  id={`${fieldId}-duration`}
-              value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
-                  placeholder="5:00"
-                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono"
-                />
-              </div>
-              <div>
-                <label htmlFor={`${fieldId}-assignee`} className="block text-sm text-board-muted mb-1.5">
-                  Assignee
-                </label>
-                <input
-                  type="text"
-                  id={`${fieldId}-assignee`}
-              value={assignee}
-                  onChange={(e) => setAssignee(e.target.value)}
-                  placeholder={workspaceCopy(
-                    "e.g. Pastor James",
-                    workspaceTerms,
-                  )}
-                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm"
-                />
-              </div>
-            </div>
-          )}
-          {type !== "header" && (
+        </fieldset>
+        <div>
+          <label htmlFor={`${fieldId}-title`} className={label}>Title</label>
+          <input type="text" id={`${fieldId}-title`} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus maxLength={200}
+            placeholder={isSection ? workspaceCopy("e.g. Pre-service", workspaceTerms) : workspaceCopy("e.g. Keynote Block", workspaceTerms)} className={field} />
+        </div>
+        {!isSection && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_minmax(0,1fr)]">
             <div>
-              <label htmlFor={`${fieldId}-notes`} className="block text-sm text-board-muted mb-1.5">
-                Notes
-              </label>
-              <textarea
-                id={`${fieldId}-notes`}
-              value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Production notes..."
-                rows={2}
-                className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm resize-none"
-              />
+              <label htmlFor={`${fieldId}-duration`} className={label}>Duration (mm:ss)</label>
+              <input type="text" id={`${fieldId}-duration`} value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="5:00" inputMode="numeric"
+                aria-invalid={!durationOk} className={`${field} tabular-nums ${durationOk ? "" : "border-[var(--sa-danger)]"}`} />
+              {!durationOk ? <p className="mt-1.5 text-xs text-[var(--sa-danger)]">Enter a length like 5:00.</p> : null}
             </div>
-          )}
-          <div className="flex gap-3 pt-2">
-            <Button variant="ghost"
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
-            >
-              Cancel
-            </Button>
-            <Button variant="ghost"
-              type="submit"
-              disabled={!title.trim()}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-black font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
-            >
-              Add
-            </Button>
+            <div>
+              <label htmlFor={`${fieldId}-assignee`} className={label}>Assignee</label>
+              <input type="text" id={`${fieldId}-assignee`} value={assignee} onChange={(e) => setAssignee(e.target.value)} maxLength={200} placeholder="Name or team" className={field} />
+            </div>
           </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+        )}
+        {positions && positions.length > 1 ? (
+          <div>
+            <label htmlFor={`${fieldId}-position`} className={label}>Add to</label>
+            <select id={`${fieldId}-position`} value={position} onChange={(e) => setPosition(e.target.value)} className={`${field} appearance-none`}>
+              {positions.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+            </select>
+            {chosen?.startsAt && !isSection ? <p className="mt-1.5 text-xs text-[var(--sa-ink-3)]">Starts <span className="tabular-nums">{chosen.startsAt}</span> · computed from the items above</p> : null}
+          </div>
+        ) : null}
+        {!isSection && (
+          <div>
+            <label htmlFor={`${fieldId}-notes`} className={label}>Notes</label>
+            <textarea id={`${fieldId}-notes`} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Production notes…" rows={3} maxLength={2000}
+              className="w-full resize-none rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-3 py-2.5 text-base text-board-text outline-none placeholder:text-[var(--sa-ink-3)] focus:border-fire-500 sm:text-[13px]" />
+          </div>
+        )}
+        <div className="-mx-5 -mb-5 flex flex-wrap items-center gap-2 border-t border-[var(--sa-border)] bg-board-bg px-5 py-3.5">
+          <span className="mr-auto hidden items-center gap-1.5 text-xs text-[var(--sa-ink-3)] sm:inline-flex"><KeyCombo keys="⌘ + Enter" /> to {mode === "add" ? "add" : "save"}</span>
+          <button type="button" onClick={onClose} className={`${modalCancel} max-lg:h-11`}>Cancel</button>
+          <button type="submit" disabled={!title.trim() || !durationOk} className={`${modalPrimary} max-lg:h-11`}>{mode === "add" ? isSection ? "Add section" : "Add item" : "Save changes"}</button>
+        </div>
+      </form>
+    </ModalA>
   );
 }
 
@@ -2891,160 +2551,4 @@ function formatDurationForInput(ms: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
-
-function EditItemModal({
-  item,
-  onSave,
-  onClose,
-}: {
-  item: RundownItem;
-  onSave: (
-    title: string,
-    type: ItemType,
-    duration: string,
-    assignee: string,
-    notes: string,
-  ) => void;
-  onClose: () => void;
-}) {
-  const fieldId = useId();
-  const workspaceTerms = useWorkspaceTerms();
-  const [title, setTitle] = useState(item.title);
-  const [type, setType] = useState<ItemType>(item.type);
-  const [duration, setDuration] = useState(
-    formatDurationForInput(item.duration),
-  );
-  const [assignee, setAssignee] = useState(item.assignee);
-  const [notes, setNotes] = useState(item.notes);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-    const isSection = type === "header";
-    onSave(
-      title.trim(),
-      type,
-      isSection ? "0:00" : duration,
-      isSection ? "" : assignee.trim(),
-      isSection ? "" : notes.trim(),
-    );
-  };
-
-  return (
-    <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-      <DialogContent aria-describedby={undefined} showCloseButton={false} className="rundown-modal block max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto bg-board-card border-board-border rounded-2xl p-4 sm:p-6 max-w-md sm:max-w-md shadow-2xl">
-        <DialogTitle className="text-lg font-semibold text-board-text mb-5">
-          Edit Item
-        </DialogTitle>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm text-board-muted mb-1.5">
-              Type
-            </label>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {(Object.keys(TYPE_CONFIG) as ItemType[]).map((t) => {
-                const config = TYPE_CONFIG[t];
-                const Icon = config.icon;
-                return (
-                  <Button variant="ghost"
-                    key={t}
-                    type="button"
-                    onClick={() => setType(t)}
-                    aria-pressed={type === t}
-                    className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-medium border transition-colors ${type === t ? "bg-fire-500/15 text-fire-500 border-fire-500/25" : "text-board-muted border-board-border hover:border-board-muted/50"}`}
-                  >
-                    <Icon className="w-3 h-3" />
-                    {config.label}
-                  </Button>
-                );
-              })}
-            </div>
-          </div>
-          <div>
-            <label htmlFor={`${fieldId}-title`} className="block text-sm text-board-muted mb-1.5">
-              Title
-            </label>
-            <input
-              type="text"
-              id={`${fieldId}-title`}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={
-                type === "header"
-                  ? workspaceCopy("e.g. Pre-service", workspaceTerms)
-                  : workspaceCopy("e.g. Worship Set", workspaceTerms)
-              }
-              autoFocus
-              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm"
-            />
-          </div>
-          {type !== "header" && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label htmlFor={`${fieldId}-duration`} className="block text-sm text-board-muted mb-1.5">
-                  Duration (mm:ss)
-                </label>
-                <input
-                  type="text"
-                  id={`${fieldId}-duration`}
-              value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
-                  placeholder="5:00"
-                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm font-mono"
-                />
-              </div>
-              <div>
-                <label htmlFor={`${fieldId}-assignee`} className="block text-sm text-board-muted mb-1.5">
-                  Assignee
-                </label>
-                <input
-                  type="text"
-                  id={`${fieldId}-assignee`}
-              value={assignee}
-                  onChange={(e) => setAssignee(e.target.value)}
-                  placeholder={workspaceCopy(
-                    "e.g. Pastor James",
-                    workspaceTerms,
-                  )}
-                  className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm"
-                />
-              </div>
-            </div>
-          )}
-          {type !== "header" && (
-            <div>
-              <label htmlFor={`${fieldId}-notes`} className="block text-sm text-board-muted mb-1.5">
-                Notes
-              </label>
-              <textarea
-                id={`${fieldId}-notes`}
-              value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Production notes..."
-                rows={2}
-                className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-board-text placeholder:text-board-muted focus:outline-none focus:border-fire-500 transition-colors text-sm resize-none"
-              />
-            </div>
-          )}
-          <div className="flex gap-3 pt-2">
-            <Button variant="ghost"
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-4 py-2.5 rounded-xl border border-board-border text-board-muted hover:bg-board-border transition-colors"
-            >
-              Cancel
-            </Button>
-            <Button variant="ghost"
-              type="submit"
-              disabled={!title.trim()}
-              className="flex-1 px-4 py-2.5 rounded-xl bg-fire-500 text-black font-semibold hover:bg-fire-600 disabled:opacity-50 transition-colors"
-            >
-              Save
-            </Button>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
 }
