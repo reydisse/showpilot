@@ -1,6 +1,7 @@
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { cueDraftKey, cueCellKey, restoreCueDrafts, serializeCueDrafts, type CueDraft } from "@/lib/cue-sheet-offline";
 import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { CueUndoNotice } from "@/components/cue-sheet/undo-notice";
 import { CueReadNotice } from "@/components/cue-sheet/read-notice";
 /**
  * Cue sheet.
@@ -133,8 +134,6 @@ function CueSheetsWorkspace() {
   const notePumps = useRef(new Set<string>());
   const writes = useCueSheetWrites(orgId);
   const [undoItems, setUndoItems] = useState<Array<{ requestId: string; label: string; expiresAt: number }>>([]);
-  const [undoNow, setUndoNow] = useState(initialNow);
-  useEffect(() => { if (!undoItems.length) return; const timer = setInterval(() => { const now = Date.now(); setUndoNow(now); setUndoItems(previous => previous.filter(item => item.expiresAt > now)); }, 1000); return () => clearInterval(timer); }, [undoItems.length]);
   const [confirmedColumnWrite, setConfirmedColumnWrite] = useState<CueSheetOperation | null>(null);
   const [review, setReview] = useState<{ key: string; requestId: string; text: string; saved: string } | null>(null);
   const [managing, setManaging] = useState(false);
@@ -397,7 +396,6 @@ function CueSheetsWorkspace() {
     setConfirmedColumnWrite(ack.attempt.operation);
     if (ack.attempt.operation.kind === "delete-empty-column" && ack.result.undoExpiresAt) {
       const op = ack.attempt.operation;
-      setUndoNow(Date.now());
       setUndoItems(previous => [...previous.filter(item => item.requestId !== ack.attempt.requestId), { requestId: ack.attempt.requestId, label: op.label, expiresAt: ack.result.undoExpiresAt! }]);
     }
     if (ack.attempt.operation.kind === "restore-column") {
@@ -460,7 +458,7 @@ function CueSheetsWorkspace() {
     if (op.kind !== "note" || (rows.some(row => row.itemId === op.itemId) && model.columns.some(column => column.id === op.columnId))) return [];
     return [<div key={key}>{cellNotices[JSON.stringify([op.itemId, op.columnId])]}</div>];
   });
-  const undoNotice = undoItems.filter(item => item.expiresAt > undoNow).map(item => <div key={item.requestId} role="status" className="cue-undo-notice"><span>{item.label} deleted</span><button type="button" className="cue-button" disabled={columnLocked} onClick={() => void runColumn({ kind: "restore-column", deletionRequestId: item.requestId })}>Undo</button></div>);
+  const undoNotice = undoItems.map(item => <CueUndoNotice key={item.requestId} label={item.label} expiresAt={item.expiresAt} disabled={columnLocked} onUndo={() => void runColumn({ kind: "restore-column", deletionRequestId: item.requestId })} onExpire={() => setUndoItems(previous => previous.filter(undo => undo.requestId !== item.requestId))} />);
   return <div className="cue-page">
     <Dialog open={!!review} onOpenChange={open => { if (!open) setReview(null); }}><DialogContent className="cue-portal">
       <DialogTitle>Replace the saved cue note?</DialogTitle><DialogDescription className="sr-only">Compare the saved note with your text before replacing it.</DialogDescription>
