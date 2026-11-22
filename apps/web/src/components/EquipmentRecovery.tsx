@@ -46,10 +46,13 @@ export function EquipmentRecovery({
           </button>
         </div>
       )}
-      {current?.attempt && (
+      {/* Routine saves stay invisible: nothing appears while a change is in flight
+          or after it applies, so the page never jumps. Only a change that needs a
+          decision (failed, conflict, expired, cancelled) shows up here. */}
+      {current?.attempt && !control.pending && (current.status === "error" || (outcome && outcome !== "applied")) && (
         <section
           aria-label="Asset change status"
-          className="rounded-xl border border-board-border bg-board-bg p-3 text-sm text-board-text"
+          className="rounded-xl border border-[var(--sa-danger,#f87171)]/30 bg-[var(--sa-danger,#f87171)]/[0.07] p-4 text-[13px] text-board-text"
         >
           <p className="font-semibold">{current.attempt.label}</p>
           {control.pending ? (

@@ -111,7 +111,9 @@ export async function writeEquipmentCommand(
     ids =
       op.kind === "create"
         ? Array.from({ length: op.quantity }, () => crypto.randomUUID())
-        : [op.id];
+        : op.kind === "batch"
+          ? op.changes.map((change) => change.id)
+          : [op.id];
   const result = (outcome: EquipmentOutcome["outcome"]) =>
     JSON.stringify({
       fingerprint,
@@ -119,12 +121,19 @@ export async function writeEquipmentCommand(
       result: { requestId, outcome, ids: outcome === "applied" ? ids : [] },
     });
   const expiry = new Date(command.expiresAt).toISOString();
+  const unitAtRevision = "EXISTS(SELECT 1 FROM equipment WHERE orgId=? AND id=? AND revision=?)";
   const condition =
     op.kind === "create"
       ? "1"
-      : "EXISTS(SELECT 1 FROM equipment WHERE orgId=? AND id=? AND revision=?)";
+      : op.kind === "batch"
+        ? op.changes.map(() => unitAtRevision).join(" AND ")
+        : unitAtRevision;
   const conditionArgs =
-    op.kind === "create" ? [] : [orgId, op.id, op.expectedRevision];
+    op.kind === "create"
+      ? []
+      : op.kind === "batch"
+        ? op.changes.flatMap((change) => [orgId, change.id, change.expectedRevision])
+        : [orgId, op.id, op.expectedRevision];
   const claim = `EXISTS(SELECT 1 FROM app_setting WHERE orgId=? AND key=? AND json_extract(value,'$.token')=? AND json_extract(value,'$.result.outcome')='applied')`;
   const claimArgs = [orgId, key, token];
   const statements = [
@@ -172,7 +181,7 @@ export async function writeEquipmentCommand(
             ...claimArgs,
           ),
       );
-  } else if (op.kind === "update") {
+  } else if (op.kind === "update" || op.kind === "batch") {
     const fields = [
       "name",
       "category",
@@ -181,23 +190,36 @@ export async function writeEquipmentCommand(
       "serialNumber",
       "notes",
     ] as const;
-    const changed = fields.flatMap((field) => {
-      const value = op.updates[field];
-      return value === undefined ? [] : [{ field, value }];
-    });
-    statements.push(
-      db
-        .prepare(
-          `UPDATE equipment SET ${changed.map(({ field }) => `${field}=?`).join(",")},revision=revision+1,updatedAt=CURRENT_TIMESTAMP WHERE orgId=? AND id=? AND revision=? AND ${claim}`,
-        )
-        .bind(
-          ...changed.map(({ value }) => value),
-          orgId,
-          op.id,
-          op.expectedRevision,
-          ...claimArgs,
-        ),
-    );
+    const changes = op.kind === "update" ? [op] : op.changes;
+    for (const change of changes) {
+      if ("remove" in change) {
+        statements.push(
+          db
+            .prepare(
+              `DELETE FROM equipment WHERE orgId=? AND id=? AND revision=? AND ${claim}`,
+            )
+            .bind(orgId, change.id, change.expectedRevision, ...claimArgs),
+        );
+        continue;
+      }
+      const changed = fields.flatMap((field) => {
+        const value = change.updates[field];
+        return value === undefined ? [] : [{ field, value }];
+      });
+      statements.push(
+        db
+          .prepare(
+            `UPDATE equipment SET ${changed.map(({ field }) => `${field}=?`).join(",")},revision=revision+1,updatedAt=CURRENT_TIMESTAMP WHERE orgId=? AND id=? AND revision=? AND ${claim}`,
+          )
+          .bind(
+            ...changed.map(({ value }) => value),
+            orgId,
+            change.id,
+            change.expectedRevision,
+            ...claimArgs,
+          ),
+      );
+    }
   } else {
     statements.push(
       db

@@ -173,7 +173,7 @@ export function useEquipmentCommands(initial: EquipmentState) {
             JSON.stringify(parsed.data) === JSON.stringify(op)
           )
             setDrafts({ addForm: { ...emptyEquipmentFields, quantity: 1 } });
-        } else if (draft.editingItem?.id === op.id) {
+        } else if (op.kind !== "batch" && draft.editingItem?.id === op.id) {
           const expected = {
             ...draft.editingItem,
             ...(op.kind === "update" ? op.updates : {}),

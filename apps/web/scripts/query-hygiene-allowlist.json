@@ -204,7 +204,7 @@
     "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
   },
   "src/lib/equipment-command.server.ts:claim": {
-    "count": 3,
+    "count": 4,
     "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
   },
   "src/lib/equipment-command.server.ts:changed.map(({ field }) => `${field}=?`).join(\",\")": {
