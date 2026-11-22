@@ -103,7 +103,8 @@ function IncidentHistoryPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const filtered = !!(search.query || search.status !== "all" || search.severity !== "all" || search.category || search.assignee || search.from || search.to);
+  // Includes a search still being typed, so it can be cleared before the debounce lands.
+  const filtered = !!(queryDraft || search.query || search.status !== "all" || search.severity !== "all" || search.category || search.assignee || search.from || search.to);
   const clearFilters = () => { setQueryDraft(""); void navigate({ search: DEFAULTS }); };
   const today = getTodayDateString(timeZone);
   const shift = (days: number) => { const date = new Date(`${today}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10); };
@@ -163,9 +164,10 @@ function IncidentHistoryPage() {
             to
             <input type="date" aria-label="To date" min={search.from || undefined} value={search.to} onChange={event => update({ to: event.target.value })} className="h-9 rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-2 text-[13px] text-board-text" />
           </span> : null}
-          <span className="flex-1" />
-          {filtered ? <button type="button" onClick={clearFilters} className={ghostButton}>Clear filters</button> : null}
-          <ChipSelect label="Sort" value={search.sort} onChange={value => update({ sort: value as typeof search.sort })} options={[["newest", "Newest"], ["oldest", "Oldest"], ["severity", "Severity"]]} neutral />
+          <span className="ml-auto flex shrink-0 items-center gap-2">
+            {filtered ? <button type="button" onClick={clearFilters} className={ghostButton}>Clear filters</button> : null}
+            <ChipSelect label="Sort" value={search.sort} onChange={value => update({ sort: value as typeof search.sort })} options={[["newest", "Newest"], ["oldest", "Oldest"], ["severity", "Severity"]]} neutral />
+          </span>
         </div>
 
         <div className="flex items-center justify-between gap-3 text-[13px]">
@@ -216,7 +218,7 @@ function IncidentHistoryPage() {
             <h2 className="text-base font-semibold text-board-text">{filtered ? "No incidents match these filters" : "No incidents yet"}</h2>
             <p className="text-[13px] text-[var(--sa-ink-2)]">{filtered ? `Nothing ${describeFilters || "here"} has been reported. Clear the filters to see everything, or widen the dates.` : "When your crew reports a problem during a show, it shows up here."}</p>
           </div>
-          {filtered ? <button type="button" onClick={clearFilters} className={secondaryButton}>Clear filters</button> : null}
+          {filtered ? <button type="button" onClick={clearFilters} aria-label="Clear filters and show all incidents" className={secondaryButton}>Clear filters</button> : null}
         </div>}
       </div>
     </div>
