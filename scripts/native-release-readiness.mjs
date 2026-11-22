@@ -228,6 +228,7 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
       `${contract.productName} must embed a valid minisign updater public key.`,
     );
 
+    const workflow = current.workflow.replace(/\r\n/g, "\n");
     const workflowFragments = [
       `- "${contract.tagPrefix}*"`,
       `projectPath: ${contract.projectPath}`,
@@ -262,7 +263,7 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
       `pnpm native:verify --product ${product} --tag`,
     ];
     const missingWorkflowFragments = includesEvery(
-      current.workflow,
+      workflow,
       workflowFragments,
     );
     add(
@@ -270,8 +271,8 @@ export function findNativeReleaseIssues(snapshot, options = {}) {
       `${contract.productName} release workflow is missing: ${missingWorkflowFragments.join(", ")}.`,
     );
     add(
-      /^  release:\n    needs: signing-preflight\n/m.test(current.workflow)
-        && /^  signing-preflight:\n    uses: \.\/\.github\/workflows\/native-release-preflight\.yml\n    secrets: inherit\n/m.test(current.workflow),
+      /^  release:\n    needs: signing-preflight\n/m.test(workflow)
+        && /^  signing-preflight:\n    uses: \.\/\.github\/workflows\/native-release-preflight\.yml\n    secrets: inherit\n/m.test(workflow),
       `${contract.productName} platform builds must wait for the shared signing preflight.`,
     );
 
