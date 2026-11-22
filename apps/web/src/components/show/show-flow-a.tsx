@@ -152,13 +152,31 @@ export type TimerCardModel =
 
 const label = "text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--sa-ink-3)]";
 
-export function TimerCard({ model, compact = false }: { model: TimerCardModel; compact?: boolean }) {
+/**
+ * `compact`: Rundown focus strip. `fit`: shorter screens (under 1100px tall) — the same card with
+ * smaller numerals and one-line stats, so chat below keeps room for messages.
+ */
+export function TimerCard({ model, compact = false, fit = false }: { model: TimerCardModel; compact?: boolean; fit?: boolean }) {
   if (model.kind === "ready") {
     const late = model.untilStart !== null && model.untilStart < 0;
     if (compact) return <section className="flex flex-wrap items-center gap-x-8 gap-y-2 rounded-2xl border border-[var(--sa-border)] bg-[var(--sa-surface)] px-5 py-4">
       <div className="min-w-0"><p className={label}>Not started</p><p className="truncate text-base font-semibold text-board-text">{model.first?.title ?? "No cues yet"}</p></div>
       <p className="tabular-nums text-[44px] font-medium leading-none tracking-[-0.04em] text-[var(--sa-ink-2)]">{model.untilStart === null ? "—" : hoursClock(Math.abs(model.untilStart))}</p>
       <p className="text-[13px] text-[var(--sa-ink-2)]">{model.startsAt ? `${late ? "late to start at" : "until the show starts at"} ${model.startsAt}` : "Start time not set"}</p>
+    </section>;
+    if (fit) return <section aria-label="Show timer" className="flex h-full flex-col gap-3 rounded-2xl border border-[var(--sa-border)] bg-[var(--sa-surface)] px-5 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className={label}>Not started</span>
+        {model.startsAt ? <span className="text-xs text-[var(--sa-ink-3)]">Starts <span className="tabular-nums text-[var(--sa-ink-2)]">{model.startsAt}</span></span> : null}
+      </div>
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+        <div className="flex min-w-0 items-baseline gap-3">
+          <span className={`tabular-nums text-[52px] font-medium leading-none tracking-[-0.04em] ${late ? "text-[var(--sa-warn)]" : "text-[var(--sa-ink-2)]"}`}>{model.untilStart === null ? "—:—" : hoursClock(Math.abs(model.untilStart))}</span>
+          <span className="text-[13px] text-[var(--sa-ink-2)]">{model.startsAt ? <>{late ? "past the planned start at" : "until"} <span className="tabular-nums text-board-text">{model.startsAt}</span></> : "No start time set"}</span>
+        </div>
+        {model.first ? <p className="min-w-0 truncate text-right text-[13px]"><span className={`${label} mr-2`}>Up first</span><span className="font-semibold text-board-text">{model.first.title || "Untitled"}</span><span className="text-[var(--sa-ink-3)]">{model.firstLength ? ` · ${model.firstLength}` : ""}</span></p> : null}
+      </div>
+      <p className="flex items-center gap-2 text-xs text-[var(--sa-ink-3)]"><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full shadow-[inset_0_0_0_1.5px_var(--sa-ink-3)]" />Waiting for the operator to start the show.</p>
     </section>;
     return <section aria-label="Show timer" className="flex h-full flex-col gap-5 rounded-2xl border border-[var(--sa-border)] bg-[var(--sa-surface)] p-6 [container-type:inline-size]">
       <div className="flex items-center justify-between gap-3">
@@ -203,6 +221,40 @@ export function TimerCard({ model, compact = false }: { model: TimerCardModel; c
     {model.schedule ? <Stat label="Schedule" value={model.schedule} tone={model.scheduleTone} /> : null}
     {model.next ? <div className="ml-auto min-w-0 text-right"><p className={label}>Up next</p><p className="truncate text-[13px] text-board-text">{model.next.title} · <span className="tabular-nums text-[var(--sa-ink-3)]">{minutesClock(model.next.duration)}</span></p></div> : null}
   </section>;
+
+  if (fit) {
+    const inline = (k: string, v: string, tone?: "warn" | "muted") => <span className="whitespace-nowrap"><span className="text-[var(--sa-ink-3)]">{k} </span><span className={`tabular-nums ${tone === "warn" ? "text-[var(--sa-warn)]" : tone === "muted" ? "text-[var(--sa-ink-3)]" : "text-board-text"}`}>{v}</span></span>;
+    return <section aria-label="Show timer" className={`flex h-full flex-col gap-3 rounded-2xl border px-5 py-4 ${card}`}>
+      <div className="flex items-center justify-between gap-3">
+        <span className={label}>{lead}</span>
+        <span className="inline-flex items-center gap-3 text-xs text-[var(--sa-ink-3)]">
+          {stateLabel ? <span className={`text-[11px] font-semibold uppercase tracking-[0.07em] ${over ? "text-[var(--sa-danger)]" : "text-[var(--sa-warn)]"}`}>{stateLabel}</span> : null}
+          <span>Cue <span className="tabular-nums text-[var(--sa-ink-2)]">{model.cueIndex}</span> of <span className="tabular-nums text-[var(--sa-ink-2)]">{model.cueCount}</span></span>
+        </span>
+      </div>
+      <div className="flex items-end justify-between gap-6">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <span className="truncate text-xl font-semibold tracking-[-0.02em] text-board-text">{model.item.title || "Untitled"}</span>
+          {model.item.assignee ? <span className="truncate text-[13px] text-[var(--sa-ink-3)]">{model.item.assignee}</span> : null}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-0.5">
+          <span className="text-[56px]">{numeral}</span>
+          <span className="text-xs text-[var(--sa-ink-2)]">{over ? "past the planned" : "remaining of"} <span className="tabular-nums text-board-text">{minutesClock(model.item.duration)}</span></span>
+        </div>
+      </div>
+      <div className="h-1 overflow-hidden rounded-[3px] bg-[var(--sa-surface-3)]"><div className={`h-full rounded-[3px] transition-[width] ${bar}`} style={{ width: `${Math.round(model.progress * 100)}%` }} /></div>
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1.5 text-[13px]">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {inline("Elapsed", model.elapsed)}
+          {inline("Started", model.started)}
+          {over ? inline("Planned", model.planned, "muted") : inline("Cue ends", model.cueEnds)}
+          {model.schedule ? inline("Schedule", model.schedule, model.scheduleTone === "warn" ? "warn" : undefined) : null}
+        </div>
+        {model.next ? <span className="min-w-0 truncate"><span className="text-[var(--sa-ink-3)]">Up next </span><span className="text-board-text">{model.next.title || "Untitled"}</span><span className="tabular-nums text-[var(--sa-ink-3)]"> · {minutesClock(model.next.duration)}</span></span> : null}
+      </div>
+      {over && model.overtimeNote ? <p className="rounded-lg border border-[var(--sa-danger)]/25 bg-[var(--sa-danger)]/[0.08] px-3 py-2 text-[13px] leading-[1.45] text-board-text">{model.overtimeNote}</p> : null}
+    </section>;
+  }
 
   return <section aria-label="Show timer" className={`flex h-full flex-col gap-5 rounded-2xl border p-6 [container-type:inline-size] ${card}`}>
     <div className="flex items-center justify-between gap-3">

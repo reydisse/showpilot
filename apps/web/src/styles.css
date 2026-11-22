@@ -456,6 +456,12 @@ textarea {
   .show-page-root[data-layout="rundown-focus"] .show-page-tab-panel[data-tab="chat"] { grid-column: 3; grid-row: 3; }
   .show-page-root[data-layout="rundown-focus"] .show-page-resize-handle { display: none; }
 
+  /* Shorter screens: the fitted timer row hugs its content and chat takes the rest. */
+  .show-page-root[data-short="true"]:not([data-layout="rundown-focus"]):not([data-empty="true"]) .show-page-panels {
+    grid-template-rows: auto var(--show-page-horizontal-handle-size) minmax(16rem, 1fr);
+  }
+  .show-page-root[data-short="true"] .show-page-resize-handle-horizontal { display: none; }
+
   /* No rundown attached: empty state over chat, no rundown column. */
   .show-page-root[data-empty="true"] .show-page-panels {
     grid-template-columns: minmax(0, 1fr);

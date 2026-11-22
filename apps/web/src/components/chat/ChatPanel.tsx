@@ -29,33 +29,13 @@ import {
   BarChart3,
   Plus,
   Smile,
+  SmilePlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { ChatGatewayStatus, ChatMessage, ChatMessageOptions, ChatTypingState, ConnectionStatus, MessageType } from "@/lib/adapters/chat-adapter";
-import { getDepartment, DEPARTMENTS } from "@/types";
 import type { ChatMemberSummary } from "@/lib/chat-collaboration";
 import { insertMention as insertMentionText, mentionedUserIds, mentionSearch } from "@/lib/chat-mentions";
-
-// -- Role badge component --
-
-function RoleBadge({ role }: { role?: string }) {
-  if (!role) return null;
-
-  const dept = getDepartment(role);
-  const config = DEPARTMENTS[dept];
-
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.06em]",
-        config.color,
-      )}
-    >
-      {role}
-    </span>
-  );
-}
 
 // -- Message type selector --
 
@@ -80,21 +60,24 @@ function MessageTypeSelector({
   onChange: (type: ComposedMessageType) => void;
 }) {
   return (
-    <div className="inline-flex items-center rounded-lg border border-board-border bg-board-bg/70">
+    <div className="inline-flex shrink-0 gap-0.5 rounded-[7px] bg-[var(--sa-surface-2)] p-0.5">
       {MESSAGE_TYPES.map((mt) => (
         <button
           key={mt.value}
           type="button"
+          aria-pressed={value === mt.value}
           onClick={() => onChange(mt.value)}
           className={cn(
-            "flex min-h-11 min-w-11 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-semibold transition-colors",
+            "flex h-[26px] items-center gap-[5px] rounded-[5px] px-2 text-xs transition-colors [@media(pointer:coarse)]:h-9",
+            mt.value === "cue" && "[&>svg]:text-[var(--sa-warn)]",
+            mt.value === "alert" && "[&>svg]:text-[var(--sa-danger)]",
             value === mt.value
-              ? mt.value === "alert"
-                ? "bg-red-500/20 text-red-400"
-                : mt.value === "cue"
-                  ? "bg-amber-500/20 text-amber-400"
-                  : "bg-fire-500/15 text-fire-400"
-              : "text-board-muted hover:bg-board-border/50 hover:text-board-text",
+              ? mt.value === "cue"
+                ? "bg-[var(--sa-warn)]/[0.12] text-[var(--sa-warn)]"
+                : mt.value === "alert"
+                  ? "bg-[var(--sa-surface-3)] text-[var(--sa-danger)]"
+                  : "bg-[var(--sa-surface-3)] text-board-text"
+              : "text-[var(--sa-ink-3)] hover:text-board-text",
           )}
         >
           {mt.icon}
@@ -135,20 +118,6 @@ function formatTimestamp(ts: number): string {
 
 function initials(name: string): string {
   return name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "?";
-}
-
-const AVATAR_STYLES = [
-  "border-sky-400/25 bg-sky-400/10 text-sky-300",
-  "border-violet-400/25 bg-violet-400/10 text-violet-300",
-  "border-emerald-400/25 bg-emerald-400/10 text-emerald-300",
-  "border-orange-400/25 bg-orange-400/10 text-orange-300",
-  "border-pink-400/25 bg-pink-400/10 text-pink-300",
-] as const;
-
-function avatarStyle(name: string): string {
-  let hash = 0;
-  for (let index = 0; index < name.length; index += 1) hash = (hash * 31 + name.charCodeAt(index)) | 0;
-  return AVATAR_STYLES[Math.abs(hash) % AVATAR_STYLES.length];
 }
 
 function formatDay(ts: number): string {
@@ -240,160 +209,149 @@ function ChatMessageRow({
     && (attachments.length > 0 && attachments.every((attachment) => attachment.mimeType.startsWith("image/"))
       || embeddedFileUrls.length > 0 && embeddedFileUrls.every((url) => isImageFileName(chatFileName(url))));
 
-  if (isEvent) {
-    return (
-      <div id={`chat-message-${message.id}`} data-chat-message-id={message.id} className={cn("px-4", grouped ? "pt-1" : "pt-3")}>
-        <div className={cn(
-          "flex gap-2.5 rounded-lg border px-3 py-2.5 shadow-sm",
-          message.type === "alert" ? "border-red-500/25 bg-red-500/[0.08]" : "border-amber-400/20 bg-amber-400/[0.06]",
-          isPinned && "ring-1 ring-red-500/35",
-        )}>
-          <div className={cn("mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md", message.type === "alert" ? "bg-red-500/15 text-red-300" : "bg-amber-400/15 text-amber-300")}>
-            {message.type === "alert" ? <AlertTriangle className="h-3.5 w-3.5" /> : <Radio className="h-3.5 w-3.5" />}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="mb-0.5 flex items-center gap-2">
-              <span className={cn("text-[9px] font-bold uppercase tracking-[0.1em]", message.type === "alert" ? "text-red-300" : "text-amber-300")}>{message.type}</span>
-              <span className="truncate text-[10px] text-board-muted">{message.senderName}</span>
-              <span className="ml-auto shrink-0 text-[9px] tabular-nums text-board-muted/50">{formatTimestamp(message.timestamp)}</span>
-            </div>
-            <p className={cn("whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[13px] leading-5", message.type === "alert" ? "font-medium text-red-100" : "text-amber-100")}>{message.text}</p>
-            <ExternalDeliveryStatus delivery={message.externalDelivery} />
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const openPicker = (anchor: HTMLButtonElement) => {
+    reactionToggleRef.current = anchor;
+    setReactionPickerOpen((open) => !open);
+  };
+  const showTools = !isPinned && !message.deletedAt && !message.delivery && Boolean(onReply || onSetReaction || (isOwn && (onEdit || onDelete)));
+  const toolButton = "flex h-6 w-[26px] items-center justify-center rounded-[5px] text-[var(--sa-ink-2)] transition hover:bg-[var(--sa-surface-2)] hover:text-board-text disabled:opacity-50 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11";
+  const reactions = (message.reactions ?? []).filter((reaction) => reaction.userIds.length > 0);
 
   return (
     <div
       id={`chat-message-${message.id}`}
       data-chat-message-id={message.id}
+      data-kind={message.type}
       className={cn(
-        "group flex w-full min-w-0 max-w-full items-end gap-2 px-4",
-        isOwn && "justify-end",
-        grouped ? "py-0.5" : "pb-1 pt-2.5",
+        "group/msg relative mx-1 grid min-w-0 grid-cols-[28px_minmax(0,1fr)] gap-x-2.5 rounded-lg px-3 hover:bg-[var(--sa-surface-2)] focus-within:bg-[var(--sa-surface-2)]",
+        grouped ? "py-0.5" : "pb-1.5 pt-2",
+        isPinned && "hover:bg-transparent focus-within:bg-transparent",
       )}
     >
-      {!isOwn && !grouped && (
-        <div className={cn("mb-4 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[9px] font-bold shadow-sm", avatarStyle(message.senderName))}>
-          {initials(message.senderName)}
-        </div>
-      )}
-      {!isOwn && grouped && <span className="w-7 shrink-0" />}
-      <div className={cn("relative flex min-w-0 max-w-[78%] flex-col", isOwn ? "items-end" : "items-start")}>
-        {!grouped && !isOwn && (
-          <div className="mb-1 flex min-w-0 items-center gap-2 px-2">
-            <span className="truncate text-[11px] font-semibold text-board-muted">{message.senderName}</span>
-            <RoleBadge role={message.senderRole} />
+      <span aria-hidden="true" className="pt-0.5">
+        {!grouped ? <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--sa-surface-3)] text-[11px] font-semibold tracking-[0.02em] text-[var(--sa-ink-2)]">{initials(message.senderName)}</span> : null}
+      </span>
+      <div className="flex min-w-0 flex-col gap-1">
+        {!grouped ? (
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+            <span className="truncate text-[13px] font-semibold text-board-text">{message.senderName}</span>
+            {message.senderRole ? <span className="shrink-0 text-[11px] capitalize text-[var(--sa-ink-3)]">{message.senderRole}</span> : null}
+            <span className="shrink-0 text-[11px] tabular-nums text-[var(--sa-ink-3)]">{formatTimestamp(message.timestamp)}</span>
+            {message.external?.platform ? <span className="shrink-0 text-[11px] capitalize text-[var(--sa-ink-3)]">{message.external.platform}</span> : null}
+            {message.editedAt && !message.deletedAt ? <span className="shrink-0 text-[11px] text-[var(--sa-ink-3)]">edited</span> : null}
+            {isSeen ? <span className="shrink-0 text-[11px] font-medium text-[var(--sa-ink-2)]">Seen</span> : null}
+          </div>
+        ) : (message.editedAt && !message.deletedAt) || isSeen ? (
+          <p className="text-[11px] text-[var(--sa-ink-3)]">{[message.editedAt && !message.deletedAt ? "edited" : "", isSeen ? "Seen" : ""].filter(Boolean).join(" · ")}</p>
+        ) : null}
+        {isEvent ? (
+          <div className={cn(
+            "flex flex-col gap-1 rounded-lg border px-3 py-2.5",
+            message.type === "alert" ? "border-[var(--sa-danger)]/30 bg-[var(--sa-danger)]/10" : "border-[var(--sa-warn)]/30 bg-[var(--sa-warn)]/[0.07]",
+            isPinned && "ring-1 ring-[var(--sa-danger)]/35",
+          )}>
+            <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em]", message.type === "alert" ? "text-[var(--sa-danger)]" : "text-[var(--sa-warn)]")}>
+              {message.type === "alert" ? <AlertTriangle className="h-3.5 w-3.5" /> : <Radio className="h-3.5 w-3.5" />}
+              {message.type}
+            </span>
+            <p className={cn("whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[13px] leading-[1.5] text-board-text", message.type === "alert" && "font-medium")}>{message.text}</p>
+          </div>
+        ) : (
+          <div data-attachment-layout={containsOnlyImages ? "image-only" : undefined} className="min-w-0 max-w-full">
+            {message.replyTo && (
+              <div className="mb-1.5 flex min-w-0 max-w-full items-stretch gap-2 text-xs">
+                <span className="w-0.5 shrink-0 rounded-full bg-[var(--sa-border-strong)]" />
+                <div className="min-w-0 py-0.5">
+                  <span className="font-semibold text-[var(--sa-ink-2)]">{message.replyTo.senderName}</span>
+                  <p className="line-clamp-3 whitespace-pre-wrap text-[var(--sa-ink-3)] [overflow-wrap:anywhere]">{message.replyTo.text || "Attachment"}</p>
+                </div>
+              </div>
+            )}
+            {message.deletedAt ? (
+              <p className="text-xs italic text-[var(--sa-ink-3)]">Message deleted</p>
+            ) : displayText ? (
+              <p className="whitespace-pre-wrap break-words text-[13px] leading-[1.5] text-board-text [overflow-wrap:anywhere]">{renderMessageText(displayText)}</p>
+            ) : null}
+            {!message.deletedAt && message.poll ? (
+              <div className="mt-2 max-w-xl rounded-lg border border-[var(--sa-border-strong)] bg-board-bg p-3">
+                <p className="text-xs font-semibold text-board-text">{message.poll.question}</p>
+                <div className="mt-2 space-y-1.5">{message.poll.options.map((option) => {
+                  const total = message.poll!.options.reduce((sum, item) => sum + item.voterIds.length, 0);
+                  const selected = Boolean(currentUserId && option.voterIds.includes(currentUserId));
+                  const percent = total ? Math.round(option.voterIds.length / total * 100) : 0;
+                  return <button key={option.id} type="button" disabled={!onVotePoll || mutationPending} onClick={() => void onVotePoll?.(message.id, option.id, message.poll?.options.find(item => currentUserId && item.voterIds.includes(currentUserId))?.id ?? null)} className={cn("relative flex min-h-11 w-full overflow-hidden rounded-lg border px-3 py-2 text-left text-xs transition disabled:opacity-50", selected ? "border-board-text/40 text-board-text" : "border-[var(--sa-border-strong)] text-board-text hover:border-[var(--sa-ink-3)]", !onVotePoll && "cursor-default")}><span className="absolute inset-y-0 left-0 bg-board-text/[0.08]" style={{ width: `${percent}%` }} /><span className="relative min-w-0 flex-1 truncate">{option.text}</span><span className="relative ml-2 tabular-nums text-[var(--sa-ink-3)]">{option.voterIds.length} · {percent}%</span></button>;
+                })}</div>
+                <p className="mt-2 text-[11px] text-[var(--sa-ink-3)]">{message.poll.options.reduce((sum, option) => sum + option.voterIds.length, 0)} votes</p>
+              </div>
+            ) : null}
+            {!message.deletedAt && attachments.length ? (
+              <div className={cn("grid w-full min-w-0 max-w-md gap-2", containsOnlyImages ? "mt-0" : "mt-2", attachments.length > 1 && "sm:grid-cols-2")}>
+                {attachments.map((attachment) => attachment.mimeType.startsWith("image/") ? (
+                  <button type="button" key={attachment.id} onClick={() => onOpenImage?.({ name: attachment.name, url: attachmentUrl(attachment.url) })} className="group/media relative block w-full overflow-hidden rounded-lg bg-transparent text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-400/70" aria-label={`Open ${attachment.name}`}>
+                    <img src={attachmentUrl(attachment.url)} alt={attachment.name} loading="lazy" className="block max-h-72 w-full object-cover" />
+                  </button>
+                ) : (
+                  <a key={attachment.id} href={attachmentUrl(attachment.url)} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-3 rounded-lg border border-[var(--sa-border-strong)] bg-board-bg p-2.5 transition hover:bg-[var(--sa-surface-2)]">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[var(--sa-surface-3)] text-[var(--sa-ink-2)]"><FileText className="h-4 w-4" /></span>
+                    <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-board-text">{attachment.name}</span><span className="text-[11px] text-[var(--sa-ink-3)]">{formatFileSize(attachment.size)}</span></span>
+                    <Download className="h-4 w-4 shrink-0 text-[var(--sa-ink-3)]" />
+                  </a>
+                ))}
+              </div>
+            ) : null}
+            {!message.deletedAt && embeddedFileUrls.length ? (
+              <div className={cn("grid w-full min-w-0 max-w-md gap-2", containsOnlyImages ? "mt-0" : "mt-2", embeddedFileUrls.length > 1 && "sm:grid-cols-2")}>
+                {embeddedFileUrls.map((url) => {
+                  const name = chatFileName(url);
+                  const resolvedUrl = attachmentUrl(url);
+                  return isImageFileName(name) ? (
+                    <button type="button" key={url} onClick={() => onOpenImage?.({ name, url: resolvedUrl })} className="group/media relative block w-full overflow-hidden rounded-lg bg-transparent text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-400/70" aria-label={`Open ${name}`}>
+                      <img src={resolvedUrl} alt={name} loading="lazy" className="block max-h-72 w-full object-cover" />
+                    </button>
+                  ) : (
+                    <a key={url} href={resolvedUrl} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-3 rounded-lg border border-[var(--sa-border-strong)] bg-board-bg p-2.5 transition hover:bg-[var(--sa-surface-2)]">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[var(--sa-surface-3)] text-[var(--sa-ink-2)]"><FileText className="h-4 w-4" /></span>
+                      <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-board-text">{name}</span><span className="text-[11px] text-[var(--sa-ink-3)]">ShowPilot attachment</span></span>
+                      <Download className="h-4 w-4 shrink-0 text-[var(--sa-ink-3)]" />
+                    </a>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
         )}
-        <div
-          data-attachment-layout={containsOnlyImages ? "image-only" : undefined}
-          className={cn(
-            "min-w-0 max-w-full overflow-hidden",
-            containsOnlyImages
-              ? "rounded-xl bg-transparent p-0 shadow-none"
-              : isOwn
-                ? "rounded-[18px] rounded-br-md bg-fire-500 px-3 py-2.5 text-black shadow-sm"
-                : "rounded-[18px] rounded-bl-md border border-board-border/80 bg-board-bg/90 px-3 py-2.5 text-board-text shadow-sm",
-          )}
-        >
-        {message.replyTo && (
-          <div className={cn("mb-2 flex min-w-0 max-w-full items-stretch gap-2 rounded-lg px-2 py-1.5 text-[11px]", isOwn ? "bg-black/10" : "bg-white/[0.035]")}>
-            <span className={cn("w-0.5 shrink-0 rounded-full", isOwn ? "bg-black/55" : "bg-fire-400/65")} />
-            <div className="min-w-0 py-0.5">
-              <span className={cn("font-semibold", isOwn ? "text-black/80" : "text-fire-300/90")}>{message.replyTo.senderName}</span>
-              <p className={cn("line-clamp-3 whitespace-pre-wrap [overflow-wrap:anywhere]", isOwn ? "text-black/65" : "text-board-muted/75")}>{message.replyTo.text || "Attachment"}</p>
-            </div>
-          </div>
-        )}
-        {message.deletedAt ? (
-          <p className={cn("text-[12px] italic", isOwn ? "text-black/60" : "text-board-muted/60")}>Message deleted</p>
-        ) : displayText ? (
-          <p className={cn("whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[13px] leading-[1.3rem]", isOwn ? "text-black" : "text-board-text/90")}>{renderMessageText(displayText)}</p>
-        ) : null}
-        {!message.deletedAt && message.poll ? (
-          <div className="mt-2 max-w-xl rounded-xl border border-board-border bg-board-bg/45 p-3">
-            <p className="text-xs font-semibold text-board-text">{message.poll.question}</p>
-            <div className="mt-2 space-y-1.5">{message.poll.options.map((option) => {
-              const total = message.poll!.options.reduce((sum, item) => sum + item.voterIds.length, 0);
-              const selected = Boolean(currentUserId && option.voterIds.includes(currentUserId));
-              const percent = total ? Math.round(option.voterIds.length / total * 100) : 0;
-              return <button key={option.id} type="button" disabled={!onVotePoll || mutationPending} onClick={() => void onVotePoll?.(message.id, option.id, message.poll?.options.find(item => currentUserId && item.voterIds.includes(currentUserId))?.id ?? null)} className={cn("relative flex min-h-11 w-full overflow-hidden rounded-lg border px-3 py-2 text-left text-xs transition disabled:opacity-50", selected ? "border-sky-400/45 text-sky-200" : "border-board-border text-board-text hover:border-board-muted/50", !onVotePoll && "cursor-default")}><span className="absolute inset-y-0 left-0 bg-sky-400/10" style={{ width: `${percent}%` }} /><span className="relative min-w-0 flex-1 truncate">{option.text}</span><span className="relative ml-2 tabular-nums text-board-muted">{option.voterIds.length} · {percent}%</span></button>;
-            })}</div>
-            <p className="mt-2 text-[9px] text-board-muted">{message.poll.options.reduce((sum, option) => sum + option.voterIds.length, 0)} votes</p>
-          </div>
-        ) : null}
-        {!message.deletedAt && attachments.length ? (
-          <div className={cn("grid w-full min-w-0 max-w-full gap-2", containsOnlyImages ? "mt-0" : "mt-2", attachments.length > 1 && "sm:grid-cols-2")}>
-            {attachments.map((attachment) => attachment.mimeType.startsWith("image/") ? (
-              <button type="button" key={attachment.id} onClick={() => onOpenImage?.({ name: attachment.name, url: attachmentUrl(attachment.url) })} className="group/media relative block w-full overflow-hidden rounded-xl bg-transparent text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-400/70" aria-label={`Open ${attachment.name}`}>
-                <img src={attachmentUrl(attachment.url)} alt={attachment.name} loading="lazy" className="block max-h-72 w-full object-cover transition duration-300 group-hover/media:scale-[1.015]" />
-              </button>
-            ) : (
-              <a key={attachment.id} href={attachmentUrl(attachment.url)} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-3 rounded-xl border border-board-border bg-board-bg/55 p-3 transition hover:border-fire-400/30 hover:bg-board-bg/80">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-fire-500/10 text-fire-300"><FileText className="h-5 w-5" /></span>
-                <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-board-text">{attachment.name}</span><span className="text-[10px] text-board-muted">{formatFileSize(attachment.size)}</span></span>
-                <Download className="h-4 w-4 shrink-0 text-board-muted" />
-              </a>
-            ))}
-          </div>
-        ) : null}
-        {!message.deletedAt && embeddedFileUrls.length ? (
-          <div className={cn("grid w-full min-w-0 max-w-full gap-2", containsOnlyImages ? "mt-0" : "mt-2", embeddedFileUrls.length > 1 && "sm:grid-cols-2")}>
-            {embeddedFileUrls.map((url) => {
-              const name = chatFileName(url);
-              const resolvedUrl = attachmentUrl(url);
-              return isImageFileName(name) ? (
-                <button type="button" key={url} onClick={() => onOpenImage?.({ name, url: resolvedUrl })} className="group/media relative block w-full overflow-hidden rounded-xl bg-transparent text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fire-400/70" aria-label={`Open ${name}`}>
-                  <img src={resolvedUrl} alt={name} loading="lazy" className="block max-h-72 w-full object-cover transition duration-300 group-hover/media:scale-[1.015]" />
-                </button>
-              ) : (
-                <a key={url} href={resolvedUrl} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-3 rounded-xl border border-board-border bg-board-bg/55 p-3 transition hover:border-fire-400/30 hover:bg-board-bg/80">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-fire-500/10 text-fire-300"><FileText className="h-5 w-5" /></span>
-                  <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-board-text">{name}</span><span className="text-[10px] text-board-muted">ShowPilot attachment</span></span>
-                  <Download className="h-4 w-4 shrink-0 text-board-muted" />
-                </a>
-              );
-            })}
-          </div>
-        ) : null}
-        </div>
-        {!message.deletedAt && onSetReaction ? (
-          <div className={cn("mt-1 flex flex-wrap items-center gap-1", isOwn && "justify-end")}>
-            {(message.reactions ?? []).filter((reaction) => reaction.userIds.length > 0).map((reaction) => {
+        {!message.deletedAt && onSetReaction && (reactions.length > 0 || showTools) ? (
+          <div className={cn("mt-0.5 flex flex-wrap items-center gap-1", reactions.length === 0 && "hidden group-hover/msg:flex group-focus-within/msg:flex")}>
+            {reactions.map((reaction) => {
               const emoji = reaction.emoji;
-              const active = Boolean(currentUserId && reaction?.userIds.includes(currentUserId));
-              return <button key={emoji} type="button" disabled={mutationPending} onClick={() => void onSetReaction(message.id, emoji, !active)} aria-pressed={active} className={cn("min-h-11 min-w-11 rounded-sm px-2 py-2 text-xs transition focus-visible:outline-2 focus-visible:outline-fire-500 disabled:opacity-50", active ? "text-fire-400 underline decoration-fire-500/60 underline-offset-4" : "text-board-muted hover:text-board-text")} aria-label={`React ${emoji}`}>{emoji} {reaction.userIds.length}</button>;
+              const active = Boolean(currentUserId && reaction.userIds.includes(currentUserId));
+              return <button key={emoji} type="button" disabled={mutationPending} onClick={() => void onSetReaction(message.id, emoji, !active)} aria-pressed={active} aria-label={`React ${emoji}`}
+                className={cn("inline-flex h-6 items-center gap-[5px] rounded-full border pl-[7px] pr-2 text-xs transition focus-visible:outline-2 focus-visible:outline-[var(--sa-ink-2)] disabled:opacity-50 [@media(pointer:coarse)]:h-9",
+                  active ? "border-board-text/40 bg-board-text/[0.13] text-board-text" : "border-[var(--sa-border-strong)] bg-[var(--sa-surface)] text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)] hover:text-board-text")}>
+                <span>{emoji}</span><span className={cn("text-[11px] tabular-nums", active && "font-semibold")}>{reaction.userIds.length}</span>
+              </button>;
             })}
+            {showTools ? <button type="button" disabled={mutationPending} onClick={(event) => openPicker(event.currentTarget)} aria-label="Add reaction" className="hidden h-6 w-[30px] items-center justify-center rounded-full border border-dashed border-[var(--sa-border-strong)] text-[var(--sa-ink-3)] hover:border-solid hover:text-board-text group-hover/msg:inline-flex group-focus-within/msg:inline-flex [@media(pointer:coarse)]:h-9"><SmilePlus className="h-3.5 w-3.5" /></button> : null}
           </div>
         ) : null}
-        <div className={cn("mt-1 flex items-center gap-1.5 px-2 text-[9px] tabular-nums text-board-muted/55", isOwn && "justify-end")}>
-          {message.external?.platform ? <span className="capitalize">{message.external.platform}</span> : null}
-          <span>{formatTimestamp(message.timestamp)}</span>
-          {message.editedAt && !message.deletedAt ? <span>· edited</span> : null}
-          {isSeen ? <span className="font-medium text-sky-300/75">· Seen</span> : null}
-        </div>
-        <ExternalDeliveryStatus delivery={message.externalDelivery} alignRight={isOwn} />
-        {message.delivery ? <div role={message.delivery === "failed" ? "alert" : "status"} className={cn("mt-1 flex flex-wrap items-center gap-2 px-2 text-xs", isOwn && "justify-end", message.delivery === "failed" ? "text-red-300" : "text-board-muted")}><span>{message.delivery === "waiting" ? <QuietActivity label="Waiting for connection" /> : message.delivery === "sending" ? <QuietActivity label="Sending…" /> : plainFailure(message.deliveryError ?? "Message could not be sent.")}</span>{message.delivery === "failed" && onRetryQueued ? <button type="button" onClick={() => onRetryQueued(message.id)} className="min-h-11 rounded-lg border border-board-border px-3 font-semibold text-fire-300 hover:underline">Retry send</button> : null}{onCancelQueued ? <button type="button" onClick={() => onCancelQueued(message.id)} className="min-h-11 rounded-lg border border-board-border px-3 hover:text-board-text hover:underline">Remove local copy</button> : null}</div> : null}
-        {!message.deletedAt && !message.delivery && <div className={cn(
-          "relative z-10 mt-1 flex max-w-full shrink-0 self-start rounded-md border border-board-border bg-board-card text-board-muted shadow-sm",
-          isOwn && "self-end",
-        )}>
-        {onReply && <button type="button" onClick={() => onReply(message)} className="min-h-11 min-w-11 touch-manipulation p-2 transition hover:bg-board-border/60 hover:text-fire-300 sm:p-1.5" aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
-        {onSetReaction && <button ref={reactionToggleRef} type="button" disabled={mutationPending} onClick={() => setReactionPickerOpen((open) => !open)} className="min-h-11 min-w-11 touch-manipulation border-l border-board-border p-2 transition disabled:opacity-50 hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Choose reaction" title="Choose reaction"><Smile className="h-3.5 w-3.5" /></button>}
-        {isOwn && onEdit && <button type="button" disabled={mutationPending} onClick={() => onEdit(message)} className="min-h-11 min-w-11 touch-manipulation border-l border-board-border p-2 transition disabled:opacity-50 hover:bg-board-border/60 hover:text-board-text sm:p-1.5" aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
-        {isOwn && onDelete && <button type="button" disabled={mutationPending} onClick={() => onDelete(message)} className="min-h-11 min-w-11 touch-manipulation border-l border-board-border p-2 transition disabled:opacity-50 hover:bg-red-500/10 hover:text-red-300 sm:p-1.5" aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
-        {reactionPickerOpen && createPortal(<div ref={reactionPickerRef} data-testid="reaction-picker" style={{ position: "fixed", ...reactionPosition }} className="fixed z-50 w-[min(17rem,calc(100vw-2rem))] rounded-lg border border-board-border bg-board-card p-2 shadow-xl">
-          <div className="grid max-h-60 grid-cols-5 gap-1 overflow-y-auto">{MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" disabled={mutationPending} onClick={() => { setReactionPickerOpen(false); void onSetReaction?.(message.id, emoji, !message.reactions?.some(item => item.emoji === emoji && currentUserId && item.userIds.includes(currentUserId))); }} className="min-h-11 min-w-11 rounded-md p-1.5 text-base hover:bg-board-border/60 disabled:opacity-50" aria-label={`React ${emoji}`}>{emoji}</button>)}</div>
-          <form className="mt-2 flex gap-1 border-t border-board-border pt-2" onSubmit={(event) => { event.preventDefault(); if (mutationPending || !isEmojiReaction(customReaction)) return; setReactionPickerOpen(false); setCustomReaction(""); void onSetReaction?.(message.id, customReaction, !message.reactions?.some(item => item.emoji === customReaction && currentUserId && item.userIds.includes(currentUserId))); }}>
-            <input aria-label="Type or paste any emoji" value={customReaction} onChange={(event) => setCustomReaction(event.target.value)} maxLength={32} placeholder="Any emoji" className="min-h-11 min-w-0 flex-1 rounded-md border border-board-border bg-board-bg px-2 py-1 text-xs text-board-text outline-none focus:border-fire-400/50" />
-            <button type="submit" disabled={mutationPending || !isEmojiReaction(customReaction)} className="min-h-11 min-w-11 rounded-md bg-fire-500 px-2 text-xs font-semibold text-black disabled:opacity-40">Add</button>
-          </form>
-        </div>, document.body)}
-        </div>}
+        <ExternalDeliveryStatus delivery={message.externalDelivery} />
+        {message.delivery ? <div role={message.delivery === "failed" ? "alert" : "status"} className={cn("flex flex-wrap items-center gap-2 text-xs", message.delivery === "failed" ? "text-[var(--sa-danger)]" : "text-[var(--sa-ink-3)]")}><span>{message.delivery === "waiting" ? <QuietActivity label="Waiting for connection" /> : message.delivery === "sending" ? <QuietActivity label="Sending…" /> : plainFailure(message.deliveryError ?? "Message could not be sent.")}</span>{message.delivery === "failed" && onRetryQueued ? <button type="button" onClick={() => onRetryQueued(message.id)} className="min-h-11 rounded-lg border border-[var(--sa-border-strong)] px-3 font-semibold text-board-text hover:bg-[var(--sa-surface-2)]">Retry send</button> : null}{onCancelQueued ? <button type="button" onClick={() => onCancelQueued(message.id)} className="min-h-11 rounded-lg border border-[var(--sa-border-strong)] px-3 text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)] hover:text-board-text">Remove local copy</button> : null}</div> : null}
       </div>
+      {showTools ? (
+        <div className="absolute -top-3 right-2.5 z-10 hidden gap-0.5 rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface)] p-0.5 shadow-[0_6px_16px_rgba(0,0,0,0.4)] group-hover/msg:flex group-focus-within/msg:flex [@media(hover:none)]:static [@media(hover:none)]:col-start-2 [@media(hover:none)]:mt-1 [@media(hover:none)]:flex [@media(hover:none)]:w-fit">
+          {onReply && <button type="button" onClick={() => onReply(message)} className={toolButton} aria-label={`Reply to ${message.senderName}`} title="Reply"><Reply className="h-3.5 w-3.5" /></button>}
+          {onSetReaction && <button type="button" disabled={mutationPending} onClick={(event) => openPicker(event.currentTarget)} className={toolButton} aria-label="Choose reaction" title="Choose reaction"><Smile className="h-3.5 w-3.5" /></button>}
+          {isOwn && onEdit && <button type="button" disabled={mutationPending} onClick={() => onEdit(message)} className={toolButton} aria-label="Edit message" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>}
+          {isOwn && onDelete && <button type="button" disabled={mutationPending} onClick={() => onDelete(message)} className={cn(toolButton, "hover:bg-[var(--sa-danger)]/10 hover:text-[var(--sa-danger)]")} aria-label="Delete message" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>}
+        </div>
+      ) : null}
+      {reactionPickerOpen && createPortal(<div ref={reactionPickerRef} data-testid="reaction-picker" style={{ position: "fixed", ...reactionPosition }} className="schedule-a fixed z-50 w-[min(17rem,calc(100vw-2rem))] rounded-xl border border-[var(--sa-border-strong)] bg-[var(--sa-surface)] p-2 shadow-xl">
+        <div className="grid max-h-60 grid-cols-5 gap-1 overflow-y-auto">{MESSAGE_REACTIONS.map((emoji) => <button key={emoji} type="button" disabled={mutationPending} onClick={() => { setReactionPickerOpen(false); void onSetReaction?.(message.id, emoji, !message.reactions?.some(item => item.emoji === emoji && currentUserId && item.userIds.includes(currentUserId))); }} className="min-h-11 min-w-11 rounded-md p-1.5 text-base hover:bg-[var(--sa-surface-2)] disabled:opacity-50" aria-label={`React ${emoji}`}>{emoji}</button>)}</div>
+        <form className="mt-2 flex gap-1 border-t border-[var(--sa-border)] pt-2" onSubmit={(event) => { event.preventDefault(); if (mutationPending || !isEmojiReaction(customReaction)) return; setReactionPickerOpen(false); setCustomReaction(""); void onSetReaction?.(message.id, customReaction, !message.reactions?.some(item => item.emoji === customReaction && currentUserId && item.userIds.includes(currentUserId))); }}>
+          <input aria-label="Type or paste any emoji" value={customReaction} onChange={(event) => setCustomReaction(event.target.value)} maxLength={32} placeholder="Any emoji" className="min-h-11 min-w-0 flex-1 rounded-md border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-2 py-1 text-xs text-board-text outline-none focus:border-fire-500" />
+          <button type="submit" disabled={mutationPending || !isEmojiReaction(customReaction)} className="min-h-11 min-w-11 rounded-md bg-fire-500 px-2 text-xs font-semibold text-[#1a1300] disabled:opacity-40">Add</button>
+        </form>
+      </div>, document.body)}
     </div>
   );
 }
@@ -878,59 +836,50 @@ export function ChatPanel({
     <div
       data-testid="chat-panel"
       className={cn(
-        "relative flex h-full w-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden bg-board-card",
+        "schedule-a relative flex h-full w-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden bg-[var(--sa-surface)]",
         className,
       )}
     >
       {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-board-border bg-board-bg/25 px-4 py-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-board-border bg-board-bg">
-            <Hash className="h-4 w-4 text-board-muted" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-board-text truncate">{title}</span>
-              {unreadCount > 0 && <span className="rounded-full bg-fire-500 px-1.5 py-0.5 text-[9px] font-bold leading-none text-black">{unreadCount > 99 ? "99+" : unreadCount}</span>}
-            </div>
-            {subtitle || gatewaySummary ? (
-              <p className={cn("mt-0.5 flex items-center gap-1.5 truncate text-[10px]", gatewayStatus?.status === "error" ? "text-red-300" : "text-board-muted")} title={gatewayStatus?.error}><ConnectionDot status={connectionStatus} />{subtitle}{gatewaySummary ? ` · ${gatewaySummary}` : ""}</p>
-            ) : null}
-          </div>
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-[var(--sa-border)] pl-4 pr-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Hash className="h-4 w-4 shrink-0 text-[var(--sa-ink-3)]" />
+          <span className="truncate text-[13px] font-semibold text-board-text">{title}</span>
+          {unreadCount > 0 && <span className="rounded-full bg-fire-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-[#1a1300]">{unreadCount > 99 ? "99+" : unreadCount}</span>}
         </div>
-        {dockedLiveStatus && (
-          <div className="ml-auto hidden min-w-0 max-w-[48%] items-center gap-2 rounded-lg border border-green-500/20 bg-green-500/[0.07] px-2.5 py-1.5 sm:flex" title={dockedLiveStatus}>
-            <span className="relative flex h-2 w-2 shrink-0">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-50" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-green-400" />
+        <div className="ml-auto flex min-w-0 items-center gap-3">
+          {dockedLiveStatus && (
+            <span className="hidden min-w-0 items-center gap-2 text-xs sm:flex" title={dockedLiveStatus}>
+              <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--sa-ok)] shadow-[0_0_0_3px_rgba(62,207,142,0.18)]" />
+              <span className="shrink-0 font-medium text-board-text">Now live</span>
+              <span className="truncate text-[var(--sa-ink-3)]">{dockedLiveStatus}</span>
+              {dockedLiveTimestamp && <span className="shrink-0 tabular-nums text-[var(--sa-ink-3)]">{formatTimestamp(dockedLiveTimestamp)}</span>}
             </span>
-            <div className="min-w-0">
-              <p className="text-[8px] font-bold uppercase tracking-[0.12em] text-green-400/75">Now live</p>
-              <p className="truncate text-[10px] font-medium text-board-text/85">{dockedLiveStatus}</p>
-            </div>
-            {dockedLiveTimestamp && <span className="shrink-0 text-[8px] tabular-nums text-board-muted/45">{formatTimestamp(dockedLiveTimestamp)}</span>}
-          </div>
-        )}
-        {headerActions && <div className={cn("flex shrink-0 items-center", !dockedLiveStatus && "ml-auto")}>{headerActions}</div>}
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close chat"
-            title="Close chat"
-            className="ml-auto text-board-muted hover:text-board-text transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        )}
+          )}
+          {subtitle || gatewaySummary ? (
+            <p className={cn("flex min-w-0 items-center gap-1.5 truncate text-xs", gatewayStatus?.status === "error" ? "text-[var(--sa-danger)]" : "text-[var(--sa-ink-3)]")} title={gatewayStatus?.error}><ConnectionDot status={connectionStatus} />{subtitle}{gatewaySummary ? ` · ${gatewaySummary}` : ""}</p>
+          ) : null}
+          {headerActions && <div className="flex shrink-0 items-center">{headerActions}</div>}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close chat"
+              title="Close chat"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--sa-ink-3)] transition-colors hover:bg-[var(--sa-surface-2)] hover:text-board-text"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       {dockedLiveStatus && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-board-border bg-green-500/[0.05] px-4 py-2 sm:hidden">
-          <span className="h-2 w-2 shrink-0 rounded-full bg-green-400" />
-          <span className="text-[9px] font-bold uppercase tracking-wider text-green-400/75">Now live</span>
-          <span className="min-w-0 flex-1 truncate text-[11px] text-board-text/85">{dockedLiveStatus}</span>
-          {dockedLiveTimestamp && <span className="text-[9px] tabular-nums text-board-muted/45">{formatTimestamp(dockedLiveTimestamp)}</span>}
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--sa-border)] px-4 py-2 text-xs sm:hidden">
+          <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--sa-ok)]" />
+          <span className="font-medium text-board-text">Now live</span>
+          <span className="min-w-0 flex-1 truncate text-[var(--sa-ink-3)]">{dockedLiveStatus}</span>
+          {dockedLiveTimestamp && <span className="tabular-nums text-[var(--sa-ink-3)]">{formatTimestamp(dockedLiveTimestamp)}</span>}
         </div>
       )}
 
@@ -967,16 +916,20 @@ export function ChatPanel({
           </div>}
           {(hasOlderMessages || loadingOlderMessages || olderMessagesError) && (
             <div className="flex flex-col items-center gap-1 px-4 py-2">
-              {(hasOlderMessages || loadingOlderMessages) && <button type="button" onClick={() => void loadOlder()} disabled={loadingOlderMessages} className="min-h-11 rounded-full border border-board-border bg-board-card px-3 py-1 text-xs font-semibold text-board-muted hover:text-board-text disabled:opacity-50" aria-label={loadingOlderMessages ? "Loading older messages…" : olderMessagesError ? "Retry older messages" : "Load older messages"}>{loadingOlderMessages ? <QuietActivity label="Loading older messages…" /> : olderMessagesError ? "Retry older messages" : "Load older messages"}</button>}
+              {(hasOlderMessages || loadingOlderMessages) && <button type="button" onClick={() => void loadOlder()} disabled={loadingOlderMessages} className="min-h-9 rounded-full border border-[var(--sa-border-strong)] bg-[var(--sa-surface)] px-3 py-1 text-xs font-medium text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)] hover:text-board-text disabled:opacity-50 [@media(pointer:coarse)]:min-h-11" aria-label={loadingOlderMessages ? "Loading older messages…" : olderMessagesError ? "Retry older messages" : "Load older messages"}>{loadingOlderMessages ? <QuietActivity label="Loading older messages…" /> : olderMessagesError ? "Retry older messages" : "Load older messages"}</button>}
               {olderMessagesError && <p role="alert" className="text-[10px] text-red-300">{plainFailure(olderMessagesError)}</p>}
             </div>
           )}
           {displayMessages.length === 0 && hydrated && connectionStatus === "connected" && (
-            <div className="flex flex-col items-center justify-center h-full text-board-muted">
-              <MessageSquare className="w-8 h-8 mb-2 opacity-30" />
-              <p className="text-sm">No messages yet</p>
-              <p className="text-xs mt-1">
-                {pinnedAlerts.length > 0 ? "Only active alerts are showing right now" : "Production chat will appear here"}
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-6 py-10 text-center">
+              <span className="mb-1 flex h-10 w-10 items-center justify-center rounded-[10px] bg-[var(--sa-surface-2)] text-[var(--sa-ink-2)]"><MessageSquare className="h-4 w-4" /></span>
+              <p className="text-sm font-semibold text-board-text">No messages yet</p>
+              <p className="max-w-[340px] text-[13px] leading-[1.5] text-[var(--sa-ink-2)]">
+                {pinnedAlerts.length > 0
+                  ? "Only active alerts are showing right now."
+                  : allowOperationalMessages
+                    ? "Use Cue to call the next item and Alert for anything urgent. Everyone in this chat sees them."
+                    : "Messages from the production team will appear here."}
               </p>
             </div>
           )}
@@ -994,10 +947,10 @@ export function ChatPanel({
           return (
             <div key={msg.id}>
               {showDay && (
-                <div className="my-2 flex items-center gap-3 px-4" role="separator">
-                  <span className="h-px flex-1 bg-board-border/70" />
-                  <span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-board-muted/55">{formatDay(msg.timestamp)}</span>
-                  <span className="h-px flex-1 bg-board-border/70" />
+                <div className="my-2 flex items-center gap-2.5 px-4" role="separator">
+                  <span className="h-px flex-1 bg-[var(--sa-border)]" />
+                  <span className="text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--sa-ink-3)]">{formatDay(msg.timestamp)}</span>
+                  <span className="h-px flex-1 bg-[var(--sa-border)]" />
                 </div>
               )}
               <ChatMessageRow message={msg} grouped={grouped} isOwn={Boolean(currentUserId ? msg.senderId === currentUserId : currentUserName && msg.senderName === currentUserName)} onReply={beginReply} onEdit={onEditMessage ? beginEdit : undefined} onDelete={onDeleteMessage ? deleteMessage : undefined} attachmentAccessToken={attachmentAccessToken} isSeen={msg.id === latestSeenOwnMessageId} currentUserId={currentUserId} mutationPending={blockedMessages.has(msg.id)} onVotePoll={onVotePoll ? voteSafely : undefined} onSetReaction={onSetReaction ? reactSafely : undefined} onOpenImage={setOpenImage} onRetryQueued={onRetryQueuedMessage} onCancelQueued={onCancelQueuedMessage ? id => void removeQueuedMessage(id) : undefined} />
@@ -1069,75 +1022,73 @@ export function ChatPanel({
       </div>}
 
       {/* Input area */}
-      <div className="min-w-0 shrink-0 border-t border-board-border bg-board-bg/40 p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:p-3">
+      <div className="min-w-0 shrink-0 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-1">
 
         {mentionSuggestions.length > 0 && !editingMessage && (
-          <div className="mb-2 overflow-hidden rounded-xl border border-board-border bg-board-card shadow-xl">
-            <div className="flex items-center gap-2 border-b border-board-border px-3 py-2 text-[9px] font-semibold uppercase tracking-wider text-board-muted"><AtSign className="h-3 w-3" />Mention someone</div>
-            {mentionSuggestions.map((member) => <button key={member.userId} type="button" onClick={() => insertMention(member)} className="flex w-full items-center gap-3 px-3 py-2 text-left transition hover:bg-board-border/45"><span className={cn("flex h-7 w-7 items-center justify-center rounded-lg border text-[9px] font-bold", avatarStyle(member.name))}>{initials(member.name)}</span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-board-text">{member.name}</span><span className="block text-[9px] uppercase tracking-wide text-board-muted">{member.role}</span></span></button>)}
+          <div className="mb-2 overflow-hidden rounded-xl border border-[var(--sa-border-strong)] bg-[var(--sa-surface)] shadow-xl">
+            <div className="flex items-center gap-2 border-b border-[var(--sa-border)] px-3 py-2 text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--sa-ink-3)]"><AtSign className="h-3 w-3" />Mention someone</div>
+            {mentionSuggestions.map((member) => <button key={member.userId} type="button" onClick={() => insertMention(member)} className="flex w-full items-center gap-3 px-3 py-2 text-left transition hover:bg-[var(--sa-surface-2)]"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--sa-surface-3)] text-[11px] font-semibold text-[var(--sa-ink-2)]">{initials(member.name)}</span><span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium text-board-text">{member.name}</span><span className="block text-[11px] capitalize text-[var(--sa-ink-3)]">{member.role}</span></span></button>)}
           </div>
         )}
-        <div className="overflow-hidden rounded-xl border border-board-border/90 bg-board-bg/55 shadow-[0_12px_32px_rgba(0,0,0,0.18)] transition focus-within:border-fire-500/45 focus-within:ring-2 focus-within:ring-fire-500/10">
-          {editingMessage && <div className="flex items-center gap-3 border-b border-board-border/70 bg-sky-500/[0.045] px-3 py-2"><Pencil className="h-3.5 w-3.5 text-sky-300" /><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-sky-300">Editing message</p><p className="truncate text-xs text-board-muted">Changes update for everyone in this room.</p></div><button type="button" onClick={composer.cancelEdit} className="min-h-11 min-w-11 rounded p-2 text-board-muted hover:bg-board-border hover:text-board-text" aria-label="Cancel edit"><X className="h-3.5 w-3.5" /></button></div>}
+        <div className={cn(
+          "overflow-hidden rounded-xl border bg-board-bg transition",
+          messageType === "cue" && !editingMessage ? "border-[var(--sa-warn)]/35" : messageType === "alert" && !editingMessage ? "border-[var(--sa-danger)]/35" : "border-[var(--sa-border)] focus-within:border-[var(--sa-border-strong)]",
+        )}>
+          {editingMessage && <div className="flex items-center gap-3 border-b border-[var(--sa-border)] px-3 py-2"><Pencil className="h-3.5 w-3.5 text-[var(--sa-ink-3)]" /><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-board-text">Editing message</p><p className="truncate text-xs text-[var(--sa-ink-3)]">Changes update for everyone in this room.</p></div><button type="button" onClick={composer.cancelEdit} className="flex min-h-11 min-w-11 items-center justify-center rounded text-[var(--sa-ink-3)] hover:bg-[var(--sa-surface-2)] hover:text-board-text" aria-label="Cancel edit"><X className="h-3.5 w-3.5" /></button></div>}
           {replyingTo && (
-            <div className="flex items-center gap-3 border-b border-board-border/70 bg-fire-500/[0.045] px-3 py-2">
-              <Reply className="h-3.5 w-3.5 shrink-0 text-fire-300" />
-              <div className="min-w-0 flex-1"><p className="text-[10px] font-semibold text-fire-300">Replying to {replyingTo.senderName}</p><p className="truncate text-[10px] text-board-muted">{replyingTo.text || "Attachment"}</p></div>
-              <button type="button" onClick={() => setReplyingTo(null)} className="min-h-11 min-w-11 rounded p-1 text-board-muted hover:bg-board-border hover:text-board-text" aria-label="Cancel reply"><X className="h-3.5 w-3.5" /></button>
+            <div className="flex items-center gap-3 border-b border-[var(--sa-border)] px-3 py-2">
+              <Reply className="h-3.5 w-3.5 shrink-0 text-[var(--sa-ink-3)]" />
+              <div className="min-w-0 flex-1"><p className="text-xs font-semibold text-board-text">Replying to {replyingTo.senderName}</p><p className="truncate text-xs text-[var(--sa-ink-3)]">{replyingTo.text || "Attachment"}</p></div>
+              <button type="button" onClick={() => setReplyingTo(null)} className="flex min-h-11 min-w-11 items-center justify-center rounded text-[var(--sa-ink-3)] hover:bg-[var(--sa-surface-2)] hover:text-board-text" aria-label="Cancel reply"><X className="h-3.5 w-3.5" /></button>
             </div>
           )}
-          <div className="flex flex-wrap items-center gap-y-1 border-b border-board-border/70 px-2 py-0.5">
+          <div className="flex min-h-11 items-center gap-2 py-1.5 pl-1.5 pr-1.5">
             {allowOperationalMessages && !editingMessage ? (
               <MessageTypeSelector value={messageType} onChange={setMessageType} />
             ) : (
-              <span className="px-2 py-1 text-[10px] font-medium text-board-muted">{editingMessage ? "Edit message" : "Guest message"}</span>
+              <span className="shrink-0 px-2 text-xs text-[var(--sa-ink-3)]">{editingMessage ? "Edit message" : "Guest message"}</span>
             )}
-            <span className="ml-auto px-2 text-[9px] text-board-muted/55">{attachmentWork.length}/6 files</span>
-            {onVotePoll && !editingMessage ? <button type="button" onClick={() => setPollOpen((open) => !open)} className="min-h-11 min-w-11 rounded-md p-1.5 text-board-muted hover:bg-board-border hover:text-sky-300" aria-label="Create poll" title="Create poll"><BarChart3 className="h-3.5 w-3.5" /></button> : null}
-          </div>
-          <div className="flex items-end gap-2 px-2 py-1">
-          {attachmentDraft && !editingMessage && (
-            <>
-              <input ref={fileInputRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif,image/avif,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx" onChange={handleFiles} className="hidden" />
-              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={attachmentWork.length >= 6} className="mb-0.5 min-h-11 min-w-11 shrink-0 rounded-lg p-2.5 text-board-muted transition hover:bg-board-border/70 hover:text-board-text disabled:cursor-not-allowed disabled:opacity-40" aria-label="Attach photos or documents" title="Attach photos or documents"><Paperclip className="h-4 w-4" /></button>
-            </>
-          )}
-          <textarea
-            ref={textareaRef}
-            aria-label={`Message ${title}`}
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              messageType === "cue"
-                ? "Camera 2 wide..."
-                : messageType === "alert"
-                  ? "Alert message..."
-                  : "Message…"
-            }
-            rows={1}
-            className={cn(
-              "min-h-11 min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-base leading-6 text-board-text placeholder:text-board-muted/60 outline-none modern-scrollbar sm:text-sm",
-              messageType === "cue" && "font-mono",
+            <textarea
+              ref={textareaRef}
+              aria-label={`Message ${title}`}
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                messageType === "cue"
+                  ? "Call the next cue"
+                  : messageType === "alert"
+                    ? "Something urgent for the crew"
+                    : `Message ${title.toLowerCase()}`
+              }
+              rows={1}
+              className="min-h-8 min-w-0 flex-1 resize-none self-center bg-transparent px-1 py-1.5 text-base leading-5 text-board-text outline-none placeholder:text-[var(--sa-ink-3)] modern-scrollbar sm:text-[13px]"
+            />
+            {attachmentWork.length > 0 ? <span className="shrink-0 text-[11px] tabular-nums text-[var(--sa-ink-3)]">{attachmentWork.length}/6</span> : null}
+            {onVotePoll && !editingMessage ? <button type="button" onClick={() => setPollOpen((open) => !open)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--sa-ink-3)] hover:bg-[var(--sa-surface-2)] hover:text-board-text [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11" aria-label="Create poll" title="Create poll"><BarChart3 className="h-4 w-4" /></button> : null}
+            {attachmentDraft && !editingMessage && (
+              <>
+                <input ref={fileInputRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif,image/avif,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx" onChange={handleFiles} className="hidden" />
+                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={attachmentWork.length >= 6} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--sa-ink-3)] transition hover:bg-[var(--sa-surface-2)] hover:text-board-text disabled:cursor-not-allowed disabled:opacity-40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11" aria-label="Attach photos or documents" title="Attach photos or documents"><Paperclip className="h-4 w-4" /></button>
+              </>
             )}
-          />
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={(!inputText.trim() && pendingAttachments.length === 0) || (!editingMessage && attachmentsBlocked) || Boolean(editingMessage && blockedMessages.has(editingMessage.id))}
-            className={cn(
-              "mb-0.5 min-h-11 min-w-11 shrink-0 rounded-lg p-2.5 shadow-sm transition-all touch-manipulation",
-              (inputText.trim() || pendingAttachments.length > 0) && (editingMessage || !attachmentsBlocked)
-                ? "bg-fire-500 text-black hover:bg-fire-400"
-                : "bg-board-border text-board-muted cursor-not-allowed",
-            )}
-            aria-label={editingMessage ? "Save message" : "Send message"}
-          >
-            <Send className="w-4 h-4" />
-          </button>
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={(!inputText.trim() && pendingAttachments.length === 0) || (!editingMessage && attachmentsBlocked) || Boolean(editingMessage && blockedMessages.has(editingMessage.id))}
+              className={cn(
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors touch-manipulation [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
+                (inputText.trim() || pendingAttachments.length > 0) && (editingMessage || !attachmentsBlocked)
+                  ? "bg-fire-500 text-[#1a1300] hover:bg-fire-400"
+                  : "cursor-not-allowed bg-[var(--sa-surface-2)] text-[var(--sa-ink-3)]",
+              )}
+              aria-label={editingMessage ? "Save message" : "Send message"}
+            >
+              <Send className="h-4 w-4" />
+            </button>
           </div>
         </div>
-        {(uploadError || messageActionError) && <p role="alert" className="mt-1.5 px-1 text-sm text-red-400">{uploadError || messageActionError}</p>}
+        {(uploadError || messageActionError) && <p role="alert" className="mt-1.5 px-1 text-sm text-[var(--sa-danger)]">{uploadError || messageActionError}</p>}
       </div>
       {openImage ? (
         <div className="fixed inset-0 z-[100] flex flex-col bg-black/95" role="dialog" aria-modal="true" aria-label={openImage.name}>

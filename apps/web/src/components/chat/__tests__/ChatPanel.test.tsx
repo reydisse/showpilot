@@ -235,8 +235,10 @@ describe("ChatPanel conversation flow", () => {
     expect(openImage.textContent).toBe("");
     expect(openImage.closest("[data-attachment-layout]")?.getAttribute("data-attachment-layout")).toBe("image-only");
     expect(openImage.parentElement?.className).not.toContain("sm:grid-cols-2");
-    expect(openImage.closest("[data-chat-message-id]")?.className).toContain("justify-end");
-    expect(screen.getByRole("button", { name: "Reply to Sam" }).parentElement?.className).toContain("self-end");
+    // Own messages use the same left-aligned row as everyone else's (no bubbles).
+    expect(openImage.closest("[data-chat-message-id]")?.className).toContain("grid-cols-[28px_minmax(0,1fr)]");
+    // Message actions float at the row's top-right edge for every sender.
+    expect(screen.getByRole("button", { name: "Reply to Sam" }).parentElement?.className).toContain("right-2.5");
     expect(screen.getByRole("button", { name: "Reply to Sam" }).parentElement?.className).not.toContain("right-full");
     fireEvent.click(openImage);
     const preview = screen.getByRole("dialog", { name: "stage.jpg" });

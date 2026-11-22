@@ -423,7 +423,7 @@ function ShowPageLayout({
   onTabChange: (tab: ShowTab) => void;
   header: { dateLine: string; title: string; stats: HeaderStat[]; clock: string; status: StatusPillState };
   /** `wide` is true in the desktop grid (container ≥ 64rem), where layout presets apply. */
-  showPanel: (layout: ShowLayoutPreset, wide: boolean) => ReactNode;
+  showPanel: (layout: ShowLayoutPreset, wide: boolean, short: boolean) => ReactNode;
   chatPanel: ReactNode;
   rundownPanel: ReactNode;
   notices?: ReactNode;
@@ -457,6 +457,16 @@ function ShowPageLayout({
   const panelsRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [wide, setWide] = useState(false);
+  // Screens under 1100px tall get the fitted timer so chat keeps room for messages.
+  const [short, setShort] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const query = window.matchMedia("(max-height: 1099px)");
+    const update = () => setShort(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
   useEffect(() => {
     const root = rootRef.current;
     if (!root || typeof ResizeObserver === "undefined") return;
@@ -733,6 +743,7 @@ function ShowPageLayout({
         data-show-tab={visibleTab}
         data-layout={layoutPreset}
         data-empty={empty ? "true" : undefined}
+        data-short={short ? "true" : undefined}
       >
         <div className="show-page-shell">
           <ShowFlowHeader {...header} layoutMenu={layoutMenu} />
@@ -753,7 +764,7 @@ function ShowPageLayout({
               data-tab="show"
               className="show-page-tab-panel show-page-show-panel"
             >
-              {showPanel(layoutPreset, wide)}
+              {showPanel(layoutPreset, wide, short)}
             </section>
             <div className="show-page-tabs" role="tablist" aria-label="Show sections">
               {tabs.map(tab => (
@@ -1038,7 +1049,7 @@ function ShowPageWithNative({
         }}
         empty={items.length === 0}
         rundownCount={plan.cues.length}
-        showPanel={(layout, wide) => items.length === 0 ? <NoRundownCard slug={slug} /> : <TimerCard model={timerModel} compact={wide && layout === "rundown-focus"} />}
+        showPanel={(layout, wide, short) => items.length === 0 ? <NoRundownCard slug={slug} /> : <TimerCard model={timerModel} compact={wide && layout === "rundown-focus"} fit={short} />}
         chatPanel={chatPanel}
         rundownPanel={rundownPanel}
       />
