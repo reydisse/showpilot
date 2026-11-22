@@ -28,6 +28,11 @@ export type ShowReportIndexItem = {
   checklistTotal: number;
   checklistComplete: number;
   incidentCount: number;
+  /** Open incidents, and how many of those are high or critical. */
+  incidentOpen: number;
+  incidentOpenSevere: number;
+  /** Manager note lanes with a saved note ("pm", "tm"). */
+  noteLanes: Array<"pm" | "tm">;
 };
 
 export const getShowReportIndex = createServerFn({ method: "GET" })
@@ -70,9 +75,15 @@ export const getShowReportIndex = createServerFn({ method: "GET" })
       }),
       prisma.incident.findMany({
         where: { orgId: data.orgId, serviceDate: range },
-        select: { showId: true },
+        select: { showId: true, status: true, severity: true },
       }),
     ]);
+    const notes = shows.length
+      ? await prisma.showReportNote.findMany({
+          where: { orgId: data.orgId, showId: { in: shows.map((show) => show.id) } },
+          select: { showId: true, role: true },
+        })
+      : [];
 
     return {
       services: shows.map((show) => {
@@ -98,6 +109,9 @@ export const getShowReportIndex = createServerFn({ method: "GET" })
           checklistTotal: showChecklist.length,
           checklistComplete: showChecklist.filter((item) => item.checked).length,
           incidentCount: incidents.filter((item) => item.showId === show.id).length,
+          incidentOpen: incidents.filter((item) => item.showId === show.id && item.status !== "resolved").length,
+          incidentOpenSevere: incidents.filter((item) => item.showId === show.id && item.status !== "resolved" && (item.severity === "high" || item.severity === "critical")).length,
+          noteLanes: (["pm", "tm"] as const).filter((lane) => notes.some((note) => note.showId === show.id && note.role === lane)),
         };
       }),
     };
@@ -130,6 +144,8 @@ export type ShowReport = {
     description: string;
     reportedBy: string;
     timestamp: string;
+    status: string;
+    resolvedAt: string | null;
   }>;
   checklist: Array<{
     id: string;
@@ -281,6 +297,8 @@ export const exportShowReport = createServerFn({ method: "POST" })
         description: incident.description,
         reportedBy: incident.reportedBy,
         timestamp: incident.timestamp.toISOString(),
+        status: incident.status,
+        resolvedAt: incident.resolvedAt?.toISOString() ?? null,
       })),
       checklist: entries.map((entry) => {
         const template = templateMap.get(entry.templateId);

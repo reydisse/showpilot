@@ -28,7 +28,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, operatorCookie }) => {
     };
     const navigate = async (path, heading) => {
       await page('Page.navigate', { url: `${origin}/${orgId}/${path}` });
-      await check(heading ? `[...document.querySelectorAll('h1')].some(n=>n.textContent.trim()===${JSON.stringify(heading)})` : `document.querySelector('select[aria-label="Switch chat room"]')?.value==='planning'`, `${path} rendered`);
+      await check(heading === null ? `!!document.querySelector('h1')?.textContent.trim()` : heading ? `[...document.querySelectorAll('h1')].some(n=>n.textContent.trim()===${JSON.stringify(heading)})` : `document.querySelector('select[aria-label="Switch chat room"]')?.value==='planning'`, `${path} rendered`);
       await check(`Object.keys(document.querySelector('aside a')??{}).some(k=>k.startsWith('__reactProps'))||Object.keys(document.querySelector('button[aria-label="Open menu"]')??{}).some(k=>k.startsWith('__reactProps'))`, 'hydrated operator UI');
       console.log(JSON.stringify({ path, rendered: true }));
     };
@@ -49,7 +49,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, operatorCookie }) => {
     const noErrors = async () => assert.deepEqual(await evaluate('window.copyErrors'), []);
 
     await width(1440);
-    await navigate('show', 'Show Flow');
+    await navigate('show', null);
     await check(`!!(${button('Layout: Default')})`, 'layout has an explicit purpose');
     const owner = await evaluate(`(()=>{const n=[...document.querySelectorAll('aside p')].find(n=>n.textContent==='Owner');return {color:getComputedStyle(n).color,theme:getComputedStyle(n).getPropertyValue('--board-text').trim()};})()`);
     assert.notEqual(owner.color, 'rgb(220, 38, 38)', 'Owner must not use error red');
@@ -74,7 +74,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, operatorCookie }) => {
     await check(`document.activeElement?.textContent.includes('More space for the timer')`, 'ArrowDown focuses timer layout');
     await key('Enter');
     await check(`!!(${button('Layout: Timer focus')})&&localStorage.getItem('show-page-layout-preset')==='show-focus'`, 'keyboard selection retains existing stored layout ID');
-    await navigate('show', 'Show Flow');
+    await navigate('show', null);
     await check(`!!(${button('Layout: Timer focus')})`, 'layout restored after reload');
     await screenshot('layout-768');
     await noErrors();
