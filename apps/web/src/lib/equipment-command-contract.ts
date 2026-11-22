@@ -29,6 +29,31 @@ export const equipmentOperationSchema = z.discriminatedUnion("kind", [
     id: idSchema,
     expectedRevision: z.number().int().min(0),
   }),
+  // Several units at once (bulk status, an item's shared name/type, deleting an item).
+  // Every unit must still be at its expected revision, or nothing changes.
+  z.object({
+    kind: z.literal("batch"),
+    changes: z
+      .array(
+        z.union([
+          z.object({
+            id: idSchema,
+            expectedRevision: z.number().int().min(0),
+            updates: equipmentFieldsSchema
+              .partial()
+              .refine((value) => Object.keys(value).length > 0, "No changes to save"),
+          }).strict(),
+          z.object({
+            id: idSchema,
+            expectedRevision: z.number().int().min(0),
+            remove: z.literal(true),
+          }).strict(),
+        ]),
+      )
+      .min(1)
+      .max(100)
+      .refine((changes) => new Set(changes.map((change) => change.id)).size === changes.length, "Each unit can change once per save"),
+  }),
 ]);
 export const equipmentCommandSchema = z.object({
   orgId: idSchema,

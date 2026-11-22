@@ -244,3 +244,36 @@ it("rolls back the receipt with a failed batch so the original request can retry
   expect((await f.write(input)).outcome).toBe("applied");
   expect((await f.read()).equipment).toHaveLength(1);
 });
+it("applies a batch of unit changes together, and none of them when one unit moved on", async () => {
+  const f = await fixture(),
+    input = f.create();
+  if (input.operation.kind !== "create") throw new Error("fixture");
+  input.operation.quantity = 3;
+  const { ids } = await f.write(input);
+  const batch = f.command({
+    kind: "batch",
+    changes: [
+      { id: ids[0], expectedRevision: 0, updates: { status: "in-repair" } },
+      { id: ids[1], expectedRevision: 0, updates: { name: "Wireless mic", status: "in-repair" } },
+      { id: ids[2], expectedRevision: 0, remove: true },
+    ],
+  });
+  const applied = await f.write(batch);
+  expect(applied).toMatchObject({ outcome: "applied", ids });
+  expect(await f.write(batch)).toEqual(applied);
+  const after = (await f.read()).equipment;
+  expect(after).toHaveLength(2);
+  expect(after.every((row) => row.status === "in-repair" && row.revision === 1)).toBe(true);
+  expect(after.find((row) => row.id === ids[1])?.name).toBe("Wireless mic");
+
+  // One stale unit: the whole save is a conflict and nothing changes.
+  const stale = f.command({
+    kind: "batch",
+    changes: [
+      { id: ids[0], expectedRevision: 1, updates: { status: "operational" } },
+      { id: ids[1], expectedRevision: 0, updates: { status: "operational" } },
+    ],
+  });
+  expect((await f.write(stale)).outcome).toBe("conflict");
+  expect((await f.read()).equipment.every((row) => row.status === "in-repair")).toBe(true);
+});

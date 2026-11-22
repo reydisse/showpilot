@@ -49,7 +49,7 @@ export function ModalAContent({
           type="button"
           onClick={onClose}
           aria-label={closeLabel ?? `Close ${title}`}
-          className="-mr-1.5 -mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--sa-ink-3)] hover:bg-[var(--sa-surface-2)] hover:text-board-text"
+          className="-mr-1.5 -mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md max-lg:-mr-3 max-lg:-mt-2.5 max-lg:h-11 max-lg:w-11 text-[var(--sa-ink-3)] hover:bg-[var(--sa-surface-2)] hover:text-board-text"
         >
           <X className="h-4 w-4" />
         </button>

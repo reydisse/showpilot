@@ -130,6 +130,7 @@ await withLocalSmokeFixture(
     async function wait(check, label) {
       const until = Date.now() + 20000;
       while (!(await check())) {
+        if (Date.now() >= until) console.log(JSON.stringify({ waitFailed: label, text: (await page.locator("body").innerText()).slice(-1500) }));
         assert.ok(Date.now() < until, label);
         await page.waitForTimeout(50);
       }
@@ -155,10 +156,12 @@ await withLocalSmokeFixture(
         for (const control of controls) {
           await control.scrollIntoViewIfNeeded();
           const box = await control.boundingBox();
+          // Touch-size targets below the desktop breakpoint; desktop keeps its density (24px minimum).
+          const minimum = width < 1024 ? 44 : 24;
           assert.ok(
             box &&
-              box.width >= 44 &&
-              box.height >= 44 &&
+              box.width >= minimum &&
+              box.height >= minimum &&
               box.x >= 0 &&
               box.x + box.width <= width + 1,
             `${label} control fits ${width}: ${JSON.stringify(box)}`,
@@ -189,7 +192,7 @@ await withLocalSmokeFixture(
       );
       if (process.argv.includes("--conflict")) {
         await wait(() => button("Add Item").isEnabled(), "inventory ready");
-        await button("Edit unit 1").click();
+        await page.getByRole("row", { name: /^Fixture microphone,/ }).click();
         await page
           .getByLabel("Notes", { exact: true })
           .fill("Unsaved local draft");
@@ -199,33 +202,23 @@ await withLocalSmokeFixture(
           expectedRevision: 0,
           updates: { notes: "Other operator update" },
         });
-        await button("Update").click();
-        await button("Continue with current inventory").waitFor();
-        await wait(
-          () => button("Continue with current inventory").isEnabled(),
-          "conflict refreshed",
-        );
+        await button("Save").click();
+        await page.getByText("Someone changed this item first", { exact: false }).waitFor();
+        // The edit is never thrown away, and nothing is written until the operator chooses.
         assert.equal(
           await page.getByLabel("Notes", { exact: true }).inputValue(),
           "Unsaved local draft",
         );
-        assert.equal(
-          await page.getByLabel("Notes", { exact: true }).isDisabled(),
-          true,
-        );
-        await button("Continue with current inventory").click();
+        assert.equal((await asset()).notes, "Other operator update");
+        await fits("conflict", [button("Use latest, keep my edits")]);
+        await button("Use latest, keep my edits").click();
         assert.equal(
           await page.getByLabel("Notes", { exact: true }).inputValue(),
           "Unsaved local draft",
         );
-        await fits("conflict", [button("Load current version")]);
-        await button("Load current version").click();
-        assert.equal(
-          await page.getByLabel("Notes", { exact: true }).inputValue(),
-          "Other operator update",
-        );
-        assert.equal((await asset()).revision, 1);
-        await button("Cancel editing Fixture microphone").click();
+        await button("Save").click();
+        await wait(async () => (await asset()).notes === "Unsaved local draft", "rebased save applied");
+        assert.equal((await asset()).revision, 2);
         assert.deepEqual(errors, []);
         assert.equal((await capturedEmails()).length, 0);
         console.log(
@@ -277,17 +270,14 @@ await withLocalSmokeFixture(
           noDuplicate: true,
         }),
       );
-      await page
-        .getByRole("button", { name: "Edit unit 1", exact: true })
-        .first()
-        .click();
+      await page.getByRole("row", { name: /^Fixture microphone,/ }).click();
       assert.equal(
-        await page.getByLabel("Equipment name", { exact: true }).inputValue(),
+        await page.getByLabel("Item name", { exact: true }).inputValue(),
         "Fixture microphone",
       );
       await page.getByLabel("Notes", { exact: true }).fill("Original update");
       pause = "after";
-      await button("Update").click();
+      await button("Save").click();
       await button("Retry asset change").waitFor({ timeout: 16000 });
       assert.equal((await asset()).revision, 1);
       await change({
@@ -300,7 +290,9 @@ await withLocalSmokeFixture(
       pause = null;
       await button("Retry asset change").click();
       await button("Retry asset change").waitFor({ state: "hidden" });
-      await wait(() => button("Add Item").isEnabled(), "update recovered");
+      // Recovered: the newer value won and the drawer still holds the operator's draft.
+      await wait(async () => (await asset()).revision === 2, "update recovered");
+      assert.equal(await page.getByLabel("Notes", { exact: true }).inputValue(), "Original update");
       assert.equal((await asset()).notes, "Newer operator update");
       assert.equal((await asset()).revision, 2);
       assert.deepEqual(
@@ -308,6 +300,10 @@ await withLocalSmokeFixture(
         fromJSON(JSON.parse(writes.at(-1).body)),
       );
       release();
+      await button("Cancel").click();
+      await button("Discard").click();
+      await page.getByRole("dialog").waitFor({ state: "hidden" });
+      await wait(() => button("Add Item").isEnabled(), "inventory unlocked");
       console.log(
         JSON.stringify({ case: "update", newerRevisionPreserved: true }),
       );
@@ -343,11 +339,12 @@ await withLocalSmokeFixture(
           draftRetained: true,
         }),
       );
-      await page
-        .getByRole("button", { name: "Delete unit 1", exact: true })
-        .first()
-        .click();
-      await page.getByRole("dialog").waitFor();
+      const askDelete = async () => {
+        await page.getByRole("button", { name: "Actions for Fixture microphone", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Delete item…", exact: true }).click();
+        await page.getByRole("dialog").waitFor();
+      };
+      await askDelete();
       await change({
         kind: "update",
         id: "fixture-asset",
@@ -356,7 +353,7 @@ await withLocalSmokeFixture(
       });
       await page
         .getByRole("dialog")
-        .getByRole("button", { name: "Delete", exact: true })
+        .getByRole("button", { name: "Delete item", exact: true })
         .click();
       await button("Continue with current inventory").waitFor();
       assert.ok(await asset());
@@ -365,14 +362,11 @@ await withLocalSmokeFixture(
         "conflict refresh",
       );
       await button("Continue with current inventory").click();
-      await page
-        .getByRole("button", { name: "Delete unit 1", exact: true })
-        .first()
-        .click();
+      await askDelete();
       pause = "after";
       await page
         .getByRole("dialog")
-        .getByRole("button", { name: "Delete", exact: true })
+        .getByRole("button", { name: "Delete item", exact: true })
         .click();
       await button("Retry asset change").waitFor({ timeout: 16000 });
       assert.equal(await asset(), undefined);

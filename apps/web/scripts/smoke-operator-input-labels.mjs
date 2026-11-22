@@ -130,9 +130,11 @@ await withLocalSmokeFixture(
               if (!(await control.isVisible())) continue;
               await control.scrollIntoViewIfNeeded();
               const box = await control.boundingBox();
+              // Touch-size targets below the desktop breakpoint; desktop keeps its density (24px minimum).
+              const minimum = width < 1024 ? 44 : 24;
               assert.ok(
-                box && box.width >= 44 && box.height >= 44,
-                `${name} 44px target: ${(await control.getAttribute("aria-label")) ?? (await control.textContent())}`,
+                box && box.width >= minimum && box.height >= minimum,
+                `${name} ${minimum}px target: ${(await control.getAttribute("aria-label")) ?? (await control.textContent())}`,
               );
               if (await control.isEnabled())
                 await control.click({ trial: true });
@@ -153,14 +155,13 @@ await withLocalSmokeFixture(
       await go("production/assets");
       await page.getByRole("heading", { name: "Asset Inventory" }).waitFor();
       await check("asset-list", "main", { targets: true });
-      await page
-        .getByRole("button", { name: "Edit unit 1", exact: true })
-        .click();
-      await page.getByPlaceholder("Equipment name...").waitFor();
-      await check("asset-edit", "main", { targets: true });
+      // Details open in a drawer from the item row.
+      await page.getByRole("row", { name: /^Fixture microphone,/ }).click();
+      await page.getByLabel("Item name", { exact: true }).waitFor();
+      await check("asset-edit", "[role=dialog]", { targets: true });
       if (!audit) {
         for (const name of [
-          "Equipment name",
+          "Item name",
           "Location",
           "Serial number",
           "Notes",
@@ -168,11 +169,10 @@ await withLocalSmokeFixture(
           await page.getByLabel(name, { exact: true }).fill(`Draft ${name}`);
       }
       await page
-        .getByRole("button", {
-          name: "Cancel editing Fixture microphone",
-          exact: true,
-        })
+        .getByRole("button", { name: "Close Fixture microphone details", exact: true })
         .click();
+      await page.getByRole("button", { name: "Discard", exact: true }).click();
+      await page.getByRole("dialog").waitFor({ state: "hidden" });
       await page.getByRole("button", { name: "Add Item", exact: true }).click();
       await page.getByRole("dialog").waitFor();
       await check("asset-add", "[role=dialog]", { targets: true });
@@ -193,9 +193,8 @@ await withLocalSmokeFixture(
         await page.keyboard.press("Escape");
         await page.getByRole("dialog").waitFor({ state: "hidden" });
         await page.waitForFunction(
-          () =>
-            document.activeElement?.getAttribute("data-slot") ===
-            "dialog-trigger",
+          // Focus returns to the button that opened the dialog.
+          () => document.activeElement?.textContent?.trim() === "Add Item",
           null,
           { timeout: 2_000 },
         );
@@ -248,7 +247,7 @@ await withLocalSmokeFixture(
         .waitFor();
       await check("song-studio", "main");
       await go("rundown");
-      await page.getByPlaceholder("Message to stage display...").waitFor();
+      await page.getByPlaceholder("Message to stage display…").waitFor();
       await check("rundown", "main");
       assert.equal((await queryFixture("SELECT id FROM equipment")).length, 1);
       assert.equal(

@@ -621,6 +621,11 @@ textarea {
 }
 .sp-modal-a label :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { margin-top: 6px; }
 .sp-modal-a textarea { height: 64px; padding-top: 9px; resize: vertical; }
+@media (max-width: 1023px) {
+  /* Touch: 44px fields, 16px text (no iOS zoom on focus). */
+  .sp-modal-a :is(input:not([type="checkbox"]):not([type="radio"]), select) { height: 44px; min-height: 44px; font-size: 16px; }
+  .sp-modal-a textarea { font-size: 16px; }
+}
 .sp-modal-a :is(input, select, textarea)::placeholder { color: var(--sa-ink-3); }
 .sp-modal-a :is(input, select, textarea):focus { border-color: var(--color-fire-500); outline: none; }
 .sp-modal-a input.tabular-nums { font-variant-numeric: tabular-nums; }
