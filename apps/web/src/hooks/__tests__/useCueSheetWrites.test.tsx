@@ -49,3 +49,18 @@ it("checks acknowledgements and cancels old workspace writes on navigation",asyn
   await act(async()=>resolve({requestId:api.mock.calls[1][0].data.requestId,outcome:"applied",currentText:"Old"}));
   expect(result.current.entries.size).toBe(0); unmount(); expect(vi.getTimerCount()).toBe(0);
 });
+
+it("replays a persisted packet with its original receipt and refuses a changed body or foreign scope", async () => {
+  api.mockRejectedValueOnce(new Error("Response lost"));
+  const { result } = renderHook(() => useCueSheetWrites("org"));
+  const packet = { orgId: "org", requestId: crypto.randomUUID(), operation: structuredClone(operation) };
+  await act(async () => { await result.current.runCaptured("cell", packet); });
+  expect(api.mock.calls[0][0].data).toEqual(packet);
+  await act(async () => {
+    expect(await result.current.runCaptured("cell", { ...packet, operation: { ...operation, text: "Changed" } })).toBeNull();
+    expect(await result.current.runCaptured("foreign", { ...packet, orgId: "other" })).toBeNull();
+  });
+  expect(api).toHaveBeenCalledOnce();
+  await act(async () => { expect((await result.current.runCaptured("cell", packet))?.result.outcome).toBe("applied"); });
+  expect(api.mock.calls[1][0].data).toEqual(packet);
+});

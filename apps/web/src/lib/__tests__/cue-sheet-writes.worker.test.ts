@@ -60,7 +60,7 @@ it("preserves later rename, color and width changes when old updates are replaye
   const changes: [CueSheetOperation,CueSheetOperation][] = [
     [{kind:"rename-column",id:f.columnId,before:"Camera",label:"First"},{kind:"rename-column",id:f.columnId,before:"First",label:"Latest"}],
     [{kind:"color-column",id:f.columnId,before:"blue",color:"red"},{kind:"color-column",id:f.columnId,before:"red",color:"green"}],
-    [{kind:"resize-column",id:f.columnId,before:160,width:180},{kind:"resize-column",id:f.columnId,before:180,width:220}],
+    [{kind:"resize-column",id:f.columnId,before:220,width:180},{kind:"resize-column",id:f.columnId,before:180,width:220}],
   ];
   for(const [first,next] of changes){const data=f.request(first);await mutateCueSheet({data});await mutateCueSheet({data:f.request(next)});expect((await mutateCueSheet({data})).outcome).toBe("applied");}
   expect(await columns(f.orgId)).toEqual([{id:f.columnId,label:"Latest",color:"green",width:220}]);
@@ -106,4 +106,66 @@ it("enforces the department limit during concurrent additions and validates orde
   expect(results.map(r=>r.outcome).sort()).toEqual(["applied","conflict"]); expect(await columns(f.orgId)).toHaveLength(40);
   expect(cueSheetOperationSchema.safeParse({kind:"add-column",label:"   ",color:"slate"}).success).toBe(false);
   expect(cueSheetOperationSchema.safeParse({kind:"reorder-columns",before:["a","b"],ids:["a","a"]}).success).toBe(false);
+});
+
+it("undoes an empty deletion with its original identity and never replays an old restoration over a newer change", async () => {
+  const f = await fixture();
+  await mutateCueSheet({ data: f.request({ kind: "resize-column", id: f.columnId, before: 220, width: 280 }) });
+  const remove = f.request({ kind: "delete-empty-column", id: f.columnId, label: "Camera" });
+  const deleted = await mutateCueSheet({ data: remove });
+  expect(deleted.outcome).toBe("applied"); expect(deleted.undoExpiresAt).toBeGreaterThan(Date.now());
+  expect(await columns(f.orgId)).toEqual([]);
+  expect(await mutateCueSheet({ data: remove })).toEqual(deleted);
+  const restore = f.request({ kind: "restore-column", deletionRequestId: remove.requestId });
+  expect((await mutateCueSheet({ data: restore })).outcome).toBe("applied");
+  expect(await columns(f.orgId)).toEqual([{ id: f.columnId, label: "Camera", color: "blue", width: 280 }]);
+  await mutateCueSheet({ data: f.request({ kind: "rename-column", id: f.columnId, before: "Camera", label: "Camera 2" }) });
+  await mutateCueSheet({ data: restore });
+  expect((await columns(f.orgId))[0].label).toBe("Camera 2");
+  await mutateCueSheet({ data: f.request({ kind: "delete-column", id: f.columnId, label: "Camera 2" }) });
+  expect((await mutateCueSheet({ data: f.request({ kind: "restore-column", deletionRequestId: remove.requestId }) })).outcome).toBe("conflict");
+  expect(await columns(f.orgId)).toEqual([]);
+});
+
+it("refuses instant deletion when the department has cues in another show", async () => {
+  const f = await fixture(), otherShow = crypto.randomUUID();
+  await env.DB.prepare("INSERT INTO rundown(id,orgId,serviceDate,name) VALUES (?,?,?,'Other fixture show')").bind(otherShow, f.orgId, "2026-11-13").run();
+  await mutateCueSheet({ data: f.request({ kind: "note", showId: otherShow, serviceDate: "2026-11-13", itemId: "other-item", columnId: f.columnId, text: "Keep the past show's cue", expectedText: "" }) });
+  expect((await mutateCueSheet({ data: f.request({ kind: "delete-empty-column", id: f.columnId, label: "Camera" }) })).outcome).toBe("conflict");
+  expect(await columns(f.orgId)).toHaveLength(1);
+  expect(await env.DB.prepare("SELECT text FROM cue_note WHERE orgId=? AND showId=?").bind(f.orgId, otherShow).first("text")).toBe("Keep the past show's cue");
+});
+
+it("atomically protects a cue arriving while an empty department is being deleted", async () => {
+  const f = await fixture();
+  const [note, removed] = await Promise.all([
+    applyCueSheetWrite(env.DB, f.note("A colleague's new cue"), "Fixture"),
+    applyCueSheetWrite(env.DB, f.request({ kind: "delete-empty-column", id: f.columnId, label: "Camera" }), "Fixture"),
+  ]);
+  expect([note.outcome, removed.outcome].sort()).toEqual(["applied", "conflict"]);
+  if (note.outcome === "applied") { expect(await textOf(f)).toBe("A colleague's new cue"); expect(await columns(f.orgId)).toHaveLength(1); }
+  else { expect(await textOf(f)).toBeUndefined(); expect(await columns(f.orgId)).toEqual([]); }
+});
+
+it("scopes Undo to its organization and checks access again on every retry", async () => {
+  const own = await fixture();
+  const remove = own.request({ kind: "delete-empty-column", id: own.columnId, label: "Camera" });
+  await mutateCueSheet({ data: remove });
+  const other = await fixture();
+  expect((await mutateCueSheet({ data: other.request({ kind: "restore-column", deletionRequestId: remove.requestId }) })).outcome).toBe("conflict");
+  expect(await columns(own.orgId)).toEqual([]);
+  auth.userId = own.userId;
+  const restore = own.request({ kind: "restore-column", deletionRequestId: remove.requestId });
+  await mutateCueSheet({ data: restore });
+  await env.DB.prepare("DELETE FROM member WHERE organizationId=? AND userId=?").bind(own.orgId, own.userId).run();
+  await expect(mutateCueSheet({ data: restore })).rejects.toThrow();
+});
+
+it("expires Undo without making a late first attempt or a forged source receipt recreate a department", async () => {
+  const f = await fixture(), remove = f.request({ kind: "delete-empty-column", id: f.columnId, label: "Camera" });
+  await mutateCueSheet({ data: remove });
+  await env.DB.prepare("UPDATE app_setting SET value=json_set(value,'$.deletedAt',?) WHERE orgId=? AND key=?").bind(Date.now() - 600_000, f.orgId, `cue-sheet-undo:${remove.requestId}`).run();
+  expect((await mutateCueSheet({ data: f.request({ kind: "restore-column", deletionRequestId: remove.requestId }) })).outcome).toBe("conflict");
+  expect((await mutateCueSheet({ data: f.request({ kind: "restore-column", deletionRequestId: f.column.requestId }) })).outcome).toBe("conflict");
+  expect(await columns(f.orgId)).toEqual([]);
 });

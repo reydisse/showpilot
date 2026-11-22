@@ -120,7 +120,7 @@
     "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
   },
   "src/lib/cue-sheet-writes.server.ts:guard": {
-    "count": 6,
+    "count": 11,
     "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
   },
   "src/lib/cue-sheet-writes.server.ts:field": {

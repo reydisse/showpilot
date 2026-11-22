@@ -14,11 +14,13 @@ export const cueSheetOperationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("resize-column"), id: idSchema, before: z.number().int(), width }),
   z.object({ kind: z.literal("reorder-columns"), before: ids, ids }).refine(value => value.before.length === value.ids.length && value.ids.every(id => value.before.includes(id)), "Column order must contain the same columns"),
   z.object({ kind: z.literal("delete-column"), id: idSchema, label: z.string().max(60) }),
+  z.object({ kind: z.literal("delete-empty-column"), id: idSchema, label: z.string().max(60) }),
+  z.object({ kind: z.literal("restore-column"), deletionRequestId: z.string().uuid() }),
 ]);
 export type CueSheetOperation = z.infer<typeof cueSheetOperationSchema>;
 export type CueNoteOperation = Extract<CueSheetOperation, { kind: "note" }>;
 export interface CueSheetWrite { orgId: string; requestId: string; operation: CueSheetOperation }
-export type CueSheetWriteResult = { requestId: string; outcome: "applied" | "conflict"; currentText: string | null };
+export type CueSheetWriteResult = { requestId: string; outcome: "applied" | "conflict"; currentText: string | null; undoExpiresAt?: number };
 
 export function describeCueSheetWrite(op: CueSheetOperation): string {
   switch (op.kind) {
@@ -29,5 +31,7 @@ export function describeCueSheetWrite(op: CueSheetOperation): string {
     case "resize-column": return `Resize department to ${op.width}px`;
     case "reorder-columns": return "Change department order";
     case "delete-column": return `Delete department “${op.label}”`;
+    case "delete-empty-column": return `Delete empty department “${op.label}”`;
+    case "restore-column": return "Restore deleted department";
   }
 }

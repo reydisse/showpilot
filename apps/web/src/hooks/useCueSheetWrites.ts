@@ -22,10 +22,13 @@ export function useCueSheetWrites(orgId: string) {
       flights.current.clear();
     };
   }, [orgId]);
-  const run = useCallback(async (key: string, operation?: CueSheetOperation) => {
+  const run = useCallback(async (key: string, operation?: CueSheetOperation, captured?: CueSheetWrite) => {
     const old = entries.current.get(key);
     if (flights.current.has(key) || (operation && old) || old?.conflict) return null;
-    const attempt = old?.attempt ?? (operation ? { orgId: scope.current, requestId: crypto.randomUUID(), operation: structuredClone(operation) } : null);
+    // Offline replay must reuse its original receipt and body, including after a
+    // response was lost. It cannot substitute a newer body into an older lane.
+    if (captured && old && JSON.stringify(captured) !== JSON.stringify(old.attempt)) return null;
+    const attempt = old?.attempt ?? (captured ? structuredClone(captured) : operation ? { orgId: scope.current, requestId: crypto.randomUUID(), operation: structuredClone(operation) } : null);
     if (!attempt || attempt.orgId !== scope.current) return null;
     const flight: Flight = { controller: new AbortController() };
     flights.current.set(key, flight);
@@ -50,11 +53,12 @@ export function useCueSheetWrites(orgId: string) {
       if (flights.current.get(key) === flight) flights.current.delete(key);
     }
   }, []);
+  const runCaptured = useCallback((key: string, captured: CueSheetWrite) => run(key, undefined, captured), [run]);
   const clearConflict = useCallback((key: string, requestId: string) => {
     const entry = entries.current.get(key);
     if (!entry?.conflict || entry.attempt.requestId !== requestId || flights.current.has(key)) return false;
     entries.current.delete(key); publish(); return true;
   }, []);
   const has = useCallback((key: string) => entries.current.has(key), []);
-  return { entries: state.orgId === orgId ? state.entries : new Map<string, CueWriteState>(), run, clearConflict, has };
+  return { entries: state.orgId === orgId ? state.entries : new Map<string, CueWriteState>(), run, runCaptured, clearConflict, has };
 }

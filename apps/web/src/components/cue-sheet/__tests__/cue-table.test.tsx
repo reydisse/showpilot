@@ -72,7 +72,7 @@ describe("CueTable note editor", () => {
     );
 
     const editor = screen.getByRole("textbox");
-    expect(editor.style.height).toBe("30px");
+    expect(editor.style.height).toBe("44px");
     expect(editor.getAttribute("maxlength")).toBe("2000");
     expect(editor.classList.contains("overflow-hidden")).toBe(true);
 
@@ -128,4 +128,43 @@ it("does not save an escaped edit or offer column writes to a note-only operator
   expect(onNoteChange).not.toHaveBeenCalled();
   expect(screen.queryByRole("separator", { name: "Resize column" })).toBeNull();
   expect(screen.queryByRole("button", { name: /Move Lighting column/ })).toBeNull();
+});
+
+it("saves once on Enter, moves down, and moves between departments with Tab", () => {
+  const onNoteChange = vi.fn();
+  render(<CueTable rows={[rows[0], { ...rows[0], itemId: "item-2", title: "Message" }]} columns={[columns[0], { ...columns[0], id: "sound", label: "Sound" }]} hidden={new Set()} currentItemId={null} canEdit onNoteChange={onNoteChange} onWidthChange={vi.fn()} onReorder={vi.fn()} />);
+  const first = screen.getByRole("textbox", { name: "Edit Lighting: Welcome" });
+  first.focus(); fireEvent.change(first, { target: { value: "Lights up" } });
+  fireEvent.keyDown(first, { key: "Enter" });
+  expect(onNoteChange).toHaveBeenCalledExactlyOnceWith("item-1", "lighting", "Lights up", "");
+  expect(document.activeElement).toBe(screen.getByRole("gridcell", { name: "Lighting: Message" }));
+  fireEvent.keyDown(document.activeElement!, { key: "Enter" });
+  expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Edit Lighting: Message" }));
+  fireEvent.keyDown(document.activeElement!, { key: "Tab" });
+  expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Edit Sound: Message" }));
+  fireEvent.keyDown(document.activeElement!, { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Edit Lighting: Message" }));
+});
+
+it("keeps collapsed departments out of keyboard navigation without losing their notes", () => {
+  const multi = [columns[0], { ...columns[0], id: "production", label: "Production" }, { ...columns[0], id: "sound", label: "Sound" }];
+  const props = { rows: [{ ...rows[0], notes: { production: "Hold entrance" } }], columns: multi, hidden: new Set<string>(), currentItemId: null, canEdit: true, onNoteChange: vi.fn(), onWidthChange: vi.fn(), onReorder: vi.fn() };
+  const { rerender } = render(<CueTable {...props} collapsed={new Set(["production"])} onCollapse={vi.fn()} />);
+  const lighting = screen.getByRole("gridcell", { name: "Lighting: Welcome" });
+  lighting.focus(); fireEvent.keyDown(lighting, { key: "ArrowRight" });
+  expect(document.activeElement).toBe(screen.getByRole("gridcell", { name: "Sound: Welcome" }));
+  expect(screen.queryByRole("textbox", { name: "Edit Production: Welcome" })).toBeNull();
+  rerender(<CueTable {...props} collapsed={new Set()} />);
+  expect((screen.getByRole("textbox", { name: "Edit Production: Welcome" }) as HTMLTextAreaElement).value).toBe("Hold entrance");
+});
+
+it("keeps a department's identity colour on its edge and offers personal focus and sizing", () => {
+  const onWidthChange = vi.fn(), onFocusDepartment = vi.fn();
+  render(<CueTable rows={rows} columns={columns} hidden={new Set()} currentItemId={null} canEdit={false} canManageColumns={false} canAdjustLayout onFocusDepartment={onFocusDepartment} onNoteChange={vi.fn()} onWidthChange={onWidthChange} onReorder={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Focus Lighting" }));
+  expect(onFocusDepartment).toHaveBeenCalledExactlyOnceWith("lighting");
+  fireEvent.keyDown(screen.getByRole("separator", { name: "Resize Lighting column" }), { key: "ArrowRight" });
+  expect(onWidthChange).toHaveBeenCalledExactlyOnceWith("lighting", 190);
+  expect(screen.getByRole("columnheader", { name: /Lighting/ }).style.getPropertyValue("--cue-dept")).toBe("var(--color-dept-amber)");
+  expect(screen.queryByRole("textbox")).toBeNull();
 });

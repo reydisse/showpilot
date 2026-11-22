@@ -1,5 +1,5 @@
 import { QuietActivity } from "@/components/ui/QuietActivity";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useParams } from "@tanstack/react-router";
 import { Download, MonitorPlay, MoreHorizontal, PanelTopOpen, RefreshCw, Timer, UserCheck } from "lucide-react";
 import { Popover } from "radix-ui";
@@ -33,7 +33,7 @@ function useOperation<T>(operation: DesktopOperation<T>) {
   return useSyncExternalStore(operation.subscribe, operation.getSnapshot, operation.getSnapshot);
 }
 
-export function DesktopStatusBar({ orgId }: { orgId?: string } = {}) {
+export function DesktopStatusBar({ orgId, liveRundown }: { orgId?: string; liveRundown?: ReactNode } = {}) {
   const { slug } = useParams({ strict: false });
   const desktop = useDesktopRuntime();
   const toolbar = useRef<HTMLDivElement>(null);
@@ -143,6 +143,7 @@ export function DesktopStatusBar({ orgId }: { orgId?: string } = {}) {
       </span>
       <Suspense fallback={null}><DesktopLocalShowNotice orgId={orgId} slug={slug} /></Suspense>
         </div>
+      {liveRundown}
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {!compact && secondaryActions}
         {slug && <Suspense fallback={null}><ConfidenceToolbar key={slug} slug={slug} orgId={orgId} /></Suspense>}
