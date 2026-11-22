@@ -51,7 +51,7 @@ export function CueTable({ rows, columns, hidden, currentItemId, canEdit, canMan
   const details = RUNDOWN_DETAIL_COLUMNS.filter(column => !hidden.has(column.key) && !focusedDepartment);
   const showCue = !hidden.has("cue");
   const timeFields = ["start", "end", "duration"].filter(key => !hidden.has(key));
-  const indexWidth = compact ? 36 : 40, cueWidth = 52, timeWidth = compact ? 150 : 172, titleWidth = narrow ? 140 : compact ? 176 : 220;
+  const indexWidth = compact ? 36 : 40, cueWidth = 52, timeWidth = compact ? 150 : 172, titleWidth = narrow ? 96 : compact ? 176 : 220;
   const timeLeft = indexWidth + (showCue ? cueWidth : 0);
   const titleLeft = timeLeft + (timeFields.length ? timeWidth : 0);
   const fieldCount = 2 + Number(showCue) + Number(timeFields.length > 0) + details.length;
@@ -112,7 +112,7 @@ export function CueTable({ rows, columns, hidden, currentItemId, canEdit, canMan
     const frame = requestAnimationFrame(() => focusCell(focusRequest.itemId, focusRequest.columnId));
     return () => cancelAnimationFrame(frame);
   }, [focusRequest]);
-  const widthFor = (column: CueColumnRow) => focusedDepartment ? Math.max(96, Math.min(520, (viewportWidth || 1004) - titleLeft - titleWidth)) : collapsed.has(column.id) ? 44 : Math.min(480, Math.max(160, column.width));
+  const widthFor = (column: CueColumnRow) => focusedDepartment ? Math.max(96, Math.min(520, (viewportWidth || 1004) - titleLeft - titleWidth)) : collapsed.has(column.id) ? 44 : narrow ? Math.max(160, Math.min(column.width, (viewportWidth || 360) - titleLeft - titleWidth)) : Math.min(480, Math.max(160, column.width));
   const tableWidth = titleLeft + titleWidth + details.reduce((sum, column) => sum + column.width, 0) + visible.reduce((sum, column) => sum + widthFor(column), 0);
   return <table style={{ width: tableWidth, minWidth: tableWidth }} ref={table} onFocusCapture={event => { const cell = event.target.closest<HTMLElement>("[data-cue-cell]"); if (cell) revealCell(cell); }} role="grid" aria-label="Cue sheet" aria-rowcount={rows.length + 1} aria-colcount={fieldCount + visible.length} className="cue-sheet-grid">
     <colgroup>
