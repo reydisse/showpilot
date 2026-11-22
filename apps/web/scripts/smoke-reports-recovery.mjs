@@ -117,9 +117,18 @@ await withLocalSmokeFixture(
             });
           const button = (name) =>
             `[...document.querySelectorAll('button')].find(n=>(n.textContent.trim()===${JSON.stringify(name)}||n.getAttribute('aria-label')===${JSON.stringify(name)})&&n.getBoundingClientRect().width>0)`;
-          const roleButton = (role) =>
-            `[...document.querySelectorAll('[aria-label="Manager note role"] button')].find(n=>n.textContent.startsWith(${JSON.stringify(role)}))`;
-          const field = `document.querySelector('[aria-label="Manager notes"] textarea')`;
+          // Each manager role is its own card; its editor and Save button live inside it.
+          const card = (role) => `document.querySelector('[role="group"][aria-label="${role} Manager note"]')`;
+          const field = `${card("Production")}?.querySelector('textarea')`;
+          const tmField = `${card("Technical")}?.querySelector('textarea')`;
+          const saveIn = (role) =>
+            `[...(${card(role)}?.querySelectorAll('button')??[])].find(n=>n.textContent.trim()==="Save my note")`;
+          const menuItem = (name) =>
+            `[...document.querySelectorAll('[role="menuitem"]')].find(n=>n.textContent.trim()===${JSON.stringify(name)})`;
+          const exportAs = async (name) => {
+            await click(button("Export report"));
+            await click(menuItem(name));
+          };
           const click = async (expression) => {
             const point = await check(
               `(async()=>{const n=${expression};if(!n||n.disabled)return null;n.scrollIntoView({block:'center',inline:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;return n.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`,
@@ -174,7 +183,7 @@ await withLocalSmokeFixture(
           const searchFor = async (name) => {
             await fill(search, name);
             await check(
-              `document.querySelectorAll('tbody tr').length===1`,
+              `[...document.querySelectorAll('[data-report-id]')].filter(n=>n.getBoundingClientRect().width>0).length===1`,
               "search isolates one report",
             );
           };
@@ -196,7 +205,7 @@ await withLocalSmokeFixture(
           await width(1440);
           await page("Page.navigate", { url: `${origin}/${orgId}/reports` });
           await check(
-            `document.body?.textContent.includes('12 reports')&&Object.keys(${search}??{}).some(k=>k.startsWith('__reactProps'))`,
+            `document.body?.textContent.includes('of 12')&&Object.keys(${search}??{}).some(k=>k.startsWith('__reactProps'))`,
             "hydrated report index",
           );
           for (const viewport of [1440, 1024, 768, 320]) {
@@ -209,22 +218,24 @@ await withLocalSmokeFixture(
               true,
               `index must fit at ${viewport}`,
             );
+            // One responsive row list: full columns from 1280px, compact rows below.
             assert.equal(
               await evaluate(
-                `document.querySelector('table').getBoundingClientRect().width>0`,
+                `[...document.querySelectorAll('[data-report-id]')].filter(n=>n.getBoundingClientRect().width>0).length`,
+              ),
+              10,
+            );
+            assert.equal(
+              await evaluate(
+                `getComputedStyle(document.querySelector('section[aria-label="Show reports"] > div')).display!=='none'`,
               ),
               viewport >= 1280,
             );
-            assert.equal(
-              await evaluate(
-                `[...document.querySelectorAll('article')].filter(n=>n.getBoundingClientRect().width>0).length`,
-              ),
-              viewport < 1280 ? 10 : 0,
-            );
             for (const name of ["Previous page", "Next page"]) {
+              const minimum = viewport < 1024 ? 44 : 24;
               assert.equal(
                 await evaluate(
-                  `(()=>{const b=(${button(name)}).getBoundingClientRect();return b.width>=44&&b.height>=44})()`,
+                  `(()=>{const b=(${button(name)}).getBoundingClientRect();return b.width>=${minimum}&&b.height>=${minimum}})()`,
                 ),
                 true,
               );
@@ -257,7 +268,7 @@ await withLocalSmokeFixture(
             `(()=>{const n=document.querySelector('[role="dialog"]'),b=n.getBoundingClientRect();return b.left>=0&&b.right<=innerWidth&&n.scrollWidth<=n.clientWidth+1;})()`,
             "long-name dialog fits phone",
           );
-          await click(button("Export CSV"));
+          await exportAs("Export CSV");
           await poll(
             async () =>
               (await readdir(downloads)).some((name) => name.endsWith(".csv")),
@@ -328,9 +339,7 @@ await withLocalSmokeFixture(
             }),
           );
           await fill(field, "Production draft kept across roles", true);
-          await click(roleButton("Technical Manager"));
-          await fill(field, "Technical draft kept across roles", true);
-          await click(roleButton("Production Manager"));
+          await fill(tmField, "Technical draft kept across roles", true);
           assert.equal(
             await evaluate(`(${field}).value`),
             "Production draft kept across roles",
@@ -368,7 +377,7 @@ await withLocalSmokeFixture(
             }),
           );
           await evaluate("window.holdNote=true");
-          await click(button("Save my notes"));
+          await click(saveIn("Production"));
           await check(
             "window.heldSaves.length===1",
             "committed save response held",
@@ -432,17 +441,16 @@ await withLocalSmokeFixture(
             "Production draft kept across roles",
           );
           await fill(field, "Reviewed final production note", true);
-          await click(button("Save my notes"));
+          await click(saveIn("Production"));
           await check(
             `document.body.textContent.includes('Production Manager note saved and included in exports.')`,
             "reviewed draft saved",
           );
-          await click(roleButton("Technical Manager"));
           assert.equal(
-            await evaluate(`(${field}).value`),
+            await evaluate(`(${tmField}).value`),
             "Technical draft kept across roles",
           );
-          await click(button("Save my notes"));
+          await click(saveIn("Technical"));
           await check(
             `document.body.textContent.includes('Technical Manager note saved and included in exports.')`,
             "other manager draft saved separately",
@@ -469,7 +477,7 @@ await withLocalSmokeFixture(
             followUps: "",
           });
           await evaluate("window.rejectReport=true");
-          await click(button("Export PDF"));
+          await exportAs("Export PDF");
           await check(
             `!!(${button("Retry PDF export")})`,
             "export failure has persistent Retry",
@@ -486,7 +494,7 @@ await withLocalSmokeFixture(
             (await readFile(join(downloads, pdf))).subarray(0, 5).toString(),
             "%PDF-",
           );
-          await click(button("Export CSV"));
+          await exportAs("Export CSV");
           const csv = await poll(
             async () =>
               (await readdir(downloads)).find((name) => name.endsWith(".csv")),
@@ -504,9 +512,10 @@ await withLocalSmokeFixture(
             assert.ok(
               bounds.fits &&
                 bounds.controls.every(
+                  // Touch-size targets below the desktop breakpoint; desktop keeps its density (24px minimum).
                   (b) =>
-                    b.width >= 44 &&
-                    b.height >= 44 &&
+                    b.width >= (viewport < 1024 ? 44 : 24) &&
+                    b.height >= (viewport < 1024 ? 44 : 24) &&
                     b.left >= 0 &&
                     b.right <= viewport,
                 ),
@@ -515,7 +524,7 @@ await withLocalSmokeFixture(
             if (viewport === 320) await screenshot("notes-320");
           }
           await evaluate("window.holdReport=true");
-          await click(button("Export CSV"));
+          await exportAs("Export CSV");
           await check("window.heldReads.length===1", "export read held");
           await click(button("Close report"));
           await closed();
