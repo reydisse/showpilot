@@ -100,6 +100,13 @@ it("retains a stalled reminder across navigation and retries exactly once withou
   click("Remind awaiting crew");
   await tick();
   const command = sent();
+  const busy = screen.getByRole<HTMLButtonElement>("button", {
+    name: "Remind awaiting crew",
+  });
+  expect(busy.disabled).toBe(true);
+  expect(busy.getAttribute("aria-busy")).toBe("true");
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(screen.queryByText(/Checking reminder delivery/)).toBeNull();
   view.show(false);
   await tick(15_100);
   view.show(true);
@@ -111,10 +118,13 @@ it("retains a stalled reminder across navigation and retries exactly once withou
   click("Retry reminders");
   await tick();
   expect(sent(1)).toEqual(command);
-  expect(screen.getByText("1 of 1 emails accepted.")).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Send another reminder" }),
+  ).toBeTruthy();
+  expect(screen.queryByText(/emails accepted/)).toBeNull();
 });
 
-it("shows partial delivery and sends the same bulk request on Retry", async () => {
+it("shows only genuine failures and sends the same bulk request on Retry", async () => {
   api.send.mockImplementationOnce(async ({ data }) =>
     result(data, ["accepted", "failed", "uncertain"]),
   );
@@ -122,9 +132,13 @@ it("shows partial delivery and sends the same bulk request on Retry", async () =
   click("Remind awaiting crew");
   await tick();
   const command = sent();
-  expect(screen.getByText("1 of 3 emails accepted.")).toBeTruthy();
-  expect(screen.getByText(/Email was rejected/)).toBeTruthy();
-  expect(screen.getByText(/Email acceptance is unknown/)).toBeTruthy();
+  expect(screen.getByRole("alert").textContent).toContain(
+    "Some reminders could not be sent.",
+  );
+  expect(screen.getByText("Crew 1")).toBeTruthy();
+  expect(
+    screen.queryByText(/Crew 0|Crew 2|emails accepted|Email acceptance is unknown/),
+  ).toBeNull();
   click("Retry reminders");
   await tick();
   expect(sent(1)).toEqual(command);
@@ -166,8 +180,9 @@ it("requires an explicit new request after the safe retry window ends", async ()
   const original = sent();
   expect(screen.queryByRole("button", { name: "Retry reminders" })).toBeNull();
   expect(
-    screen.getByText(/previous email may already have arrived/),
+    screen.getByText("Review the current assignments before sending again."),
   ).toBeTruthy();
+  expect(screen.queryByText(/may already have arrived/)).toBeNull();
   click("Send new reminders after review");
   await tick();
   expect(sent(1).requestId).not.toBe(original.requestId);
@@ -208,4 +223,31 @@ it("coalesces repeated refresh retries after reminder delivery", async () => {
   held.resolve();
   await tick();
   expect(api.send).toHaveBeenCalledTimes(1);
+});
+
+it("reports an empty selection", async () => {
+  api.send.mockImplementationOnce(async ({ data }) => result(data, []));
+  mount();
+  click("Remind awaiting crew");
+  await tick();
+  expect(screen.getByRole("status").textContent).toBe(
+    "No pending assignments in this selection.",
+  );
+});
+
+it("keeps status-check failures silent while allowing the same request to be retried", async () => {
+  api.send.mockImplementationOnce(async ({ data }) => {
+    const reply = result(data, ["failed", "uncertain"]);
+    reply.items[0].reason = "status-check-failed";
+    return reply;
+  });
+  mount();
+  click("Remind awaiting crew");
+  await tick();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByRole("status")).toBeNull();
+  expect(screen.queryByText(/Crew [01]/)).toBeNull();
+  click("Retry reminders");
+  await tick();
+  expect(sent(1)).toEqual(sent());
 });
