@@ -1080,7 +1080,7 @@ const incidentsWidget: PmWidget = {
             <Link
               to="/$slug/production/incidents"
               params={{ slug }}
-              search={{ incident: incident.id, date: model.serviceDate, show: showId ?? undefined }} className="min-h-11 min-w-11 inline-flex items-center"
+              search={{ incident: incident.id, date: model.serviceDate, show: showId ?? undefined, report: undefined }} className="min-h-11 min-w-11 inline-flex items-center"
             >
               <WidgetAction>Open</WidgetAction>
             </Link>

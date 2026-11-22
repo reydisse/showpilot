@@ -1,11 +1,12 @@
 import type { OperationalNotification } from "./operational-notifications.server";
 import type { IncidentWrite, IncidentWriteResult } from "./incident-writes";
+import { resolveIncidentResponders } from "./incident-responders.server";
 
 // Compare all mutable incident fields and the discussion size in the same
 // transaction as removal. This also detects edits made through existing mobile
 // and dashboard APIs without inventing a separate revision those APIs cannot see.
 export const incidentDeleteSnapshotSql = `json_array(i.category, i.severity, i.description, i.reportedBy, i.serviceDate,
-  i.status, i.resolvedAt, i.resolvedBy, i.assignedTo, i.assignedName, i.acknowledgedAt, i.assignedBy, i.assignedAt,
+  i.status, i.resolvedAt, i.resolvedBy, i.assignedTo, i.assignedName, i.acknowledgedAt, i.assignedBy, i.assignedAt, i.resolutionNote,
   (SELECT COUNT(*) FROM incident_comment c WHERE c.orgId = i.orgId AND c.incidentId = i.id))`;
 
 export async function applyIncidentWrite(db: Pick<D1Database, "prepare" | "batch">, input: IncidentWrite, user: { id: string; name: string }): Promise<{ result: IncidentWriteResult; notification: OperationalNotification | null }> {
@@ -78,6 +79,35 @@ export async function applyIncidentWrite(db: Pick<D1Database, "prepare" | "batch
         const target = await db.prepare(`SELECT c.userId, c.incidentId FROM incident_comment c JOIN incident i ON i.id=c.incidentId AND i.orgId=c.orgId WHERE ${incidentScope} AND c.id=?`).bind(...scope, op.commentId).first<{ userId: string; incidentId: string }>();
         if (target && target.userId !== user.id) notification = { ...common, recipientIds: [target.userId], type: "comment-reaction", title: `${user.name} reacted ${op.emoji} to your comment`, message: "Open the incident discussion to view the reaction.", actionUrl: path(target.incidentId), source: op.commentId, pushTag: `comment-reaction-${op.commentId}` };
       } else mutations.push(db.prepare(`DELETE FROM content_reaction WHERE orgId = ? AND targetType = 'incident-comment' AND targetId = ? AND userId = ? AND emoji = ? AND ${guard}`).bind(orgId, op.commentId, user.id, op.emoji, ...claim));
+      break;
+    }
+    case "update": {
+      const changes = op.changes, now = new Date().toISOString();
+      condition += ` AND EXISTS (SELECT 1 FROM incident i WHERE ${incidentScope} AND i.id = ? AND ${incidentDeleteSnapshotSql} = ?)`;
+      conditions.push(...scope, op.id, op.snapshot);
+      const sets: string[] = [], values: unknown[] = [];
+      if (changes.category) { sets.push("category = ?"); values.push(changes.category); }
+      if (changes.severity) { sets.push("severity = ?"); values.push(changes.severity); }
+      if (changes.resolutionNote !== undefined) { sets.push("resolutionNote = ?"); values.push(changes.resolutionNote); }
+      if (changes.status) {
+        // Keep the first resolution time while it stays resolved; reopening clears it.
+        sets.push("status = ?", "resolvedAt = CASE WHEN ? = 'resolved' THEN COALESCE(resolvedAt, ?) ELSE NULL END", "resolvedBy = CASE WHEN ? = 'resolved' THEN COALESCE(resolvedBy, ?) ELSE NULL END");
+        values.push(changes.status, changes.status, now, changes.status, user.id);
+      }
+      let assignee: { userId: string; name: string } | null = null;
+      if (changes.assignedTo !== undefined) {
+        if (changes.assignedTo) {
+          // Same eligibility as mobile: the assignee must be able to work incidents.
+          assignee = (await resolveIncidentResponders(orgId, now.slice(0, 10), db)).find(person => person.userId === changes.assignedTo) ?? null;
+          if (!assignee) throw new Error("That person can't take incidents. Choose someone with incident access.");
+          // Column references read the row before this update, so acknowledgement survives re-saving the same owner.
+          sets.push("assignedTo = ?", "assignedName = ?", "assignedBy = ?", "assignedAt = ?", "acknowledgedAt = CASE WHEN assignedTo IS ? THEN acknowledgedAt ELSE NULL END");
+          values.push(assignee.userId, assignee.name, user.id, now, assignee.userId);
+        } else sets.push("assignedTo = NULL", "assignedName = ''", "assignedBy = NULL", "assignedAt = NULL", "acknowledgedAt = NULL");
+      }
+      mutations.push(db.prepare(`UPDATE incident SET ${sets.join(", ")} WHERE orgId = ? AND showId IS ? AND id = ? AND ${guard}`).bind(...values, orgId, showId, op.id, ...claim));
+      if (assignee && assignee.userId !== user.id) notification = { ...common, includeLeadership: true, recipientIds: [assignee.userId], type: "incident-assigned", title: "Operational issue assigned", message: `${assignee.name} is now responsible for this issue.`, actionUrl: path(op.id), source: op.id, pushTag: `incident-${op.id}` };
+      else if (changes.status === "resolved") notification = { ...common, includeLeadership: true, type: "incident-resolved", title: "Operational issue resolved", message: `${user.name} marked the issue as resolved.`, actionUrl: path(op.id), source: op.id, pushTag: `incident-${op.id}` };
       break;
     }
     default: { const unexpected: never = op; throw new Error(`Unknown incident change: ${String(unexpected)}`); }

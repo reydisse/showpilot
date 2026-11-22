@@ -25,7 +25,7 @@ const tick = () => act(async () => { await vi.advanceTimersByTimeAsync(351); });
 
 it("keeps the selected status when an earlier search debounce completes", async () => {
   const view = render(<IncidentHistoryPage />);
-  fireEvent.change(screen.getByPlaceholderText("Search issues, people, categories…"), { target: { value: "camera" } });
+  fireEvent.change(screen.getByPlaceholderText("Search incidents, people, notes"), { target: { value: "camera" } });
   fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "open" } });
   view.rerender(<IncidentHistoryPage />);
   await tick();
@@ -34,9 +34,9 @@ it("keeps the selected status when an earlier search debounce completes", async 
 
 it("cancels a pending search when Clear filters is clicked", async () => {
   render(<IncidentHistoryPage />);
-  fireEvent.change(screen.getByPlaceholderText("Search issues, people, categories…"), { target: { value: "camera" } });
+  fireEvent.change(screen.getByPlaceholderText("Search incidents, people, notes"), { target: { value: "camera" } });
   fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
   await tick();
   expect(router.search.query).toBe("");
-  expect(screen.getByPlaceholderText("Search issues, people, categories…")).toHaveProperty("value", "");
+  expect(screen.getByPlaceholderText("Search incidents, people, notes")).toHaveProperty("value", "");
 });

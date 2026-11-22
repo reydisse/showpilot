@@ -151,7 +151,7 @@ async function navigateToNotification(navigate: Navigate, slug: string, actionUr
     return;
   }
   if (destination.kind === "incident") {
-    await navigate({ to: "/$slug/production/incidents", params: { slug }, search: { incident: destination.incident, date: destination.date, show: destination.show } });
+    await navigate({ to: "/$slug/production/incidents", params: { slug }, search: { incident: destination.incident, date: destination.date, show: destination.show, report: undefined } });
     return;
   }
   if (destination.kind === "schedule") {

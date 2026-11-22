@@ -117,3 +117,38 @@ it("preserves date-only mobile incident discussion without crossing into a show 
  expect(await env.DB.prepare("SELECT id FROM incident WHERE orgId=? AND id=?").bind(f.orgId,laterId).first()).not.toBeNull();
  expect(incidentWriteSchema.safeParse({...f.report,showId:null}).success).toBe(false);
 });
+it("updates detail fields once, records resolution, and refuses a stale revision",async()=>{
+ const f=await fixture();notifications.mockClear();
+ let [row]=(await f.snapshot()).incidents;
+ const update=f.request({kind:"update",id:row.id,snapshot:row.deleteSnapshot,changes:{category:"Network",severity:"critical",status:"resolved",resolutionNote:"Replaced the XLR at stage left."}});
+ expect((await mutateIncident({data:update})).outcome).toBe("applied");expect((await mutateIncident({data:update})).outcome).toBe("applied");
+ [row]=(await f.snapshot()).incidents;
+ expect(row).toMatchObject({category:"Network",severity:"critical",status:"resolved",resolutionNote:"Replaced the XLR at stage left."});
+ const stored=await env.DB.prepare("SELECT resolvedAt,resolvedBy FROM incident WHERE orgId=? AND id=?").bind(f.orgId,row.id).first<{resolvedAt:string|null;resolvedBy:string|null}>();
+ expect(stored?.resolvedAt).toBeTruthy();expect(stored?.resolvedBy).toBe(f.userId);
+ expect(notifications).toHaveBeenCalledOnce();expect(notifications.mock.calls[0][0]).toMatchObject({type:"incident-resolved"});
+ // The first revision no longer matches, so a late copy of an older edit cannot overwrite this one.
+ expect((await mutateIncident({data:f.request({kind:"update",id:row.id,snapshot:update.operation.kind==="update"?update.operation.snapshot:"",changes:{severity:"low"}})})).outcome).toBe("conflict");
+ expect((await f.snapshot()).incidents[0].severity).toBe("critical");
+ const reopen=f.request({kind:"update",id:row.id,snapshot:row.deleteSnapshot,changes:{status:"open"}});
+ await mutateIncident({data:reopen});
+ const reopened=await env.DB.prepare("SELECT status,resolvedAt,resolvedBy FROM incident WHERE orgId=? AND id=?").bind(f.orgId,row.id).first();
+ expect(reopened).toMatchObject({status:"open",resolvedAt:null,resolvedBy:null});
+});
+it("assigns only people with incident access and keeps acknowledgement for the same owner",async()=>{
+ const f=await fixture();
+ let [row]=(await f.snapshot()).incidents;
+ await mutateIncident({data:f.request({kind:"update",id:row.id,snapshot:row.deleteSnapshot,changes:{assignedTo:f.userId}})});
+ [row]=(await f.snapshot()).incidents;expect(row.assignedTo).toBe(f.userId);
+ await env.DB.prepare("UPDATE incident SET acknowledgedAt=CURRENT_TIMESTAMP WHERE orgId=? AND id=?").bind(f.orgId,row.id).run();
+ [row]=(await f.snapshot()).incidents;
+ await mutateIncident({data:f.request({kind:"update",id:row.id,snapshot:row.deleteSnapshot,changes:{assignedTo:f.userId,severity:"low"}})});
+ [row]=(await f.snapshot()).incidents;expect(row.acknowledgedAt).toBeTruthy();
+ const stranger=await seedRelayMember(`stranger-${crypto.randomUUID()}`);
+ await expect(mutateIncident({data:f.request({kind:"update",id:row.id,snapshot:row.deleteSnapshot,changes:{assignedTo:stranger.userId}})})).rejects.toThrow("can't take incidents");
+ await mutateIncident({data:f.request({kind:"update",id:row.id,snapshot:row.deleteSnapshot,changes:{assignedTo:null}})});
+ [row]=(await f.snapshot()).incidents;expect(row).toMatchObject({assignedTo:null,assignedName:"",acknowledgedAt:null});
+});
+it("rejects an empty update",()=>{
+ expect(incidentWriteSchema.safeParse({orgId:"org",showId:"show",serviceDate:date,requestId:crypto.randomUUID(),operation:{kind:"update",id:"incident",snapshot:"s",changes:{}}}).success).toBe(false);
+});

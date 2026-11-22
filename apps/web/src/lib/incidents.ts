@@ -2,9 +2,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getD1 } from "./d1";
 import { assertOrgPermission } from "./org-access";
+import { accessHasAnyPermission } from "./effective-access";
 import { idSchema, parseOrThrow, serviceDateSchema } from "./validation";
 import { incidentWriteSchema, incidentRowSchema, incidentCommentSchema, incidentReactionSchema } from "./incident-writes";
 import { applyIncidentWrite, incidentDeleteSnapshotSql } from "./incident-writes.server";
+import { resolveIncidentResponders } from "./incident-responders.server";
 
 export const getIncidentSnapshot = createServerFn({ method: "GET" })
   .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema, showId: idSchema.nullable(), serviceDate: serviceDateSchema }), value))
@@ -15,7 +17,7 @@ export const getIncidentSnapshot = createServerFn({ method: "GET" })
     // One transaction gives the page a consistent incident/discussion/reaction
     // snapshot, with no caller-supplied target list or SQL parameter limit.
     const rows = await db.batch([
-      db.prepare(`SELECT i.id, i.category, i.severity, i.description, i.reportedBy, strftime('%Y-%m-%dT%H:%M:%fZ', i.timestamp) AS timestamp, i.status, i.assignedTo, i.assignedName, strftime('%Y-%m-%dT%H:%M:%fZ', i.acknowledgedAt) AS acknowledgedAt, ${incidentDeleteSnapshotSql} AS deleteSnapshot FROM incident i WHERE ${where} ORDER BY i.timestamp DESC, i.id`).bind(...scope),
+      db.prepare(`SELECT i.id, i.category, i.severity, i.description, i.reportedBy, strftime('%Y-%m-%dT%H:%M:%fZ', i.timestamp) AS timestamp, i.status, i.assignedTo, i.assignedName, strftime('%Y-%m-%dT%H:%M:%fZ', i.acknowledgedAt) AS acknowledgedAt, i.resolutionNote, ${incidentDeleteSnapshotSql} AS deleteSnapshot FROM incident i WHERE ${where} ORDER BY i.timestamp DESC, i.id`).bind(...scope),
       db.prepare(`SELECT c.id, c.incidentId, c.userId, c.authorName, c.body, c.parentId, strftime('%Y-%m-%dT%H:%M:%fZ', c.createdAt) AS createdAt FROM incident_comment c JOIN incident i ON i.id=c.incidentId AND i.orgId=c.orgId WHERE ${where} ORDER BY c.createdAt, c.id`).bind(...scope),
       db.prepare(`SELECT r.id, r.targetId, r.userId, r.authorName, r.emoji, strftime('%Y-%m-%dT%H:%M:%fZ', r.createdAt) AS createdAt FROM content_reaction r JOIN incident_comment c ON c.id=r.targetId AND c.orgId=r.orgId JOIN incident i ON i.id=c.incidentId AND i.orgId=c.orgId WHERE ${where} AND r.targetType='incident-comment' ORDER BY r.createdAt, r.id`).bind(...scope),
     ]);
@@ -30,11 +32,45 @@ export const getIncidentSnapshot = createServerFn({ method: "GET" })
 export const mutateIncident = createServerFn({ method: "POST" })
   .inputValidator((value: unknown) => parseOrThrow(incidentWriteSchema, value))
   .handler(async ({ data }) => {
-    const { user } = await assertOrgPermission(data.orgId, data.operation.kind === "delete" ? "incidents:access" : ["incidents:report", "incidents:access"]);
+    // Removing or editing an incident is incident management; reporting and discussing need either permission.
+    const { user } = await assertOrgPermission(data.orgId, data.operation.kind === "delete" || data.operation.kind === "update" ? "incidents:access" : ["incidents:report", "incidents:access"]);
     const { result, notification } = await applyIncidentWrite(getD1(), data, user);
     if (notification) {
       const { scheduleIncidentNotification } = await import("./incident-notification.server");
       scheduleIncidentNotification(notification);
     }
     return result;
+  });
+
+/**
+ * One incident with its discussion, for the detail page. Only a row id is
+ * supplied, so the query is scoped by the caller's org before anything is read.
+ * Assignable people are returned only to callers who can manage incidents.
+ */
+export const getIncidentDetail = createServerFn({ method: "GET" })
+  .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema, incidentId: idSchema }), value))
+  .handler(async ({ data }) => {
+    const { user, access } = await assertOrgPermission(data.orgId, ["incidents:report", "incidents:access"]);
+    const canManage = accessHasAnyPermission(access, ["incidents:access"]);
+    const db = getD1(), scope = [data.orgId, data.incidentId];
+    const rows = await db.batch([
+      db.prepare(`SELECT i.id, i.showId, i.serviceDate, COALESCE(r.name, '') AS showName, i.category, i.severity, i.description, i.reportedBy, strftime('%Y-%m-%dT%H:%M:%fZ', i.timestamp) AS timestamp, i.status, i.assignedTo, i.assignedName, strftime('%Y-%m-%dT%H:%M:%fZ', i.acknowledgedAt) AS acknowledgedAt, i.resolutionNote, ${incidentDeleteSnapshotSql} AS deleteSnapshot
+        FROM incident i LEFT JOIN rundown r ON r.id = i.showId AND r.orgId = i.orgId WHERE i.orgId = ? AND i.id = ?`).bind(...scope),
+      db.prepare(`SELECT c.id, c.incidentId, c.userId, c.authorName, c.body, c.parentId, strftime('%Y-%m-%dT%H:%M:%fZ', c.createdAt) AS createdAt FROM incident_comment c WHERE c.orgId = ? AND c.incidentId = ? ORDER BY c.createdAt, c.id`).bind(...scope),
+      db.prepare(`SELECT r.id, r.targetId, r.userId, r.authorName, r.emoji, strftime('%Y-%m-%dT%H:%M:%fZ', r.createdAt) AS createdAt FROM content_reaction r JOIN incident_comment c ON c.id = r.targetId AND c.orgId = r.orgId WHERE r.orgId = ? AND c.incidentId = ? AND r.targetType = 'incident-comment' ORDER BY r.createdAt, r.id`).bind(...scope),
+    ]);
+    const incident = z.array(incidentRowSchema.extend({ showId: z.string().nullable(), serviceDate: z.string(), showName: z.string() })).parse(rows[0].results)[0] ?? null;
+    const comments = z.array(incidentCommentSchema).parse(rows[1].results);
+    const reactions = z.array(incidentReactionSchema).parse(rows[2].results);
+    const responders = canManage ? await resolveIncidentResponders(data.orgId, new Date().toISOString().slice(0, 10), db) : [];
+    return { incident, comments, reactions, responders, canManage, viewerId: user.id };
+  });
+
+/** Incident counts per show, for the Shows rail ("No incidents", "2 incidents"). */
+export const getIncidentCountsByShow = createServerFn({ method: "GET" })
+  .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema }), value))
+  .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, ["incidents:report", "incidents:access"]);
+    const rows = await getD1().prepare("SELECT showId, COUNT(*) AS count FROM incident WHERE orgId = ? AND showId IS NOT NULL GROUP BY showId").bind(data.orgId).all<{ showId: string; count: number }>();
+    return Object.fromEntries((rows.results ?? []).map(row => [row.showId, Number(row.count)])) as Record<string, number>;
   });
