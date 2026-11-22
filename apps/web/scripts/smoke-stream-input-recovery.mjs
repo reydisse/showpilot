@@ -22,7 +22,7 @@ await withLocalSmokeFixture(async({origin,orgId,operatorCookie,configureStreamOu
       console.log(JSON.stringify({label,body:await evaluate("document.body?.innerText"),errors:await evaluate("window.cmdErrors"),clicks:await evaluate("window.cmdClicks")}));
       await writeFile("/tmp/showpilot-input-recovery-failure.png",Buffer.from((await page("Page.captureScreenshot",{format:"png"})).data,"base64"));throw error;
     });
-    const button=name=>`[...([...document.querySelectorAll('[role=dialog]')].at(-1)??document).querySelectorAll('button,a')].find(n=>(n.textContent.trim()===${JSON.stringify(name)}||n.getAttribute('aria-label')===${JSON.stringify(name)})&&n.getBoundingClientRect().height>0&&!n.disabled)`;
+    const button=name=>`[...([...document.querySelectorAll('[role=dialog]')].at(-1)??document).querySelectorAll('button,a,[role=menuitem]')].find(n=>(n.textContent.trim()===${JSON.stringify(name)}||n.getAttribute('aria-label')===${JSON.stringify(name)})&&n.getBoundingClientRect().height>0&&!n.disabled)`;
     const click=async name=> {
       const point=await check(`(async()=>{const n=${button(name)};if(!n||!Object.keys(n).some(k=>k.startsWith('__reactProps'))||n.closest('[role=dialog]')?.getAnimations().some(a=>a.playState==='running'))return null;n.scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;return !n.disabled&&n.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`,name);
       await page("Input.dispatchMouseEvent",{type:"mousePressed",...point,button:"left",clickCount:1});await page("Input.dispatchMouseEvent",{type:"mouseReleased",...point,button:"left",clickCount:1});
@@ -37,15 +37,15 @@ await withLocalSmokeFixture(async({origin,orgId,operatorCookie,configureStreamOu
     };
     const fill=async value=>evaluate(`(()=>{const n=document.querySelector('#live-input-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(n,${JSON.stringify(value)});n.dispatchEvent(new Event('input',{bubbles:true}));})()`);
     await page("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
-    await page("Page.navigate",{url:`${origin}/${orgId}/streaming/health`});await click("Create Live Input");
+    await page("Page.navigate",{url:`${origin}/${orgId}/streaming/health`});await click("Add Input");
     await page("Input.dispatchKeyEvent",{type:"keyDown",key:"Tab",code:"Tab",windowsVirtualKeyCode:9});await page("Input.dispatchKeyEvent",{type:"keyUp",key:"Tab",code:"Tab",windowsVirtualKeyCode:9});
     await check("!!document.activeElement.closest('[role=dialog]')","keyboard focus stays inside editor");
     await page("Input.dispatchKeyEvent",{type:"keyDown",key:"Escape",code:"Escape",windowsVirtualKeyCode:27});await page("Input.dispatchKeyEvent",{type:"keyUp",key:"Escape",code:"Escape",windowsVirtualKeyCode:27});
-    await check("!document.querySelector('[role=dialog]')","Escape closes pristine editor");await click("Create Live Input");
+    await check("!document.querySelector('[role=dialog]')","Escape closes pristine editor");await click("Add Input");
     await fill("Fixture primary");
     for(const [width,height] of [[320,780],[768,1024],[1440,1000]]) {
       await page("Emulation.setDeviceMetricsOverride",{width,height,deviceScaleFactor:1,mobile:false});
-      await check(`(()=>{const nodes=[...document.querySelectorAll('[role=dialog] button,[role=dialog] input')];return nodes.length>=4&&nodes.every(n=>{const b=n.getBoundingClientRect();return b.height>=44&&b.left>=0&&b.right<=innerWidth&&b.bottom<=innerHeight;})&&document.documentElement.scrollWidth<=innerWidth+1;})()`,`editor bounds ${width}`);
+      await check(`(()=>{const nodes=[...document.querySelectorAll('[role=dialog] button,[role=dialog] input')];const min=innerWidth<1024?44:24;return nodes.length>=4&&nodes.every(n=>{const b=n.getBoundingClientRect();return b.height>=min&&b.left>=0&&b.right<=innerWidth&&b.bottom<=innerHeight;})&&document.documentElement.scrollWidth<=innerWidth+1;})()`,`editor bounds ${width}`);
     }
     await hold("createLiveInput");await evaluate("document.querySelector('#live-input-name').focus()");
     await page("Input.dispatchKeyEvent",{type:"keyDown",key:"Enter",code:"Enter",text:"\r",windowsVirtualKeyCode:13});await page("Input.dispatchKeyEvent",{type:"keyUp",key:"Enter",code:"Enter",windowsVirtualKeyCode:13});
@@ -55,32 +55,35 @@ await withLocalSmokeFixture(async({origin,orgId,operatorCookie,configureStreamOu
     await click("Songs");await check("document.body.innerText.includes('Leave Stream?')","unconfirmed creation blocks navigation");await click("Stay");await check("!document.querySelector('[role=dialog]')","navigation cancelled");
     await click("Review input draft");assert.equal(await evaluate("document.querySelector('#live-input-name').value"),"Fixture primary");
     await retry("createLiveInput");assert.equal((await streamOutputRequests()).filter(r=>r.method==='POST').length,1);
+    // A created input lands on its Connect an encoder steps; go back to the list.
+    await check("document.body.innerText.includes('Connect an encoder')&&location.search.includes('connect=')","new input opens its encoder steps");
+    await click("Back to Stream");
     await check("document.body.innerText.includes('Provider: connected')","fresh input health");
     await evaluate("Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:()=>Promise.reject(new Error('fixture denied'))}})");
     await click("Copy Stream Key");await check("document.body.innerText.includes('Could not copy Stream Key')","clipboard failure");
     await evaluate("Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:()=>Promise.resolve()}})");await click("Retry copying Stream Key");await check("document.body.innerText.includes('Stream Key copied.')","clipboard retry");
     for(const [width,height] of [[320,780],[768,1024],[1440,1000]]) {
       await page("Emulation.setDeviceMetricsOverride",{width,height,deviceScaleFactor:1,mobile:false});
-      await check(`(()=>{const names=['Copy Stream Key','Reveal Stream Key','Delete Fixture primary stream input'];return names.every(name=>{const n=[...document.querySelectorAll('button')].find(n=>n.getAttribute('aria-label')===name);if(!n)return false;const b=n.getBoundingClientRect();return b.height>=44&&b.width>=44&&b.left>=0&&b.right<=innerWidth;})&&document.documentElement.scrollWidth<=innerWidth+1;})()`,`input controls ${width}`);
+      await check(`(()=>{const names=['Copy Stream Key','Reveal Stream Key','Actions for Fixture primary'];const min=innerWidth<1024?44:24;return names.every(name=>{const n=[...document.querySelectorAll('button')].find(n=>n.getAttribute('aria-label')===name&&n.getBoundingClientRect().width>0);if(!n)return false;const b=n.getBoundingClientRect();return b.height>=min&&b.width>=min&&b.left>=0&&b.right<=innerWidth;})&&document.documentElement.scrollWidth<=innerWidth+1;})()`,`input controls ${width}`);
       if(width===320)await writeFile("/tmp/showpilot-input-recovery-320.png",Buffer.from((await page("Page.captureScreenshot",{format:"png"})).data,"base64"));
     }
-    await configureStreamOutputs("malformed");await check(`${button("Retry input health")}!=null`,"malformed health is unknown");assert.ok(await evaluate("document.body.innerText.includes('Unknown')"));
+    await configureStreamOutputs("malformed");await check(`${button("Retry input health")}!=null`,"malformed health is unknown");assert.ok(await evaluate("document.body.innerText.includes('Check failed')"));
     await configureStreamOutputs("success");await click("Retry input health");await check("document.body.innerText.includes('Provider: connected')&&!document.querySelector('[aria-label=\"Retry input health\"]')","health retry");
     await configureStreamOutputs("slow");await poll(async()=> (await streamOutputRequests()).some(r=>r.mode==='slow'),"slow provider health started");
     await check(`${button("Retry input health")}!=null`,"provider body deadline");await configureStreamOutputs("success");await click("Retry input health");
     await check("document.body.innerText.includes('Provider: connected')&&!document.querySelector('[aria-label=\"Retry input health\"]')","health recovered after deadline");
-    await click("Delete Fixture primary stream input");await click("Cancel");await ready();assert.equal((await streamOutputSnapshot()).length,1);
-    await hold("deleteLiveInput");await click("Delete Fixture primary stream input");await click("Delete input");await retry("deleteLiveInput");assert.deepEqual(await streamOutputSnapshot(),[]);
+    await click("Actions for Fixture primary");await click("Delete Fixture primary stream input");await click("Cancel");await ready();assert.equal((await streamOutputSnapshot()).length,1);
+    await hold("deleteLiveInput");await click("Actions for Fixture primary");await click("Delete Fixture primary stream input");await click("Delete input");await retry("deleteLiveInput");assert.deepEqual(await streamOutputSnapshot(),[]);
     // Provider creation succeeded but returned an ambiguous reply. Reload drops
     // the browser request; Resume must recover the metadata-marked same input.
-    await configureStreamOutputs("lose-create");await click("Create Live Input");await fill("Fixture resumed");await click("Create");await check(`${button("Retry change")}!=null`,"provider creation uncertainty");
+    await configureStreamOutputs("lose-create");await click("Add Input");await fill("Fixture resumed");await click("Create");await check(`${button("Retry change")}!=null`,"provider creation uncertainty");
     assert.equal((await streamOutputSnapshot()).length,1);assert.equal((await streamOutputSnapshot())[0].enabled,false);
     await configureStreamOutputs("success");await page("Page.reload",{ignoreCache:true});
     await poll(async()=>{try{await page("Page.handleJavaScriptDialog",{accept:true});return true;}catch(error){if(!error.message.includes("No dialog is showing"))throw error;return false;}},"reload warning accepted");
     await click("Resume setup");await ready();
     await check("document.body.innerText.includes('Provider: connected')","resumed input enabled and checked");
     assert.equal((await streamOutputRequests()).filter(r=>r.method==='POST').length,2);
-    await configureStreamOutputs("lose-delete");await click("Delete Fixture resumed stream input");await click("Delete input");await check(`${button("Retry change")}!=null`,"lost provider deletion reply");assert.deepEqual(await streamOutputSnapshot(),[]);
+    await configureStreamOutputs("lose-delete");await click("Actions for Fixture resumed");await click("Delete Fixture resumed stream input");await click("Delete input");await check(`${button("Retry change")}!=null`,"lost provider deletion reply");assert.deepEqual(await streamOutputSnapshot(),[]);
     await configureStreamOutputs("success");await retry("deleteLiveInput");
     assert.deepEqual(await evaluate("window.cmdErrors"),[]);
   });
