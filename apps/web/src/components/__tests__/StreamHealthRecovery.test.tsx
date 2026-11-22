@@ -34,12 +34,14 @@ it("retries only the list after acknowledged creation and never repeats the writ
  fireEvent.click(screen.getByRole("button",{name:"Retry refresh"}));await settle();expect(api.create).toHaveBeenCalledTimes(1);expect(screen.queryByRole("dialog")).toBeNull();
 });
 
+// Delete lives in the input's actions menu.
+const openDelete=async()=>{const trigger=screen.getAllByRole("button",{name:"Actions for Fixture input"})[0];fireEvent.pointerDown(trigger,{button:0,ctrlKey:false,pointerType:"mouse"});await settle();fireEvent.click(screen.getByRole("menuitem",{name:"Delete Fixture input stream input"}));await settle();};
 it("requires deletion confirmation and retains the same deletion request on Retry",async()=>{
  api.remove.mockRejectedValueOnce(new Error("Lost reply")).mockResolvedValueOnce(undefined);mount();await settle();
- fireEvent.click(screen.getByRole("button",{name:"Delete Fixture input stream input"}));await settle();
+ await openDelete();
  expect(screen.getByRole("dialog").textContent).toContain("Delete Fixture input?");expect(api.remove).not.toHaveBeenCalled();
  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button",{name:"Cancel"}));await settle();expect(api.remove).not.toHaveBeenCalled();
- fireEvent.click(screen.getByRole("button",{name:"Delete Fixture input stream input"}));await settle();
+ await openDelete();
  fireEvent.click(within(screen.getByRole("dialog")).getByRole("button",{name:"Delete input"}));await settle();const sent=api.remove.mock.calls[0][0].data;
  fireEvent.click(screen.getByRole("button",{name:"Retry change"}));await settle();expect(api.remove.mock.calls[1][0].data).toEqual(sent);
 });
@@ -51,11 +53,11 @@ it("offers Resume for setup left pending after reload",async()=>{
 });
 
 it("bounds health reads, retains last confirmed values and ignores their late replies",async()=>{
- vi.useFakeTimers();mount();await settle();expect(screen.getByText("Streaming")).toBeTruthy();
+ vi.useFakeTimers();mount();await settle();expect(screen.getAllByText("LIVE").length).toBeGreaterThan(0);
  let release:(value:unknown)=>void=()=>{};api.health.mockReturnValueOnce(new Promise(resolve=>{release=resolve;}));
- await act(()=>vi.advanceTimersByTimeAsync(18_001));expect(screen.getByRole("alert",{name:"Retry input health"})).toBeTruthy();expect(screen.queryByText("Streaming")).toBeNull();expect(screen.queryByText(/Last confirmed:/)).toBeNull();
+ await act(()=>vi.advanceTimersByTimeAsync(18_001));expect(screen.getByRole("button",{name:"Retry input health"})).toBeTruthy();expect(screen.queryByText("LIVE")).toBeNull();expect(screen.queryByText(/Last confirmed:/)).toBeNull();
  api.health.mockResolvedValue({inputId:row.id,status:"idle",providerStatus:"client_disconnect",checkedAt:new Date().toISOString()});fireEvent.click(screen.getByRole("button",{name:"Retry input health"}));await settle();
- await act(async()=>release({inputId:row.id,status:"streaming",providerStatus:"connected",checkedAt:new Date().toISOString()}));expect(screen.getByText("Idle")).toBeTruthy();expect(screen.queryByText("Streaming")).toBeNull();
+ await act(async()=>release({inputId:row.id,status:"streaming",providerStatus:"connected",checkedAt:new Date().toISOString()}));expect(screen.getAllByText("Not connected").length).toBeGreaterThan(0);expect(screen.queryByText("LIVE")).toBeNull();
 });
 
 it("never reports cached input state or hardcoded Online as fresh TM telemetry",async()=>{

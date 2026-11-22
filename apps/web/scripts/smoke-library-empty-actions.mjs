@@ -38,7 +38,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie }) => {
 
     const routes = [
       { path: "songs", empty: "Build your first lyrics cue map", actions: ["Import from ProPresenter", "New song"], primary: "Import from ProPresenter", form: '[role="dialog"]', close: "Close import" },
-      { path: "streaming/health", empty: "No live inputs configured", actions: ["Add Input", "Create Live Input"], primary: "Create Live Input", form: '[aria-label="Close live input editor"]', close: "Close live input editor" },
+      { path: "streaming/health", empty: "No live inputs yet", actions: ["Add Input"], primary: "Add Input", form: '[aria-label="Close live input editor"]', close: "Close live input editor" },
       { path: "streaming/graphics", empty: "No graphics yet", actions: ["New Graphic", "Create first graphic"], primary: "Create first graphic", form: '[aria-label="Close graphic editor"]', close: "Close graphic editor" },
       { path: "dashboard/audio", empty: "No channels assigned", actions: ["Add Channel", "Add First Channel"], primary: "Add First Channel", form: 'form', close: "Cancel" },
       { path: "dashboard/devices", empty: "No devices registered", actions: ["Add Device", "Add First Device"], primary: "Add Device", form: '#device-name', close: "Cancel" },
