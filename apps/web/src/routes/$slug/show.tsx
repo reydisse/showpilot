@@ -1,8 +1,7 @@
-import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
 import {
@@ -20,9 +19,9 @@ import {
   Pause,
   Square,
   Radio,
-  WifiOff,
   LayoutGrid,
   ChevronDown,
+  Check,
 } from "lucide-react";
 import { getCrewMembers } from "@/lib/data";
 import {
@@ -40,7 +39,6 @@ import {
 import {
   getTodayDateString,
   formatTime,
-  formatClockFull,
   type ClockFormat,
 } from "@/lib/utils";
 import { useRundownSync } from "@/hooks/useRundownSync";
@@ -51,7 +49,22 @@ import {
   getChatMembers,
   type ChatMemberSummary,
 } from "@/lib/chat-collaboration";
-import { ShowPageTabs } from "@/components/ui/ShowPageTabs";
+import {
+  computeShowPlan,
+  dayTime,
+  hoursClock,
+  minutesClock,
+  behindLabel,
+  LayoutThumb,
+  NoRundownCard,
+  OfflineBanner,
+  RundownCard,
+  ShowFlowHeader,
+  TimerCard,
+  type HeaderStat,
+  type StatusPillState,
+  type TimerCardModel,
+} from "@/components/show/show-flow-a";
 import { FirstSessionChecklist } from "@/components/onboarding/FirstSessionChecklist";
 import type { OntimeRuntimeState } from "@/types/ontime";
 import type {
@@ -62,27 +75,7 @@ import type {
 
 // ─── Helpers ─────────────────────────────────────────────────
 
-function formatDuration(ms: number): string {
-  const negative = ms < 0;
-  const abs = Math.abs(ms);
-  const totalSeconds = Math.floor(abs / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const prefix = negative ? "-" : "";
-  if (hours > 0)
-    return `${prefix}${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-  return `${prefix}${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
 
-type ItemType =
-  | "segment"
-  | "song"
-  | "prayer"
-  | "announcement"
-  | "offering"
-  | "custom"
-  | "header";
 type ShowTab = "show" | "chat" | "rundown";
 type ShowLayoutPreset =
   | "balanced"
@@ -98,21 +91,12 @@ const SHOW_LAYOUT_PRESETS: Array<{
   left: number;
   top: number;
 }> = [
-  { id: "balanced", label: "Default", description: "Timer, chat and rundown together", left: 40, top: 45 },
+  { id: "balanced", label: "Default", description: "Timer, chat and rundown together", left: 60, top: 42 },
   { id: "show-focus", label: "Timer focus", description: "More space for the timer", left: 62, top: 70 },
   { id: "chat-focus", label: "Chat focus", description: "More space for team messages", left: 62, top: 24 },
   { id: "rundown-focus", label: "Rundown focus", description: "More space for the rundown", left: 25, top: 50 },
 ];
 
-const TYPE_COLORS: Record<ItemType, string> = {
-  header: "bg-board-muted",
-  segment: "bg-blue-500",
-  song: "bg-purple-500",
-  prayer: "bg-pink-500",
-  announcement: "bg-yellow-500",
-  offering: "bg-green-500",
-  custom: "bg-board-muted",
-};
 
 function useLiveNow(initialNow: number): number {
   const [now, setNow] = useState(initialNow);
@@ -251,6 +235,7 @@ function ChatPanel({
   userId,
   mentionMembers,
   liveStatus,
+  onlineLabel,
 }: {
   orgId: string;
   userName: string;
@@ -258,6 +243,8 @@ function ChatPanel({
   userId: string;
   mentionMembers: ChatMemberSummary[];
   liveStatus?: string | null;
+  /** "Rey Disse online" / "3 online", shown in the chat header. */
+  onlineLabel?: string;
 }) {
   const {
     messages,
@@ -326,7 +313,7 @@ function ChatPanel({
         typingUsers={typingUsers}
         onTypingChange={setTyping}
         title="Production Chat"
-        subtitle={userName}
+        subtitle={onlineLabel || userName}
         currentUserName={userName}
         currentUserId={userId}
         mentionMembers={mentionMembers.filter(
@@ -424,23 +411,25 @@ function ShowPage() {
 function ShowPageLayout({
   activeTab,
   onTabChange,
-  statusClock,
-  statusNode,
+  header,
   showPanel,
   chatPanel,
   rundownPanel,
-  crewPanel,
   notices,
+  rundownCount,
+  empty = false,
 }: {
   activeTab: ShowTab;
   onTabChange: (tab: ShowTab) => void;
-  statusClock: string;
-  statusNode: ReactNode;
-  showPanel: ReactNode;
+  header: { dateLine: string; title: string; stats: HeaderStat[]; clock: string; status: StatusPillState };
+  /** `wide` is true in the desktop grid (container ≥ 64rem), where layout presets apply. */
+  showPanel: (layout: ShowLayoutPreset, wide: boolean) => ReactNode;
   chatPanel: ReactNode;
   rundownPanel: ReactNode;
-  crewPanel?: ReactNode;
   notices?: ReactNode;
+  rundownCount?: number;
+  /** No rundown attached: the timer slot shows the empty state and the rundown column is hidden. */
+  empty?: boolean;
 }) {
   const STORAGE_LEFT_WIDTH = "show-page-left-width";
   const STORAGE_TOP_HEIGHT = "show-page-top-height";
@@ -462,10 +451,19 @@ function ShowPageLayout({
     window.localStorage.setItem(STORAGE_LAYOUT_PRESET, "balanced");
     window.localStorage.setItem(STORAGE_LAYOUT_VERSION, CURRENT_LAYOUT_VERSION);
     setLayoutPreset("balanced");
-    applyStoredLayout(40, 45);
+    applyStoredLayout(60, 42);
   };
 
   const panelsRef = useRef<HTMLDivElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => setWide(entry.contentRect.width >= 1024));
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
   const moveListenerRef = useRef<(event: PointerEvent) => void>(() => {});
   const upListenerRef = useRef<(event: PointerEvent) => void>(() => {});
   const resizeRef = useRef<{
@@ -490,11 +488,11 @@ function ShowPageLayout({
     source: null,
   });
 
-  const leftWidthRef = useRef(40);
-  const topHeightRef = useRef(45);
+  const leftWidthRef = useRef(60);
+  const topHeightRef = useRef(42);
 
-  const [leftWidthPercent, setLeftWidthPercent] = useState(40);
-  const [topHeightPercent, setTopHeightPercent] = useState(45);
+  const [leftWidthPercent, setLeftWidthPercent] = useState(60);
+  const [topHeightPercent, setTopHeightPercent] = useState(42);
   const [layoutPreset, setLayoutPreset] =
     useState<ShowLayoutPreset>("balanced");
 
@@ -518,6 +516,13 @@ function ShowPageLayout({
       STORAGE_LAYOUT_PRESET,
     ) as ShowLayoutPreset | null;
 
+    // A named preset always uses its own proportions; only Custom keeps saved numbers.
+    const presetValues = SHOW_LAYOUT_PRESETS.find((preset) => preset.id === savedPreset);
+    if (presetValues) {
+      applyStoredLayout(presetValues.left, presetValues.top);
+      setLayoutPreset(presetValues.id);
+      return;
+    }
     if (Number.isFinite(savedLeft) && savedLeft >= 24 && savedLeft <= 72) {
       setLeftWidthPercent(savedLeft);
     }
@@ -668,61 +673,70 @@ function ShowPageLayout({
     };
   }, []);
 
-  return (
-    <div className="flex h-full min-h-0 flex-col overflow-x-hidden overflow-y-auto">
-      <div className="max-h-[40dvh] shrink-0 overflow-y-auto">{notices}</div>
-      <div className="show-page-root flex-1" style={{ height: "auto", minHeight: "min(24rem, 60dvh)" }} data-show-tab={activeTab}>
-        <div className="show-page-shell">
-          <header className="show-page-header">
-            <h1 className="text-sm font-medium text-board-text/70">
-              Show Flow
-            </h1>
-            <div className="flex items-center gap-2 sm:gap-4">
-              <div className="hidden sm:block">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className="flex min-h-11 items-center gap-1.5 rounded-md border border-board-border bg-board-card px-2.5 py-1.5 text-xs font-medium text-board-muted transition-colors hover:text-board-text focus-visible:outline-2 focus-visible:outline-fire-500"
-                    >
-                      <LayoutGrid className="h-3.5 w-3.5" />
-                      <span>
-                        Layout:{" "}
-                        {layoutPreset === "custom"
-                          ? "Custom"
-                          : SHOW_LAYOUT_PRESETS.find(
-                              (preset) => preset.id === layoutPreset,
-                            )?.label}
-                      </span>
-                      <ChevronDown className="h-3 w-3" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" aria-label="Panel layout" className="w-72 max-w-[calc(100vw-2rem)] border-board-border bg-board-card text-board-text">
-                    <DropdownMenuRadioGroup value={layoutPreset} onValueChange={value => {
-                      const preset = SHOW_LAYOUT_PRESETS.find(preset => preset.id === value);
-                      if (preset) chooseLayout(preset);
-                    }}>
-                      {SHOW_LAYOUT_PRESETS.map((preset) => (
-                        <DropdownMenuRadioItem
-                          key={preset.id}
-                          value={preset.id}
-                          className="min-h-11 py-2 focus:bg-board-border/50 focus:text-board-text"
-                        >
-                          <span><span className="block text-sm font-medium">{preset.label}</span><span className="block text-xs text-board-muted">{preset.description}</span></span>
-                        </DropdownMenuRadioItem>
-                      ))}
-                    </DropdownMenuRadioGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-              <span className="text-xs text-board-muted tabular-nums">
-                {statusClock}
-              </span>
-              {statusNode}
-            </div>
-          </header>
+  const layoutLabel = layoutPreset === "custom"
+    ? "Custom"
+    : SHOW_LAYOUT_PRESETS.find((preset) => preset.id === layoutPreset)?.label;
+  const layoutMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex h-9 min-w-[176px] items-center gap-2 rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-3 text-left text-[13px] text-board-text hover:bg-[var(--sa-surface-3)] focus-visible:outline-2 focus-visible:outline-fire-500"
+        >
+          <LayoutGrid className="h-3.5 w-3.5 shrink-0 text-[var(--sa-ink-3)]" />
+          <span className="min-w-0 flex-1 whitespace-nowrap">Layout: {layoutLabel}</span>
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--sa-ink-3)]" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" aria-label="Panel layout" className="schedule-a w-[340px] max-w-[calc(100vw-2rem)] rounded-xl border-[var(--sa-border-strong)] bg-[var(--sa-surface)] p-2 text-board-text">
+        <p className="px-2 pb-2 pt-1 text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--sa-ink-3)]">Layout</p>
+        <DropdownMenuRadioGroup value={layoutPreset} onValueChange={value => {
+          const preset = SHOW_LAYOUT_PRESETS.find(preset => preset.id === value);
+          if (preset) chooseLayout(preset);
+        }}>
+          {SHOW_LAYOUT_PRESETS.map((preset) => (
+            <DropdownMenuRadioItem
+              key={preset.id}
+              value={preset.id}
+              className="flex items-center gap-3 rounded-lg p-2 focus:bg-[var(--sa-surface-2)] focus:text-board-text data-[state=checked]:bg-[var(--sa-surface-2)] [&>span:first-child]:hidden"
+            >
+              <LayoutThumb shape={preset.id} active={layoutPreset === preset.id} />
+              <span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold">{preset.label}</span><span className="block text-xs text-[var(--sa-ink-3)]">{preset.description}</span></span>
+              {layoutPreset === preset.id ? <Check className="h-3.5 w-3.5 shrink-0 text-fire-500" /> : null}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        <div className="my-1.5 h-px bg-[var(--sa-border)]" />
+        <div className={`flex items-center gap-3 rounded-lg p-2 ${layoutPreset === "custom" ? "bg-[var(--sa-surface-2)]" : ""}`}>
+          <LayoutThumb shape="custom" active={layoutPreset === "custom"} />
+          <span className="min-w-0 flex-1"><span className="block text-[13px] font-semibold">Custom</span><span className="block text-xs text-[var(--sa-ink-3)]">{layoutPreset === "custom" ? "Your current arrangement" : "Drag a divider to arrange your own"}</span></span>
+          {layoutPreset === "custom" ? <Check className="h-3.5 w-3.5 text-fire-500" /> : null}
+        </div>
+        <div className="flex justify-end px-1 pb-0.5 pt-1.5">
+          <button type="button" onClick={resetStoredLayout} className="rounded-md px-2 py-1 text-xs text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)] hover:text-board-text">Reset to default</button>
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+  const tabs: Array<{ id: Exclude<ShowTab, "show">; label: string; count?: string }> = [
+    { id: "rundown", label: "Rundown", count: rundownCount ? String(rundownCount) : undefined },
+    { id: "chat", label: "Chat" },
+  ];
+  const visibleTab = activeTab === "show" ? "rundown" : activeTab;
 
-          <ShowPageTabs activeTab={activeTab} onChange={onTabChange} />
+  return (
+    <div className="schedule-a flex h-full min-h-0 flex-col overflow-x-hidden overflow-y-auto bg-board-bg">
+      <div
+        ref={rootRef}
+        className="show-page-root flex-1"
+        style={{ height: "auto", minHeight: "min(24rem, 60dvh)" }}
+        data-show-tab={visibleTab}
+        data-layout={layoutPreset}
+        data-empty={empty ? "true" : undefined}
+      >
+        <div className="show-page-shell">
+          <ShowFlowHeader {...header} layoutMenu={layoutMenu} />
+          <div className="flex max-h-[40dvh] shrink-0 flex-col gap-2 overflow-y-auto empty:hidden">{notices}</div>
 
           <main
             className="show-page-panels"
@@ -739,8 +753,23 @@ function ShowPageLayout({
               data-tab="show"
               className="show-page-tab-panel show-page-show-panel"
             >
-              {showPanel}
+              {showPanel(layoutPreset, wide)}
             </section>
+            <div className="show-page-tabs" role="tablist" aria-label="Show sections">
+              {tabs.map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={visibleTab === tab.id}
+                  onClick={() => onTabChange(tab.id)}
+                  className={`-mb-px inline-flex h-11 items-center gap-2 border-b-2 px-2 text-[13px] font-medium ${visibleTab === tab.id ? "border-board-text text-board-text" : "border-transparent text-[var(--sa-ink-2)] hover:text-board-text"}`}
+                >
+                  {tab.label}
+                  {tab.count ? <span className="tabular-nums text-xs text-[var(--sa-ink-3)]">{tab.count}</span> : null}
+                </button>
+              ))}
+            </div>
             <section
               data-tab="chat"
               className="show-page-tab-panel show-page-chat-panel"
@@ -767,10 +796,6 @@ function ShowPageLayout({
               onPointerDown={beginResize("horizontal")}
             />
           </main>
-
-          {crewPanel && (
-            <section className="show-page-crew-strip">{crewPanel}</section>
-          )}
         </div>
       </div>
     </div>
@@ -835,9 +860,9 @@ function ShowPageWithNative({
     stateServiceDate: syncedServiceDate,
     stateShowId: syncedShowId,
     connected: syncConnected,
-    lastError: syncError,
-    lastErrorAt: syncErrorAt,
     retryConnection,
+    serviceName: syncedName,
+    scheduledStartTime: syncedStartTime,
   } = useRundownSync(orgId, syncTarget.serviceDate, syncTarget.showId, "show");
 
   const relayMatchesTarget =
@@ -896,26 +921,6 @@ function ShowPageWithNative({
 
   const currentItem = items.find((i) => i.id === timer.currentItemId);
   const nextItem = nextPlayableItem(items, timer.currentItemId);
-  const remaining =
-    currentItem && timer.mode === "count-down"
-      ? currentItem.duration -
-        (timer.playback === "pause" && timer.startedAt === null
-          ? timer.elapsed
-          : displayTime)
-      : 0;
-  const isOvertime = timer.mode === "count-down" && remaining < 0;
-  const timerDisplay = currentItem
-    ? timer.mode === "clock"
-      ? formatClockFull(new Date(displayTime), clockFormat, timeZone)
-      : timer.mode === "count-down"
-        ? formatDuration(remaining)
-        : formatDuration(displayTime)
-    : "--:--";
-  const progressPercent =
-    currentItem && timer.mode !== "clock"
-      ? Math.min(100, (Math.max(0, displayTime) / currentItem.duration) * 100)
-      : 0;
-
   // Show flash on transition to play
   const [showFlash, setShowFlash] = useState(false);
   const prevPlayback = useRef(timer.playback);
@@ -925,174 +930,94 @@ function ShowPageWithNative({
     prevPlayback.current = timer.playback;
   }, [timer.playback]);
 
-  const showPanel = (
-    <div
-      className={`h-full rounded-xl border ${isOvertime ? "bg-red-500/5 border-red-500/20" : "bg-board-card border-board-border"} p-5`}
-    >
-      <div className="flex items-center gap-2 mb-2">
-        {isPlaying ? (
-          <Play className="w-3.5 h-3.5 text-green-400 fill-green-400" />
-        ) : isPaused ? (
-          <Pause className="w-3.5 h-3.5 text-yellow-400" />
-        ) : (
-          <Square className="w-3.5 h-3.5 text-board-muted" />
-        )}
-        <span className="text-[11px] font-medium text-board-muted uppercase tracking-widest">
-          {!liveRundown && ""}
-          {timer.playback === "stop"
-            ? "Stopped"
-            : isPlaying
-              ? "Playing"
-              : "Paused"}
-        </span>
-        {isOvertime && (
-          <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider ml-auto animate-pulse">
-            Overtime
-          </span>
-        )}
-      </div>
-
-      <p
-        aria-label="Show timer"
-        className={`text-6xl font-semibold tabular-nums tracking-tight ${isOvertime ? "text-red-400" : isPlaying ? "text-board-text" : "text-board-muted"}`}
-      >
-        {timerDisplay}
-      </p>
-
-      {/* Progress bar */}
-      {currentItem && (
-        <div className="mt-3 h-1.5 rounded-full bg-board-border overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all ${isOvertime ? "bg-red-500" : "bg-fire-500"}`}
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-      )}
-
-      {currentItem && (
-        <div className="mt-3 pt-3 border-t border-board-border/40">
-          <p className="text-sm font-medium text-board-text truncate">
-            {currentItem.title}
-          </p>
-          <p className="text-xs text-board-muted mt-0.5">
-            Duration: {formatDuration(currentItem.duration)}
-            {currentItem.assignee && ` · ${currentItem.assignee}`}
-          </p>
-        </div>
-      )}
-
-      {nextItem && (
-        <p className="text-xs text-board-muted mt-2">
-          Next: <span className="text-board-text/70">{nextItem.title}</span>
-          <span className="text-board-muted/50 ml-1">
-            ({formatDuration(nextItem.duration)})
-          </span>
-        </p>
-      )}
-    </div>
-  );
+  const hour12 = clockFormat === "12hr";
+  const showName = (relayMatchesTarget && syncedName) || syncTarget.rundown?.meta?.name || "Show";
+  const scheduledStart = (relayMatchesTarget && syncedStartTime !== undefined ? syncedStartTime : syncTarget.rundown?.meta?.scheduledStartTime) ?? null;
+  const plan = computeShowPlan(items, scheduledStart);
+  const running = !!currentItem && timer.playback !== "stop";
+  // In clock mode the display ticks wall time, so derive the cue's own elapsed time.
+  const cueElapsed = timer.mode === "clock"
+    ? (isPlaying && timer.startedAt ? timer.elapsed + (displayTime - timer.startedAt) : timer.elapsed)
+    : isPaused && timer.startedAt === null ? timer.elapsed : displayTime;
+  const remainingMs = currentItem ? currentItem.duration - cueElapsed : 0;
+  const startedAt = currentItem?.actualStart ? Date.parse(currentItem.actualStart) : statusNow - cueElapsed;
+  const plannedCurrent = currentItem ? plan.starts.get(currentItem.id) ?? null : null;
+  const rawBehind = running && plannedCurrent !== null ? startedAt - plannedCurrent + Math.max(0, -remainingMs) : null;
+  // More than six hours off plan means the show is not running on its planned day; don't report a schedule delta.
+  const behind = rawBehind !== null && Math.abs(rawBehind) <= 6 * 3_600_000 ? rawBehind : null;
+  const projectedEnd = behind !== null && plan.plannedEnd !== null ? plan.plannedEnd + behind : null;
+  const firstStart = items.map(item => item.actualStart ? Date.parse(item.actualStart) : NaN).filter(Number.isFinite).sort((a, b) => a - b)[0];
+  const showElapsed = statusNow - (firstStart ?? startedAt);
+  const firstCue = (currentItem && !running ? currentItem : null) ?? plan.cues.find(item => item.status !== "complete") ?? null;
+  const later = currentItem ? plan.cues.slice(plan.cues.findIndex(item => item.id === currentItem.id) + 1) : [];
+  const overtimeNote = currentItem && remainingMs < 0
+    ? `${currentItem.title || "This cue"} is running ${minutesClock(-remainingMs)} long.${later.length && behind !== null && behind > 30_000
+      ? ` ${later.length === 1 ? later[0].title : later.length === 2 ? `${later[0].title} and ${later[1].title}` : `${later[0].title} and the ${later.length - 1} cues after it`} will start about ${minutesClock(behind)} late${projectedEnd !== null ? `, so the show now ends around ${dayTime(projectedEnd, timeZone, hour12)} instead of ${dayTime(plan.plannedEnd, timeZone, hour12)}` : ""}.`
+      : ""}`
+    : null;
+  const timerModel: TimerCardModel = running && currentItem
+    ? {
+        kind: "running",
+        paused: isPaused,
+        section: plan.sections.get(plan.sectionOf.get(currentItem.id) ?? "")?.title ?? null,
+        cueIndex: plan.cues.findIndex(item => item.id === currentItem.id) + 1,
+        cueCount: plan.cues.length,
+        item: currentItem,
+        remaining: remainingMs,
+        progress: currentItem.duration > 0 ? Math.min(1, Math.max(0, cueElapsed / currentItem.duration)) : 0,
+        elapsed: hoursClock(cueElapsed),
+        started: dayTime(startedAt, timeZone, hour12),
+        cueEnds: dayTime(startedAt + currentItem.duration, timeZone, hour12),
+        planned: minutesClock(currentItem.duration),
+        schedule: behind === null ? null : Math.abs(behind) < 30_000 ? "On time" : `${behind > 0 ? "+" : "−"}${behindLabel(behind)}`,
+        scheduleTone: behind !== null && behind > 30_000 ? "warn" : "default",
+        next: nextItem ?? null,
+        overtimeNote,
+      }
+    : {
+        kind: "ready",
+        startsAt: plan.plannedStart !== null ? dayTime(plan.plannedStart, timeZone, hour12) : null,
+        untilStart: plan.plannedStart !== null ? plan.plannedStart - statusNow : null,
+        first: firstCue,
+        firstLength: firstCue ? minutesClock(firstCue.duration) : "",
+      };
+  const offline = syncHydrated && !liveRundown;
+  const status: StatusPillState = offline ? "offline" : running && remainingMs < 0 ? "over" : isPlaying ? "live" : isPaused ? "paused" : "ready";
+  const headerStats: HeaderStat[] = running
+    ? [
+        { label: "Show elapsed", value: hoursClock(showElapsed) },
+        ...(projectedEnd !== null ? [{ label: "Projected end", value: dayTime(projectedEnd, timeZone, hour12), tone: (behind ?? 0) > 30_000 ? "warn" as const : "default" as const }] : []),
+      ]
+    : [
+        ...(plan.cues.length ? [{ label: "Runtime", value: hoursClock(plan.runtime) }] : []),
+        ...(plan.plannedEnd !== null && plan.cues.length ? [{ label: "Planned end", value: dayTime(plan.plannedEnd, timeZone, hour12) }] : []),
+      ];
+  const onlineLabel = activeMembers.length === 0 ? "" : activeMembers.length === 1 ? `${activeMembers[0].name} online` : `${activeMembers.length} online`;
 
   const chatPanel = (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl bg-board-card border border-board-border">
+    <div className="h-full min-h-0 flex flex-col overflow-hidden rounded-xl border border-[var(--sa-border)] bg-[var(--sa-surface)]">
       <ChatPanel
         orgId={orgId}
         userName={userName}
         userId={userId}
         userRole={userRole}
         mentionMembers={chatMembers}
-        liveStatus={isPlaying ? (currentItem?.title ?? null) : null}
+        liveStatus={null}
+        onlineLabel={onlineLabel}
       />
     </div>
   );
 
   const rundownPanel = (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden">
-      <h2 className="text-[11px] font-medium text-board-muted uppercase tracking-widest mb-3 shrink-0">
-        Rundown
-      </h2>
-      {items.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-3">
-          <Clock className="w-8 h-8 text-board-muted/20" />
-          <p className="text-sm text-board-muted">No items in the rundown</p>
-          <p className="text-xs text-board-muted/50">
-            Add items in the{" "}
-            <Link
-              to="/$slug/rundown"
-              params={{ slug }}
-              className="text-fire-500 hover:text-fire-400"
-            >
-              Rundown Editor
-            </Link>
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-1 overflow-auto flex-1 hide-scrollbar pr-1">
-          {items.map((event) => {
-            const isCurrent = event.id === timer.currentItemId;
-            const isComplete = event.status === "complete";
-            const dotColor =
-              TYPE_COLORS[event.type as ItemType] ?? "bg-board-muted";
-
-            return (
-              <div
-                key={event.id}
-                className={`flex items-center gap-3 px-4 py-2.5 rounded-lg border transition-colors ${
-                  isCurrent
-                    ? "bg-fire-500/8 border-fire-500/25"
-                    : isComplete
-                      ? "bg-board-card/30 border-board-border/30 opacity-60"
-                      : "bg-board-card/50 border-board-border/50"
-                }`}
-              >
-                <div
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    isCurrent
-                      ? "bg-fire-500 animate-pulse"
-                      : isComplete
-                        ? "bg-green-500"
-                        : dotColor
-                  }`}
-                />
-                <div className="flex-1 min-w-0">
-                  <p
-                    className={`text-xs font-medium truncate ${
-                      isCurrent
-                        ? "text-fire-500"
-                        : isComplete
-                          ? "text-board-muted line-through"
-                          : "text-board-text/80"
-                    }`}
-                  >
-                    {event.title || "Untitled"}
-                  </p>
-                  {event.assignee && (
-                    <p className="text-[10px] text-board-muted/40 truncate mt-0.5">
-                      {event.assignee}
-                    </p>
-                  )}
-                  {event.notes && (
-                    <p className="text-[11px] text-board-muted/60 truncate mt-0.5">
-                      {event.notes}
-                    </p>
-                  )}
-                </div>
-
-                <div className="text-right shrink-0">
-                  <p className="text-[11px] text-board-muted tabular-nums">
-                    <Clock className="w-2.5 h-2.5 inline mr-0.5 -mt-px" />
-                    {formatDuration(event.duration)}
-                  </p>
-                </div>
-
-                {isCurrent && (
-                  <div className="w-1 h-8 rounded-full bg-fire-500 shrink-0" />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
+    <RundownCard
+      items={items}
+      plan={plan}
+      currentId={running ? (currentItem?.id ?? null) : null}
+      nextId={running ? (nextItem?.id ?? null) : (firstCue?.id ?? null)}
+      timeZone={timeZone}
+      hour12={hour12}
+      running={running && behind !== null ? { label: behindLabel(behind), tone: behind > 30_000 ? "warn" : "default" } : null}
+    />
   );
 
   return (
@@ -1100,33 +1025,31 @@ function ShowPageWithNative({
       {showFlash && <LiveFlash onDone={() => setShowFlash(false)} />}
       <ShowPageLayout
         notices={<>{crewNotice}<ReadFailureNotice {...targetRead} label="Retry show selection" />
-          <ReadFailureNotice error={syncError && syncErrorAt !== null ? { message: syncError, occurredAt: syncErrorAt } : null} refreshing={false} retry={retryConnection} label="Reconnect show" />
-          {!liveRundown && <p role="status" aria-live="polite" className="px-4 py-2 text-sm text-amber-200">{syncHydrated ? "" : <QuietActivity label="Loading show" />}</p>}
+          {offline ? <OfflineBanner onRetry={retryConnection} /> : null}
         </>}
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        statusClock={formatTime(new Date(statusNow), clockFormat, timeZone)}
-        statusNode={
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${!liveRundown ? "bg-amber-400" : isPlaying ? "bg-green-500 animate-pulse" : "bg-green-500"}`}
-            />
-            <span className="text-xs text-board-muted">
-              {!liveRundown ? syncHydrated ? <QuietActivity label="Reconnecting" /> : <QuietActivity label="Loading show" /> : isPlaying ? "Live" : "Ready"}
-            </span>
-          </div>
-        }
-        showPanel={showPanel}
+        header={{
+          dateLine: `Show flow · ${showDateLine(syncTarget.serviceDate)}`,
+          title: showName,
+          stats: headerStats,
+          clock: formatTime(new Date(statusNow), clockFormat, timeZone),
+          status,
+        }}
+        empty={items.length === 0}
+        rundownCount={plan.cues.length}
+        showPanel={(layout, wide) => items.length === 0 ? <NoRundownCard slug={slug} /> : <TimerCard model={timerModel} compact={wide && layout === "rundown-focus"} />}
         chatPanel={chatPanel}
         rundownPanel={rundownPanel}
-        crewPanel={
-          activeMembers.length > 0 ? (
-            <CrewTicker activeMembers={activeMembers} />
-          ) : null
-        }
       />
     </>
   );
+}
+
+function showDateLine(date: string) {
+  const value = new Date(`${date}T12:00:00Z`);
+  const part = (options: Intl.DateTimeFormatOptions) => value.toLocaleDateString("en-GB", { ...options, timeZone: "UTC" });
+  return `${part({ weekday: "short" })} ${part({ day: "numeric" })} ${part({ month: "short" })} ${part({ year: "numeric" })}`;
 }
 
 // ─── Show Page: OnTime Adapter ───────────────────────────────
@@ -1250,6 +1173,7 @@ function ShowPageWithOntime({
         userRole={userRole}
         mentionMembers={chatMembers}
         liveStatus={isPlaying ? (ontime.eventNow?.title ?? null) : null}
+        onlineLabel={activeMembers.length === 1 ? `${activeMembers[0].name} online` : activeMembers.length ? `${activeMembers.length} online` : ""}
       />
     </div>
   );
@@ -1322,74 +1246,18 @@ function ShowPageWithOntime({
         notices={<>{crewNotice}<ReadFailureNotice {...timerRead} label="Retry timer feed" /></>}
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        statusClock={formatTime(new Date(statusNow), clockFormat, timeZone)}
-        statusNode={
-          <div className="flex items-center gap-1.5">
-            {!timerRead.error ? (
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-            ) : (
-              <WifiOff className="w-3.5 h-3.5 text-red-400" />
-            )}
-            <span className="text-xs text-board-muted">
-              {timerRead.error ? <QuietActivity label="Reconnecting" /> : isPlaying ? "Live" : "Ready"}
-            </span>
-          </div>
-        }
-        showPanel={showPanel}
+        header={{
+          dateLine: "Show flow · OnTime",
+          title: ontime.eventNow?.title || "Show flow",
+          stats: [],
+          clock: formatTime(new Date(statusNow), clockFormat, timeZone),
+          status: timerRead.error ? "offline" : isOvertime ? "over" : isPlaying ? "live" : isPaused ? "paused" : "ready",
+        }}
+        rundownCount={ontime.events.length}
+        showPanel={() => showPanel}
         chatPanel={chatPanel}
         rundownPanel={rundownPanel}
-        crewPanel={
-          activeMembers.length > 0 ? (
-            <CrewTicker activeMembers={activeMembers} />
-          ) : null
-        }
       />
     </>
-  );
-}
-
-// ─── Shared Components ───────────────────────────────────────
-
-function CrewTicker({
-  activeMembers,
-}: {
-  activeMembers: Awaited<ReturnType<typeof getCrewMembers>>;
-}) {
-  return (
-    <footer className="shrink-0 border-t border-board-border py-2.5 overflow-hidden">
-      <div className="flex items-center px-8">
-        <div className="overflow-hidden flex-1">
-          <div className="animate-scroll-left flex items-center gap-5 whitespace-nowrap">
-            {[...activeMembers, ...activeMembers].map((member, i) => (
-              <div
-                key={`${member.id}-${i}`}
-                className="flex items-center gap-1.5 shrink-0"
-              >
-                <div className="w-5 h-5 rounded-full overflow-hidden bg-board-border shrink-0">
-                  {member.photoUrl ? (
-                    <img
-                      src={member.photoUrl}
-                      alt={member.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-board-muted text-[9px] font-medium">
-                      {member.name
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")
-                        .slice(0, 2)}
-                    </div>
-                  )}
-                </div>
-                <span className="text-xs text-board-text/70">
-                  {member.name}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </footer>
   );
 }
