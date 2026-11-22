@@ -39,7 +39,7 @@ function ReadFailurePanel({ error, refreshing, retry, label, title, description 
     if (retried && !refreshing) { setFailedAgain(true); button.current?.focus(); }
   }, [error, refreshing, retried]);
   if (!error) return null;
-  return <div role="alert" className="flex items-start gap-3 rounded-xl border border-[var(--sa-danger,#f87171)]/30 bg-[var(--sa-danger,#f87171)]/[0.07] p-4">
+  return <div role="alert" aria-label={label} className="flex items-start gap-3 rounded-xl border border-[var(--sa-danger,#f87171)]/30 bg-[var(--sa-danger,#f87171)]/[0.07] p-4">
     <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-[var(--sa-danger,#f87171)]" strokeWidth={1.75} />
     <div className="min-w-0 flex-1">
       <p className="text-[13px] font-semibold text-board-text">{title ?? plainFailure(error.message, "This view could not be updated.")}</p>

@@ -71,6 +71,7 @@ import { Route as CrewScheduleTokenRouteImport } from './routes/crew/schedule/$t
 import { Route as JoinChatTokenRouteImport } from './routes/join/chat.$token'
 import { Route as SlugDashboardDevicesIndexRouteImport } from './routes/$slug/dashboard/devices.index'
 import { Route as SlugDashboardDevicesDeviceIdRouteImport } from './routes/$slug/dashboard/devices.$deviceId'
+import { Route as SlugProductionIncidentIncidentIdRouteImport } from './routes/$slug/production/incident.$incidentId'
 import { Route as SlugStreamingGraphicsOverlayRouteImport } from './routes/$slug/streaming/graphics/overlay'
 import { Route as ApiV1CompanionStateRouteImport } from './routes/api/v1/companion/state'
 import { Route as ApiV1KioskAssetsRouteImport } from './routes/api/v1/kiosk/assets'
@@ -408,6 +409,12 @@ const SlugDashboardDevicesDeviceIdRoute =
     path: '/$deviceId',
     getParentRoute: () => SlugDashboardDevicesRoute,
   } as any)
+const SlugProductionIncidentIncidentIdRoute =
+  SlugProductionIncidentIncidentIdRouteImport.update({
+    id: '/production/incident/$incidentId',
+    path: '/production/incident/$incidentId',
+    getParentRoute: () => SlugRoute,
+  } as any)
 const SlugStreamingGraphicsOverlayRoute =
   SlugStreamingGraphicsOverlayRouteImport.update({
     id: '/overlay',
@@ -587,6 +594,7 @@ export interface FileRoutesByFullPath {
   '/join/chat/$token': typeof JoinChatTokenRoute
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
+  '/$slug/production/incident/$incidentId': typeof SlugProductionIncidentIncidentIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
   '/api/v1/companion/state': typeof ApiV1CompanionStateRoute
   '/api/v1/kiosk/assets': typeof ApiV1KioskAssetsRoute
@@ -669,6 +677,7 @@ export interface FileRoutesByTo {
   '/join/chat/$token': typeof JoinChatTokenRoute
   '/api/waitlist': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
+  '/$slug/production/incident/$incidentId': typeof SlugProductionIncidentIncidentIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
   '/api/v1/companion/state': typeof ApiV1CompanionStateRoute
   '/api/v1/kiosk/assets': typeof ApiV1KioskAssetsRoute
@@ -755,6 +764,7 @@ export interface FileRoutesById {
   '/join/chat/$token': typeof JoinChatTokenRoute
   '/api/waitlist/': typeof ApiWaitlistIndexRoute
   '/$slug/dashboard/devices/$deviceId': typeof SlugDashboardDevicesDeviceIdRoute
+  '/$slug/production/incident/$incidentId': typeof SlugProductionIncidentIncidentIdRoute
   '/$slug/streaming/graphics/overlay': typeof SlugStreamingGraphicsOverlayRoute
   '/api/v1/companion/state': typeof ApiV1CompanionStateRoute
   '/api/v1/kiosk/assets': typeof ApiV1KioskAssetsRoute
@@ -841,6 +851,7 @@ export interface FileRouteTypes {
     | '/join/chat/$token'
     | '/api/waitlist/'
     | '/$slug/dashboard/devices/$deviceId'
+    | '/$slug/production/incident/$incidentId'
     | '/$slug/streaming/graphics/overlay'
     | '/api/v1/companion/state'
     | '/api/v1/kiosk/assets'
@@ -923,6 +934,7 @@ export interface FileRouteTypes {
     | '/join/chat/$token'
     | '/api/waitlist'
     | '/$slug/dashboard/devices/$deviceId'
+    | '/$slug/production/incident/$incidentId'
     | '/$slug/streaming/graphics/overlay'
     | '/api/v1/companion/state'
     | '/api/v1/kiosk/assets'
@@ -1008,6 +1020,7 @@ export interface FileRouteTypes {
     | '/join/chat/$token'
     | '/api/waitlist/'
     | '/$slug/dashboard/devices/$deviceId'
+    | '/$slug/production/incident/$incidentId'
     | '/$slug/streaming/graphics/overlay'
     | '/api/v1/companion/state'
     | '/api/v1/kiosk/assets'
@@ -1514,6 +1527,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SlugDashboardDevicesDeviceIdRouteImport
       parentRoute: typeof SlugDashboardDevicesRoute
     }
+    '/$slug/production/incident/$incidentId': {
+      id: '/$slug/production/incident/$incidentId'
+      path: '/production/incident/$incidentId'
+      fullPath: '/$slug/production/incident/$incidentId'
+      preLoaderRoute: typeof SlugProductionIncidentIncidentIdRouteImport
+      parentRoute: typeof SlugRoute
+    }
     '/$slug/streaming/graphics/overlay': {
       id: '/$slug/streaming/graphics/overlay'
       path: '/overlay'
@@ -1733,6 +1753,7 @@ interface SlugRouteChildren {
   SlugStreamingLowerThirdsDisabledRoute: typeof SlugStreamingLowerThirdsDisabledRoute
   SlugStreamingLtPreviewRoute: typeof SlugStreamingLtPreviewRoute
   SlugStreamingPlatformsRoute: typeof SlugStreamingPlatformsRoute
+  SlugProductionIncidentIncidentIdRoute: typeof SlugProductionIncidentIncidentIdRoute
 }
 
 const SlugRouteChildren: SlugRouteChildren = {
@@ -1766,6 +1787,7 @@ const SlugRouteChildren: SlugRouteChildren = {
   SlugStreamingLowerThirdsDisabledRoute: SlugStreamingLowerThirdsDisabledRoute,
   SlugStreamingLtPreviewRoute: SlugStreamingLtPreviewRoute,
   SlugStreamingPlatformsRoute: SlugStreamingPlatformsRoute,
+  SlugProductionIncidentIncidentIdRoute: SlugProductionIncidentIncidentIdRoute,
 }
 
 const SlugRouteWithChildren = SlugRoute._addFileChildren(SlugRouteChildren)

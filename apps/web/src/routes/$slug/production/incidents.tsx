@@ -1,43 +1,24 @@
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { RelaySyncNotice } from "@/components/RelaySyncNotice";
 import { parseIncidentTimestamp } from "@/lib/incident-time";
-import { createFileRoute, Link, useBlocker } from "@tanstack/react-router";
-import { isEmojiReaction } from "@showpilot/shared";
+import { createFileRoute, Link, redirect, useBlocker, useRouteContext } from "@tanstack/react-router";
 import { PageSkeleton } from "@/components/ui/Skeleton";
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import {
-  Plus,
-  AlertTriangle,
-  ShieldCheck,
-  Trash2,
-  MessageCircle,
-  Send,
-  History,
-  SmilePlus,
-  ChevronDown,
-  ChevronRight,
-} from "lucide-react";
-import { EmptyState } from "@/components/ui/empty-state";
-import { objectionableContentReason } from "@/lib/user-content-safety";
-import { getIncidentSnapshot } from "@/lib/incidents";
-import { INCIDENT_CATEGORIES, REACTION_EMOJIS, type IncidentOperation, type IncidentRow, type IncidentComment, type ContentReaction } from "@/lib/incident-writes";
+import { useCallback, useState, type KeyboardEvent } from "react";
+import { ChevronRight, History, MessageCircle, Plus, Search, ShieldCheck } from "lucide-react";
+import { getIncidentCountsByShow, getIncidentSnapshot } from "@/lib/incidents";
+import { INCIDENT_CATEGORIES, type IncidentOperation, type IncidentRow } from "@/lib/incident-writes";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { useIncidentWrite } from "@/hooks/useIncidentWrite";
+import { useDeviceTimeZone } from "@/hooks/useDeviceTimeZone";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { ModalA, modalCancel, modalHint, modalPrimary } from "@/components/schedule/modal-a";
 import {
   hasAnyEffectivePermission,
   hasEffectivePermission,
 } from "@/lib/app-permissions";
-import { getTodayDateString, formatTime } from "@/lib/utils";
+import { getTodayDateString } from "@/lib/utils";
 
 import { getOrgSettings } from "@/lib/settings";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -45,6 +26,7 @@ import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 import { getIncidentHistory } from "@/lib/incident-history";
 import { getRundownOpeningDate } from "@/lib/rundown";
+import { card, clockTime, dayMonth, longDate, primaryButton, secondaryButton, ghostButton, SectionCard, SeverityBars, SeverityPicker, splitDescription } from "@/components/incidents/incident-a";
 
 function shiftDate(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T12:00:00");
@@ -52,26 +34,9 @@ function shiftDate(dateStr: string, days: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function formatDisplayDate(dateStr: string): string {
-  const d = new Date(dateStr + "T12:00:00");
-  return d.toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
 function normalizeIncident(incident: IncidentRow): IncidentRow {
   return { ...incident, category: INCIDENT_CATEGORIES.find(category => category.toLowerCase() === incident.category.trim().toLowerCase()) ?? incident.category };
 }
-
-const SEVERITY_COLORS: Record<string, string> = {
-  low: "bg-blue-500/15 text-blue-400 border-blue-500/25",
-  medium: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25",
-  high: "bg-orange-500/15 text-orange-400 border-orange-500/25",
-  critical: "bg-red-500/15 text-red-400 border-red-500/25",
-};
 
 export const Route = createFileRoute("/$slug/production/incidents")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -81,7 +46,13 @@ export const Route = createFileRoute("/$slug/production/incidents")({
       typeof search.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(search.date)
         ? search.date
         : undefined,
+    // From History's "Report incident": open the report form on arrival.
+    report: search.report === true || search.report === "true" ? true : undefined,
   }),
+  // Older notification and history links point at ?incident=; the incident now has its own page.
+  beforeLoad: ({ search, params }) => {
+    if (search.incident) throw redirect({ to: "/$slug/production/incident/$incidentId", params: { slug: params.slug, incidentId: search.incident } });
+  },
   pendingComponent: () => <PageSkeleton />,
   pendingMs: 800,
   pendingMinMs: 100,
@@ -114,7 +85,7 @@ async function loadIncidentPage(orgId: string, deps: { date?: string; show?: str
     });
     const serviceDate = opening.serviceDate;
     const showId = opening.showId;
-    const [snapshot, recentHistory] = await Promise.all([
+    const [snapshot, recentHistory, counts] = await Promise.all([
       getIncidentSnapshot({ data: { orgId: orgId, serviceDate, showId: showId ?? null }, signal }),
       getIncidentHistory({
         data: {
@@ -127,6 +98,7 @@ async function loadIncidentPage(orgId: string, deps: { date?: string; show?: str
           pageSize: 10,
         }, signal,
       }),
+      getIncidentCountsByShow({ data: { orgId }, signal }),
     ]);
     return {
       snapshot,
@@ -136,22 +108,25 @@ async function loadIncidentPage(orgId: string, deps: { date?: string; show?: str
       initialShowId: showId ?? null,
       shows: opening.shows,
       recentHistory,
+      counts,
     };
 }
 
 function IncidentsPage() {
   const initial = Route.useLoaderData();
-  const { incident: focusedIncidentId } = Route.useSearch();
   const { slug } = Route.useParams();
-  return <IncidentsWorkspace key={`${initial.orgId}:${initial.initialShowId}:${initial.initialServiceDate}`} initial={initial} slug={slug} focusedIncidentId={focusedIncidentId} />;
+  const { report } = Route.useSearch();
+  return <IncidentsWorkspace key={`${initial.orgId}:${initial.initialShowId}:${initial.initialServiceDate}`} initial={initial} slug={slug} openReport={report} />;
 }
 
 type IncidentInitial = Awaited<ReturnType<typeof loadIncidentPage>> & { role: Parameters<typeof hasEffectivePermission>[0]; grantedPermissions: Parameters<typeof hasEffectivePermission>[1] };
 type ReportFields = Omit<Extract<IncidentOperation, { kind: "report" }>, "kind">;
 const emptyReport: ReportFields = { category: "Audio", severity: "medium", description: "", reportedBy: "" };
 
-export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initial: IncidentInitial; slug: string; focusedIncidentId?: string }) {
-  const { snapshot: initialSnapshot, recentHistory, orgId, role, grantedPermissions, orgTimezone, initialServiceDate, initialShowId, shows } = initial;
+export function IncidentsWorkspace({ initial, slug, openReport = false }: { initial: IncidentInitial; slug: string; openReport?: boolean }) {
+  const { snapshot: initialSnapshot, recentHistory, counts, orgId, role, grantedPermissions, orgTimezone, initialServiceDate, initialShowId, shows } = initial;
+  const { user } = useRouteContext({ from: "/$slug" });
+  const timeZone = useDeviceTimeZone();
   const [selection, setSelection] = useState({ showId: initialShowId, serviceDate: initialServiceDate });
   const { showId, serviceDate } = selection;
   const scopeKey = JSON.stringify([orgId, showId, serviceDate]);
@@ -164,44 +139,29 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
   });
   const incidents = snapshotRead.value?.incidents.map(normalizeIncident) ?? [];
   const comments = snapshotRead.value?.comments ?? [];
-  const reactions = snapshotRead.value?.reactions ?? [];
   const loadingIncidents = !snapshotRead.value && !snapshotRead.error;
   const writes = useIncidentWrite({ orgId, showId, serviceDate });
   const writeLocked = writes.state.kind !== "idle";
   const [showQuery, setShowQuery] = useState("");
   const [showUntitled, setShowUntitled] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<ReportFields>(emptyReport);
-  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
-  const [replyTargets, setReplyTargets] = useState<Record<string, string | null>>({});
+  const [showForm, setShowForm] = useState(openReport);
+  const [form, setForm] = useState<ReportFields>(() => ({ ...emptyReport, reportedBy: user.name }));
   const [savedNotice, setSavedNotice] = useState("");
-  const [openIncidentId, setOpenIncidentId] = useState<string | null>(focusedIncidentId ?? null);
-  const scrolledIncident = useRef<string | null>(null);
-  const toggleIncident = (id: string) => setOpenIncidentId(current => current === id ? null : id);
   const { confirm, ConfirmDialogEl } = useConfirmDialog();
   const canReportIncidents = hasAnyEffectivePermission(role, grantedPermissions, ["incidents:report", "incidents:access"]);
-  const canManageIncidents = hasEffectivePermission(role, grantedPermissions, "incidents:access");
   const canWrite = canReportIncidents && !!snapshotRead.value && !snapshotRead.error && !snapshotRead.refreshing && !writeLocked;
   const today = getTodayDateString(orgTimezone);
-  const dirty = writeLocked || !!form.description.trim() || Object.values(commentDrafts).some(value => !!value.trim());
+  void hasEffectivePermission;
+  const dirty = writeLocked || !!form.description.trim();
   const blocker = useBlocker({ shouldBlockFn: () => dirty, enableBeforeUnload: dirty, withResolver: true });
+  const resetForm = () => setForm({ ...emptyReport, reportedBy: user.name });
   const selectShow = async (next: typeof selection) => {
-    if (dirty && !await confirm({ title: "Leave these incidents?", description: "An unconfirmed save may still complete. Leaving discards your local drafts and retry controls. Review this incident log when you return.", confirmLabel: "Leave incident log" })) return;
-    setSelection(next); setForm(emptyReport); setCommentDrafts({}); setReplyTargets({}); setSavedNotice(""); setShowForm(false); setOpenIncidentId(null);
+    if (dirty && !await confirm({ title: "Leave this report?", description: "An unconfirmed save may still complete. Leaving discards your draft report and retry controls.", confirmLabel: "Leave report" })) return;
+    setSelection(next); resetForm(); setSavedNotice(""); setShowForm(false);
   };
   useServiceDateRollover({ serviceDate, timeZone: orgTimezone, onTodayChanged: nextToday => {
     if (!dirty) { const nextShow = shows.find(show => show.serviceDate === nextToday); void selectShow({ serviceDate: nextShow?.serviceDate ?? nextToday, showId: nextShow?.id ?? null }); }
   } });
-  useEffect(() => { setOpenIncidentId(focusedIncidentId ?? null); }, [focusedIncidentId]);
-  useEffect(() => {
-    if (!openIncidentId) { scrolledIncident.current = null; return; }
-    if (loadingIncidents || scrolledIncident.current === openIncidentId) return;
-    const frame = requestAnimationFrame(() => {
-      const card = document.getElementById(`incident-${openIncidentId}`);
-      if (card) { scrolledIncident.current = openIncidentId; card.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [openIncidentId, loadingIncidents, snapshotRead.confirmedAt]);
   const { publish: publishIncident, syncError, syncErrorAt, status: syncStatus, retrySync } = useCueSheetSync({
     orgId, scope: scopeKey, onNote: () => {},
     onRefresh: async signal => { if (!await snapshotRead.refresh() || signal.aborted) throw new Error("This change needs attention."); },
@@ -214,585 +174,171 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
     if (!ack) return;
     snapshotRead.invalidate();
     if (ack.result.outcome !== "applied") return;
-    setSavedNotice("Change saved.");
+    setSavedNotice("Report saved.");
     const op = ack.attempt.operation;
-    if (op.kind === "report") { setForm(emptyReport); setShowForm(false); }
-    if (op.kind === "comment") {
-      setCommentDrafts(current => current[op.incidentId]?.trim() === op.body ? { ...current, [op.incidentId]: "" } : current);
-      setReplyTargets(current => ({ ...current, [op.incidentId]: null }));
-    }
+    if (op.kind === "report") { resetForm(); setShowForm(false); }
     const incidentId = op.kind === "report" ? `incident-${ack.attempt.requestId}` : op.kind === "delete" || op.kind === "update" ? op.id : op.kind === "comment" ? op.incidentId : comments.find(comment => comment.id === op.commentId)?.incidentId;
-    if (incidentId && op.kind !== "reaction") publishIncident({ type: "incident", showId, incidentId, action: op.kind === "report" ? "created" : op.kind === "delete" ? "deleted" : "commented", at: Date.now() });
-    if (incidentId && op.kind === "reaction") publishIncident({ type: "incident", showId, incidentId, action: "commented", at: Date.now() });
+    if (incidentId) publishIncident({ type: "incident", showId, incidentId, action: op.kind === "report" ? "created" : op.kind === "delete" ? "deleted" : "commented", at: Date.now() });
   };
-  const handleAdd = (event: React.FormEvent) => { event.preventDefault(); if (form.description.trim()) void save({ kind: "report", ...form }); };
-  const handleDelete = async (incident: IncidentRow) => {
-    if (!canManageIncidents || !canWrite) return;
-    if (await confirm({ title: "Delete incident", description: "Delete this incident and its discussion? This action cannot be undone.", confirmLabel: "Delete" })) await save({ kind: "delete", id: incident.id, snapshot: incident.deleteSnapshot });
-  };
-  const submitComment = (incidentId: string) => { const body = commentDrafts[incidentId]?.trim(); if (body && !objectionableContentReason(body)) void save({ kind: "comment", incidentId, parentId: replyTargets[incidentId] ?? null, body }); };
-  const reactToComment = async (commentId: string, emoji: string) => {
-    const own = reactions.find(reaction => reaction.targetId === commentId && reaction.emoji === emoji && reaction.userId === snapshotRead.value?.viewerId);
-    await save({ kind: "reaction", commentId, emoji, active: !own, expectedId: own?.id ?? null });
-  };
+  const submitReport = () => { if (form.description.trim()) void save({ kind: "report", ...form }); };
   const writeNotice = writes.state.kind === "uncertain" || writes.state.kind === "conflict" ?
-    <ReadFailureNotice error={writes.state.failure} refreshing={writes.state.kind === "conflict" && (snapshotRead.refreshing || !!snapshotRead.error)}
-      retry={() => writes.state.kind === "conflict" ? writes.clearConflict() : void save()} label={writes.state.kind === "conflict" ? "I reviewed the incident log" : "Retry incident save"} />
-    : writes.state.kind === "pending" ? <QuietActivity label="Saving incident change…" /> : null;
+    <ReadFailureNotice variant="panel" error={writes.state.failure} refreshing={writes.state.kind === "conflict" && (snapshotRead.refreshing || !!snapshotRead.error)}
+      retry={() => writes.state.kind === "conflict" ? writes.clearConflict() : void save()} label={writes.state.kind === "conflict" ? "I reviewed the incident log" : "Retry incident save"}
+      title={writes.state.kind === "conflict" ? "The incident log changed first." : "Your report wasn't confirmed."} description={writes.state.failure.message} />
+    : writes.state.kind === "pending" ? <p role="status" className="text-xs text-[var(--sa-ink-3)]"><QuietActivity label="Saving incident change…" /></p> : null;
+
+  const selectedShow = shows.find(show => show.id === showId);
+  const relative = (date: string) => {
+    const days = Math.round((Date.parse(date) - Date.parse(today)) / 86_400_000);
+    return days === 0 ? "Today" : days === 1 ? "Tomorrow" : days === -1 ? "Yesterday" : null;
+  };
+  const dateOf = (date: string) => new Date(`${date}T12:00:00Z`);
+  const dateLine = `${longDate(dateOf(serviceDate), "UTC")}${relative(serviceDate) ? ` · ${relative(serviceDate)}` : ""}`;
+  const commentCount = (id: string) => comments.filter(comment => comment.incidentId === id).length;
+  const visibleShows = shows.filter(show => (showUntitled || !!show.name.trim()) && (`${show.name} ${show.serviceDate} ${longDate(dateOf(show.serviceDate), "UTC")}`).toLowerCase().includes(showQuery.toLowerCase()));
+  const hiddenUntitled = shows.filter(show => !show.name.trim()).length;
+  const onReportKey = (event: KeyboardEvent) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); if (canWrite) submitReport(); } };
 
   return (
-    <div className="h-full overflow-auto">
+    <div className="schedule-a h-full overflow-auto bg-board-bg [overflow-wrap:anywhere]">
       <RelaySyncNotice error={syncError} occurredAt={syncErrorAt} status={syncStatus} onRetry={retrySync} />
-      <div className="sticky top-0 z-10 border-b border-board-border bg-board-bg/80 px-4 py-4 backdrop-blur-xl sm:px-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="text-2xl font-semibold tracking-tight text-board-text">
-            Incident Log
-          </h1>
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end [&_button]:min-h-11">
-            <Link
-              to="/$slug/production/incidents-history"
-              params={{ slug }}
-              search={{
-                query: "",
-                status: "all",
-                severity: "all",
-                category: "",
-                assignee: "",
-                from: "",
-                to: "",
-                sort: "newest",
-                page: 1,
-              }}
-              className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-board-border bg-board-card px-3 text-xs font-medium text-board-muted transition-colors hover:border-fire-500/30 hover:text-board-text"
-            >
-              <History className="h-3.5 w-3.5" />
-              History
-            </Link>
-            {canReportIncidents && showId && (
-              <button
-                onClick={() => setShowForm(true)}
-                className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
-                style={{ background: "var(--color-fire-500)" }}
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Report
-              </button>
-            )}
+      <div className="mx-auto flex max-w-[1180px] flex-col gap-6 px-4 pb-12 pt-6 md:px-8">
+        <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <p className="text-xs uppercase tracking-[0.04em] tabular-nums text-[var(--sa-ink-3)]">{dateLine}</p>
+            <h1 className="truncate text-[26px] font-semibold leading-[1.15] tracking-[-0.02em] text-board-text">{selectedShow?.name || "Incident log"}</h1>
           </div>
-        </div>
-        <ReadFailureNotice error={snapshotRead.error} refreshing={snapshotRead.refreshing} retry={snapshotRead.retry} label="Retry incidents" />
+          <div className="flex items-center gap-2">
+            <Link to="/$slug/production/incidents-history" params={{ slug }} search={HISTORY_DEFAULTS} className={ghostButton}><History className="h-3.5 w-3.5" />History</Link>
+            {canReportIncidents && showId ? <button type="button" onClick={() => setShowForm(true)} className={primaryButton}><Plus className="h-3.5 w-3.5" strokeWidth={2} />Report incident</button> : null}
+          </div>
+        </header>
+        <ReadFailureNotice variant="panel" error={snapshotRead.error} refreshing={snapshotRead.refreshing} retry={snapshotRead.retry} label="Retry incidents" title="We couldn't load this show's incidents." description="Check your connection and try again. Everything your crew reported is saved." />
         {!showForm && writeNotice}
-      </div>
+        {savedNotice ? <p role="status" className="text-[13px] text-[var(--sa-ok)]">{savedNotice}</p> : null}
 
-      <div className="mx-auto grid max-w-7xl items-start gap-6 p-4 sm:px-10 sm:py-8 lg:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="min-w-0">
-        <section className="rounded-xl border border-board-border bg-board-card p-4">
-        <div className="mb-3 flex items-end justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-fire-400">
-              {serviceDate === today ? "Today" : "Selected date"}
-            </p>
-            <h2 className="mt-1 text-sm font-semibold text-board-text">
-              This show
-            </h2>
-          </div>
-          <span className="text-xs text-board-muted">
-            {formatDisplayDate(serviceDate)}
-          </span>
-        </div>
-        {savedNotice && <p role="status" className="py-3 text-sm text-emerald-400">{savedNotice}</p>}
-        {loadingIncidents && (
-          <p className="mb-3 text-xs text-board-muted">
-            {<QuietActivity />}{formatDisplayDate(serviceDate)}...
-          </p>
-        )}
-        {incidents.length > 0 ? (
-          <div className="space-y-3">
-            {incidents.map((incident) => (
-              <div
-                id={`incident-${incident.id}`}
-                key={incident.id}
-                className={`group scroll-mt-28 rounded-xl bg-board-card border transition-colors ${incident.id === openIncidentId ? "border-fire-500/70" : "border-board-border hover:border-fire-500/20"}`}
-              >
-                <div className="flex items-start gap-1 p-4">
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-fire-500/50"
-                  aria-expanded={openIncidentId === incident.id}
-                  aria-controls={`discussion-${incident.id}`}
-                  onClick={() => toggleIncident(incident.id)}
-                >
-                  <div className="flex min-w-0 items-start gap-3">
-                    <AlertTriangle
-                      className={`w-4 h-4 mt-0.5 shrink-0 ${incident.severity === "critical" ? "text-red-400" : incident.severity === "high" ? "text-orange-400" : "text-yellow-400"}`}
-                    />
-                    <div className="min-w-0">
-                      <p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-sm text-board-text">
-                        {incident.description}
-                      </p>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <span
-                          className={`text-xs font-medium uppercase tracking-wider px-1.5 py-0.5 rounded border ${SEVERITY_COLORS[incident.severity] || SEVERITY_COLORS.medium}`}
-                        >
-                          {incident.severity}
-                        </span>
-                        <span className="text-xs text-board-muted bg-board-bg px-1.5 py-0.5 rounded border border-board-border">
-                          {incident.category}
-                        </span>
-                        {incident.reportedBy && (
-                          <span className="text-xs text-board-muted">
-                            by {incident.reportedBy}
-                          </span>
-                        )}
-                        {incident.timestamp && (
-                          <span className="text-xs text-board-muted">
-                            {formatTime(
-                              parseIncidentTimestamp(incident.timestamp),
-                              "12hr",
-                              orgTimezone,
-                            )}
-                          </span>
-                        )}
-                        <span
-                          className={`text-xs font-medium ${incident.status === "resolved" ? "text-green-400" : "text-board-muted"}`}
-                        >
-                          {incident.status}
-                        </span>
-                      </div>
-                      <p
-                        className={`mt-2 text-xs ${incident.assignedTo ? "text-board-text" : "text-red-400"}`}
-                      >
-                        {incident.assignedTo
-                          ? `Assigned to ${incident.assignedName || "team member"}${incident.acknowledgedAt ? " · acknowledged" : " · awaiting acknowledgement"}`
-                          : "Unassigned"}
-                      </p>
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="flex min-w-0 flex-col gap-6">
+            <SectionCard title="This show" count={loadingIncidents ? undefined : `${incidents.length} ${incidents.length === 1 ? "incident" : "incidents"}`}>
+              {loadingIncidents ? <div className="schedule-skeleton flex flex-col"><span className="sr-only"><QuietActivity label="Loading incidents" /></span>{[0, 1].map(row => <div key={row} className="flex items-center gap-4 border-t border-[var(--sa-border)] px-4 py-4 first:border-t-0"><span className="h-3 w-4 rounded bg-[var(--sa-surface-3)]" /><span className="h-3 w-1/2 rounded bg-[var(--sa-surface-3)]" /></div>)}</div>
+                : incidents.length ? incidents.map(incident => <IncidentRowLink key={incident.id} slug={slug} incident={incident} comments={commentCount(incident.id)} timeZone={timeZone} />)
+                : !snapshotRead.error ? <div className="p-4">
+                  <div className="flex flex-wrap items-start gap-4 rounded-lg border border-dashed border-[var(--sa-border-strong)] p-6">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-[var(--sa-surface-2)] text-[var(--sa-ok)]"><ShieldCheck className="h-5 w-5" strokeWidth={1.75} /></span>
+                    <div className="flex min-w-0 max-w-[520px] flex-1 flex-col gap-1.5">
+                      <h2 className="text-base font-semibold text-board-text">All clear for this show</h2>
+                      <p className="text-[13px] leading-[1.6] text-[var(--sa-ink-2)]">{serviceDate < today
+                        ? "Nobody logged a problem. If something did go wrong — an audio dropout, a camera fault, a stream issue — you can still report it after the fact."
+                        : "Nothing was reported. If something goes wrong — an audio dropout, a camera fault, a stream issue — use Report incident and it lands here."}</p>
+                      {serviceDate < today && canReportIncidents && showId ? <button type="button" onClick={() => setShowForm(true)} className={`${secondaryButton} mt-2 self-start`}><Plus className="h-3.5 w-3.5" />Report incident</button> : null}
                     </div>
                   </div>
-                </button>
-                  {canManageIncidents && (
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void handleDelete(incident);
-                      }}
-                      disabled={!canWrite}
-                      className="min-h-11 min-w-11 rounded-lg p-2 text-board-muted hover:bg-red-500/20 hover:text-red-400 focus-visible:outline-2 focus-visible:outline-fire-500 disabled:opacity-50"
-                      aria-label={`Delete incident: ${incident.description}`}
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-                <div className="border-t border-board-border/60 px-4 pb-4">
-                  <button
-                    type="button"
-                    aria-expanded={openIncidentId === incident.id}
-                    aria-controls={`discussion-${incident.id}`}
-                    onClick={() => toggleIncident(incident.id)}
-                    className="flex min-h-11 w-full flex-wrap items-center gap-2 py-2 text-xs font-medium text-board-muted hover:text-board-text"
-                  >
-                    <span className="text-fire-400">{openIncidentId === incident.id ? "Close discussion" : "Open discussion"}</span>
-                    <MessageCircle className="h-3.5 w-3.5" />
-                    {
-                      comments.filter(
-                        (comment) => comment.incidentId === incident.id,
-                      ).length
-                    }{" "}
-                    comment
-                    {comments.filter(
-                      (comment) => comment.incidentId === incident.id,
-                    ).length === 1
-                      ? ""
-                      : "s"}
-                    {incident.status === "resolved"
-                      ? " · resolution notes"
-                      : ""}
-                    <ChevronDown className={`ml-auto h-4 w-4 transition-transform ${openIncidentId === incident.id ? "rotate-180" : ""}`} />
-                  </button>
-                  {openIncidentId === incident.id && (
-                    <div id={`discussion-${incident.id}`} className="space-y-3">
-                      {!comments.some((comment) => comment.incidentId === incident.id) ? <p className="text-sm text-board-muted">No updates yet. Add the first update below.</p> : null}
-                      {comments
-                        .filter(
-                          (comment) =>
-                            comment.incidentId === incident.id &&
-                            !comment.parentId,
-                        )
-                        .map((comment) => (
-                          <CommentThread
-                            key={comment.id}
-                            comment={comment}
-                            comments={comments.filter(
-                              (item) => item.incidentId === incident.id,
-                            )}
-                            reactions={reactions}
-                            timeZone={orgTimezone}
-                            onReply={(commentId) =>
-                              setReplyTargets((current) => ({
-                                ...current,
-                                [incident.id]: commentId,
-                              }))
-                            }
-                            onReact={reactToComment}
-                            disabled={!canWrite}
-                            viewerId={snapshotRead.value?.viewerId ?? ""}
-                          />
-                        ))}
-                      {replyTargets[incident.id] ? (
-                        <div className="flex items-center justify-between rounded-lg border border-fire-500/20 bg-fire-500/[0.04] px-3 py-2 text-xs text-board-muted">
-                          <span>Replying in thread</span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setReplyTargets((current) => ({
-                                ...current,
-                                [incident.id]: null,
-                              }))
-                            }
-                            className="min-h-11 px-2 text-fire-400"
-                          >
-                            Cancel reply
-                          </button>
-                        </div>
-                      ) : null}
-                      {objectionableContentReason(commentDrafts[incident.id] ?? "") && <p role="alert" className="text-sm text-red-300">{objectionableContentReason(commentDrafts[incident.id] ?? "")}</p>}
-                      <div className="flex items-end gap-2">
-                        <textarea
-                          aria-label={`Update for ${incident.description}`}
-                          value={commentDrafts[incident.id] ?? ""}
-                          onChange={(event) =>
-                            setCommentDrafts((current) => ({
-                              ...current,
-                              [incident.id]: event.target.value,
-                            }))
-                          }
-                          placeholder={
-                            incident.status === "resolved"
-                              ? "Add a resolution note or follow-up…"
-                              : replyTargets[incident.id]
-                                ? "Write a reply…"
-                                : "Add an update…"
-                          }
-                          rows={2}
-                          maxLength={2000}
-                          className="min-w-0 flex-1 resize-none rounded-lg border border-board-border bg-board-bg px-3 py-2 text-base sm:text-sm text-board-text outline-none placeholder:text-board-muted/50 focus:border-fire-500/40"
-                        />
-                        <button
-                          type="button"
-                          disabled={
-                            !canWrite ||
-                            !!objectionableContentReason(commentDrafts[incident.id] ?? "") ||
-                            !commentDrafts[incident.id]?.trim()
-                          }
-                          onClick={() => void submitComment(incident.id)}
-                          className="min-h-11 min-w-11 rounded-lg bg-fire-500 p-2.5 text-black disabled:opacity-40"
-                          aria-label="Post comment"
-                        >
-                          <Send className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                </div> : null}
+            </SectionCard>
+
+            <SectionCard title="Recent across shows" count={`${recentHistory.total} total`} action={<Link to="/$slug/production/incidents-history" params={{ slug }} search={HISTORY_DEFAULTS} className="inline-flex min-h-9 items-center gap-1 text-[13px] text-[var(--sa-ink-2)] hover:text-board-text"><ChevronRight className="h-3.5 w-3.5" />View all in History</Link>}>
+              {recentHistory.incidents.length
+                ? recentHistory.incidents.slice(0, 5).map(incident => <IncidentRowLink key={incident.id} slug={slug} incident={incident} comments={incident.commentCount} timeZone={timeZone} showDate />)
+                : <p className="px-4 py-6 text-[13px] text-[var(--sa-ink-3)]">No earlier incidents yet.</p>}
+            </SectionCard>
+          </div>
+
+          <aside aria-label="Shows" className={`${card} overflow-hidden`}>
+            <div className="flex flex-col gap-3 p-4">
+              <h2 className="text-[13px] font-semibold text-board-text">Shows</h2>
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--sa-ink-3)]" />
+                <input aria-label="Find a show or date" placeholder="Find a show or date" value={showQuery} onChange={event => setShowQuery(event.target.value)} className="h-9 w-full rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] pl-9 pr-3 text-[13px] text-board-text outline-none placeholder:text-[var(--sa-ink-3)] focus:border-fire-500" />
+              </label>
+            </div>
+            {(["Upcoming", "Past"] as const).map(group => {
+              const list = visibleShows.filter(show => group === "Upcoming" ? show.serviceDate >= today : show.serviceDate < today);
+              if (!list.length) return null;
+              return <div key={group} className="px-2 pb-2">
+                <h3 className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--sa-ink-3)]">{group}</h3>
+                {list.map(show => {
+                  const active = show.id === showId, count = counts[show.id] ?? 0;
+                  const meta = group === "Upcoming" ? (relative(show.serviceDate) ?? longDate(dateOf(show.serviceDate), "UTC")) : count ? `${count} ${count === 1 ? "incident" : "incidents"}` : "No incidents";
+                  return <button key={show.id} type="button" disabled={writes.state.kind === "pending"} aria-pressed={active} onClick={() => void selectShow({ showId: show.id, serviceDate: show.serviceDate })}
+                    className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left disabled:opacity-50 ${active ? "bg-board-border" : "hover:bg-[var(--sa-surface-2)]"}`}>
+                    <span className="flex w-8 shrink-0 flex-col items-center"><span className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--sa-ink-3)]">{dateOf(show.serviceDate).toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" })}</span><span className={`text-[15px] font-medium tabular-nums leading-[1.2] ${active ? "text-fire-400" : "text-[var(--sa-ink-2)]"}`}>{Number(show.serviceDate.slice(8))}</span></span>
+                    <span className="flex min-w-0 flex-col gap-0.5"><span className="truncate text-[13px] font-medium text-board-text">{show.name || "Untitled show"}</span><span className="text-xs text-[var(--sa-ink-3)]">{meta}</span></span>
+                  </button>;
+                })}
+              </div>;
+            })}
+            {hiddenUntitled ? <div className="flex items-center justify-between gap-2 border-t border-[var(--sa-border)] px-4 py-3 text-xs text-[var(--sa-ink-3)]">
+              <span>{showUntitled ? `${hiddenUntitled} untitled ${hiddenUntitled === 1 ? "show" : "shows"} shown` : `${hiddenUntitled} untitled ${hiddenUntitled === 1 ? "show" : "shows"} hidden`}</span>
+              <button type="button" onClick={() => setShowUntitled(value => !value)} className="rounded-md px-2 py-1 font-medium text-board-text hover:bg-[var(--sa-surface-2)]">{showUntitled ? "Hide" : "Show"}</button>
+            </div> : null}
+          </aside>
+        </div>
+      </div>
+
+      {showForm && canReportIncidents && showId ? (
+        <ModalA title="Report incident" description={`${selectedShow?.name || "This show"} · ${longDate(dateOf(serviceDate), "UTC")}`} onClose={() => setShowForm(false)}>
+          <form onSubmit={event => { event.preventDefault(); submitReport(); }} onKeyDown={onReportKey} className="flex flex-col gap-4">
+            {writeNotice}
+            <label className="block">
+              <span className="sr-only">What happened?</span>
+              <textarea id="incident-description" autoFocus aria-label="What happened?" maxLength={10_000} disabled={writeLocked} value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} placeholder="What happened?"
+                className="!h-32 w-full resize-none !py-3 !text-sm" />
+              <span className={modalHint}>The first line becomes the title in the log. Add detail on the lines below.</span>
+            </label>
+            <fieldset disabled={writeLocked} className="flex flex-col gap-2">
+              <legend className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--sa-ink-3)]">Category</legend>
+              <div className="flex flex-wrap gap-1.5">
+                {INCIDENT_CATEGORIES.map(value => <button key={value} type="button" aria-pressed={form.category === value} onClick={() => setForm({ ...form, category: value })}
+                  className={`h-8 rounded-lg border px-3 text-[13px] disabled:opacity-50 ${form.category === value ? "border-[var(--sa-border-strong)] bg-[var(--sa-surface-3)] font-medium text-board-text shadow-[inset_0_0_0_1px_var(--sa-border-strong)]" : "border-[var(--sa-border-strong)] text-[var(--sa-ink-2)] hover:text-board-text"}`}>{value}</button>)}
               </div>
-            ))}
-          </div>
-        ) : !loadingIncidents && !snapshotRead.error ? (
-          <EmptyState
-            icon={ShieldCheck}
-            title="All clear for this show"
-            description={
-              canReportIncidents
-                ? "All clear. Use Report above to log anything that goes wrong during the show — audio dropouts, camera faults, stream issues."
-                : "All clear. Issues reported during the show will appear here."
-            }
-          />
-        ) : null}
-
-        </section>
-        <section className="mt-6 overflow-hidden rounded-xl border border-board-border bg-board-card p-4">
-          <div className="mb-3 flex items-end justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-board-muted">
-                History
-              </p>
-              <h2 className="mt-1 text-sm font-semibold text-board-text">
-                Previous incidents
-              </h2>
-            </div>
-            <Link
-              to="/$slug/production/incidents-history"
-              params={{ slug }}
-              search={{
-                query: "",
-                status: "all",
-                severity: "all",
-                category: "",
-                assignee: "",
-                from: "",
-                to: "",
-                sort: "newest",
-                page: 1,
-              }}
-              className="inline-flex min-h-11 items-center text-xs font-medium text-fire-400 hover:text-fire-300"
-            >
-              View and filter all
-            </Link>
-          </div>
-          {recentHistory.incidents.length > 0 ? (
-            <div className="overflow-hidden rounded-xl border border-board-border bg-board-card">
-              {recentHistory.incidents.map((incident) => (
-                <Link
-                  key={incident.id}
-                  to="/$slug/production/incidents"
-                  params={{ slug }}
-                  search={{ incident: incident.id, date: incident.serviceDate, show: incident.showId ?? undefined }}
-                  className="flex min-h-16 items-center gap-3 border-t border-board-border/70 p-4 first:border-t-0 hover:bg-board-bg/55"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="line-clamp-2 [overflow-wrap:anywhere] text-sm text-board-text">{incident.description}</p>
-                    <p className="mt-1 text-xs text-board-muted">{incident.serviceDate} · {incident.category} · {incident.commentCount} comments</p>
-                    <p className={`mt-1 text-xs capitalize ${incident.status === "open" ? "text-red-400" : "text-green-400"}`}>{incident.status} · {incident.assignedName || "Unassigned"}</p>
-                  </div>
-                  <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-board-muted" />
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="min-h-11 rounded-xl border border-dashed border-board-border px-4 py-8 text-center">
-              <p className="text-xs text-board-muted">
-                No previous incidents yet.
-              </p>
-            </div>
-          )}
-        </section>
-        </div>
-        <aside className="overflow-hidden rounded-xl border border-board-border bg-board-card" aria-label="Shows">
-          <div className="space-y-3 p-4">
-            <h2 className="text-sm font-semibold text-board-text">Shows</h2>
-            <input aria-label="Find a show or date" placeholder="Find a show or date" value={showQuery} onChange={event => setShowQuery(event.target.value)} className="min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm text-board-text" />
-          </div>
-          {["Upcoming", "Past"].map(group => <div key={group} className="px-2 pb-2">
-            <h3 className="px-3 py-2 text-xs font-medium uppercase tracking-wider text-board-muted">{group}</h3>
-            {shows.filter(show => (group === "Upcoming" ? show.serviceDate >= today : show.serviceDate < today) && (showUntitled || !!show.name.trim()) && (show.name + " " + show.serviceDate).toLowerCase().includes(showQuery.toLowerCase())).map(show => <button key={show.id} type="button" disabled={writes.state.kind === "pending"} aria-pressed={show.id === showId} onClick={() => void selectShow({ showId: show.id, serviceDate: show.serviceDate })} className={`flex min-h-16 w-full items-center gap-3 rounded-lg px-3 py-2 text-left disabled:opacity-50 ${show.id === showId ? "bg-fire-500/10 text-board-text" : "text-board-muted hover:bg-board-bg"}`}>
-              <span className="shrink-0 rounded-lg border border-board-border px-2 py-1 text-sm tabular-nums">{show.serviceDate.slice(8)}</span>
-              <span className="min-w-0"><span className="block truncate text-sm font-medium">{show.name || "Untitled show"}</span><span className="block text-xs text-board-muted">{formatDisplayDate(show.serviceDate)}</span></span>
-            </button>)}
-          </div>)}
-          {shows.some(show => !show.name.trim()) && <button type="button" onClick={() => setShowUntitled(value => !value)} className="min-h-11 w-full border-t border-board-border px-4 text-left text-xs text-board-muted">{showUntitled ? "Hide untitled shows" : `Show ${shows.filter(show => !show.name.trim()).length} untitled shows`}</button>}
-        </aside>
-      </div>
-
-      <Dialog open={showForm && canReportIncidents && !!showId} onOpenChange={setShowForm}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto border-board-border bg-board-card text-board-text sm:max-w-[560px]">
-          <DialogHeader><DialogTitle>Report incident</DialogTitle><DialogDescription>Log an issue for {formatDisplayDate(serviceDate)}.</DialogDescription></DialogHeader>
-          <ReadFailureNotice error={snapshotRead.error} refreshing={snapshotRead.refreshing} retry={snapshotRead.retry} label="Retry incidents" />
-          {writeNotice}
-          <form onSubmit={handleAdd} className="space-y-4">
-            <label htmlFor="incident-description" className="block text-sm font-medium">What happened?</label>
-            <textarea
-              id="incident-description"
-              maxLength={10_000}
-              disabled={writeLocked}
-              value={form.description}
-              onChange={(e) =>
-                setForm({ ...form, description: e.target.value })
-              }
-              placeholder="What happened?"
-              rows={5}
-              className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 resize-none"
-            />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <fieldset disabled={writeLocked} className="col-span-full space-y-2">
-                <legend className="text-xs font-medium uppercase tracking-wider text-board-muted">Category</legend>
-                <div className="flex flex-wrap gap-1.5">
-                  {INCIDENT_CATEGORIES.map(value => <button key={value} type="button" aria-pressed={form.category === value} onClick={() => setForm({ ...form, category: value })} className={`min-h-8 rounded-md border px-3 text-sm capitalize disabled:opacity-50 ${form.category === value ? "border-fire-500/40 bg-fire-500/10 text-fire-400" : "border-board-border bg-board-bg text-board-muted hover:text-board-text"}`}>{value}</button>)}
-                </div>
-              </fieldset>
-              <fieldset disabled={writeLocked} className="col-span-full space-y-2">
-                <legend className="text-xs font-medium uppercase tracking-wider text-board-muted">Severity</legend>
-                <div className="flex flex-wrap gap-1.5">
-                  {(["low", "medium", "high", "critical"] as const).map(value => <button key={value} type="button" aria-pressed={form.severity === value} onClick={() => setForm({ ...form, severity: value })} className={`min-h-8 rounded-md border px-3 text-sm capitalize disabled:opacity-50 ${form.severity === value ? "border-fire-500/40 bg-fire-500/10 text-fire-400" : "border-board-border bg-board-bg text-board-muted hover:text-board-text"}`}>{value}</button>)}
-                </div>
-              </fieldset>
-              <label className="text-xs font-medium text-board-muted" htmlFor="incident-reporter">Reported by</label>
-              <input
-                id="incident-reporter"
-                maxLength={200}
-                disabled={writeLocked}
-                value={form.reportedBy}
-                onChange={(e) =>
-                  setForm({ ...form, reportedBy: e.target.value })
-                }
-                placeholder="Reported by..."
-                className="min-h-11 min-w-0 px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50"
-              />
-            </div>
-            <div className="flex justify-end gap-2 border-t border-board-border pt-4">
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="min-h-11 rounded-xl border border-board-border px-4 py-2.5 text-sm font-medium text-board-muted hover:text-board-text"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={!canWrite || !form.description.trim()}
-                className="min-h-11 rounded-xl px-4 py-2.5 text-sm font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98] disabled:opacity-50"
-                style={{ background: "var(--color-fire-500)" }}
-              >
-                Submit report
-              </button>
+            </fieldset>
+            <fieldset disabled={writeLocked} className="flex flex-col gap-2">
+              <legend className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--sa-ink-3)]">Severity</legend>
+              <SeverityPicker value={form.severity} disabled={writeLocked} onChange={severity => setForm({ ...form, severity })} />
+            </fieldset>
+            <label className="block">
+              <span className="block text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--sa-ink-3)]">Reported by</span>
+              <input id="incident-reporter" maxLength={200} disabled={writeLocked} value={form.reportedBy} onChange={event => setForm({ ...form, reportedBy: event.target.value })} placeholder="Who noticed it" className="w-full" />
+            </label>
+            <div className="-mx-5 -mb-5 mt-1 flex flex-wrap items-center gap-2 border-t border-[var(--sa-border)] bg-board-bg px-5 py-3.5">
+              <span className="mr-auto hidden items-center gap-1.5 text-xs text-[var(--sa-ink-3)] sm:inline-flex"><kbd className="rounded border border-[var(--sa-border-strong)] px-1.5 py-0.5 text-[11px]">⌘</kbd><kbd className="rounded border border-[var(--sa-border-strong)] px-1.5 py-0.5 text-[11px]">Enter</kbd>to submit</span>
+              <button type="button" onClick={() => setShowForm(false)} className={modalCancel}>Cancel</button>
+              <button type="submit" disabled={!canWrite || !form.description.trim()} className={modalPrimary}>Submit report</button>
             </div>
           </form>
-        </DialogContent>
-      </Dialog>
+        </ModalA>
+      ) : null}
       {ConfirmDialogEl}
       <Dialog open={blocker.status === "blocked"} onOpenChange={open => { if (!open) blocker.reset?.(); }}>
-        <DialogContent><DialogHeader><DialogTitle>Leave these incidents?</DialogTitle><DialogDescription>An unconfirmed save may still complete. Leaving discards your local drafts and retry controls. Review this incident log when you return.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => blocker.reset?.()}>Stay</Button><Button onClick={() => blocker.proceed?.()}>Leave incident log</Button></DialogFooter></DialogContent>
+        <DialogContent><DialogHeader><DialogTitle>Leave this report?</DialogTitle><DialogDescription>An unconfirmed save may still complete. Leaving discards your draft report and retry controls.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => blocker.reset?.()}>Stay</Button><Button onClick={() => blocker.proceed?.()}>Leave report</Button></DialogFooter></DialogContent>
       </Dialog>
     </div>
   );
 }
 
-function CommentThread({
-  comment,
-  comments,
-  reactions,
-  onReply,
-  onReact,
-  timeZone,
-  disabled,
-  viewerId,
-}: {
-  comment: IncidentComment;
-  comments: IncidentComment[];
-  reactions: ContentReaction[];
+const HISTORY_DEFAULTS = { query: "", status: "all", severity: "all", category: "", assignee: "", from: "", to: "", sort: "newest", page: 1 } as const;
+
+/** One incident in a list: severity bars, title and first detail line, comments, and when it was reported. */
+export function IncidentRowLink({ slug, incident, comments, timeZone, showDate = false }: {
+  slug: string;
+  incident: Pick<IncidentRow, "id" | "severity" | "description" | "timestamp">;
+  comments: number;
   timeZone: string;
-  disabled: boolean;
-  viewerId: string;
-  onReply: (commentId: string) => void;
-  onReact: (
-    commentId: string,
-    emoji: string,
-  ) => Promise<void>;
+  showDate?: boolean;
 }) {
-  const [reactionPickerFor, setReactionPickerFor] = useState<string | null>(
-    null,
-  );
-  const [customReaction, setCustomReaction] = useState("");
-  const renderComment = (item: IncidentComment, depth = 0): ReactNode => {
-    const itemReactions = reactions.filter(
-      (reaction) => reaction.targetId === item.id,
-    );
-    const children = comments.filter(
-      (candidate) => candidate.parentId === item.id,
-    );
-    const parent = item.parentId
-      ? comments.find((candidate) => candidate.id === item.parentId)
-      : null;
-    return (
-      <Fragment key={item.id}>
-        <div
-          className={
-            depth ? "ml-3 border-l-2 border-board-border pl-3 sm:ml-4" : ""
-          }
-        >
-          <div className="rounded-lg bg-board-bg/55 px-3 py-2">
-            {parent ? (
-              <div className="mb-2 rounded-md border-l-2 border-fire-500/50 bg-board-card/60 px-2 py-1.5 text-xs text-board-muted">
-                <span className="font-semibold text-fire-300">
-                  Replying to {parent.authorName}
-                </span>
-                <p className="mt-0.5 truncate">{parent.body}</p>
-              </div>
-            ) : null}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-board-text">
-                {item.authorName}
-              </span>
-              <span className="text-xs text-board-muted">
-                {formatTime(new Date(item.createdAt), "12hr", timeZone)}
-              </span>
-            </div>
-            <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-board-text/80">
-              {item.body}
-            </p>
-            <div className="mt-2 flex flex-wrap items-center gap-1">
-              {[...new Set(itemReactions.map((reaction) => reaction.emoji))].map((emoji) => {
-                const count = itemReactions.filter(
-                  (reaction) => reaction.emoji === emoji,
-                ).length;
-                return (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => void onReact(item.id, emoji)}
-                    aria-label={`React ${emoji}`}
-                    disabled={disabled}
-                    aria-pressed={itemReactions.some(reaction => reaction.emoji === emoji && reaction.userId === viewerId)}
-                    className="min-h-11 min-w-11 rounded-md border border-board-border px-2 py-1 text-xs text-board-muted hover:border-fire-500/30 hover:text-board-text"
-                  >
-                    {emoji}
-                    {count ? ` ${count}` : ""}
-                  </button>
-                );
-              })}
-              <span className="relative">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setReactionPickerFor((current) =>
-                      current === item.id ? null : item.id,
-                    )
-                  }
-                  aria-label="Add reaction"
-                  disabled={disabled}
-                  className="min-h-11 min-w-11 rounded-md p-1 text-board-muted hover:bg-board-border/60 hover:text-board-text"
-                >
-                  <SmilePlus className="h-3.5 w-3.5" />
-                </button>
-                {reactionPickerFor === item.id ? (
-                  <span className="fixed inset-x-4 bottom-4 z-40 block max-h-[50vh] overflow-auto sm:absolute sm:inset-x-auto sm:bottom-auto sm:left-0 sm:top-full sm:mt-1 sm:w-80 rounded-lg border border-board-border bg-board-card p-2 shadow-xl">
-                    <span className="grid max-h-40 grid-cols-5 sm:grid-cols-6 gap-1 overflow-y-auto">{REACTION_EMOJIS.map((emoji) => (
-                      <button
-                        key={emoji}
-                        type="button"
-                        onClick={() => {
-                          setReactionPickerFor(null);
-                          void onReact(item.id, emoji);
-                        }}
-                        className="min-h-11 min-w-11 rounded-md p-1.5 text-base hover:bg-board-border/60"
-                        aria-label={`React ${emoji}`}
-                    disabled={disabled}
-                    aria-pressed={itemReactions.some(reaction => reaction.emoji === emoji && reaction.userId === viewerId)}
-                      >
-                        {emoji}
-                      </button>
-                    ))}</span>
-                    <form className="mt-2 flex gap-1 border-t border-board-border pt-2" onSubmit={(event) => { event.preventDefault(); if (!isEmojiReaction(customReaction)) return; setReactionPickerFor(null); setCustomReaction(""); void onReact(item.id, customReaction); }}>
-                      <input aria-label="Type or paste any emoji" value={customReaction} onChange={(event) => setCustomReaction(event.target.value)} maxLength={32} placeholder="Any emoji" className="min-w-0 flex-1 rounded-md border border-board-border bg-board-bg px-2 py-1 text-xs text-board-text outline-none focus:border-fire-400/50" />
-                      <button type="submit" disabled={disabled || !isEmojiReaction(customReaction)} className="min-h-11 rounded-md bg-fire-500 px-2 text-xs font-semibold text-black disabled:opacity-40">Add</button>
-                    </form>
-                  </span>
-                ) : null}
-              </span>
-              <button
-                type="button"
-                onClick={() => onReply(item.id)}
-                disabled={disabled}
-                className="min-h-11 px-2 ml-1 text-xs font-medium text-board-muted hover:text-fire-400"
-              >
-                Reply
-              </button>
-            </div>
-          </div>
-        </div>
-        {children.map((child) => renderComment(child, depth + 1))}
-      </Fragment>
-    );
-  };
-  return <div className="flex flex-col gap-2">{renderComment(comment)}</div>;
+  const { title, body } = splitDescription(incident.description);
+  const reported = parseIncidentTimestamp(incident.timestamp);
+  return <Link to="/$slug/production/incident/$incidentId" params={{ slug, incidentId: incident.id }}
+    className="grid grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-x-4 border-t border-[var(--sa-border)] px-4 py-3 first:border-t-0 hover:bg-[var(--sa-surface-2)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-fire-500 sm:grid-cols-[16px_minmax(0,1fr)_48px_76px]">
+    <SeverityBars severity={incident.severity} />
+    <span className="flex min-w-0 flex-col gap-0.5">
+      <span className="truncate text-[13px] font-medium text-board-text">{title}</span>
+      {body ? <span className="truncate text-[13px] text-[var(--sa-ink-3)]">{body}</span> : null}
+    </span>
+    <span className="hidden items-center gap-1.5 text-[13px] tabular-nums text-[var(--sa-ink-2)] sm:inline-flex"><MessageCircle className="h-3.5 w-3.5 text-[var(--sa-ink-3)]" />{comments}</span>
+    <span className="flex flex-col items-end text-xs tabular-nums">
+      <span className="text-board-text">{showDate ? dayMonth(reported, timeZone) : clockTime(reported, timeZone)}</span>
+      {showDate ? <span className="text-[var(--sa-ink-3)]">{clockTime(reported, timeZone)}</span> : null}
+    </span>
+  </Link>;
 }

@@ -65,3 +65,12 @@ export const getIncidentDetail = createServerFn({ method: "GET" })
     const responders = canManage ? await resolveIncidentResponders(data.orgId, new Date().toISOString().slice(0, 10), db) : [];
     return { incident, comments, reactions, responders, canManage, viewerId: user.id };
   });
+
+/** Incident counts per show, for the Shows rail ("No incidents", "2 incidents"). */
+export const getIncidentCountsByShow = createServerFn({ method: "GET" })
+  .inputValidator((value: unknown) => parseOrThrow(z.object({ orgId: idSchema }), value))
+  .handler(async ({ data }) => {
+    await assertOrgPermission(data.orgId, ["incidents:report", "incidents:access"]);
+    const rows = await getD1().prepare("SELECT showId, COUNT(*) AS count FROM incident WHERE orgId = ? AND showId IS NOT NULL GROUP BY showId").bind(data.orgId).all<{ showId: string; count: number }>();
+    return Object.fromEntries((rows.results ?? []).map(row => [row.showId, Number(row.count)])) as Record<string, number>;
+  });
