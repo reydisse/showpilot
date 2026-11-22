@@ -67,9 +67,9 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, queryFixture
     const calls = async () => (await evaluate('assignmentCalls')).map(body => fromJSON(JSON.parse(body)).data);
     await page('Page.navigate', { url: `${origin}/${orgId}/schedule?date=2099-01-01&show=assignment-show&month=2099-01` });
     await click(button('Add position'));
-    await fill('Position', 'Recovery position'); await fill('Manager note', 'Retained draft');
-    const crewId = await evaluate(`(${field('Roster contact')}).options[1].value`);
-    await fill('Roster contact', crewId); await click(button('Add position'));
+    await fill('Position', 'Recovery position'); await fill('Note for this person (optional)', 'Retained draft');
+    const crewId = await evaluate(`(${field('Person')}).options[1].value`);
+    await fill('Person', crewId); await click(button('Add position'));
     await check('assignmentHeld.length===1', 'save committed with reply held');
     const created = await queryFixture("SELECT id FROM service_assignment WHERE orgId='display-smoke' AND role='Recovery position'");
     assert.equal(created.length, 1); const id = created[0].id;
@@ -79,7 +79,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, queryFixture
     await check("location.pathname.endsWith('/songs')", 'navigation away'); await evaluate('history.back()');
     await check("location.pathname.endsWith('/schedule')", 'return to schedule'); await click(button('Add position'));
     await check(`!!${button('Retry unconfirmed saves or invitations')}`, 'save deadline across navigation');
-    assert.equal(await evaluate(`(${field('Manager note')}).value`), 'Retained draft');
+    assert.equal(await evaluate(`(${field('Note for this person (optional)')}).value`), 'Retained draft');
     await evaluate("assignmentMode='pass';assignmentHeld.splice(0).forEach(release=>release());true");
     await click(button('Retry unconfirmed saves or invitations'));
     await check("document.querySelector('[role=dialog]').textContent.includes('Assignment saved.')", 'recovered save');
@@ -87,12 +87,12 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, queryFixture
     assert.equal((await capturedEmails()).length, 1);
     assert.equal((await queryFixture("SELECT id FROM service_assignment WHERE orgId='display-smoke' AND role='Recovery position'")).length, 1);
     await click(button('Close assignment')); await click(button('Edit Recovery position'));
-    await fill('Manager note', 'My reviewed draft');
+    await fill('Note for this person (optional)', 'My reviewed draft');
     const before = await rpc('getScheduleAssignment', { id });
     assert.equal((await edit(before.snapshot, 'Newer remote note')).outcome, 'applied');
     await click(button('Save assignment'));
     await check("document.querySelector('[role=dialog]').textContent.includes('Newer remote note')", 'stale edit conflict visible');
-    assert.equal(await evaluate(`(${field('Manager note')}).value`), 'My reviewed draft');
+    assert.equal(await evaluate(`(${field('Note for this person (optional)')}).value`), 'My reviewed draft');
     for (const [width,height] of [[320,480],[768,1024],[1440,1000]]) {
       await page('Emulation.setDeviceMetricsOverride', { width,height,deviceScaleFactor:1,mobile:false });
       const layout = await check(`(async()=>{await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const n=${button('Review latest details')};if(!n)return null;n.scrollIntoView({block:'center'});const b=n.getBoundingClientRect(),d=document.querySelector('[role=dialog]').getBoundingClientRect();if(b.top<0||b.bottom>innerHeight||d.left<0||d.right>innerWidth||d.bottom>innerHeight)return null;return {height:b.height,dialogWidth:d.width}})()`, 'reachable review at '+width);
@@ -112,7 +112,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, queryFixture
     await check("!document.querySelector('[role=dialog]')", 'deleted row disappears after refresh');
     assert.equal((await rpc('getScheduleAssignment',{id})).snapshot,null);
     await click(button('Build a team')); await fill('Team or category name','Recovery team');
-    await fill('Position 1','Fixture Audio'); await click(button('Add another person')); await fill('Position 2','Fixture Camera');
+    await fill('Position 1','Fixture Audio'); await click(button('Add row')); await fill('Position 2','Fixture Camera');
     await evaluate("assignmentMode='fail-camera'"); await click(button('Add team & send invitations'));
     await check("document.querySelector('[role=dialog]').textContent.includes('Save not confirmed')", 'partial team failure visible');
     const partial = await calls();

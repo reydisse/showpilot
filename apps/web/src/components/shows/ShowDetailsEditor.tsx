@@ -1,9 +1,11 @@
+import type React from "react";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import type { ReactNode } from "react";
 import { useShowDetails, type ShowDetailsDraft } from "@/hooks/useShowDetails";
 import { formatTimeInput } from "@/lib/utils";
+import { modalCancel, modalFooter, modalHint, modalPrimary } from "@/components/schedule/modal-a";
 
 const inputClass =
   "min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 py-2 text-sm text-board-text outline-none focus:border-fire-500 disabled:opacity-60";
@@ -18,6 +20,8 @@ export function ShowDetailsEditor({
   onRefreshed,
   disabled = false,
   children,
+  variant = "default",
+  onCancel,
 }: {
   scope: { orgId: string; userId: string; showId: string };
   initialDraft: ShowDetailsDraft;
@@ -27,7 +31,11 @@ export function ShowDetailsEditor({
   onRefreshed: () => void;
   disabled?: boolean;
   children?: (locked: boolean) => ReactNode;
+  /** "modal": Schedule — A layout (paired time fields, Cancel/Save footer, children above the footer). */
+  variant?: "default" | "modal";
+  onCancel?: () => void;
 }) {
+  const modal = variant === "modal";
   const work = useShowDetails(scope, initialDraft, { refresh, onRefreshed });
   const { draft, attempt } = work,
     locked = disabled || !!attempt;
@@ -56,7 +64,8 @@ export function ShowDetailsEditor({
               }
             />
           </label>
-          <label className="block text-xs text-board-muted">
+          <Pair modal={modal}>
+          <label className="block min-w-0 text-xs text-board-muted">
             Start time
             <DateTimePicker
               aria-label="Start time"
@@ -68,8 +77,8 @@ export function ShowDetailsEditor({
               }
             />
           </label>
-          <label className="block text-xs text-board-muted">
-            Crew call time
+          <label className="block min-w-0 text-xs text-board-muted">
+            {modal ? "Crew call" : "Crew call time"}
             <DateTimePicker
               aria-label="Crew call time"
               kind="time"
@@ -79,13 +88,15 @@ export function ShowDetailsEditor({
                 work.changeDraft({ callTime: value })
               }
             />
+            {modal ? <span className={modalHint}>{draft.callTime ? "Positions without their own call use this. Clear it to use the organization default." : callTimeNote}</span> : null}
           </label>
-          <p className="text-xs leading-5 text-board-muted">
+          </Pair>
+          {modal ? null : <p className="text-xs leading-5 text-board-muted">
             Times use {timezone}.{" "}
             {draft.callTime
               ? "Clear the call time to use the organization default."
               : callTimeNote}
-          </p>
+          </p>}
           <label className="block text-xs text-board-muted">
             Venue or location
             <input
@@ -104,7 +115,7 @@ export function ShowDetailsEditor({
             {work.notice}
           </p>
         ) : null}
-        {!attempt ? (
+        {!attempt && !modal ? (
           <button
             disabled={disabled || !draft.name.trim()}
             className="min-h-11 w-full rounded-xl bg-fire-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-50"
@@ -232,8 +243,19 @@ export function ShowDetailsEditor({
             ) : null}
           </div>
         ) : null}
+        {modal ? <>
+          {children?.(locked)}
+          <div className={modalFooter}>
+            {onCancel ? <button type="button" className={modalCancel} onClick={onCancel}>Cancel</button> : null}
+            {!attempt ? <button disabled={disabled || !draft.name.trim()} className={modalPrimary}>Save changes</button> : null}
+          </div>
+        </> : null}
       </form>
-      {children?.(locked)}
+      {modal ? null : children?.(locked)}
     </>
   );
+}
+
+function Pair({ modal, children }: { modal: boolean; children: React.ReactNode }) {
+  return modal ? <div className="grid min-w-0 gap-3 sm:grid-cols-2">{children}</div> : <>{children}</>;
 }

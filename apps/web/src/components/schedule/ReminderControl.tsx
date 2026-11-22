@@ -1,3 +1,4 @@
+import type React from "react";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { refreshRetainedResult } from "@/lib/retained-refresh";
 import {
@@ -154,12 +155,17 @@ export function ReminderControl({
   label,
   disabled = false,
   onChanged,
+  className,
+  icon,
 }: {
   orgId: string;
   target: ReminderTarget;
   label: string;
   disabled?: boolean;
   onChanged: () => Promise<void>;
+  /** Overrides the idle button style; retry/review states keep the default. */
+  className?: string;
+  icon?: React.ReactNode;
 }) {
   const { user } = useRouteContext({ from: "/$slug" });
   const client = useQueryClient();
@@ -195,10 +201,11 @@ export function ReminderControl({
       {!attempt && (
         <button
           type="button"
-          className={button}
+          className={className ?? button}
           disabled={disabled}
           onClick={start}
         >
+          {icon}
           {label}
         </button>
       )}

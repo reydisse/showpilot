@@ -109,10 +109,13 @@ export function CopyTeamControl({
   canCopy,
   onChanged,
   label = "Copy team",
+  className,
 }: Scope & {
   selection: CopyTeamSelection | null;
   canCopy: boolean;
   label?: string;
+  /** Overrides the idle button style only; progress and recovery keep the default. */
+  className?: string;
   onChanged: () => Promise<void>;
 }) {
   const client = useQueryClient(),
@@ -150,7 +153,7 @@ export function CopyTeamControl({
         <>
           <button
             type="button"
-            className={button}
+            className={className ?? button}
             disabled={!selection || !canCopy}
             onClick={start}
           >

@@ -93,7 +93,7 @@ await withLocalSmokeFixture(
         await page("Page.navigate", {
           url: `${origin}/${orgId}/schedule?date=2099-01-01&show=assignment-show&month=2099-01`,
         });
-        await click(button("Remind awaiting crew (3)"));
+        await click(button("Remind 3 awaiting"));
         const firstEmails = await poll(async () => {
           const emails = await capturedEmails();
           return emails.length === 3 ? emails : null;

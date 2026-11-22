@@ -76,15 +76,15 @@ it("requires an explicit archive confirmation with its scope and keeps cancellat
 });
 it("preserves an unavailable source and requires an explicit replacement", () => {
   const view = setup();
-  fireEvent.click(screen.getByRole("button", { name: "+ Add reusable show" }));
-  fireEvent.change(screen.getByLabelText("Show name"), {
+  fireEvent.click(screen.getByRole("button", { name: "New saved show" }));
+  fireEvent.change(screen.getByLabelText("Name"), {
     target: { value: "Draft" },
   });
-  fireEvent.change(screen.getByLabelText("Rundown source (optional)"), {
+  fireEvent.change(screen.getByLabelText("Rundown source"), {
     target: { value: "source" },
   });
   view.rerender(view.draw([]));
-  expect(screen.getByLabelText("Rundown source (optional)")).toHaveProperty(
+  expect(screen.getByLabelText("Rundown source")).toHaveProperty(
     "value",
     "source",
   );
@@ -96,7 +96,7 @@ it("preserves an unavailable source and requires an explicit replacement", () =>
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(true);
-  fireEvent.change(screen.getByLabelText("Rundown source (optional)"), {
+  fireEvent.change(screen.getByLabelText("Rundown source"), {
     target: { value: "" },
   });
   expect(

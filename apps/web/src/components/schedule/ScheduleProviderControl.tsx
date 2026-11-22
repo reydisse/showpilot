@@ -28,11 +28,16 @@ export function ScheduleProviderControl({
   userId,
   refresh,
   workspaceSettingsLink,
+  triggerClassName,
+  triggerIcon,
 }: {
   orgId: string;
   userId: string;
   refresh: () => Promise<void>;
   workspaceSettingsLink: React.ReactNode;
+  /** Replaces the default trigger style (Schedule rail uses a ghost button). */
+  triggerClassName?: string;
+  triggerIcon?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const opener = useRef<HTMLButtonElement>(null);
@@ -46,11 +51,11 @@ export function ScheduleProviderControl({
     <div className="flex min-w-0 flex-col items-start gap-1">
       <button
         type="button"
-        className={`${button} inline-flex items-center gap-2`}
+        className={triggerClassName ?? `${button} inline-flex items-center gap-2`}
         ref={opener}
         onClick={() => setOpen(true)}
       >
-        <Settings2 className="h-4 w-4" />
+        {triggerIcon ?? <Settings2 className="h-4 w-4" />}
         Manage source
       </button>
       {!open && (attention || editor.pending) && (

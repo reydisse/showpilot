@@ -1,3 +1,4 @@
+import type React from "react";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import {
   useShowCreation,
@@ -6,6 +7,7 @@ import {
 } from "@/hooks/useShowCreation";
 import { CreationRecovery } from "./CreationRecovery";
 import { formatTimeInput, serviceTimeToIso } from "@/lib/utils";
+import { modalCancel, modalFooter, modalPrimary } from "@/components/schedule/modal-a";
 export type ShowSource =
   | { kind: "blank" }
   | { kind: "show"; id: string; serviceDate: string; name: string }
@@ -26,7 +28,7 @@ export type CreationInventory = {
   defaultStartTime: string | null;
   itemCount: number;
 };
-export type CreationShow = { id: string; serviceDate: string; name: string };
+export type CreationShow = { id: string; serviceDate: string; name: string; meta?: string };
 export function inventoryDraft(
   draft: ShowDraft,
   item: CreationInventory,
@@ -66,6 +68,7 @@ export function ShowCreationForm({
   requireStart = false,
   minDate,
   createLabel = "Create show",
+  variant = "default",
 }: {
   scope: ShowCreationScope;
   initial: ShowDraft;
@@ -78,7 +81,10 @@ export function ShowCreationForm({
   requireStart?: boolean;
   minDate?: string;
   createLabel?: string;
+  /** "modal": Schedule — A layout (source choice cards, paired fields, Cancel/Create footer). */
+  variant?: "default" | "modal";
 }) {
+  const modal = variant === "modal";
   const work = useShowCreation(scope, initial, { onCreated, beforeCreate });
   const draft = work.draft;
   const change = <K extends keyof ShowDraft>(key: K, value: ShowDraft[K]) =>
@@ -117,6 +123,25 @@ export function ShowCreationForm({
         disabled={work.locked}
         className="min-w-0 space-y-3 disabled:opacity-70"
       >
+        {modal ? (
+          <div role="radiogroup" aria-label="Start from" className="flex flex-col gap-2">
+            <span className="text-xs font-medium text-[var(--sa-ink-2)]">Start from</span>
+            {([
+              { key: "", title: "Blank show", meta: "Name, time and venue only", pick: () => change("source", { kind: "blank" }) },
+              ...shows.map((show) => ({ key: `show:${show.id}`, title: show.name || "Show", meta: show.meta ?? show.serviceDate, pick: () => change("source", { kind: "show", id: show.id, serviceDate: show.serviceDate, name: show.name }) })),
+              ...inventory.map((item) => ({ key: `inventory:${item.id}`, title: item.name, meta: [`${item.itemCount} rundown ${item.itemCount === 1 ? "item" : "items"}`, item.defaultStartTime, item.location].filter(Boolean).join(" · "), pick: () => work.setDraft((current) => inventoryDraft(current, item, venueTimeZone)) })),
+            ]).map((option) => {
+              const active = option.key === selected;
+              return (
+                <button key={option.key || "blank"} type="button" role="radio" aria-checked={active} onClick={option.pick}
+                  className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left ${active ? "border-fire-500 bg-fire-500/10" : "border-[var(--sa-border-strong)] bg-[var(--sa-surface)] hover:bg-[var(--sa-surface-2)]"}`}>
+                  <span aria-hidden="true" className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${active ? "shadow-[inset_0_0_0_1.5px_var(--color-fire-500)]" : "shadow-[inset_0_0_0_1.5px_var(--sa-border-strong)]"}`}>{active ? <span className="h-2 w-2 rounded-full bg-fire-500" /> : null}</span>
+                  <span className="flex min-w-0 flex-col gap-0.5"><span className="truncate text-[13px] font-medium text-board-text">{option.title}</span><span className="truncate text-xs text-[var(--sa-ink-3)]">{option.meta}</span></span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
         <label className="block text-sm text-board-muted">
           Start from a saved show
           <select
@@ -164,6 +189,7 @@ export function ShowCreationForm({
             )}
           </select>
         </label>
+        )}
         <label className="block text-sm text-board-muted">
           Show name
           <input
@@ -198,8 +224,9 @@ export function ShowCreationForm({
             />
           </label>
         </div>
-        <label className="block text-sm text-board-muted">
-          Crew call time (optional)
+        <Pair modal={modal}>
+        <label className="block min-w-0 text-sm text-board-muted">
+          Crew call {modal ? "(optional)" : "time (optional)"}
           <DateTimePicker
             kind="time"
             className={control}
@@ -207,11 +234,11 @@ export function ShowCreationForm({
             onValueChange={(value) => change("callTime", value)}
           />
         </label>
-        <p className="text-xs text-board-muted">
+        {modal ? null : <p className="text-xs text-board-muted">
           Times use {draft.timeZone}. Leave crew call blank to use the
           organization default.
-        </p>
-        <label className="block text-sm text-board-muted">
+        </p>}
+        <label className="block min-w-0 text-sm text-board-muted">
           Venue or location
           <input
             className={control}
@@ -220,10 +247,16 @@ export function ShowCreationForm({
             onChange={(e) => change("location", e.target.value)}
           />
         </label>
+        </Pair>
 
       </fieldset>
       <CreationRecovery work={work} />
-      <div className="flex flex-wrap gap-2">
+      {modal ? (
+        <div className={modalFooter}>
+          {onClose && <button type="button" className={modalCancel} onClick={onClose}>Cancel</button>}
+          {!work.attempt && <button type="submit" disabled={!draft.serviceDate || (requireStart && !draft.startTime)} className={modalPrimary}>{createLabel}</button>}
+        </div>
+      ) : <div className="flex flex-wrap gap-2">
         {onClose && (
           <button
             type="button"
@@ -242,7 +275,11 @@ export function ShowCreationForm({
             {createLabel}
           </button>
         )}
-      </div>
+      </div>}
     </form>
   );
+}
+
+function Pair({ modal, children }: { modal: boolean; children: React.ReactNode }) {
+  return modal ? <div className="grid min-w-0 gap-3 sm:grid-cols-2">{children}</div> : <>{children}</>;
 }
