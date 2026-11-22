@@ -59,12 +59,12 @@ export function AppShell({
 
           <Sidebar />
           <div className="flex-1 min-w-0 flex flex-col">
-            {desktop && <Suspense fallback={null}><DesktopStatusBar orgId={orgId} liveRundown={cueSheet && showLiveRundown && orgId && slug ? <LiveRundownBar orgId={orgId} slug={slug} canControl={canControlRundown} compact toolbar={controls => <Suspense fallback={null}><CueSheetHeaderActions orgId={orgId} slug={slug} controls={controls} menuOnly /></Suspense>} /> : undefined} /></Suspense>}
+            {desktop && <Suspense fallback={null}><DesktopStatusBar orgId={orgId} liveRundown={cueSheet && showLiveRundown && orgId && slug ? <LiveRundownBar orgId={orgId} slug={slug} canControl={canControlRundown} compact toolbar={controls => <Suspense fallback={null}><CueSheetHeaderActions controls={controls} /></Suspense>} /> : undefined} /></Suspense>}
             <MobileHeader />
             {orgId && <RuntimeErrorNotice orgId={orgId} />}
             {orgId && slug && <RundownHandoffNotice orgId={orgId} slug={slug} />}
             {showLiveRundown && orgId && slug && !(desktop && cueSheet) ? (
-              <LiveRundownBar orgId={orgId} slug={slug} canControl={canControlRundown} compact={cueSheet} toolbar={cueSheet ? controls => <Suspense fallback={null}><CueSheetHeaderActions orgId={orgId} slug={slug} controls={controls} /></Suspense> : undefined} />
+              <LiveRundownBar orgId={orgId} slug={slug} canControl={canControlRundown} compact={cueSheet} toolbar={cueSheet ? controls => <Suspense fallback={null}><CueSheetHeaderActions controls={controls} /></Suspense> : undefined} />
             ) : null}
             <main className="flex-1 min-h-0 overflow-auto modern-scrollbar">
               {children}

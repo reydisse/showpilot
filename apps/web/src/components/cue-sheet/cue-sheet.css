@@ -179,17 +179,10 @@
 .cue-conflict-values > div { min-width: 0; border: 1px solid var(--board-border); border-radius: 6px; padding: 8px; }
 .cue-conflict-values span { font-size: 10px; color: var(--board-muted); text-transform: uppercase; }
 .cue-conflict-values p { white-space: pre-wrap; margin-top: 4px; }
-.cue-header-actions { margin-left: auto; display: flex; align-items: center; gap: 16px; }
-.cue-header-actions > a { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; color: var(--board-muted); font-size: 12px; white-space: nowrap; }
-.cue-header-actions > a svg { width: 14px; height: 14px; }
-.cue-header-actions > div:first-child { padding: 0 4px; border-radius: 999px; box-shadow: none; background: transparent; }
-.cue-header-actions > div:first-child button { width: auto; height: 26px; min-height: 26px; font-size: 12px; padding: 0 4px; }
-.cue-header-actions > div:first-child button[aria-label='Confidence output and appearance'] > span:first-of-type { display: inline; font-size: 12px; }
-.cue-header-actions > div:first-child button[aria-label='Confidence output and appearance'] > span:last-child { background: transparent; padding: 0 2px; }
-.cue-header-actions > div:first-child button[aria-label='Confidence output and appearance'] > svg { display: none; }
+.cue-header-actions { margin-left: auto; display: flex; align-items: center; }
 .cue-workspace [aria-label='Desktop controls'] .cue-live-bar { padding: 0; background: transparent; border: 0; flex: 1; min-width: 0; }
 .cue-workspace [aria-label='Desktop controls'] .cue-live-bar > div { min-height: 32px; }
-@media (max-width: 700px) { .cue-header-actions > a { display: none; } .cue-header-actions { gap: 4px; } .cue-live-bar { padding-inline: 12px; } .cue-live-bar a p:nth-child(2) { display: none; } }
+@media (max-width: 700px) { .cue-live-bar { padding-inline: 12px; } .cue-live-bar a p:nth-child(2) { display: none; } }
 .cue-segment label:has(option:checked:not([value=''])) { border-radius: 6px; background: var(--board-border); color: var(--board-text); }
 .cue-undo-notice { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; padding: 10px 12px; border: 1px solid var(--board-border); border-radius: 8px; background: var(--board-card); font-size: 13px; box-shadow: 0 4px 16px #0004; }
 .cue-undo-stack { position: fixed; z-index: 40; bottom: 20px; right: 20px; max-width: calc(100vw - 40px); max-height: 50dvh; overflow: auto; }
