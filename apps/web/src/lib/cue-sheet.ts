@@ -119,12 +119,14 @@ async function readColumns(orgId: string): Promise<CueColumnRow[]> {
     (
       await getD1()
         .prepare(
-          `SELECT id, label, color, sortOrder, width
-             FROM cue_column
-            WHERE orgId = ?
-            ORDER BY sortOrder ASC, createdAt ASC, id ASC`,
+          `SELECT c.id, c.label, c.color, c.sortOrder, c.width, COALESCE(n.noteCount, 0) AS noteCount
+             FROM cue_column c
+             LEFT JOIN (SELECT columnId, COUNT(*) AS noteCount FROM cue_note
+               WHERE orgId = ? AND LENGTH(TRIM(text)) > 0 GROUP BY columnId) n ON n.columnId = c.id
+            WHERE c.orgId = ?
+            ORDER BY c.sortOrder ASC, c.createdAt ASC, c.id ASC`,
         )
-        .bind(orgId)
+        .bind(orgId, orgId)
         .all<CueColumnRow>()
     ).results ?? [];
   return rows;

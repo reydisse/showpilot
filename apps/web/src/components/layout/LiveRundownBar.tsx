@@ -1,7 +1,8 @@
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { Link } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, Pause, Play, Radio } from "lucide-react";
+import { ChevronLeft, ChevronRight, MoreHorizontal, Pause, Play, Radio } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { Popover } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { useRundownSync } from "@/hooks/useRundownSync";
 import { useShowEndConfirmation } from "@/hooks/useShowEndConfirmation";
@@ -15,6 +16,8 @@ interface LiveRundownBarProps {
   orgId: string;
   slug: string;
   canControl: boolean;
+  compact?: boolean;
+  toolbar?: ReactNode | ((controls: ReactNode) => ReactNode);
 }
 interface ActiveTarget { serviceDate: string; showId?: string }
 type TargetLookup = { status: "loading" } | { status: "ready"; target: ActiveTarget } | { status: "unavailable"; target?: ActiveTarget };
@@ -30,11 +33,11 @@ function formatTimer(milliseconds: number): string {
     : `${sign}${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
-function Bar({ children }: { children: ReactNode }) {
-  return <section aria-label="Live rundown" className="relative z-30 shrink-0 border-b border-fire-500/25 bg-[#15130f] px-3 py-2 text-board-text shadow-[0_6px_24px_rgba(0,0,0,0.2)] sm:px-4">{children}</section>;
+function Bar({ children, compact }: { children: ReactNode; compact?: boolean }) {
+  return <section aria-label="Live rundown" className={compact ? "cue-live-bar" : "relative z-30 shrink-0 border-b border-fire-500/25 bg-[#15130f] px-3 py-2 text-board-text shadow-[0_6px_24px_rgba(0,0,0,0.2)] sm:px-4"}>{children}</section>;
 }
 
-function ActiveRundownSession({ target, orgId, slug, canControl, targetFresh, refresh }: LiveRundownBarProps & { target: ActiveTarget; targetFresh: boolean; refresh: ReactNode }) {
+function ActiveRundownSession({ target, orgId, slug, canControl, compact, toolbar, targetFresh, refresh }: LiveRundownBarProps & { target: ActiveTarget; targetFresh: boolean; refresh: ReactNode }) {
   const { items, timer, serviceName, connected, hydrated, sendCommand, lastError, retryConnection } = useRundownSync(orgId, target.serviceDate, target.showId);
   const [now, setNow] = useState(Date.now());
   const [hasRun, setHasRun] = useState(false);
@@ -63,7 +66,14 @@ function ActiveRundownSession({ target, orgId, slug, canControl, targetFresh, re
   const title = !hydrated ? "Loading…" : !active ? hasRun ? "Show ended" : "No live rundown" : !currentItem ? "Live item unavailable" : isPaused ? "Rundown paused" : "Rundown live";
   const connectionNotice = !live && !hydrated;
 
-  return <Bar>
+  const transport = hydrated && active && currentItem && canControl ? <div className="flex basis-full justify-end gap-1 sm:basis-auto">
+        <Button type="button" variant="ghost" size="icon" aria-label="Previous rundown item" disabled={!live} onClick={() => sendCommand("timer-prev")} className="h-11 w-11"><ChevronLeft /></Button>
+        <Button type="button" size="icon" aria-label={isPaused ? "Resume rundown" : "Pause rundown"} disabled={!live} onClick={() => sendCommand(isPaused ? "timer-resume" : "timer-pause")} className="h-11 w-11">{isPaused ? <Play className="fill-current" /> : <Pause className="fill-current" />}</Button>
+        <Button type="button" variant="ghost" size="icon" aria-label="Next rundown item" disabled={!live} className="h-11 w-11"
+          onClick={() => { if (!nextPlayableItem(items, timer.currentItemId)) requestEndShow(); else sendCommand("timer-next"); }}><ChevronRight /></Button>
+      </div> : null;
+
+  return <Bar compact={compact}>
     {endShowDialog}
     <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
       <Radio aria-hidden="true" className={`h-4 w-4 shrink-0 ${live && active ? "text-fire-400" : "text-board-muted"}`} />
@@ -75,12 +85,9 @@ function ActiveRundownSession({ target, orgId, slug, canControl, targetFresh, re
         </p>}
       </Link>
       {hydrated && active && currentItem && <span data-live-rundown-timer className={`shrink-0 font-mono text-base font-bold tabular-nums ${displayed < 0 ? "text-red-400" : "text-board-text"}`}>{formatTimer(displayed)}</span>}
-      {hydrated && active && currentItem && canControl && <div className="flex basis-full justify-end gap-1 sm:basis-auto">
-        <Button type="button" variant="ghost" size="icon" aria-label="Previous rundown item" disabled={!live} onClick={() => sendCommand("timer-prev")} className="h-11 w-11"><ChevronLeft /></Button>
-        <Button type="button" size="icon" aria-label={isPaused ? "Resume rundown" : "Pause rundown"} disabled={!live} onClick={() => sendCommand(isPaused ? "timer-resume" : "timer-pause")} className="h-11 w-11">{isPaused ? <Play className="fill-current" /> : <Pause className="fill-current" />}</Button>
-        <Button type="button" variant="ghost" size="icon" aria-label="Next rundown item" disabled={!live} className="h-11 w-11"
-          onClick={() => { if (!nextPlayableItem(items, timer.currentItemId)) requestEndShow(); else sendCommand("timer-next"); }}><ChevronRight /></Button>
-      </div>}
+      {typeof toolbar === "function" ? toolbar(transport) : toolbar}
+      {transport && typeof toolbar !== "function" && (compact ? <Popover.Root><Popover.Trigger asChild><button type="button" aria-label="Rundown controls" className="cue-icon"><MoreHorizontal /></button></Popover.Trigger><Popover.Portal><Popover.Content align="end" sideOffset={8} className="z-50 rounded-lg border border-board-border bg-board-card p-2 shadow-xl">{transport}</Popover.Content></Popover.Portal></Popover.Root> : transport)}
+
     </div>
     {connectionNotice && <p role="status" aria-live="polite" className="mt-1 text-xs text-amber-200"><QuietActivity /></p>}
     {(lastError || !targetFresh) && <p role="alert" className="mt-1 break-words text-xs text-red-300">Live rundown could not be updated.</p>}
@@ -128,7 +135,7 @@ function LiveRundownWorkspace(props: LiveRundownBarProps) {
   const retry = lookup.status === "unavailable" ? <Button type="button" variant="outline" className="mt-2 min-h-11 text-xs" disabled={refreshPending} onClick={() => setAttempt(value => value + 1)}>{refreshPending ? <QuietActivity label="Checking live rundown…" /> : "Retry live rundown"}</Button> : null;
   const target = "target" in lookup ? lookup.target : undefined;
   return target ? <ActiveRundownSession key={JSON.stringify([target.showId ?? null, target.serviceDate])} {...props} target={target} targetFresh={lookup.status === "ready"} refresh={retry} />
-    : <Bar><p role="status" aria-live="polite" className="text-xs text-board-text">{lookup.status === "loading" ? <QuietActivity label="Checking live rundown…" /> : "Live rundown unavailable"}</p>{retry}</Bar>;
+    : <Bar compact={props.compact}><p role="status" aria-live="polite" className="text-xs text-board-text">{lookup.status === "loading" ? <QuietActivity label="Checking live rundown…" /> : "Live rundown unavailable"}</p>{retry}</Bar>;
 }
 
 /** Replacing the workspace clears its target, timer and pending confirmation synchronously. */

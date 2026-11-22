@@ -9,6 +9,7 @@ import { FullscreenExitButton } from "./FullscreenExitButton";
 import { MobileHeader } from "./MobileHeader";
 import { LiveRundownBar } from "./LiveRundownBar";
 
+const CueSheetHeaderActions = lazy(() => import("@/components/cue-sheet/header-actions").then(module => ({ default: module.CueSheetHeaderActions })));
 const DesktopStatusBar = lazy(() => import("./DesktopStatusBar").then(module => ({ default: module.DesktopStatusBar })));
 
 const SettingsReturnContext = createContext<string | null>(null);
@@ -34,6 +35,7 @@ export function AppShell({
 }: AppShellProps) {
   const desktop = useDesktopRuntime();
   const location = useRouterState({ select: state => state.resolvedLocation });
+  const cueSheet = location?.pathname.endsWith("/production/cue-sheets") ?? false;
   const [previousPage, setPreviousPage] = useState<{ slug: string; href: string } | null>(null);
   useEffect(() => {
     if (slug && location && location.pathname.startsWith(`/${slug}/`) && location.pathname !== `/${slug}/settings`) {
@@ -47,7 +49,7 @@ export function AppShell({
   return (
     <SettingsReturnContext.Provider value={settingsReturnTo}>
       <SidebarProvider>
-        <div className="flex h-[100dvh] overflow-hidden bg-board-bg">
+        <div className={`flex h-[100dvh] overflow-hidden bg-board-bg ${cueSheet ? "cue-workspace" : ""}`}>
           {orgId && slug && <Link to="/$slug/rundown" params={{ slug }} hash="rundown-runsheet"
             onClick={event => {
               const runsheet = document.getElementById("rundown-runsheet");
@@ -57,12 +59,12 @@ export function AppShell({
 
           <Sidebar />
           <div className="flex-1 min-w-0 flex flex-col">
-            {desktop && <Suspense fallback={null}><DesktopStatusBar orgId={orgId} /></Suspense>}
+            {desktop && <Suspense fallback={null}><DesktopStatusBar orgId={orgId} liveRundown={cueSheet && showLiveRundown && orgId && slug ? <LiveRundownBar orgId={orgId} slug={slug} canControl={canControlRundown} compact toolbar={controls => <Suspense fallback={null}><CueSheetHeaderActions orgId={orgId} slug={slug} controls={controls} menuOnly /></Suspense>} /> : undefined} /></Suspense>}
             <MobileHeader />
             {orgId && <RuntimeErrorNotice orgId={orgId} />}
             {orgId && slug && <RundownHandoffNotice orgId={orgId} slug={slug} />}
-            {showLiveRundown && orgId && slug ? (
-              <LiveRundownBar orgId={orgId} slug={slug} canControl={canControlRundown} />
+            {showLiveRundown && orgId && slug && !(desktop && cueSheet) ? (
+              <LiveRundownBar orgId={orgId} slug={slug} canControl={canControlRundown} compact={cueSheet} toolbar={cueSheet ? controls => <Suspense fallback={null}><CueSheetHeaderActions orgId={orgId} slug={slug} controls={controls} /></Suspense> : undefined} />
             ) : null}
             <main className="flex-1 min-h-0 overflow-auto modern-scrollbar">
               {children}

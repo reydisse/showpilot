@@ -15,7 +15,18 @@ it("advances the caller display without rendering the sheet parent and releases 
   vi.useFakeTimers();vi.setSystemTime(start);
   let renders=0;
   function Sheet(){renders++;return <CallerClockBar rows={rows} currentItemId="first" timer={{playback:"play",elapsed:0,startedAt:start}} initialNow={start}/>;}
-  const view=render(<Sheet/>);expect(view.container.textContent).toContain("01:00");
-  act(()=>vi.advanceTimersByTime(2000));expect(view.container.textContent).toContain("00:58");expect(renders).toBe(1);
+  const view=render(<Sheet/>);expect(view.container.textContent).toContain("1:00");
+  act(()=>vi.advanceTimersByTime(2000));expect(view.container.textContent).toContain("0:58");expect(renders).toBe(1);
   view.unmount();expect(vi.getTimerCount()).toBe(0);
+});
+
+it("uses the same 90-second attention threshold and signed overtime treatment", () => {
+  vi.useFakeTimers(); vi.setSystemTime(start);
+  const view = render(<CallerClockBar rows={[{ ...rows[0], durationMs: 120_000 }]} currentItemId="first" timer={{ playback: "pause", elapsed: 29_000, startedAt: null }} initialNow={start} />);
+  expect(view.container.querySelector("[data-tone=normal]")).toBeTruthy();
+  view.rerender(<CallerClockBar rows={[{ ...rows[0], durationMs: 120_000 }]} currentItemId="first" timer={{ playback: "pause", elapsed: 30_000, startedAt: null }} initialNow={start} />);
+  expect(view.container.querySelector("[data-tone=attention]")).toBeTruthy();
+  view.rerender(<CallerClockBar rows={rows} currentItemId="first" timer={{ playback: "pause", elapsed: 265_000, startedAt: null }} initialNow={start} />);
+  expect(view.container.querySelector("[data-tone=over]")).toBeTruthy();
+  expect(view.container.textContent).toContain("+3:25");
 });

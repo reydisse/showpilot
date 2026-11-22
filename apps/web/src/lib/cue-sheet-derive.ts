@@ -28,6 +28,8 @@ export interface CueColumnRow {
   color: string;
   sortOrder: number;
   width: number;
+  /** Non-empty notes across this organization's shows; used only for safe deletion. */
+  noteCount?: number;
 }
 
 /** One row of the sheet — a rundown item, with its notes attached. */

@@ -3,7 +3,7 @@ import {
   useTerms,
 } from "@/components/workspace/WorkspaceProvider";
 import type { ModuleId } from "@showpilot/shared";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Link,
   useLocation,
@@ -311,9 +311,13 @@ function QuickActions({ collapsed }: { collapsed: boolean }) {
 
 export function Sidebar() {
   const workspace = useWorkspace();
-  const { collapsed, fullscreen, mobileOpen, setMobileOpen, isMobile } =
+  const { collapsed: storedCollapsed, fullscreen, mobileOpen, setMobileOpen, isMobile } =
     useSidebar();
   const { pathname } = useLocation();
+  const cueSheet = pathname.endsWith("/production/cue-sheets");
+  const [cueCompact, setCueCompact] = useState(false);
+  useEffect(() => { if (!cueSheet) return; const media = window.matchMedia("(max-width: 1100px)"); const update = () => setCueCompact(media.matches); update(); media.addEventListener("change", update); return () => media.removeEventListener("change", update); }, [cueSheet]);
+  const collapsed = storedCollapsed || (cueSheet && cueCompact && !isMobile);
   const { slug } = useParams({ strict: false });
   let org: {
     id: string;
@@ -363,7 +367,7 @@ export function Sidebar() {
   };
 
   const hidden = fullscreen;
-  const w = collapsed ? 68 : 240;
+  const w = cueSheet ? collapsed ? 64 : 232 : collapsed ? 68 : 240;
 
   if (hidden && !isMobile) {
     return null;
@@ -383,6 +387,8 @@ export function Sidebar() {
         {/* Backdrop */}
         <aside
           key="workspace-sidebar"
+        data-slot="workspace-sidebar"
+        data-cue-collapsed={cueSheet && collapsed && !isMobile ? "true" : undefined}
           aria-hidden={!mobileOpen}
           inert={!mobileOpen}
           className={`fixed top-0 left-0 h-[100dvh] w-[280px] z-50 bg-board-card border-r border-board-border flex flex-col overflow-hidden transition-transform duration-200 ease-in-out ${
@@ -411,6 +417,8 @@ export function Sidebar() {
     <>
       <aside
         key="workspace-sidebar"
+        data-slot="workspace-sidebar"
+        data-cue-collapsed={cueSheet && collapsed && !isMobile ? "true" : undefined}
         style={{ width: w, transition: "width 200ms ease-in-out" }}
         className="fixed top-0 left-0 z-30 flex h-[100dvh] flex-col overflow-hidden border-r border-board-border bg-board-card"
       >

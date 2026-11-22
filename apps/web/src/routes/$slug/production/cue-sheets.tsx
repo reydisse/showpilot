@@ -1,6 +1,7 @@
-import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
-import { RelaySyncNotice } from "@/components/RelaySyncNotice";
+import { cueDraftKey, cueCellKey, restoreCueDrafts, serializeCueDrafts, type CueDraft } from "@/lib/cue-sheet-offline";
+import { plainFailure } from "@showpilot/shared/ui-feedback";
+import { CueReadNotice } from "@/components/cue-sheet/read-notice";
 /**
  * Cue sheet.
  *
@@ -11,24 +12,28 @@ import { RelaySyncNotice } from "@/components/RelaySyncNotice";
 
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ListOrdered, Plus, Settings2, Wifi, WifiOff } from "lucide-react";
-import { EmptyState } from "@/components/ui/empty-state";
+import { Columns3, Expand, ListOrdered, Palette, Plus, Wifi, WifiOff, X } from "lucide-react";
 import { getOrgSettings } from "@/lib/settings";
 import { getTodayDateString } from "@/lib/utils";
-import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
+import { CueShowMenu } from "@/components/cue-sheet/show-menu";
+import { CueColumnsMenu } from "@/components/cue-sheet/columns-menu";
+import { DepartmentScroller } from "@/components/cue-sheet/department-scroller";
+import { useCueLayout } from "@/components/cue-sheet/use-cue-layout";
+import { departmentStyle } from "@/components/cue-sheet/department-color";
+import "@/components/cue-sheet/cue-sheet.css";
 import { hasEffectivePermission } from "@/lib/app-permissions";
 import { useCueSheetSync } from "@/hooks/useCueSheetSync";
 import { getCueSheet, type CueSheetModel } from "@/lib/cue-sheet";
 import { withOperationTimeout } from "@/lib/operation-timeout";
 import { useCueSheetWrites } from "@/hooks/useCueSheetWrites";
-import { describeCueSheetWrite, type CueSheetOperation } from "@/lib/cue-sheet-writes";
-import { useConfirmDialog } from "@/components/ui/confirm-dialog";
-import { CueTable, TOGGLEABLE_COLUMNS } from "@/components/cue-sheet/cue-table";
+import { type CueSheetOperation } from "@/lib/cue-sheet-writes";
+import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { CueTable } from "@/components/cue-sheet/cue-table";
 import { useRundownSync } from "@/hooks/useRundownSync";
 import { toCueRows } from "@/lib/cue-sheet-derive";
 import { CallerClockBar } from "@/components/cue-sheet/caller-clock";
 import type { RundownItem } from "@/types/rundown";
-import { ScrollEdges, useEdgeScroll } from "@/components/ui/scroll-edges";
+
 import { ColumnManager } from "@/components/cue-sheet/column-manager";
 import { PageSkeleton } from "@/components/ui/Skeleton";
 
@@ -39,15 +44,6 @@ function notesFromRows(rows: { itemId: string; notes: Record<string, string> }[]
     if (Object.keys(row.notes).length > 0) out[row.itemId] = { ...row.notes };
   }
   return out;
-}
-
-/**
- * Which columns an operator has hidden is a personal view preference, not
- * org data — LX hiding Sound must not hide it for the sound engineer. It
- * lives in localStorage, keyed per org.
- */
-function hiddenKey(orgId: string) {
-  return `showpilot:cue-hidden:${orgId}`;
 }
 
 export const Route = createFileRoute("/$slug/production/cue-sheets")({
@@ -71,6 +67,7 @@ export const Route = createFileRoute("/$slug/production/cue-sheets")({
       initialNow: Date.now(),
       orgId: context.orgId,
       role: context.role,
+      userId: context.user.id,
       grantedPermissions: context.grantedPermissions,
       orgTimezone: settings["org-timezone"],
     };
@@ -79,7 +76,12 @@ export const Route = createFileRoute("/$slug/production/cue-sheets")({
 });
 
 function CueSheetsPage() {
-  const { model: initialModel, orgId, role, grantedPermissions, orgTimezone, initialNow } = Route.useLoaderData();
+  const { orgId, userId } = Route.useLoaderData();
+  return <CueSheetsWorkspace key={JSON.stringify([orgId, userId])} />;
+}
+
+function CueSheetsWorkspace() {
+  const { model: initialModel, orgId, role, grantedPermissions, orgTimezone, initialNow, userId } = Route.useLoaderData();
   const { slug } = Route.useParams();
   const today = getTodayDateString(orgTimezone);
   const [showId, setShowId] = useState(initialModel.showId);
@@ -94,52 +96,66 @@ function CueSheetsPage() {
   );
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [loadErrorAt, setLoadErrorAt] = useState<number | null>(null);
+  const [stillLoading, setStillLoading] = useState(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { setStillLoading(false); if (!loading) return; const timer = setTimeout(() => setStillLoading(true), 10000); return () => clearTimeout(timer); }, [loading]);
   const loadVersion = useRef(0);
   const loadController = useRef<AbortController | null>(null);
   useEffect(() => () => { loadVersion.current++; loadController.current?.abort(); }, [orgId]);
   const selectedShow = useRef(showId);
   selectedShow.current = showId;
   const noteVersion = useRef(0);
-  const localNotes = useRef(new Map<string, { showId: string; itemId: string; columnId: string; text: string; expectedText: string; pending: boolean; version: number }>());
-  const notePumps = useRef(new Set<string>());
-  const writes = useCueSheetWrites(orgId);
-  const [confirmedColumnWrite, setConfirmedColumnWrite] = useState<CueSheetOperation | null>(null);
-  const { confirm, ConfirmDialogEl } = useConfirmDialog();
-  const [managing, setManaging] = useState(false);
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const sheetScroll = useEdgeScroll();
-
-  const canAddNotes =
-    hasEffectivePermission(role, grantedPermissions, "cuesheet:add_notes") ||
-    hasEffectivePermission(role, grantedPermissions, "cuesheet:edit");
-  const canManageColumns = hasEffectivePermission(role, grantedPermissions, "cuesheet:edit");
-
+  const localNotes = useRef(new Map<string, CueDraft>());
+  const draftStorageKey = cueDraftKey(orgId, userId);
+  const draftStorageReady = useRef(false);
+  const [draftStorageError, setDraftStorageError] = useState<string | null>(null);
+  const [, setDraftRevision] = useState(0);
+  const [offline, setOffline] = useState(false);
+  const persistDrafts = () => {
+    setDraftRevision(version => version + 1);
+    if (!draftStorageReady.current) return;
+    try { localStorage.setItem(draftStorageKey, serializeCueDrafts(localNotes.current)); setDraftStorageError(null); }
+    catch { setDraftStorageError("Couldn't keep offline cues on this device. Keep this page open."); }
+  };
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(hiddenKey(orgId));
-      if (raw) setHidden(new Set(JSON.parse(raw) as string[]));
-    } catch {
-      // A corrupt preference is not worth failing the page over.
-    }
-  }, [orgId]);
-
-  const toggleHidden = useCallback(
-    (columnId: string) => {
-      setHidden((prev) => {
-        const next = new Set(prev);
-        if (next.has(columnId)) next.delete(columnId);
-        else next.add(columnId);
-        try {
-          localStorage.setItem(hiddenKey(orgId), JSON.stringify([...next]));
-        } catch {
-          // Private browsing. The toggle still works for this session.
-        }
+      const restored = restoreCueDrafts(localStorage.getItem(draftStorageKey), orgId);
+      localNotes.current = restored;
+      for (const draft of restored.values()) noteVersion.current = Math.max(noteVersion.current, draft.version);
+      setNotes(previous => {
+        const next = { ...previous };
+        for (const draft of restored.values()) if (draft.showId === selectedShow.current) next[draft.itemId] = { ...next[draft.itemId], [draft.columnId]: draft.text };
         return next;
       });
-    },
-    [orgId],
-  );
+      draftStorageReady.current = true; setDraftRevision(version => version + 1);
+    } catch { setDraftStorageError("Couldn't restore offline cues from this device. Keep this page open."); }
+  }, [draftStorageKey, orgId]);
+  const notePumps = useRef(new Set<string>());
+  const writes = useCueSheetWrites(orgId);
+  const [undoItems, setUndoItems] = useState<Array<{ requestId: string; label: string; expiresAt: number }>>([]);
+  const [undoNow, setUndoNow] = useState(initialNow);
+  useEffect(() => { if (!undoItems.length) return; const timer = setInterval(() => { const now = Date.now(); setUndoNow(now); setUndoItems(previous => previous.filter(item => item.expiresAt > now)); }, 1000); return () => clearInterval(timer); }, [undoItems.length]);
+  const [confirmedColumnWrite, setConfirmedColumnWrite] = useState<CueSheetOperation | null>(null);
+  const [review, setReview] = useState<{ key: string; requestId: string; text: string; saved: string } | null>(null);
+  const [managing, setManaging] = useState(false);
+  const preferences = useCueLayout(orgId, userId);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const previousScroll = useRef(0);
+  const hidden = useMemo(() => new Set([...preferences.layout.hidden, ...(preferences.compact ? ["cue", "note", ...(preferences.narrow ? ["start", "end", "duration"] : [])].filter(key => !preferences.layout.tabletShown.includes(key)) : [])]), [preferences.layout, preferences.compact, preferences.narrow]);
+  const collapsed = useMemo(() => new Set(preferences.compact && !preferences.layout.collapsed.length && !preferences.layout.customCollapsed ? model.columns.slice(2).map(column => column.id) : preferences.layout.collapsed), [preferences.compact, preferences.layout, model.columns]);
+  const focusId = preferences.layout.focus && model.columns.some(column => column.id === preferences.layout.focus) ? preferences.layout.focus : null;
+  const focused = model.columns.find(column => column.id === focusId);
+  const displayColumns = useMemo(() => model.columns.map(column => ({ ...column, width: preferences.compact ? 182 : column.width })), [model.columns, preferences.compact]);
+  const counts = useMemo(() => Object.fromEntries(model.columns.map(column => [column.id, Object.values(notes).filter(notes => notes[column.id]?.trim()).length])), [model.columns, notes]);
+  const canAddNotes = hasEffectivePermission(role, grantedPermissions, "cuesheet:add_notes") || hasEffectivePermission(role, grantedPermissions, "cuesheet:edit");
+  const canManageColumns = hasEffectivePermission(role, grantedPermissions, "cuesheet:edit");
+  const toggleHidden = (id: string) => preferences.update(layout => ({ ...layout, hidden: hidden.has(id) ? layout.hidden.filter(value => value !== id) : [...layout.hidden, id], focus: id === layout.focus ? null : layout.focus, tabletShown: hidden.has(id) ? [...new Set([...layout.tabletShown, id])] : layout.tabletShown.filter(value => value !== id) }));
+  const toggleCollapsed = (id: string) => preferences.update(layout => ({ ...layout, collapsed: collapsed.has(id) ? [...collapsed].filter(value => value !== id) : [...collapsed, id], customCollapsed: true }));
+  const focusDepartment = (id: string | null) => {
+    if (!focusId && id) previousScroll.current = sheetRef.current?.scrollLeft ?? 0;
+    preferences.update(layout => ({ ...layout, focus: id, hidden: id ? layout.hidden.filter(value => value !== id) : layout.hidden }));
+    requestAnimationFrame(() => { if (sheetRef.current) { sheetRef.current.scrollLeft = id ? 0 : previousScroll.current; sheetRef.current.dataset.scrolled = String(sheetRef.current.scrollLeft > 0); } });
+  };
 
   const load = useCallback(
     async (nextShowId: string, signal?: AbortSignal) => {
@@ -160,7 +176,7 @@ function CueSheetsPage() {
         if (controller.signal.aborted || version !== loadVersion.current || selectedShow.current !== nextShowId) {
           throw new Error("Cue sheet changed during refresh. Refresh again to confirm live changes.");
         }
-        setLoadError(null); setLoadErrorAt(null);
+        setLoadError(null);
         setModel(next);
         setShowId(next.showId);
         setServiceDate(next.serviceDate);
@@ -174,7 +190,6 @@ function CueSheetsPage() {
       } catch (cause) {
         if (controller.signal.aborted || version !== loadVersion.current) throw cause;
         setLoadError(cause instanceof Error ? cause.message : "Could not load the cue sheet.");
-        setLoadErrorAt(Date.now());
         throw cause;
       } finally {
         signal?.removeEventListener("abort", cancel);
@@ -197,7 +212,7 @@ function CueSheetsPage() {
 
   // ── Live ──────────────────────────────────────────────────
 
-  const { connected, status: syncStatus, publish, syncError, syncErrorAt, retrySync } = useCueSheetSync({
+  const { connected, publish, syncError, retrySync } = useCueSheetSync({
     orgId,
     scope: showId ?? "",
     // Notifications invalidate the D1 read. A delayed receipt retry must never
@@ -296,16 +311,19 @@ function CueSheetsPage() {
       while (true) {
         const draft = localNotes.current.get(key);
         if (!draft?.pending || (!retry && writes.has(key))) return;
-        const ack = await writes.run(key, retry ? undefined : {
-          kind: "note", showId: draft.showId, serviceDate, itemId: draft.itemId,
-          columnId: draft.columnId, text: draft.text, expectedText: draft.expectedText,
-        });
+        if (!draft.request) {
+          draft.request = { orgId, requestId: crypto.randomUUID(), operation: { kind: "note", showId: draft.showId, serviceDate: draft.serviceDate, itemId: draft.itemId, columnId: draft.columnId, text: draft.text, expectedText: draft.expectedText } };
+          persistDrafts();
+        }
+        if (!navigator.onLine || !canAddNotes) return;
+        const ack = await writes.runCaptured(key, draft.request);
         retry = false;
         if (!ack || ack.result.outcome !== "applied" || ack.attempt.operation.kind !== "note") return;
         const op = ack.attempt.operation;
         const latest = localNotes.current.get(key);
         if (!latest) return;
         if (latest.text === op.text) {
+          latest.request = undefined;
           latest.pending = false; latest.version = ++noteVersion.current;
           latest.text = ack.result.currentText ?? op.text;
           latest.expectedText = latest.text;
@@ -313,8 +331,9 @@ function CueSheetsPage() {
         } else {
           // A newer local edit follows the confirmed value, never the result
           // of another operator's intervening edit. The server checks this base.
-          latest.expectedText = op.text;
+          latest.expectedText = op.text; latest.request = undefined;
         }
+        persistDrafts();
         publish({ type: "note", showId: op.showId, serviceDate: op.serviceDate, itemId: op.itemId, columnId: op.columnId, text: ack.result.currentText ?? op.text, by: "", at: Date.now() });
         if (!latest.pending) return;
       }
@@ -322,28 +341,69 @@ function CueSheetsPage() {
   };
 
   const handleNoteChange = (itemId: string, columnId: string, text: string, expectedText: string) => {
-    if (!showId) return;
-    const key = JSON.stringify([showId, itemId, columnId]);
+    if (!showId || !canAddNotes) return;
+    const key = cueCellKey(showId, itemId, columnId);
+    const previous = localNotes.current.get(key);
     setNotes(previous => ({ ...previous, [itemId]: { ...previous[itemId], [columnId]: text } }));
-    localNotes.current.set(key, { showId, itemId, columnId, text, expectedText, pending: true, version: ++noteVersion.current });
+    localNotes.current.set(key, { showId, serviceDate, itemId, columnId, text, expectedText: previous?.pending ? previous.expectedText : expectedText, request: previous?.pending ? previous.request : undefined, pending: true, version: ++noteVersion.current });
+    persistDrafts();
     void saveNote(key);
   };
 
-  const reviewNote = async (key: string) => {
+  useEffect(() => {
+    let active = true, replaying = false;
+    const replay = async () => {
+      if (!active || replaying || !navigator.onLine || !canAddNotes || !draftStorageReady.current) return;
+      replaying = true;
+      try {
+        for (const [key, draft] of localNotes.current) {
+          if (!active || !navigator.onLine) break;
+          if (draft.pending && !writes.entries.get(key)?.conflict) await saveNote(key, true);
+        }
+      } finally { replaying = false; }
+    };
+    const online = () => { setOffline(false); void replay(); };
+    const disconnected = () => setOffline(true);
+    setOffline(!navigator.onLine);
+    if (connected) void replay();
+    window.addEventListener("online", online); window.addEventListener("offline", disconnected);
+    return () => { active = false; window.removeEventListener("online", online); window.removeEventListener("offline", disconnected); };
+  }, [connected, canAddNotes]);
+
+  const useSavedNote = (key: string) => {
     const entry = writes.entries.get(key), draft = localNotes.current.get(key);
-    if (!entry?.conflict || !draft || selectedShow.current !== draft.showId) return;
-    const text = draft.text, saved = entry.conflict.currentText ?? "";
-    const accepted = await confirm({ title: "Replace the saved cue note?", description: `Saved note: ${saved || "(empty)"}\nYour edit: ${text || "(empty)"}\nThe saved note will be checked again before replacement.`, confirmLabel: "Replace with my edit", variant: "warning" });
-    if (!accepted || localNotes.current.get(key)?.text !== text || selectedShow.current !== draft.showId) return;
-    if (!writes.clearConflict(key, entry.attempt.requestId)) return;
-    draft.expectedText = saved;
-    void saveNote(key);
+    if (!entry?.conflict || !draft || selectedShow.current !== draft.showId || !writes.clearConflict(key, entry.attempt.requestId)) return;
+    draft.text = entry.conflict.currentText ?? ""; draft.expectedText = draft.text; draft.pending = false; draft.request = undefined; draft.version = ++noteVersion.current;
+    persistDrafts();
+    setNotes(previous => ({ ...previous, [draft.itemId]: { ...previous[draft.itemId], [draft.columnId]: draft.text } }));
+    setReview(null); retrySync();
+  };
+  const reviewNote = (key: string) => {
+    const entry = writes.entries.get(key), draft = localNotes.current.get(key);
+    if (entry?.conflict && draft && selectedShow.current === draft.showId) setReview({ key, requestId: entry.attempt.requestId, text: draft.text, saved: entry.conflict.currentText ?? "" });
+  };
+  const replaceReviewedNote = () => {
+    if (!review) return;
+    const entry = writes.entries.get(review.key), draft = localNotes.current.get(review.key);
+    setReview(null);
+    if (!draft || draft.text !== review.text || selectedShow.current !== draft.showId || entry?.attempt.requestId !== review.requestId || !writes.clearConflict(review.key, review.requestId)) return;
+    draft.expectedText = review.saved; draft.request = undefined; persistDrafts();
+    void saveNote(review.key);
   };
 
   const runColumn = async (operation?: CueSheetOperation) => {
     const ack = await writes.run("columns", operation);
     if (!ack || ack.result.outcome !== "applied") return false;
     setConfirmedColumnWrite(ack.attempt.operation);
+    if (ack.attempt.operation.kind === "delete-empty-column" && ack.result.undoExpiresAt) {
+      const op = ack.attempt.operation;
+      setUndoNow(Date.now());
+      setUndoItems(previous => [...previous.filter(item => item.requestId !== ack.attempt.requestId), { requestId: ack.attempt.requestId, label: op.label, expiresAt: ack.result.undoExpiresAt! }]);
+    }
+    if (ack.attempt.operation.kind === "restore-column") {
+      const deletionRequestId = ack.attempt.operation.deletionRequestId;
+      setUndoItems(previous => previous.filter(item => item.requestId !== deletionRequestId));
+    }
     publish({ type: "columns", at: Date.now() });
     if (selectedShow.current) await load(selectedShow.current).catch(() => {});
     return true;
@@ -354,8 +414,7 @@ function CueSheetsPage() {
   const noteFailures = noteWrites.filter(([, entry]) => entry.failure);
   const handleWidthChange = (id: string, width: number) => {
     const column = model.columns.find(column => column.id === id);
-    if (!column || columnLocked || column.width === width) return;
-    void runColumn({ kind: "resize-column", id, before: column.width, width });
+    if (canManageColumns && !columnLocked && column && column.width !== width) void runColumn({ kind: "resize-column", id, before: column.width, width });
   };
   const handleReorder = (fromId: string, toId: string) => {
     if (columnLocked) return;
@@ -366,225 +425,82 @@ function CueSheetsPage() {
     void runColumn({ kind: "reorder-columns", before, ids });
   };
 
-  const pickerShows = useMemo(() => [...model.shows].reverse(), [model.shows]);
-
-  const visibleCount = useMemo(
-    () => model.columns.filter((c) => !hidden.has(c.id)).length,
-    [model.columns, hidden],
-  );
-
+  const [focusRequest, setFocusRequest] = useState<{ itemId: string; columnId: string } | null>(null);
+  const [savingVisible, setSavingVisible] = useState(false);
+  const saving = [...writes.entries.values()].some(entry => entry.pending);
+  useEffect(() => { if (!saving) { setSavingVisible(false); return; } const timeout = setTimeout(() => setSavingVisible(true), 400); return () => clearTimeout(timeout); }, [saving]);
+  const pendingDrafts = [...localNotes.current.values()].filter(draft => draft.pending).length;
   const hasRows = rows.length > 0;
+  const visibleDepartments = displayColumns.filter(column => !hidden.has(column.id));
+  const runningIndex = rows.filter(row => !row.isSection).findIndex(row => row.itemId === currentItemId);
+  const runItems = rows.filter(row => !row.isSection);
+  const focusRows = [{ label: "Now", row: runningIndex >= 0 ? runItems[runningIndex] : null }, { label: "Next", row: runItems[runningIndex + 1] ?? null }];
 
-  return (
-    <div className="h-full flex flex-col overflow-hidden">
-      {ConfirmDialogEl}
-      <div className="shrink-0 max-h-[50%] overflow-y-auto" aria-label="Cue sheet controls">
-      <header className="shrink-0 bg-board-bg/85 backdrop-blur-xl border-b border-board-border">
-        <div className="flex items-center gap-3 flex-wrap px-6 py-3">
-          <h1 className="text-[15px] font-semibold text-board-text">Cue sheet</h1>
-          {pickedRef.current && stateShowId && stateShowId !== showId && (
-            <button
-              onClick={() => {
-                pickedRef.current = false;
-                setShowId(stateShowId);
-              }}
-              className="min-h-11 text-[11px] px-3 py-2 rounded-md border border-yellow-400/40 bg-yellow-400/10 text-yellow-300"
-            >
-              Rundown changed — follow it
-            </button>
-          )}
-          {model.serviceName && (
-            <span className="text-xs text-board-text">{model.serviceName}</span>
-          )}
+  const cellNotices = Object.fromEntries(noteFailures.flatMap(([key, entry]) => {
+    const op = entry.attempt.operation;
+    if (op.kind !== "note") return [];
+    const notice = (() => {
+        const department = model.columns.find(column => column.id === op.columnId)?.label ?? "Department";
+        const title = rows.find(row => row.itemId === op.itemId)?.title ?? "Cue";
+        return <div key={key} role="alert" className="cue-cell-recovery"><p>{entry.conflict ? `${department} · ${title} was saved by someone else` : "Couldn't save this cue. Your edit is kept."}</p>
+          {entry.conflict ? <><p>Your text wasn't saved because the cue note changed after you started editing. Yours is still here.</p><button type="button" className="cue-button" onClick={() => useSavedNote(key)}>Use saved note</button><button type="button" className="cue-button" data-primary onClick={() => reviewNote(key)}>Review saved note</button></> : <button type="button" className="cue-button" disabled={entry.pending} onClick={() => void saveNote(key, true)}>Try again</button>}
+        </div>;
 
-          <ShowSwitcherMenu
-            selectedId={showId}
-            shows={pickerShows}
-            timeZone={orgTimezone}
-            onSelect={(selected) => {
-              pickedRef.current = true;
-              setShowId(selected.id);
-            }}
-          />
-
-          <RelaySyncNotice error={loadError ?? syncError} occurredAt={loadError ? loadErrorAt : syncErrorAt} status={syncStatus} onRetry={retrySync} />
-          {noteWrites.some(([, entry]) => entry.pending) && <QuietActivity label="Saving cue notes…" />}
-          {noteFailures.length > 0 && <div role="alert" className="min-w-0 basis-full space-y-2 text-sm text-amber-300">
-            <p>{noteFailures.length} cue note(s) have not saved. Your edits are kept.</p>
-            {noteFailures.map(([key, entry]) => {
-              const failure = entry.failure, op = entry.attempt.operation;
-              if (!failure || op.kind !== "note") return null;
-              const column = model.columns.find(column => column.id === op.columnId)?.label ?? "Removed department";
-              const title = rows.find(row => row.itemId === op.itemId)?.title ?? "Cue note";
-              return <div key={key} className="flex flex-wrap items-center gap-2">
-                <p className="min-w-0 flex-1"><strong>{title} · {column}</strong> {plainFailure(failure.message)} </p>
-                {entry.conflict && <>
-                  <button type="button" className="min-h-11 px-3 underline" onClick={() => void reviewNote(key)}>Review saved note</button>
-                  <button type="button" className="min-h-11 px-3 underline" onClick={() => {
-                    if (!writes.clearConflict(key, entry.attempt.requestId)) return;
-                    const draft = localNotes.current.get(key);
-                    if (draft) { draft.text = entry.conflict?.currentText ?? ""; draft.expectedText = draft.text; draft.pending = false; draft.version = ++noteVersion.current; }
-                    setNotes(previous => ({ ...previous, [op.itemId]: { ...previous[op.itemId], [op.columnId]: entry.conflict?.currentText ?? "" } }));
-                    retrySync();
-                  }}>Use saved note</button>
-                </>}
-              </div>;
-            })}
-            {noteFailures.some(([, entry]) => !entry.conflict) && <button type="button" className="min-h-11 px-3 font-semibold underline" disabled={noteFailures.every(([, entry]) => entry.pending || entry.conflict)} onClick={() => { for (const [key, entry] of noteFailures) if (!entry.conflict) void saveNote(key, true); }}>Retry saves</button>}
-          </div>}
-          {columnWrite?.pending && <QuietActivity label="Saving column change…" />}
-          {columnWrite?.failure && <div role="alert" className="min-w-0 basis-full flex flex-wrap items-center gap-2 text-sm text-amber-300">
-            <div className="min-w-0 flex-1 basis-40"><p>{describeCueSheetWrite(columnWrite.attempt.operation)}. {plainFailure(columnWrite.failure.message)}</p></div>
-            {columnWrite.conflict ? <button type="button" className="min-h-11 px-3 underline" onClick={() => { if (writes.clearConflict("columns", columnWrite.attempt.requestId)) retrySync(); }}>Refresh saved columns</button> : <button type="button" className="min-h-11 px-3 underline disabled:opacity-50" disabled={columnWrite.pending} onClick={() => void runColumn()}>Retry column change</button>}
-          </div>}
-          <div className="ml-auto flex items-center gap-3">
-            {/* Connection state is worth showing here, unlike in the
-                operator UI: a cue sheet that has silently stopped
-                receiving other people's notes looks identical to one
-                where nobody is typing. */}
-            {/* Whether other people's notes are reaching this tab. It is
-                deliberately not called "live": on a cue sheet that word
-                means a service is on air, and two meanings for one word
-                is exactly the ambiguity an operator cannot afford. Only
-                the failure state is worth words — a working connection
-                should not take up the page saying so. */}
-            <span
-              className={`flex items-center gap-1.5 text-[11px] ${connected ? "text-board-muted/50" : "text-yellow-400"}`}
-              title={
-                connected
-                  ? "Other people's notes appear here as they type"
-                  : ""
-              }
-            >
-              {connected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-              {connected ? "Synced" : syncStatus === "connecting" ? <QuietActivity label="Connecting…" /> : syncStatus === "refreshing" ? <QuietActivity label="Refreshing…" /> : <QuietActivity label="Reconnecting…" />}
-            </span>
-            {canManageColumns && (
-              <button
-                onClick={() => setManaging((v) => !v)}
-                aria-expanded={managing}
-                className="min-h-11 flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-board-border/70 text-board-muted hover:text-board-text hover:border-board-border transition-colors"
-              >
-                <Settings2 className="w-3.5 h-3.5" />
-                Columns
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Visibility toggles. Always available, even without edit rights:
-            hiding a column is a view preference, not a change to the sheet. */}
-        {model.columns.length > 0 && (
-          <div className="flex items-center gap-2 flex-wrap px-4 sm:px-6 pb-3">
-            <span className="text-[10px] uppercase tracking-[0.12em] text-board-muted mr-1">
-              Show
-            </span>
-            {/* The rundown columns toggle too. On a laptop the clock
-                columns are often dead weight next to eight departments,
-                and the width they free up is the whole point. */}
-            <div role="group" aria-label="Rundown columns" className="inline-flex max-w-full flex-wrap overflow-hidden rounded-md border border-board-border">{TOGGLEABLE_COLUMNS.map((column) => {
-              const isHidden = hidden.has(column.key);
-              return (
-                <button
-                  key={column.key}
-                  onClick={() => toggleHidden(column.key)}
-                  aria-pressed={!isHidden}
-                  className={`min-h-11 min-w-11 border-r border-board-border px-3 py-2 text-xs transition-colors last:border-r-0 focus-visible:outline-2 focus-visible:outline-fire-500 ${
-                    isHidden
-                      ? "border-board-border text-board-muted/60 hover:text-board-text"
-                      : "border-board-border bg-board-card text-board-text"
-                  }`}
-                >
-                  {column.label}
-                </button>
-              );
-            })}</div>
-            <div role="group" aria-label="Department columns" className="inline-flex max-w-full flex-wrap overflow-hidden rounded-md border border-board-border">
-            {model.columns.map((column) => {
-              const isHidden = hidden.has(column.id);
-              return (
-                <button
-                  key={column.id}
-                  onClick={() => toggleHidden(column.id)}
-                  aria-pressed={!isHidden}
-                  className={`min-h-11 min-w-11 border-r border-board-border px-3 py-2 text-xs transition-colors last:border-r-0 focus-visible:outline-2 focus-visible:outline-fire-500 ${
-                    isHidden
-                      ? "border-board-border text-board-muted/60 hover:text-board-text"
-                      : "border-fire-500/40 bg-fire-500/10 text-fire-400"
-                  }`}
-                >
-                  {column.label}
-                </button>
-              );
-            })}</div>
-            {visibleCount === 0 && (
-              <span className="text-[11px] text-yellow-400 ml-1">
-                Every column is hidden — the sheet is just the running order.
-              </span>
-            )}
-          </div>
-        )}
-      </header>
-
-      {hasRows && <CallerClockBar rows={rows} currentItemId={currentItemId} timer={liveMatches ? liveTimer : null} initialNow={initialNow} />}
-
-      {managing && canManageColumns && (
-        <ColumnManager
-          columns={model.columns}
-          onMutation={runColumn}
-          locked={columnLocked}
-          confirmedOperation={confirmedColumnWrite}
-          onClose={() => setManaging(false)}
-        />
-      )}
-
+    })();
+    return [[JSON.stringify([op.itemId, op.columnId]), notice]];
+  }));
+  const revealIssue = () => {
+    const op = noteFailures[0]?.[1].attempt.operation;
+    if (op?.kind !== "note") return;
+    preferences.update(layout => ({ ...layout, focus: null, hidden: layout.hidden.filter(id => id !== op.columnId), collapsed: collapsed.has(op.columnId) ? [...collapsed].filter(id => id !== op.columnId) : [...collapsed], customCollapsed: true }));
+    setFocusRequest({ itemId: op.itemId, columnId: op.columnId });
+  };
+  const orphanNotices = noteFailures.flatMap(([key, entry]) => {
+    const op = entry.attempt.operation;
+    if (op.kind !== "note" || (rows.some(row => row.itemId === op.itemId) && model.columns.some(column => column.id === op.columnId))) return [];
+    return [<div key={key}>{cellNotices[JSON.stringify([op.itemId, op.columnId])]}</div>];
+  });
+  const undoNotice = undoItems.filter(item => item.expiresAt > undoNow).map(item => <div key={item.requestId} role="status" className="cue-undo-notice"><span>{item.label} deleted</span><button type="button" className="cue-button" disabled={columnLocked} onClick={() => void runColumn({ kind: "restore-column", deletionRequestId: item.requestId })}>Undo</button></div>);
+  return <div className="cue-page">
+    <Dialog open={!!review} onOpenChange={open => { if (!open) setReview(null); }}><DialogContent className="cue-portal">
+      <DialogTitle>Replace the saved cue note?</DialogTitle><DialogDescription className="sr-only">Compare the saved note with your text before replacing it.</DialogDescription>
+      <div className="cue-conflict-values"><div><span>Saved now</span><p>{review?.saved || "(empty)"}</p></div><div><span>Your text</span><p>{review?.text || "(empty)"}</p></div></div>
+      <DialogFooter><button type="button" className="cue-button" onClick={() => { if (review) useSavedNote(review.key); }}>Use saved note</button><button type="button" className="cue-button" data-primary onClick={replaceReviewedNote}>Replace saved note</button></DialogFooter>
+    </DialogContent></Dialog>
+    <div className="shrink-0"><h1 ref={headingRef} tabIndex={-1} className="cue-heading">Cue sheet</h1><header className="cue-toolbar">
+      <CueShowMenu selectedId={showId} shows={model.shows} today={today} onSelect={selected => { pickedRef.current = true; setShowId(selected.id); }} />
+      <div className="cue-actions">
+        {noteFailures.length > 0 && <button type="button" className="cue-button" data-danger onClick={revealIssue}>{noteFailures.some(([, entry]) => entry.conflict) ? `${noteFailures.filter(([, entry]) => entry.conflict).length} conflict${noteFailures.filter(([, entry]) => entry.conflict).length === 1 ? "" : "s"}` : `${noteFailures.length} unsaved cue${noteFailures.length === 1 ? "" : "s"}`}</button>}
+        <span className={`cue-quiet flex items-center gap-1.5 ${offline ? "text-amber-400" : ""}`} role="status" aria-live="polite">{offline ? <><WifiOff className="h-3 w-3" />{pendingDrafts && !draftStorageError ? "Offline, changes saved locally" : "Offline"}</> : savingVisible ? <><QuietActivity label="Saving cues" />Saving…</> : !saving && !pendingDrafts && connected ? <><Wifi className="h-3 w-3" />Synced</> : null}</span>
+        {canManageColumns && <button type="button" data-cue-departments-trigger className="cue-button" onClick={() => setManaging(true)} aria-haspopup="dialog" aria-expanded={managing}><Palette />Departments</button>}
+        <CueColumnsMenu columns={model.columns} hidden={hidden} counts={counts} canManage={canManageColumns} locked={columnLocked} onToggle={toggleHidden}
+          onShowAll={() => preferences.update(layout => ({ ...layout, hidden: [], collapsed: [], tabletShown: ["cue", "start", "end", "duration", "owner", "note"], customCollapsed: true }))} onManage={() => setManaging(true)} onReorder={handleReorder} />
       </div>
+    </header></div>
+    {draftStorageError && <p role="alert" className="rounded-lg border border-red-400/30 p-3 text-sm">{draftStorageError}</p>}
+    {pickedRef.current && stateShowId && stateShowId !== showId && <button type="button" className="cue-button self-start" onClick={() => { pickedRef.current = false; setShowId(stateShowId); }}>Follow the active rundown</button>}
+    {!offline && (loadError || (model.showId === showId && syncError)) && <CueReadNotice pending={loading} onRetry={async () => { if (showId) await load(showId); retrySync(); headingRef.current?.focus(); }} />}
+    <span className="sr-only" role="status" aria-live="polite">{loading && model.showId !== showId ? "Loading cue sheet…" : "Cue sheet loaded"}</span>
+    {orphanNotices}
 
-      {/* A real service sheet is wider than any screen. One scroller for
-          the whole grid — both axes — with the left block pinned inside
-          it, rather than a table scrolling within a page that scrolls. */}
-      <div className="flex-1 relative min-h-0">
-        <div ref={sheetScroll.ref} aria-busy={loading} className="absolute inset-0 overflow-auto">
-        {model.showId !== showId ? (
-          <p className="text-center text-sm text-board-muted py-16">{loadError ? "Cue sheet unavailable. Retry above." : <QuietActivity label="Loading cue sheet…" />}</p>
-        ) : hasRows ? (
-          <CueTable
-            rows={rows}
-            columns={model.columns}
-            hidden={hidden}
-            currentItemId={currentItemId}
-            canEdit={canAddNotes}
-            canManageColumns={canManageColumns && !columnLocked}
-            onNoteChange={handleNoteChange}
-            onWidthChange={handleWidthChange}
-            onReorder={handleReorder}
-          />
-        ) : (
-          // The honest empty state. The old page offered "Add cue", which
-          // is what created two competing running orders in the first
-          // place — the only way to add a row now is to plan the service.
-          <div className="py-10">
-            <EmptyState
-              icon={ListOrdered}
-              title="No rundown for this date"
-              description="The cue sheet follows the rundown. Build the running order and every item appears here for each department to write against."
-              action={
-                <Link
-                  to={`/${slug}/rundown` as never}
-                  className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-fire-500/15 border border-fire-500/30 text-fire-400 hover:bg-fire-500/25 transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Open the rundown
-                </Link>
-              }
-            />
-          </div>
-        )}
-        </div>
-        {hasRows && model.showId === showId && (
-          <ScrollEdges edges={sheetScroll.edges} scrollBy={sheetScroll.scrollBy} step={320} />
-        )}
-      </div>
+    {columnWrite?.failure && !managing && <div role="alert" className="flex items-center gap-3 rounded-lg border border-red-400/30 p-3 text-sm"><p className="flex-1">{plainFailure(columnWrite.failure.message, "Couldn't save this department change.")}</p><button type="button" className="cue-button" disabled={columnWrite.pending} onClick={() => { if (columnWrite.conflict) { if (writes.clearConflict("columns", columnWrite.attempt.requestId)) retrySync(); } else void runColumn(); }}>Try again</button></div>}
+    {hasRows && model.showId === showId && <CallerClockBar rows={rows} currentItemId={currentItemId} timer={liveMatches ? liveTimer : null} initialNow={initialNow} />}
+    {hasRows && model.showId === showId && model.columns.length > 0 && <div className="cue-viewbar shrink-0"><div className="cue-segment"><button type="button" aria-pressed={!focusId} onClick={() => focusDepartment(null)}><Columns3 className="h-3.5 w-3.5" />All departments</button><label className="flex items-center gap-1.5 px-2 text-[13px] text-board-muted"><Expand className="h-3 w-3" />{focused && <><span>Focus:</span><span className="cue-dept-dot" style={departmentStyle(focused.color)} /></>}<select aria-label="Focus department" value={focusId ?? ""} onChange={event => focusDepartment(event.target.value || null)} className="max-w-[180px] bg-transparent py-1.5 outline-none"><option value="">Focus department</option>{model.columns.map(column => <option key={column.id} value={column.id}>{column.label}</option>)}</select></label></div>
+      {focusId && <span className="cue-quiet ml-auto">Your view</span>}{focusId && <button type="button" className="cue-quiet ml-auto flex items-center gap-1.5" onClick={() => focusDepartment(null)}><X className="h-3 w-3" />Exit focus</button>}
+    </div>}
+    <div className="cue-grid-area"><div className="cue-grid-wrap"><div ref={sheetRef} aria-busy={loading} className="cue-grid-scroll">
+      {model.showId !== showId ? !loadError && <><CueTable rows={[]} columns={displayColumns} hidden={hidden} collapsed={collapsed} compact={preferences.compact} narrow={preferences.narrow} currentItemId={null} canEdit={false} onNoteChange={() => {}} onWidthChange={() => {}} onReorder={() => {}} /><CueSheetSkeleton />{stillLoading && <p className="cue-quiet p-3">Still loading</p>}</> : <>
+        <CueTable rows={rows} columns={displayColumns} hidden={hidden} collapsed={collapsed} compact={preferences.compact} narrow={preferences.narrow} focusedDepartment={focusId} currentItemId={currentItemId} timer={liveMatches ? liveTimer : null} initialNow={initialNow} canEdit={canAddNotes} canManageColumns={canManageColumns && !columnLocked} canAdjustLayout={canManageColumns && !columnLocked} cellNotices={cellNotices} focusRequest={focusRequest} onCollapse={toggleCollapsed} onFocusDepartment={focusDepartment} onNoteChange={handleNoteChange} onWidthChange={handleWidthChange} onReorder={handleReorder} />
+        {!hasRows && <div className="cue-empty m-4"><ListOrdered className="mx-auto h-5 w-5 text-board-muted" /><h2>No items in this show yet</h2><p>Cue sheet rows follow the rundown. Add items there and they appear here with their times.</p><Link to={`/${slug}/rundown` as never} className="cue-button" data-primary>Open rundown</Link></div>}
+      </>}
+    </div>{hasRows && !focusId && <DepartmentScroller columns={visibleDepartments} scrollRef={sheetRef} />}</div>
+      {focused && <aside className="cue-focus-rail" aria-label={`${focused.label} now and next`} style={departmentStyle(focused.color)}>{focusRows.map(({ label, row }) => <section key={label} className="cue-focus-card"><h3>{focused.label} · {label}</h3><p>{row?.title ?? (label === "Now" ? "Nothing running" : "End of rundown")}</p><div className="cue-focus-note">{row?.notes[focused.id] || "—"}</div></section>)}<p className="cue-quiet">Focus is your view only. It never changes the shared column layout.</p></aside>}
+      {hasRows && !model.columns.length && <div className="cue-empty self-start"><Palette className="mx-auto h-5 w-5 text-board-muted" /><h2>Add your first department</h2><p>Each department gets a column for its cues, for example LX or Sound.</p>{canManageColumns && <button type="button" className="cue-button" data-primary onClick={() => setManaging(true)}><Plus />Add department</button>}</div>}
     </div>
-  );
+    {!managing && undoNotice.length > 0 && <div className="cue-undo-stack">{undoNotice}</div>}
+    {managing && canManageColumns && <ColumnManager undoNotice={undoNotice} columns={model.columns} counts={counts} onMutation={runColumn} locked={columnLocked} confirmedOperation={confirmedColumnWrite} onClose={() => setManaging(false)} onReorder={handleReorder} failure={columnWrite?.failure ? plainFailure(columnWrite.failure.message, "Couldn't save this department change.") : null} onRetry={() => { if (columnWrite?.conflict) { if (writes.clearConflict("columns", columnWrite.attempt.requestId)) retrySync(); } else void runColumn(); }} />}
+  </div>;
+}
+function CueSheetSkeleton() {
+  return <div role="status" aria-label="Loading cue sheet"><span className="sr-only">Loading cue sheet…</span><div aria-hidden="true">{Array.from({ length: 8 }, (_, index) => <div key={index} className="cue-grid-skeleton"><span /><span /><span /><span /></div>)}</div></div>;
 }
