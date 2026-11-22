@@ -17,6 +17,16 @@ test("the repository satisfies every native release contract", () => {
   assert.deepEqual(findNativeReleaseIssues(snapshot()), []);
 });
 
+test("accepts release workflows with LF or CRLF line endings", () => {
+  for (const lineEnding of ["\n", "\r\n"]) {
+    const current = snapshot();
+    for (const product of Object.values(current.products)) {
+      product.workflow = product.workflow.replace(/\r?\n/g, lineEnding);
+    }
+    assert.deepEqual(findNativeReleaseIssues(current), [], JSON.stringify(lineEnding));
+  }
+});
+
 test("rejects a Windows release path that hides the unsigned fallback", () => {
   for (const product of ["desktop", "bridge"]) {
     const current = snapshot();
