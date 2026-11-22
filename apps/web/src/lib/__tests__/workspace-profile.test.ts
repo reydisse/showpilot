@@ -246,7 +246,7 @@ describe("workspace onboarding and surfaces", () => {
       "/show",
     );
   });
-  it("maps module sidebar paths exactly once without gating membership-only Settings", () => {
+  it("maps module sidebar paths exactly once, with Settings kept out of the sidebar", () => {
     const sidebar = readFileSync("src/components/layout/Sidebar.tsx", "utf8");
     const paths = [...sidebar.matchAll(/path: "([^"]+)"/g)].map(
       (match) => match[1],
@@ -255,7 +255,7 @@ describe("workspace onboarding and surfaces", () => {
       (value) => value.web,
     );
     expect(new Set(surfaces).size).toBe(surfaces.length);
-    expect(paths.filter((path) => path === "settings")).toHaveLength(1);
+    expect(paths.filter((path) => path === "settings")).toHaveLength(0);
     expect(surfaces).not.toContain("settings");
     for (const path of paths.filter((path) => path !== "settings"))
       expect(surfaces.filter((surface) => surface === path)).toHaveLength(1);

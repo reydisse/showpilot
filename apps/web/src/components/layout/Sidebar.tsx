@@ -39,7 +39,6 @@ import {
   CalendarDays,
   FileBarChart,
   LibraryBig,
-  Settings,
 } from "lucide-react";
 import { useSidebar } from "./SidebarContext";
 import { useTheme } from "./ThemeContext";
@@ -568,17 +567,6 @@ function SidebarContent({
                   />
                 ))}
               </div>
-              {section.label === "" && (
-                <div className="px-2.5 space-y-0.5">
-                  {/* Settings entry requires membership, independent of workspace modules. */}
-                  <NavLink
-                    item={{ icon: Settings, label: "Settings", path: "settings" }}
-                    slug={slug}
-                    collapsed={collapsed}
-                    active={isActive("settings")}
-                  />
-                </div>
-              )}
             </div>
           );
         })}
