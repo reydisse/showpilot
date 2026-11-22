@@ -9,7 +9,7 @@ vi.mock("@/lib/rundown",()=>({getRundownOpeningDate:vi.fn()}));
 vi.mock("@/lib/incident-history",()=>({getIncidentHistory:vi.fn()}));
 vi.mock("@/hooks/useCueSheetSync",()=>({useCueSheetSync:(options:{onRefresh:(signal:AbortSignal)=>Promise<void>})=>{api.refresh=options.onRefresh;return {publish:api.publish,syncError:null,syncErrorAt:null,status:"connected",retrySync:vi.fn()};}}));
 vi.mock("@tanstack/react-router",async original=>({...await original<typeof import("@tanstack/react-router")>(),useBlocker:()=>({status:"idle"}),Link:({children}:{children:React.ReactNode})=><a>{children}</a>}));
-const incident={id:"incident",category:"Audio",severity:"high",description:"Line lost",reportedBy:"Desk",timestamp:"2026-11-06T15:00:00Z",status:"open",assignedTo:null,assignedName:"",acknowledgedAt:null,deleteSnapshot:"snapshot"};
+const incident={id:"incident",category:"Audio",severity:"high",description:"Line lost",reportedBy:"Desk",timestamp:"2026-11-06T15:00:00Z",status:"open",assignedTo:null,assignedName:"",acknowledgedAt:null,resolutionNote:"",deleteSnapshot:"snapshot"};
 const comment={id:"comment",incidentId:"incident",userId:"viewer",authorName:"Fixture",body:"Checking cable",parentId:null,createdAt:"2026-11-06T15:01:00Z"};
 const snapshot={incidents:[incident],comments:[comment],reactions:[],viewerId:"viewer"};
 const initial={snapshot,recentHistory:{incidents:[],total:0,page:1,pageSize:10,categories:[]},orgId:"org",role:"owner",grantedPermissions:[],orgTimezone:"UTC",initialServiceDate:"2026-11-06",initialShowId:"show",shows:[{id:"other-show",name:"Other show",serviceDate:"2026-11-06",scheduledStartTime:null,status:"draft"}]} satisfies ComponentProps<typeof IncidentsWorkspace>["initial"];

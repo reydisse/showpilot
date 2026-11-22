@@ -221,7 +221,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
       setCommentDrafts(current => current[op.incidentId]?.trim() === op.body ? { ...current, [op.incidentId]: "" } : current);
       setReplyTargets(current => ({ ...current, [op.incidentId]: null }));
     }
-    const incidentId = op.kind === "report" ? `incident-${ack.attempt.requestId}` : op.kind === "delete" ? op.id : op.kind === "comment" ? op.incidentId : comments.find(comment => comment.id === op.commentId)?.incidentId;
+    const incidentId = op.kind === "report" ? `incident-${ack.attempt.requestId}` : op.kind === "delete" || op.kind === "update" ? op.id : op.kind === "comment" ? op.incidentId : comments.find(comment => comment.id === op.commentId)?.incidentId;
     if (incidentId && op.kind !== "reaction") publishIncident({ type: "incident", showId, incidentId, action: op.kind === "report" ? "created" : op.kind === "delete" ? "deleted" : "commented", at: Date.now() });
     if (incidentId && op.kind === "reaction") publishIncident({ type: "incident", showId, incidentId, action: "commented", at: Date.now() });
   };

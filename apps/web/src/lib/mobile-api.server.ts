@@ -1,4 +1,5 @@
 import { readRoutedSettingRows } from "./settings-read.server";
+import { resolveIncidentResponders } from "./incident-responders.server";
 import { escapeLikePattern } from "./sql-like";
 import { proPresenterOutputCommandSchema } from "@showpilot/shared/propresenter-output";
 import { attendanceTimestamp } from "./attendance-timestamp";
@@ -49,7 +50,6 @@ import {
 } from "./effective-access";
 import {
   ASSIGNABLE_ROLES,
-  hasPermission,
   isAdminTier,
   type Permission,
   type Role,
@@ -278,17 +278,6 @@ interface MobileIncidentRow {
   resolvedAt: string | null;
   resolvedBy: string | null;
   commentCount: number;
-}
-
-interface MobileIncidentResponderRow {
-  userId: string;
-  role: string;
-  name: string;
-}
-
-interface MobileIncidentGrantRow {
-  userId: string;
-  permissions: string;
 }
 
 interface MobileIncidentCommentRow {
@@ -3619,61 +3608,9 @@ async function mobileIncidentHistory(
   });
 }
 
-function parsePermissionSnapshot(value: string): Permission[] {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (item): item is Permission =>
-        typeof item === "string" && item === "incidents:access",
-    );
-  } catch {
-    return [];
-  }
-}
-
-async function resolveMobileIncidentResponders(
-  orgId: string,
-  today: string,
-  db: MobileApiDatabase,
-) {
-  const [membersResult, grantsResult] = await Promise.all([
-    db
-      .prepare(
-        `SELECT m.userId, m.role, u.name
-       FROM member m JOIN user u ON u.id = m.userId
-       WHERE m.organizationId = ? ORDER BY u.name ASC, m.userId ASC`,
-      )
-      .bind(orgId)
-      .all<MobileIncidentResponderRow>(),
-    db
-      .prepare(
-        `SELECT userId, permissions FROM member_permission_grant
-       WHERE orgId = ? AND revokedAt IS NULL AND startsOn <= ?
-         AND (expiresOn IS NULL OR expiresOn > ?)`,
-      )
-      .bind(orgId, today, today)
-      .all<MobileIncidentGrantRow>(),
-  ]);
-  const grantedUsers = new Set(
-    (grantsResult.results ?? [])
-      .filter((grant) =>
-        parsePermissionSnapshot(grant.permissions).includes("incidents:access"),
-      )
-      .map((grant) => grant.userId),
-  );
-  return (membersResult.results ?? [])
-    .filter(
-      (member) =>
-        hasPermission(member.role, "incidents:access") ||
-        grantedUsers.has(member.userId),
-    )
-    .map((member) => ({
-      userId: member.userId,
-      name: member.name,
-      role: member.role,
-    }));
-}
+// Assignee eligibility is shared with web incident updates.
+const resolveMobileIncidentResponders = (orgId: string, today: string, db: MobileApiDatabase) =>
+  resolveIncidentResponders(orgId, today, db);
 
 type MobileIncidentCommand =
   | { kind: "claim" }
