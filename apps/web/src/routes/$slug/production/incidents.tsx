@@ -27,7 +27,7 @@ import {
 import { EmptyState } from "@/components/ui/empty-state";
 import { objectionableContentReason } from "@/lib/user-content-safety";
 import { getIncidentSnapshot } from "@/lib/incidents";
-import { INCIDENT_CATEGORIES, REACTION_EMOJIS, incidentCategorySchema, incidentSeveritySchema, type IncidentOperation, type IncidentRow, type IncidentComment, type ContentReaction } from "@/lib/incident-writes";
+import { INCIDENT_CATEGORIES, REACTION_EMOJIS, type IncidentOperation, type IncidentRow, type IncidentComment, type ContentReaction } from "@/lib/incident-writes";
 import { useOperatorRead } from "@/hooks/useOperatorRead";
 import { useIncidentWrite } from "@/hooks/useIncidentWrite";
 import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
@@ -38,7 +38,7 @@ import {
   hasEffectivePermission,
 } from "@/lib/app-permissions";
 import { getTodayDateString, formatTime } from "@/lib/utils";
-import { ShowSwitcherMenu } from "@/components/show-switcher-menu";
+
 import { getOrgSettings } from "@/lib/settings";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useServiceDateRollover } from "@/hooks/useServiceDateRollover";
@@ -168,6 +168,8 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
   const loadingIncidents = !snapshotRead.value && !snapshotRead.error;
   const writes = useIncidentWrite({ orgId, showId, serviceDate });
   const writeLocked = writes.state.kind !== "idle";
+  const [showQuery, setShowQuery] = useState("");
+  const [showUntitled, setShowUntitled] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<ReportFields>(emptyReport);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
@@ -243,7 +245,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
       <RelaySyncNotice error={syncError} occurredAt={syncErrorAt} status={syncStatus} onRetry={retrySync} />
       <div className="sticky top-0 z-10 border-b border-board-border bg-board-bg/80 px-4 py-4 backdrop-blur-xl sm:px-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="text-lg font-semibold text-board-text">
+          <h1 className="text-2xl font-semibold tracking-tight text-board-text">
             Incident Log
           </h1>
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end [&_button]:min-h-11">
@@ -266,23 +268,11 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
               <History className="h-3.5 w-3.5" />
               History
             </Link>
-            <ShowSwitcherMenu
-              disabled={writes.state.kind === "pending"}
-              selectedId={showId}
-              shows={shows}
-              timeZone={orgTimezone}
-              onSelect={(selected) => {
-                void selectShow({ showId: selected.id, serviceDate: selected.serviceDate });
-              }}
-            />
             {canReportIncidents && showId && (
               <button
                 onClick={() => setShowForm(true)}
                 className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98]"
-                style={{
-                  background:
-                    "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
-                }}
+                style={{ background: "var(--color-fire-500)" }}
               >
                 <Plus className="w-3.5 h-3.5" />
                 Report
@@ -294,14 +284,16 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
         {!showForm && writeNotice}
       </div>
 
-      <div className="mx-auto max-w-3xl p-4 sm:p-6">
+      <div className="mx-auto grid max-w-7xl items-start gap-6 p-4 sm:px-10 sm:py-8 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0">
+        <section className="rounded-xl border border-board-border bg-board-card p-4">
         <div className="mb-3 flex items-end justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-fire-400">
               {serviceDate === today ? "Today" : "Selected date"}
             </p>
             <h2 className="mt-1 text-sm font-semibold text-board-text">
-              {serviceDate === today ? "Current incidents" : "Incident details"}
+              This show
             </h2>
           </div>
           <span className="text-xs text-board-muted">
@@ -509,7 +501,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
         ) : !loadingIncidents && !snapshotRead.error ? (
           <EmptyState
             icon={ShieldCheck}
-            title="No incidents for this date"
+            title="All clear for this show"
             description={
               canReportIncidents
                 ? "All clear. Use Report above to log anything that goes wrong during the show — audio dropouts, camera faults, stream issues."
@@ -518,7 +510,8 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
           />
         ) : null}
 
-        <section className="mt-10 border-t border-board-border pt-6">
+        </section>
+        <section className="mt-6 overflow-hidden rounded-xl border border-board-border bg-board-card p-4">
           <div className="mb-3 flex items-end justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-board-muted">
@@ -574,10 +567,25 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
             </div>
           )}
         </section>
+        </div>
+        <aside className="overflow-hidden rounded-xl border border-board-border bg-board-card" aria-label="Shows">
+          <div className="space-y-3 p-4">
+            <h2 className="text-sm font-semibold text-board-text">Shows</h2>
+            <input aria-label="Find a show or date" placeholder="Find a show or date" value={showQuery} onChange={event => setShowQuery(event.target.value)} className="min-h-11 w-full rounded-lg border border-board-border bg-board-bg px-3 text-sm text-board-text" />
+          </div>
+          {["Upcoming", "Past"].map(group => <div key={group} className="px-2 pb-2">
+            <h3 className="px-3 py-2 text-xs font-medium uppercase tracking-wider text-board-muted">{group}</h3>
+            {shows.filter(show => (group === "Upcoming" ? show.serviceDate >= today : show.serviceDate < today) && (showUntitled || !!show.name.trim()) && (show.name + " " + show.serviceDate).toLowerCase().includes(showQuery.toLowerCase())).map(show => <button key={show.id} type="button" disabled={writes.state.kind === "pending"} aria-pressed={show.id === showId} onClick={() => void selectShow({ showId: show.id, serviceDate: show.serviceDate })} className={`flex min-h-16 w-full items-center gap-3 rounded-lg px-3 py-2 text-left disabled:opacity-50 ${show.id === showId ? "bg-fire-500/10 text-board-text" : "text-board-muted hover:bg-board-bg"}`}>
+              <span className="shrink-0 rounded-lg border border-board-border px-2 py-1 text-sm tabular-nums">{show.serviceDate.slice(8)}</span>
+              <span className="min-w-0"><span className="block truncate text-sm font-medium">{show.name || "Untitled show"}</span><span className="block text-xs text-board-muted">{formatDisplayDate(show.serviceDate)}</span></span>
+            </button>)}
+          </div>)}
+          {shows.some(show => !show.name.trim()) && <button type="button" onClick={() => setShowUntitled(value => !value)} className="min-h-11 w-full border-t border-board-border px-4 text-left text-xs text-board-muted">{showUntitled ? "Hide untitled shows" : `Show ${shows.filter(show => !show.name.trim()).length} untitled shows`}</button>}
+        </aside>
       </div>
 
       <Dialog open={showForm && canReportIncidents && !!showId} onOpenChange={setShowForm}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto border-board-border bg-board-card text-board-text sm:max-w-lg">
+        <DialogContent className="max-h-[85vh] overflow-y-auto border-board-border bg-board-card text-board-text sm:max-w-[560px]">
           <DialogHeader><DialogTitle>Report incident</DialogTitle><DialogDescription>Log an issue for {formatDisplayDate(serviceDate)}.</DialogDescription></DialogHeader>
           <ReadFailureNotice error={snapshotRead.error} refreshing={snapshotRead.refreshing} retry={snapshotRead.retry} label="Retry incidents" />
           {writeNotice}
@@ -592,38 +600,23 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
                 setForm({ ...form, description: e.target.value })
               }
               placeholder="What happened?"
-              rows={3}
+              rows={5}
               className="w-full px-4 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text placeholder:text-board-muted/50 outline-none focus:border-fire-500/50 focus:ring-1 focus:ring-fire-500/20 resize-none"
             />
-            <div className="grid gap-3 sm:grid-cols-3">
-              <label className="sr-only" htmlFor="incident-category">Category</label>
-              <select
-                id="incident-category"
-                disabled={writeLocked}
-                value={form.category}
-                onChange={(e) => setForm({ ...form, category: incidentCategorySchema.parse(e.target.value) })}
-                className="min-h-11 min-w-0 px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
-              >
-                {INCIDENT_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-              <label className="sr-only" htmlFor="incident-severity">Severity</label>
-              <select
-                id="incident-severity"
-                disabled={writeLocked}
-                value={form.severity}
-                onChange={(e) => setForm({ ...form, severity: incidentSeveritySchema.parse(e.target.value) })}
-                className="min-h-11 min-w-0 px-3 py-2.5 rounded-xl bg-board-bg border border-board-border text-sm text-board-text outline-none focus:border-fire-500/50"
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="critical">Critical</option>
-              </select>
-              <label className="sr-only" htmlFor="incident-reporter">Reported by</label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <fieldset disabled={writeLocked} className="col-span-full space-y-2">
+                <legend className="text-xs font-medium uppercase tracking-wider text-board-muted">Category</legend>
+                <div className="flex flex-wrap gap-1.5">
+                  {INCIDENT_CATEGORIES.map(value => <button key={value} type="button" aria-pressed={form.category === value} onClick={() => setForm({ ...form, category: value })} className={`min-h-8 rounded-md border px-3 text-sm capitalize disabled:opacity-50 ${form.category === value ? "border-fire-500/40 bg-fire-500/10 text-fire-400" : "border-board-border bg-board-bg text-board-muted hover:text-board-text"}`}>{value}</button>)}
+                </div>
+              </fieldset>
+              <fieldset disabled={writeLocked} className="col-span-full space-y-2">
+                <legend className="text-xs font-medium uppercase tracking-wider text-board-muted">Severity</legend>
+                <div className="flex flex-wrap gap-1.5">
+                  {(["low", "medium", "high", "critical"] as const).map(value => <button key={value} type="button" aria-pressed={form.severity === value} onClick={() => setForm({ ...form, severity: value })} className={`min-h-8 rounded-md border px-3 text-sm capitalize disabled:opacity-50 ${form.severity === value ? "border-fire-500/40 bg-fire-500/10 text-fire-400" : "border-board-border bg-board-bg text-board-muted hover:text-board-text"}`}>{value}</button>)}
+                </div>
+              </fieldset>
+              <label className="text-xs font-medium text-board-muted" htmlFor="incident-reporter">Reported by</label>
               <input
                 id="incident-reporter"
                 maxLength={200}
@@ -648,10 +641,7 @@ export function IncidentsWorkspace({ initial, slug, focusedIncidentId }: { initi
                 type="submit"
                 disabled={!canWrite || !form.description.trim()}
                 className="min-h-11 rounded-xl px-4 py-2.5 text-sm font-semibold text-black transition-all hover:shadow-lg hover:shadow-fire-500/20 active:scale-[0.98] disabled:opacity-50"
-                style={{
-                  background:
-                    "linear-gradient(135deg, #FFC107 0%, #FF8F00 100%)",
-                }}
+                style={{ background: "var(--color-fire-500)" }}
               >
                 Submit report
               </button>
