@@ -8,6 +8,8 @@ export function useShowEndConfirmation(
   target: ShowTarget,
   endShow: () => void,
   disabledReason?: string,
+  /** Plain-language consequence, e.g. "The timer stops on Praise and Worship…". */
+  details?: string,
 ) {
   const scope = JSON.stringify([target.orgId, target.showId ? ["show", target.showId] : ["date", target.serviceDate]]);
   const [openFor, setOpenFor] = useState<string | null>(null);
@@ -29,10 +31,10 @@ export function useShowEndConfirmation(
       <ConfirmDialog
         open={openFor === scope}
         onOpenChange={(open) => { if (!open) setOpenFor(null); }}
-        title="End this show?"
-        description={disabledReason ?? "Are you sure? This stops the rundown timer and completes the current item for all connected operators."}
+        title="End the show?"
+        description={disabledReason ?? details ?? "This stops the rundown timer and completes the current item for everyone following this show."}
         confirmLabel="End show"
-        cancelLabel="Keep show running"
+        cancelLabel="Keep running"
         confirmDisabled={Boolean(disabledReason)}
         onConfirm={() => {
           if (openFor !== scope || disabledReason) return;

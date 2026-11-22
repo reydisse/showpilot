@@ -71,7 +71,7 @@ export const RundownOffset = memo(function RundownOffset({ timer, duration, init
   const now = useClock(initialNow, timer.playback === "play");
   const elapsed = elapsedAt(timer, now);
   if (elapsed <= 0) return null;
-  return <span className={`rundown-row-offset text-xs font-mono font-bold px-2 py-0.5 rounded-full shrink-0 ${elapsed > duration ? "bg-red-500/20 text-red-400 animate-pulse motion-reduce:animate-none" : "bg-green-500/15 text-green-400"}`}>
+  return <span className={`rundown-row-offset inline-flex h-5 shrink-0 items-center rounded-full border px-1.5 text-xs font-medium tabular-nums ${elapsed > duration ? "border-red-400/40 bg-red-400/10 text-red-300" : "border-emerald-400/35 bg-emerald-400/10 text-emerald-300"}`}>
     {formatOffset(elapsed - duration)}
   </span>;
 });

@@ -19,7 +19,11 @@ function audit(selector) {
   };
   const blend = (fg, bg) => [...fg.slice(0, 3).map((v, i) => v * fg[3] + bg[i] * (1 - fg[3])), 1];
   const luminance = rgb => rgb.slice(0, 3).map(v => v / 255).map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4).reduce((sum, v, i) => sum + v * [.2126, .7152, .0722][i], 0);
-  const muted = rgba(getComputedStyle(document.documentElement).getPropertyValue("--board-muted"));
+  // Muted text: the board palette's muted ink, plus the design-A greys (--sa-ink-2/3) where a page uses them.
+  const mutedFor = el => {
+    const scope = el.closest(".schedule-a") ?? document.documentElement, css = getComputedStyle(scope);
+    return ["--board-muted", "--sa-ink-2", "--sa-ink-3"].map(name => css.getPropertyValue(name).trim()).filter(Boolean).map(rgba);
+  };
   let textCount = 0, mutedCount = 0, minimumContrast = Infinity;
   const failures = [];
   for (const root of document.querySelectorAll(selector)) {
@@ -31,7 +35,7 @@ function audit(selector) {
       textCount++;
       if (parseFloat(css.fontSize) < 12) failures.push({ label, fontSize: css.fontSize });
       const fg = rgba(css.color);
-      if (!fg.slice(0, 3).every((v, i) => Math.abs(v - muted[i]) <= 1) || el.closest(':disabled,[aria-disabled="true"]')) continue;
+      if (!mutedFor(el).some(muted => fg.slice(0, 3).every((v, i) => Math.abs(v - muted[i]) <= 1)) || el.closest(':disabled,[aria-disabled="true"]')) continue;
       mutedCount++;
       const ancestry = []; for (let node = el; node; node = node.parentElement) ancestry.unshift(node);
       let bg = [0, 0, 0, 1], opacity = 1;

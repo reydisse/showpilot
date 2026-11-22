@@ -23,6 +23,7 @@ export function ModalAContent({
   closeLabel,
   onCloseAutoFocus,
   children,
+  className = "",
 }: {
   title: string;
   description: React.ReactNode;
@@ -30,12 +31,14 @@ export function ModalAContent({
   closeLabel?: string;
   onCloseAutoFocus?: (event: Event) => void;
   children: React.ReactNode;
+  /** Extra classes, e.g. a wider max width. */
+  className?: string;
 }) {
   return (
     <DialogContent
       showCloseButton={false}
       onCloseAutoFocus={onCloseAutoFocus}
-      className="schedule-a sp-modal-a flex max-h-[calc(100dvh-2rem)] min-w-0 flex-col gap-0 overflow-hidden rounded-[14px] border-[var(--sa-border-strong)] bg-[var(--sa-surface)] p-0 text-board-text shadow-[0_24px_64px_rgba(0,0,0,0.6)] sm:max-w-[480px] [&_button]:outline-none [&_button]:focus-visible:ring-2 [&_button]:focus-visible:ring-fire-500"
+      className={`schedule-a sp-modal-a flex max-h-[calc(100dvh-2rem)] min-w-0 flex-col gap-0 overflow-hidden rounded-[14px] border-[var(--sa-border-strong)] bg-[var(--sa-surface)] p-0 text-board-text shadow-[0_24px_64px_rgba(0,0,0,0.6)] sm:max-w-[480px] [&_button]:outline-none [&_button]:focus-visible:ring-2 [&_button]:focus-visible:ring-fire-500 ${className}`}
     >
       <header className="flex shrink-0 items-start justify-between gap-4 px-5 pb-1 pt-5">
         <div className="flex min-w-0 flex-col gap-1">

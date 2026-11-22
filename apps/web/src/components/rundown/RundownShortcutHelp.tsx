@@ -5,9 +5,13 @@ import { RUNDOWN_SHORTCUTS } from "@/lib/rundown-shortcuts";
 const DISMISSED_KEY = "showpilot:rundown-shortcuts:shift-v1";
 
 export function RundownShortcutList() {
-  return <dl className="space-y-2 text-xs text-board-muted">{RUNDOWN_SHORTCUTS.map(({ keys, label }) => (
-    <div key={keys} className="flex flex-wrap items-center justify-between gap-2"><dt>{label}</dt><dd><kbd className="rounded border border-board-border bg-board-bg px-2 py-1 font-mono">{keys}</kbd></dd></div>
-  ))}</dl>;
+  return <dl className="flex flex-col gap-3 text-[13px] text-board-text">{RUNDOWN_SHORTCUTS.map(({ keys, label }) => {
+    const [name, note] = label.split(" (");
+    return <div key={keys} className="flex flex-wrap items-center justify-between gap-2">
+      <dt>{name}{note ? <span className="ml-2 text-xs text-[var(--sa-ink-3,#7c7c86)]">{note.replace(/\)$/, "").replace("confirmation required", "asks to confirm")}</span> : null}</dt>
+      <dd className="flex items-center gap-1" aria-label={keys}>{keys.split(" + ").map(key => <kbd key={key} className="inline-flex h-5 min-w-5 items-center justify-center rounded border border-[var(--sa-border-strong,#34343a)] bg-[var(--sa-surface-2,#1a1a1d)] px-1.5 font-[inherit] text-xs leading-none text-[var(--sa-ink-2,#a8a8b3)]">{key}</kbd>)}</dd>
+    </div>;
+  })}</dl>;
 }
 
 export function RundownShortcutBanner() {

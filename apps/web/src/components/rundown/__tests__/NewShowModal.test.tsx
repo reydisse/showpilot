@@ -72,19 +72,17 @@ it("starts on the current date and proposes the next start time", () => {
   expect(screen.getByLabelText<HTMLInputElement>("Start time").value).toBe(
     "19:30",
   );
+  // The current rundown is the preselected source card.
   expect(
-    screen
-      .getByLabelText("Start from a saved show")
-      .querySelector("option:checked")
-      ?.getAttribute("value"),
-  ).toBe("show:current");
+    screen.getByRole("radio", { name: /Current rundown/ }).getAttribute("aria-checked"),
+  ).toBe("true");
 });
 it("submits a separate same-day show with a retained identity and latest typed fields", async () => {
   setup();
   fireEvent.change(screen.getByLabelText("Show name"), {
     target: { value: "Late service" },
   });
-  fireEvent.change(screen.getByLabelText(/Crew call time/), {
+  fireEvent.change(screen.getByLabelText(/Crew call/), {
     target: { value: "18:45" },
   });
   fireEvent.change(screen.getByLabelText("Start time"), {

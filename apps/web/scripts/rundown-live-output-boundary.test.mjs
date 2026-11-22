@@ -13,8 +13,11 @@ test("browsing a rundown does not publish the venue output target", () => {
 
 test("venue output switching remains an explicit confirmed action", () => {
   assert.match(source, /Take live/);
-  assert.match(source, /Timer, lyrics, kiosk, Show Flow, and other venue outputs will switch/);
-  assert.match(source, /onConfirm=\{\(\) => void takeSelectedShowLive\(\)\}/);
+  const dialog = readFileSync(new URL("../src/components/rundown/rundown-a.tsx", import.meta.url), "utf8");
+  assert.match(dialog, /Timer, lyrics, kiosk, Show Flow, and other venue outputs will switch/);
+  // Outputs switch only from the confirm dialog (and its failure Retry), never from browsing.
+  assert.match(source, /<TakeLiveDialog[\s\S]*?onConfirm=\{takeSelectedShowLive\}/);
+  assert.equal(source.match(/publishTarget\(serviceDate, showId\)/g)?.length, 1);
 });
 
 test("taking a different show live preserves each show's timecode lyrics", () => {

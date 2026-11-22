@@ -1,4 +1,4 @@
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { ModalA } from "@/components/schedule/modal-a";
 import { ShowCreationForm } from "@/components/shows/ShowCreationForm";
 import type { OpenCreatedShow } from "@/hooks/useShowCreation";
 function nextStartTime(value: string) {
@@ -32,22 +32,10 @@ export function NewShowModal({
   onClose: () => void;
 }) {
   return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <DialogContent
-        aria-describedby={undefined}
-        showCloseButton={false}
-        className="rundown-modal block max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-2xl border border-board-border bg-board-card p-5 shadow-2xl sm:max-w-md"
-      >
-        <DialogTitle className="mb-4 text-base font-semibold text-board-text">
-          New show
-        </DialogTitle>
+    <ModalA className="rundown-modal sm:max-w-[560px]" title="New show" description="Create another show and open its rundown." onClose={onClose}>
         <ShowCreationForm
           scope={{ orgId, userId, entry: "rundown" }}
+          variant="modal"
           requireStart
           onClose={onClose}
           onCreated={onCreated}
@@ -80,7 +68,6 @@ export function NewShowModal({
               : { kind: "blank" },
           }}
         />
-      </DialogContent>
-    </Dialog>
+    </ModalA>
   );
 }

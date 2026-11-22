@@ -26,7 +26,7 @@ await withLocalSmokeFixture(async ({origin,orgId,date,browser,operatorCookie,ope
       const handler=row[key].onDragOver;
       if(handler!==previous){window.__clockRenders.changes++;previous=handler;}
       window.__clockRenders.samples++;
-      window.__clockRenders.clockTexts.push(document.querySelector('.rundown-panel-left p.text-6xl')?.textContent);
+      window.__clockRenders.clockTexts.push(document.querySelector('[data-rundown-clock]')?.textContent);
     },10);
     return true;
   })()`);
@@ -41,8 +41,8 @@ await withLocalSmokeFixture(async ({origin,orgId,date,browser,operatorCookie,ope
   await command("timer-adjust",{deltaMs:-130000});
   await browser("wait",'#rundown-progress-fill[data-tone="overtime"]');
   await browser("wait",'#rundown-item-progress[data-tone="overtime"]');
-  assert.ok((await evaluate(`document.querySelector('[data-rundown-clock]').textContent`)).startsWith("-"));
-  assert.ok(await evaluate(`document.querySelector('.rundown-row-offset').className.includes('text-red-400')`));
+  assert.ok((await evaluate(`document.querySelector('[data-rundown-clock]').textContent`)).match(/^[-−]/));
+  assert.ok(await evaluate(`document.querySelector('.rundown-row-offset').className.includes('text-red-300')`));
   await command("timer-pause"); await browser("wait","200");
   const paused=await evaluate(`({clock:document.querySelector('[data-rundown-clock]').textContent,width:document.querySelector('#rundown-progress-fill').style.width})`);
   await browser("wait","1200");

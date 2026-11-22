@@ -48,9 +48,9 @@ await withLocalSmokeFixture(async ({ origin, orgId, date, browser, operatorCooki
     await browser("screenshot", `/tmp/showpilot-livebar-${width}.png`);
   }
   await click("Next rundown item");
-  await browser("wait", "text=End this show?");
+  await browser("wait", "text=End the show?");
   assert.equal((await state()).timer.playback, "play");
-  await click("Keep show running");
+  await click("Keep running");
   await click("Previous rundown item");
   await poll(async () => (await state()).timer.currentItemId === "first", "previous item");
 

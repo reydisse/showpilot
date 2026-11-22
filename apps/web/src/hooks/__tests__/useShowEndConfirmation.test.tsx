@@ -42,7 +42,7 @@ describe("ending a show", () => {
     fireEvent.click(screen.getByText("Stop rundown"));
     expect(stop).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Keep show running" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep running" }));
     expect(stop).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Stop rundown"));
     fireEvent.click(screen.getByRole("button", { name: "End show" }));
