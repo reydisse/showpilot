@@ -1062,7 +1062,7 @@ export function ChatPanel({
                     : `Message ${title.toLowerCase()}`
               }
               rows={1}
-              className="min-h-8 min-w-0 flex-1 resize-none self-center bg-transparent px-1 py-1.5 text-base leading-5 text-board-text outline-none placeholder:text-[var(--sa-ink-3)] modern-scrollbar sm:text-[13px]"
+              className="min-h-11 min-w-0 flex-1 resize-none self-center bg-transparent px-1 py-3 text-base leading-5 text-board-text outline-none placeholder:text-[var(--sa-ink-3)] modern-scrollbar sm:text-[13px]"
             />
             {attachmentWork.length > 0 ? <span className="shrink-0 text-[11px] tabular-nums text-[var(--sa-ink-3)]">{attachmentWork.length}/6</span> : null}
             {onVotePoll && !editingMessage ? <button type="button" onClick={() => setPollOpen((open) => !open)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--sa-ink-3)] hover:bg-[var(--sa-surface-2)] hover:text-board-text [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11" aria-label="Create poll" title="Create poll"><BarChart3 className="h-4 w-4" /></button> : null}
