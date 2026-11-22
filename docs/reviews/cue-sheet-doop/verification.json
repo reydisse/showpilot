@@ -1,0 +1,34 @@
+{
+  "reference": "https://doop.design/c/aneicgaHqk?page=PvsBQoAeqE",
+  "baseline": "03afa15d",
+  "organization": "showpilot-demo-nov04 (local fixtures only)",
+  "fonts": "Existing ShowPilot fonts, as required by the handoff; no Geist dependency.",
+  "approved_behavior": "Rey: Implement offline replay and Undo too",
+  "checks": [
+    "Offline note replayed on reconnect and persisted after reload.",
+    "Offline journal survived browser restart with the original request UUID; original receipts applied exactly once.",
+    "Two isolated browsers: offline edit conflicted with another saved note; review showed both; explicit Replace saved note persisted the chosen edit.",
+    "Use saved note recovered a conflict without replacing the saved value.",
+    "Empty-department deletion offered Undo and restored the same column ID. Fixture removed afterwards.",
+    "Department resize persisted at 170px after reload; restored original 160px afterwards.",
+    "Focus exit restored settled scrollLeft 334px exactly.",
+    "No document horizontal overflow at 320, 390, 1024, 1440 and 3440px.",
+    "Original blank cue restored and temporary departments removed after browser checks."
+  ],
+  "notes": [
+    "Before images use current main; after images use the running Demo preview with the cue-sheet changes.",
+    "The mockup content, times and department counts are placeholders; screenshots keep actual Demo data.",
+    "Undo screenshot predates final dialog copy changes but demonstrates the actual reversible operation.",
+    "Native Desktop installer/hardware behavior was not tested by this web redesign.",
+    "No production deployment or remote migration was performed."
+  ],
+  "bundle": {
+    "beforeGzipBytes": 172465,
+    "afterGzipBytes": 172843,
+    "budgetBytes": 175000
+  },
+  "unitTests": {
+    "files": 412,
+    "passed": 3687
+  }
+}
