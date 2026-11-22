@@ -356,7 +356,7 @@ function SchedulePage() {
                 onClick={() => chooseShow(service.id, service.serviceDate)}
                 className={`flex min-w-[210px] snap-start items-center gap-3 rounded-lg px-2.5 py-2 text-left lg:w-full ${service.id === selected?.id ? "bg-board-border" : "hover:bg-board-card"}`}
               >
-                <span className="flex w-8 shrink-0 flex-col items-center"><span className="text-[10px] font-medium uppercase tracking-[0.06em] text-board-muted">{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString(locale, { weekday: "short" })}</span><span className={`font-mono text-[15px] font-medium leading-[1.2] ${service.id === selected?.id ? "text-fire-400" : "text-board-muted"}`}>{Number(service.serviceDate.slice(-2))}</span></span>
+                <span className="flex w-8 shrink-0 flex-col items-center"><span className="text-[10px] font-medium uppercase tracking-[0.06em] text-board-muted">{new Date(`${service.serviceDate}T12:00:00`).toLocaleDateString(locale, { weekday: "short" })}</span><span className={`tabular-nums text-[15px] font-medium leading-[1.2] ${service.id === selected?.id ? "text-fire-400" : "text-board-muted"}`}>{Number(service.serviceDate.slice(-2))}</span></span>
                 <span className="flex min-w-0 flex-col gap-0.5">
                 <p className="truncate text-[13px] font-medium text-board-text">
                   {service.name}
@@ -401,7 +401,7 @@ function SchedulePage() {
             <>
               <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
                 <div className="flex min-w-0 flex-[1_1_18rem] flex-col gap-2">
-                  <p className="font-mono text-xs uppercase tracking-[0.04em] text-[var(--sa-ink-3)]">{headerDate(selected.serviceDate, data.today)}</p>
+                  <p className="tabular-nums text-xs uppercase tracking-[0.04em] text-[var(--sa-ink-3)]">{headerDate(selected.serviceDate, data.today)}</p>
                   <div className="flex min-w-0 items-center gap-1.5">
                     <h2 className="truncate text-2xl font-semibold lg:text-[26px] leading-[1.15] tracking-[-0.02em] text-board-text">
                       {selected.name}
@@ -414,8 +414,8 @@ function SchedulePage() {
                     ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] lg:gap-x-5 text-[var(--sa-ink-2)]">
-                    <span className={metaItem}><Clock className={metaIcon} strokeWidth={1.75} />Starts {selected.scheduledStartTime ? <span className="font-mono text-xs text-board-text">{timeLabel(selected.scheduledStartTime, deviceTimeZone, locale)}</span> : data.canManage ? <button type="button" onClick={() => setServiceOpen(true)} className="inline-flex h-6 items-center gap-1.5 rounded-full border border-[var(--sa-warn)]/35 bg-[var(--sa-warn)]/[0.08] pl-2 pr-2.5 text-xs font-medium text-[var(--sa-warn)]"><span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[var(--sa-warn)]" />Time not set<span className="border-l border-[var(--sa-warn)]/30 pl-1.5 text-board-text">Set time</span></button> : <span className="text-[var(--sa-warn)]">Time not set</span>}</span>
-                    {selected.effectiveCallTime ? <span className={metaItem}><User className={metaIcon} strokeWidth={1.75} />Crew call <span className="font-mono text-xs text-board-text">{timeLabel(selected.effectiveCallTime, deviceTimeZone, locale)}</span></span> : null}
+                    <span className={metaItem}><Clock className={metaIcon} strokeWidth={1.75} />Starts {selected.scheduledStartTime ? <span className="tabular-nums text-xs text-board-text">{timeLabel(selected.scheduledStartTime, deviceTimeZone, locale)}</span> : data.canManage ? <button type="button" onClick={() => setServiceOpen(true)} className="inline-flex h-6 items-center gap-1.5 rounded-full border border-[var(--sa-warn)]/35 bg-[var(--sa-warn)]/[0.08] pl-2 pr-2.5 text-xs font-medium text-[var(--sa-warn)]"><span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[var(--sa-warn)]" />Time not set<span className="border-l border-[var(--sa-warn)]/30 pl-1.5 text-board-text">Set time</span></button> : <span className="text-[var(--sa-warn)]">Time not set</span>}</span>
+                    {selected.effectiveCallTime ? <span className={metaItem}><User className={metaIcon} strokeWidth={1.75} />Crew call <span className="tabular-nums text-xs text-board-text">{timeLabel(selected.effectiveCallTime, deviceTimeZone, locale)}</span></span> : null}
                     {selected.location ? <span className={metaItem}><MapPin className={metaIcon} strokeWidth={1.75} />{selected.location}</span> : null}
                     <Link to="/$slug/rundown" params={{ slug }} search={{ show: selected.id, date: selected.serviceDate }} className="hidden whitespace-nowrap border-b border-[var(--sa-border-strong)] text-[var(--sa-ink-2)] hover:text-board-text lg:inline">
                       {selected.itemCount ? `Rundown · ${selected.itemCount} ${selected.itemCount === 1 ? "item" : "items"}` : <span className="inline-flex items-center gap-1"><List className="h-3.5 w-3.5" strokeWidth={1.5} />Rundown<ChevronRight className="h-3.5 w-3.5" strokeWidth={1.75} /></span>}
@@ -710,13 +710,13 @@ function ShowSwitcherBar({ services, selected, today, calendar, onChoose, onNew,
     </DropdownMenu>
     {selected ? <DropdownMenu>
       <DropdownMenuTrigger className="flex h-8 min-w-0 items-center gap-2.5 rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-3 text-[13px] font-medium text-board-text">
-        <span className="shrink-0 font-mono text-xs text-fire-500">{day(selected.serviceDate)}</span>
+        <span className="shrink-0 tabular-nums text-xs text-fire-500">{day(selected.serviceDate)}</span>
         <span className="truncate">{selected.name}</span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--sa-ink-3)]" strokeWidth={2} />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" collisionPadding={12} className="max-h-[60vh] w-72 overflow-y-auto rounded-lg border-[var(--sa-border-strong)] bg-board-card p-1 text-board-text">
         {services.map(service => <DropdownMenuItem key={service.id} onSelect={() => onChoose(service.id, service.serviceDate)} className={`flex items-center gap-3 rounded-md px-2.5 py-2 ${service.id === selected.id ? "bg-board-border" : ""}`}>
-          <span className={`w-14 shrink-0 font-mono text-xs ${service.id === selected.id ? "text-fire-400" : "text-board-muted"}`}>{day(service.serviceDate)}</span>
+          <span className={`w-14 shrink-0 tabular-nums text-xs ${service.id === selected.id ? "text-fire-400" : "text-board-muted"}`}>{day(service.serviceDate)}</span>
           <span className="flex min-w-0 flex-col"><span className="truncate text-[13px] font-medium">{service.name}</span><span className="text-xs text-board-muted">{timeLabel(service.scheduledStartTime, deviceTimeZone, locale)} · {service.crewTotal ? `${service.crewConfirmed} of ${service.crewTotal} confirmed` : "No crew yet"}</span></span>
         </DropdownMenuItem>)}
       </DropdownMenuContent>
@@ -799,7 +799,7 @@ function MonthCalendar({
                 aria-label={longDate(date, locale)}
                 aria-pressed={selected}
                 onClick={() => onSelect(date)}
-                className={`relative mx-0.5 flex h-[30px] items-center justify-center rounded-md font-mono text-xs transition-colors focus-visible:outline focus-visible:outline-fire-400 ${selected ? "bg-fire-500 font-semibold text-black" : hasService ? "text-board-text hover:bg-board-bg" : "text-board-muted"} ${isToday && !selected ? "ring-1 ring-inset ring-board-border" : ""}`}
+                className={`relative mx-0.5 flex h-[30px] items-center justify-center rounded-md tabular-nums text-xs transition-colors focus-visible:outline focus-visible:outline-fire-400 ${selected ? "bg-fire-500 font-semibold text-black" : hasService ? "text-board-text hover:bg-board-bg" : "text-board-muted"} ${isToday && !selected ? "ring-1 ring-inset ring-board-border" : ""}`}
               >
                 {day}
                 {hasService ? (
@@ -946,7 +946,7 @@ function StaffingSummary({ stats, total, filter, onFilter, reminder }: {
   return <section aria-label="Staffing" className="flex flex-col gap-3.5 rounded-xl border border-[var(--sa-border)] bg-[var(--sa-surface)] p-4">
     <div className="flex flex-wrap items-center justify-between gap-4">
       <div className="flex min-w-0 flex-col gap-1">
-        <p className="text-base font-[550] tracking-[-0.01em] text-board-text"><span className="font-mono font-medium">{filled}</span> of <span className="font-mono font-medium">{total}</span> {total === 1 ? "position" : "positions"} filled</p>
+        <p className="text-base font-[550] tracking-[-0.01em] text-board-text"><span className="tabular-nums font-medium">{filled}</span> of <span className="tabular-nums font-medium">{total}</span> {total === 1 ? "position" : "positions"} filled</p>
         <p className="text-[13px] text-[var(--sa-ink-2)]">{detail}</p>
       </div>
       {reminder}
@@ -958,7 +958,7 @@ function StaffingSummary({ stats, total, filter, onFilter, reminder }: {
       {tabs.map(tab => <button key={tab.value} type="button" aria-pressed={filter === tab.value} onClick={() => onFilter(tab.value)} className={`inline-flex h-7 items-center gap-[7px] whitespace-nowrap rounded-md px-2.5 text-xs font-medium ${filter === tab.value ? "bg-[var(--sa-surface-3)] text-board-text shadow-[inset_0_0_0_1px_var(--sa-border-strong)]" : "text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)] hover:text-board-text"}`}>
         {tab.dot ? <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${tab.dot}`} /> : null}
         {tab.label}
-        <span className="font-mono text-[var(--sa-ink-3)]">{tab.count}</span>
+        <span className="tabular-nums text-[var(--sa-ink-3)]">{tab.count}</span>
       </button>)}
     </div>
   </section>;
@@ -1004,7 +1004,7 @@ function RosterTable({
         <summary className="flex h-11 cursor-pointer list-none items-center gap-2 pl-3 pr-2 [&::-webkit-details-marker]:hidden">
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-[var(--sa-ink-3)] transition-transform [details:not([open])>summary>&]:-rotate-90" strokeWidth={2} />
           <span className="truncate text-xs font-semibold uppercase tracking-[0.06em] text-board-text">{group.name}</span>
-          <span className="font-mono text-xs text-[var(--sa-ink-3)]">{group.rows.length}</span>
+          <span className="tabular-nums text-xs text-[var(--sa-ink-3)]">{group.rows.length}</span>
           <span className="ml-2 hidden truncate text-xs text-[var(--sa-ink-3)] @min-[520px]/schedule-main:inline">{[
             plural(group.rows.filter(row => row.status === "confirmed").length, "confirmed", "confirmed"),
             plural(group.rows.filter(row => row.status === "assigned" && row.crewMemberId).length, "awaiting", "awaiting"),
@@ -1054,7 +1054,7 @@ function RosterRow({
     <span aria-hidden="true" className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold tracking-[0.02em] text-[var(--sa-ink-2)] ${assignment.crewMemberId ? "bg-[var(--sa-surface-3)]" : "border-[1.5px] border-dashed border-[var(--sa-border-strong)]"}`}>{assignment.crewMember?.name.split(" ").map(part => part[0]).slice(0,2).join("")}</span>
     <span className={`truncate ${assignment.crewMemberId ? "text-sm font-[550] text-board-text" : "text-sm font-[450] text-[var(--sa-ink-3)]"}`}>{assignment.crewMember?.name ?? "Open — nobody assigned"}</span>
     <span className="truncate text-[13px] text-[var(--sa-ink-2)]">{assignment.role}</span>
-    <span className="truncate font-mono text-xs text-board-text">{timeLabel(assignment.effectiveCallTime, deviceTimeZone, locale)}</span>
+    <span className="truncate tabular-nums text-xs text-board-text">{timeLabel(assignment.effectiveCallTime, deviceTimeZone, locale)}</span>
     <span className="flex items-center">{!assignment.crewMemberId && canManage
       ? <button type="button" onClick={onEdit} className={secondarySm}>Assign</button>
       : <span className="inline-flex items-center gap-2 whitespace-nowrap text-[13px] text-[var(--sa-ink-2)]"><span aria-hidden="true" className={`h-[7px] w-[7px] shrink-0 rounded-full ${responseDot[response] ?? responseDot.open}`} />{responseLabel}</span>}</span>

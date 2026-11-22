@@ -764,6 +764,6 @@ textarea {
 .sp-modal-a textarea { height: 64px; padding-top: 9px; resize: vertical; }
 .sp-modal-a :is(input, select, textarea)::placeholder { color: var(--sa-ink-3); }
 .sp-modal-a :is(input, select, textarea):focus { border-color: var(--color-fire-500); outline: none; }
-.sp-modal-a input.tabular-nums { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.sp-modal-a input.tabular-nums { font-variant-numeric: tabular-nums; }
 .sp-modal-a .relative > input + button { color: var(--sa-ink-3); top: calc(50% + 3px); }
 .sp-modal-a .sp-row label :is(input, select) { margin-top: 0; }
