@@ -22,7 +22,7 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   UserPlus,
   Users,
@@ -230,6 +230,11 @@ function SchedulePage() {
   const previous = selectedIndex > 0 ? data.services[selectedIndex - 1] : null;
   const roster = useScheduleRoster({ orgId: data.orgId, userId: user.id, showId: selected?.id, assignments: data.assignments });
   const selectedAssignments = roster.value;
+  // The rail shows upcoming shows first; past ones (most recent first) stay collapsed unless one is selected.
+  const upcomingServices = data.services.filter((service) => service.serviceDate >= data.today);
+  const pastServices = data.services.filter((service) => service.serviceDate < data.today).sort((a, b) => b.serviceDate.localeCompare(a.serviceDate));
+  const [pastOpen, setShowPast] = useState(false);
+  const showPast = pastOpen || (!!selected && selected.serviceDate < data.today);
   const savedTeams = selected ? data.services.filter(show => show.serviceDate < selected.serviceDate).map(show => {
     const crew = data.assignments.filter(row => row.showId === show.id);
     return { show, count: crew.length, departments: Array.from(new Set(crew.map(rosterDepartment).filter(Boolean))).join(", ") };
@@ -348,11 +353,13 @@ function SchedulePage() {
             serviceDates={data.services.map((service) => service.serviceDate)}
             onSelect={chooseDate}
           />
-          <div className="flex items-baseline justify-between px-2.5 pt-1 text-board-muted"><h3 className="text-[11px] font-medium uppercase tracking-[0.07em]">Upcoming</h3><span className="text-xs">{data.services.length} {data.services.length === 1 ? "show" : "shows"}</span></div>
+          <div className="flex items-baseline justify-between px-2.5 pt-1 text-board-muted"><h3 className="text-[11px] font-medium uppercase tracking-[0.07em]">Upcoming</h3><span className="text-xs">{upcomingServices.length} {upcomingServices.length === 1 ? "show" : "shows"}</span></div>
           <div className="flex snap-x gap-0.5 overflow-x-auto lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-contain">
-            {data.services.map((service) => (
+            {upcomingServices.length === 0 ? <p className="shrink-0 px-2.5 py-2 text-xs text-board-muted">No upcoming shows this month.</p> : null}
+            {[...upcomingServices, ...(showPast ? pastServices : [])].map((service, index) => (
+              <Fragment key={service.id}>
+              {index === upcomingServices.length ? <p className="flex shrink-0 items-center px-2.5 pb-1 pt-3 text-[11px] font-medium uppercase tracking-[0.07em] text-board-muted lg:w-full">Past</p> : null}
               <button
-                key={service.id}
                 onClick={() => chooseShow(service.id, service.serviceDate)}
                 className={`flex min-w-[210px] snap-start items-center gap-3 rounded-lg px-2.5 py-2 text-left lg:w-full ${service.id === selected?.id ? "bg-board-border" : "hover:bg-board-card"}`}
               >
@@ -373,7 +380,12 @@ function SchedulePage() {
                 </p>
                 </span>
               </button>
+              </Fragment>
             ))}
+            {pastServices.length ? <button type="button" onClick={() => setShowPast(open => !open)} aria-expanded={showPast}
+              className="flex min-h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-board-muted hover:bg-board-card hover:text-board-text lg:w-full">
+              {showPast ? "Hide past shows" : `Show ${pastServices.length} past ${pastServices.length === 1 ? "show" : "shows"}`}
+            </button> : null}
           </div>
           {sourceControl || inventoryButton ? <div className="schedule-a mt-auto flex flex-wrap items-start gap-1 border-t border-board-border px-0.5 pt-3">{sourceControl}{inventoryButton}</div> : null}
         </aside>
