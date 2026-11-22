@@ -252,7 +252,7 @@
     "reason": "Fixed ordering selected by validated enum."
   },
   "src/lib/incident-writes.server.ts:guard": {
-    "count": 6,
+    "count": 7,
     "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
   },
   "src/lib/incident-writes.server.ts:incidentScope": {
@@ -263,8 +263,12 @@
     "count": 1,
     "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
   },
-  "src/lib/incidents.ts:incidentDeleteSnapshotSql": {
+  "src/lib/incident-writes.server.ts:sets.join(\", \")": {
     "count": 1,
+    "reason": "Incident update SET list built only from fixed column assignments in code; every value is bound separately."
+  },
+  "src/lib/incidents.ts:incidentDeleteSnapshotSql": {
+    "count": 2,
     "reason": "Internal SQL constant or fixed-fragment composition; values bound separately."
   },
   "src/lib/incidents.ts:where": {
