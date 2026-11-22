@@ -139,7 +139,7 @@ await withLocalSmokeFixture(
           );
           await click(`document.querySelector('aside a[href$="/show"]')`);
           await check(
-            `location.pathname.endsWith('/show')&&document.querySelector('h1')?.textContent==='Show Flow'`,
+            `location.pathname.endsWith('/show')&&[...document.querySelectorAll('header p')].some(p=>p.textContent.startsWith('Show flow'))`,
             "Show Flow navigation",
           );
         };
