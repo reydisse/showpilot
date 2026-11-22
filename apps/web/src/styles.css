@@ -709,3 +709,61 @@ textarea {
 @media (max-width: 639px) {
   .cue-sheet-grid .cue-pinned { left: auto !important; }
 }
+
+@keyframes schedule-skeleton-shimmer {
+  0%, 100% { opacity: .65; }
+  50% { opacity: .9; }
+}
+.schedule-skeleton { animation: schedule-skeleton-shimmer 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .schedule-skeleton { animation: none; }
+}
+
+/* Schedule — A palette (Doop canvas aneicgaHqk). Scoped to the Schedule page
+   until these neutrals become shared board tokens. */
+.schedule-a {
+  --sa-surface: #131315;
+  --sa-surface-2: #1a1a1d;
+  --sa-surface-3: #222226;
+  --sa-border: #242428;
+  --sa-border-strong: #34343a;
+  --sa-ink-2: #a8a8b3;
+  --sa-ink-3: #85858f;
+  --sa-ok: #3ecf8e;
+  --sa-warn: #f5a524;
+  --sa-danger: #f87171;
+}
+.light .schedule-a {
+  --sa-surface: var(--board-card);
+  --sa-surface-2: #f3f0ea;
+  --sa-surface-3: #ebe6dd;
+  --sa-border: var(--board-border);
+  --sa-border-strong: #cbc4b8;
+  --sa-ink-2: #57524c;
+  --sa-ink-3: var(--board-muted);
+  --sa-ok: #13824f;
+  --sa-warn: #a86400;
+  --sa-danger: #c03a3a;
+}
+
+/* Schedule — A modal fields. Unlayered so it outranks the shared forms'
+   utility classes, but only inside Schedule's A modals. */
+.sp-modal-a label { font-size: 12px; font-weight: 500; color: var(--sa-ink-2); }
+.sp-modal-a :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  min-height: 36px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--sa-border-strong);
+  border-radius: 8px;
+  background: var(--sa-surface-2);
+  color: var(--board-text);
+  font-size: 13px;
+  font-weight: 400;
+}
+.sp-modal-a label :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { margin-top: 6px; }
+.sp-modal-a textarea { height: 64px; padding-top: 9px; resize: vertical; }
+.sp-modal-a :is(input, select, textarea)::placeholder { color: var(--sa-ink-3); }
+.sp-modal-a :is(input, select, textarea):focus { border-color: var(--color-fire-500); outline: none; }
+.sp-modal-a input.tabular-nums { font-variant-numeric: tabular-nums; }
+.sp-modal-a .relative > input + button { color: var(--sa-ink-3); top: calc(50% + 3px); }
+.sp-modal-a .sp-row label :is(input, select) { margin-top: 0; }

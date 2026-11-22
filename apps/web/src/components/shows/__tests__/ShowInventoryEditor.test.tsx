@@ -58,16 +58,14 @@ it("requires an explicit archive confirmation with its scope and keeps cancellat
     item: null,
   }));
   setup();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Archive Reusable show" }),
-  );
+  fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Reusable show" }), { key: "ArrowDown" });
+  fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
   expect(screen.getByText(/Scheduled shows are unchanged/)).toBeTruthy();
   expect(rpc.mutate).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
   expect(rpc.mutate).not.toHaveBeenCalled();
-  fireEvent.click(
-    screen.getByRole("button", { name: "Archive Reusable show" }),
-  );
+  fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Reusable show" }), { key: "ArrowDown" });
+  fireEvent.click(screen.getByRole("menuitem", { name: "Archive" }));
   fireEvent.click(screen.getByRole("button", { name: "Archive show" }));
   await waitFor(() => expect(rpc.mutate).toHaveBeenCalledTimes(1));
   expect(rpc.mutate.mock.calls[0][0].data.operation).toMatchObject({
@@ -78,14 +76,15 @@ it("requires an explicit archive confirmation with its scope and keeps cancellat
 });
 it("preserves an unavailable source and requires an explicit replacement", () => {
   const view = setup();
-  fireEvent.change(screen.getByLabelText("Show name"), {
+  fireEvent.click(screen.getByRole("button", { name: "New saved show" }));
+  fireEvent.change(screen.getByLabelText("Name"), {
     target: { value: "Draft" },
   });
-  fireEvent.change(screen.getByLabelText("Rundown source (optional)"), {
+  fireEvent.change(screen.getByLabelText("Rundown source"), {
     target: { value: "source" },
   });
   view.rerender(view.draw([]));
-  expect(screen.getByLabelText("Rundown source (optional)")).toHaveProperty(
+  expect(screen.getByLabelText("Rundown source")).toHaveProperty(
     "value",
     "source",
   );
@@ -93,17 +92,17 @@ it("preserves an unavailable source and requires an explicit replacement", () =>
   expect(
     (
       screen.getByRole("button", {
-        name: "Add to inventory",
+        name: "Save show",
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(true);
-  fireEvent.change(screen.getByLabelText("Rundown source (optional)"), {
+  fireEvent.change(screen.getByLabelText("Rundown source"), {
     target: { value: "" },
   });
   expect(
     (
       screen.getByRole("button", {
-        name: "Add to inventory",
+        name: "Save show",
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(false);
@@ -112,7 +111,7 @@ it("preserves an unavailable source and requires an explicit replacement", () =>
 it("view-only members have no creation, archive, or restore controls", () => {
   setup(false);
   expect(
-    screen.queryByRole("button", { name: /Archive|Restore|Add to inventory/ }),
+    screen.queryByRole("button", { name: /Archive|Restore|Save show/ }),
   ).toBeNull();
   expect(
     screen.getByRole("button", { name: "Use Reusable show" }),

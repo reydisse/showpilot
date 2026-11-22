@@ -191,3 +191,24 @@ Files prefixed with `demo` can be safely deleted. They are there to provide a st
 You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
 
 For TanStack Start specific documentation, visit [TanStack Start](https://tanstack.com/start).
+
+### Existing local preview: workspace or Schedule returns HTTP 500
+
+An authenticated workspace can fail before rendering when its local D1 schema
+lags behind the checkout. `D1_ERROR: no such table: org_setting` comes from the
+workspace profile read; `prisma.rundownTemplate.findMany()` failing on
+`main.rundown_template` comes from Schedule's show inventory read. Seeding an
+authentication account does not apply these schema migrations.
+
+For an existing database without local migration history, inspect its schema
+and apply only the missing migrations using `pnpm exec wrangler d1 execute
+showpilot-db --local --file=prisma/migrations/<migration>.sql` from `apps/web`.
+The November 21 preview needed `0099_rundown_template.sql`,
+`0100_org_setting.sql`, `0101_org_setting_remaining_keys.sql`, and
+`0102_webhook_event.sql`. Do not replay these against an already migrated DB.
+For a fresh database use `pnpm db:migrate:local` instead.
+
+Verify both the workspace root and `/schedule` with an authenticated session;
+an unauthenticated redirect or a successful sign-in alone does not exercise
+these reads. These failures require a local schema repair, not removal of
+Schedule UI or fallback reads that hide missing tables.

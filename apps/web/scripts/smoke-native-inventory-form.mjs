@@ -55,7 +55,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, queryFixture
   });
   const button = name => page.getByRole("button", { name, exact: true });
   const open = async () => { await button("Show inventory").click(); await page.getByLabel("Show name", { exact: true }).waitFor(); };
-  const close = async () => { await button("Close Show inventory").click(); await page.getByLabel("Show name", { exact: true }).waitFor({ state: "hidden" }); };
+  const close = async () => { await button("Close Saved shows").click(); await page.getByLabel("Show name", { exact: true }).waitFor({ state: "hidden" }); };
   const wait = async check => { const end = Date.now() + 20000; while (!(await check())) { if (Date.now() > end) throw new Error("Native browser assertion timed out"); await new Promise(done => setTimeout(done, 50)); } };
   try {
     await page.goto(`${nativeOrigin}/schedule`); await open();
@@ -65,7 +65,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, queryFixture
     assert.equal(await page.getByLabel("Show name", { exact: true }).isEditable(), false);
     for (const [width, height] of [[320, 568], [768, 1024], [1440, 1000]]) {
       await page.setViewportSize({ width, height });
-      for (const name of ["Retry change", "Review original request", "Close Show inventory"]) {
+      for (const name of ["Retry change", "Review original request", "Close Saved shows"]) {
       await button(name).scrollIntoViewIfNeeded();
       const bounds = await button(name).evaluate(node => { const b = node.getBoundingClientRect(); const range = document.createRange(); range.selectNodeContents(node); const t = range.getBoundingClientRect(); return { height: b.height, width: b.width, fits: b.left >= 0 && b.right <= innerWidth && b.top >= 0 && b.bottom <= innerHeight, hit: node.contains(document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)), textInside: t.left >= b.left && t.right <= b.right && t.top >= b.top && t.bottom <= b.bottom }; });
       assert.ok(bounds.height >= 44 && bounds.width >= 44 && bounds.fits && bounds.hit && (name.startsWith("Close") || bounds.textInside), JSON.stringify({name,...bounds}));

@@ -136,7 +136,7 @@ it("keeps the draft and exact create request across navigation, a timeout and a 
   api.save.mockReturnValueOnce(held.promise);
   const view = mount();
   change("Position", "Camera");
-  change("Manager note", "Bring the long lens");
+  change("Note for this person (optional)", "Bring the long lens");
   view.show(false);
   view.show(true);
   await tick();
@@ -165,10 +165,10 @@ it("retries only the unconfirmed team row and preserves the successful position"
     .mockRejectedValueOnce(new TypeError("Lost reply"));
   mount("team");
   change("Position 1", "Audio");
-  click("Add another person");
+  click("Add row");
   await tick();
   change("Position 2", "Camera");
-  click("Add team & send invitations");
+  click("Add team & invite 0");
   await tick();
   const second = sent(1);
   expect(screen.getByText(/Audio: Assignment saved/)).toBeTruthy();
@@ -192,12 +192,12 @@ it("retains the operator's edit and requires review before applying against a ne
   }));
   mount("edit");
   await tick();
-  change("Manager note", "My unsaved note");
+  change("Note for this person (optional)", "My unsaved note");
   click("Save assignment");
   await tick();
   expect(screen.getByText(/Latest:.*Newer manager note/)).toBeTruthy();
   expect(
-    (screen.getByLabelText("Manager note") as HTMLTextAreaElement).value,
+    (screen.getByLabelText("Note for this person (optional)") as HTMLTextAreaElement).value,
   ).toBe("My unsaved note");
   api.read.mockResolvedValue({
     orgId: "org-1",
@@ -228,10 +228,10 @@ it("bounds an assignment read and ignores its late result until Retry loading su
   expect(screen.getByRole("button", { name: "Retry loading" })).toBeTruthy();
   held.resolve({ orgId: "org-1", userId: "user-1", snapshot: initial });
   await tick();
-  expect(screen.queryByLabelText("Manager note")).toBeNull();
+  expect(screen.queryByLabelText("Note for this person (optional)")).toBeNull();
   click("Retry loading");
   await tick();
-  expect(screen.getByLabelText("Manager note")).toBeTruthy();
+  expect(screen.getByLabelText("Note for this person (optional)")).toBeTruthy();
 });
 it("retries a failed view refresh without saving the assignment again", async () => {
   const held = deferred<void>();
@@ -315,7 +315,7 @@ it("retries an invitation against the original saved command", async () => {
   }));
   mount();
   change("Position", "Audio");
-  change("Roster contact", "crew-1");
+  change("Person", "crew-1");
   click("Add position");
   await tick();
   expect(screen.getByText(/Email acceptance is unknown/)).toBeTruthy();

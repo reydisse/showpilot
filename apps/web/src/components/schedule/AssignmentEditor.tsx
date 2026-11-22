@@ -1,12 +1,11 @@
+import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { plainFailure } from "@showpilot/shared/ui-feedback";
 import { QuietActivity } from "@/components/ui/QuietActivity";
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { Plus, X } from "lucide-react";
+import { ModalAContent, modalCancel, modalDanger, modalFooter, modalHint, modalPrimary } from "@/components/schedule/modal-a";
 import {
   Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
 } from "@/components/ui/dialog";
 import { useAssignmentWork } from "@/hooks/useAssignmentWork";
 import {
@@ -97,9 +96,12 @@ export function AssignmentEditor({
   confirm,
   onClose,
   onSaved,
+  context,
 }: {
   orgId: string;
   userId: string;
+  /** Show name and date for the modal subtitle, e.g. "Traditional Service · Sun 22 Nov". */
+  context?: string;
   target: Target;
   departments: string[];
   initialDepartment?: string;
@@ -143,6 +145,19 @@ export function AssignmentEditor({
     !!assignmentId &&
     (work.snapshot.isFetching || work.snapshot.isError || !current);
   const locked = work.pending || !!work.attempt || readBlocked;
+  const positionField = (row: Row | undefined, index: number) => row ? (
+    <label className="block min-w-0">
+      {target.kind === "team" ? null : <span>Position</span>}
+      <input
+        aria-label={target.kind === "team" ? `Position ${index + 1}` : undefined}
+        className={control}
+        value={row.role}
+        maxLength={120}
+        required
+        onChange={(event) => updateRow(row.key, { role: event.target.value })}
+      />
+    </label>
+  ) : null;
   const title = {
     create: "Add position",
     team: "Build a team",
@@ -262,33 +277,21 @@ export function AssignmentEditor({
         if (!open) onClose();
       }}
     >
-      <DialogContent
-        showCloseButton={false}
+      <ModalAContent
+        title={title}
+        closeLabel="Close assignment"
+        onClose={onClose}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           if (opener?.isConnected) opener.focus();
         }}
-        className="flex max-h-[calc(100dvh-2rem)] min-w-0 flex-col gap-0 overflow-hidden border-board-border bg-board-card p-0 text-board-text sm:max-w-lg"
+        description={target.kind === "delete"
+          ? "Removal deletes this position and its invitation. This cannot be undone."
+          : target.kind === "team"
+            ? "Add several positions at once and invite everyone together."
+            : context ?? "Your draft is kept when you close this window or leave Schedule."}
       >
-        <div className="flex shrink-0 items-start gap-3 border-b border-board-border p-4">
-          <div className="min-w-0 flex-1">
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription className="mt-1 text-xs text-board-muted">
-              {target.kind === "delete"
-                ? "Removal deletes this position and its invitation. This cannot be undone."
-                : "Your draft is kept when you close this window or leave Schedule."}
-            </DialogDescription>
-          </div>
-          <button
-            type="button"
-            aria-label="Close assignment"
-            className={`${button} min-w-11 px-2`}
-            onClick={onClose}
-          >
-            <X className="mx-auto h-4 w-4" />
-          </button>
-        </div>
-        <div className="min-h-0 space-y-4 overflow-y-auto p-4">
+        <div className="space-y-4">
           {assignmentId && !work.attempt && (
             <>
               {work.snapshot.isFetching && (
@@ -344,10 +347,11 @@ export function AssignmentEditor({
                 )}
                 {target.kind !== "delete" && (
                   <>
-                    <label className="block space-y-1 text-sm">
+                    <div className={target.kind === "team" ? "" : "grid min-w-0 gap-3 sm:grid-cols-2"}>
+                    <label className="block min-w-0">
                       <span>
                         {target.kind === "team"
-                          ? "Team or category name"
+                          ? "Team name"
                           : "Department"}
                       </span>
                       <input
@@ -369,35 +373,21 @@ export function AssignmentEditor({
                           <option key={name} value={name} />
                         ))}
                       </datalist>
+                      {target.kind === "team" ? <span className={modalHint}>Saved so you can reuse it on the next show.</span> : null}
                     </label>
+                    {target.kind !== "team" ? positionField(draft.rows[0], 0) : null}
+                    </div>
+                    {target.kind === "team" ? <div aria-hidden="true" className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_28px] gap-2 text-xs font-medium text-[var(--sa-ink-2)]"><span>Position</span><span>Person</span><span /></div> : null}
                     {draft.rows.map((row, index) => (
                       <div
                         key={row.key}
-                        className="min-w-0 space-y-3 rounded-xl border border-board-border p-3"
+                        className={target.kind === "team" ? "sp-row -mt-2 grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_28px] items-center gap-2" : "min-w-0 space-y-4"}
                       >
-                        <label className="block space-y-1 text-sm">
-                          <span>
-                            {target.kind === "team"
-                              ? `Position ${index + 1}`
-                              : "Position"}
-                          </span>
-                          <input
-                            className={control}
-                            value={row.role}
-                            maxLength={120}
-                            required
-                            onChange={(event) =>
-                              updateRow(row.key, { role: event.target.value })
-                            }
-                          />
-                        </label>
-                        <label className="block space-y-1 text-sm">
-                          <span>
-                            {target.kind === "team"
-                              ? `Roster contact ${index + 1}`
-                              : "Roster contact"}
-                          </span>
+                        {target.kind === "team" ? positionField(row, index) : null}
+                        <label className="block min-w-0">
+                          {target.kind === "team" ? null : <span>Person</span>}
                           <select
+                            aria-label={target.kind === "team" ? `Person ${index + 1}` : "Person"}
                             className={control}
                             value={row.crewMemberId}
                             onChange={(event) => {
@@ -411,7 +401,7 @@ export function AssignmentEditor({
                             }}
                           >
                             <option value="">
-                              Open position — nobody assigned
+                              Open — nobody assigned
                             </option>
                             {crew.map((person) => (
                               <option key={person.id} value={person.id}>
@@ -420,38 +410,55 @@ export function AssignmentEditor({
                               </option>
                             ))}
                           </select>
+                          {target.kind === "team" ? null : <span className={modalHint}>Pick someone from your roster, or leave it open and assign later.</span>}
                         </label>
+                        {target.kind === "team" && draft.rows.length > 1 ? (
+                          <button
+                            type="button"
+                            aria-label={`Remove position ${index + 1}`}
+                            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--sa-ink-3)] hover:bg-[var(--sa-surface-2)] hover:text-board-text"
+                            onClick={() =>
+                              work.setDraft((value) =>
+                                value
+                                  ? { ...value, rows: value.rows.filter((item) => item.key !== row.key) }
+                                  : value,
+                              )
+                            }
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        ) : target.kind === "team" ? <span /> : null}
                         {row.crewMemberId &&
                           !crew.find((person) => person.id === row.crewMemberId)
                             ?.email && (
-                            <p className="text-xs text-amber-300">
+                            <p className="col-span-full text-xs text-amber-300">
                               This contact needs an email address to receive an
                               invitation.
                             </p>
                           )}
                         {target.kind !== "team" && (
                           <>
-                            <label className="block space-y-1 text-sm">
-                              <span>Custom call time (optional)</span>
-                              <input
-                                type="time"
+                            <label className="block">
+                              <span>Call time</span>
+                              <DateTimePicker
+                                kind="time"
                                 className={control}
                                 value={row.callTime}
-                                onChange={(event) =>
+                                onValueChange={(value) =>
                                   updateRow(row.key, {
-                                    callTime: event.target.value,
+                                    callTime: value,
                                   })
                                 }
                               />
                             </label>
-                            <p className="text-xs text-board-muted">
-                              Uses {draft.timeZone}. Leave blank to use the
-                              show's crew call time.
+                            <p className="-mt-2.5 text-xs text-[var(--sa-ink-3)]">
+                              Leave blank to use the show's crew call. Set it only if this position arrives at a different time. Times use {draft.timeZone}.
                             </p>
-                            <label className="block space-y-1 text-sm">
-                              <span>Manager note</span>
+                            <label className="block">
+                              <span>Note for this person (optional)</span>
                               <textarea
                                 rows={3}
+                                placeholder="Bring your own headset; camera 3 is on the balcony."
                                 className={control}
                                 maxLength={500}
                                 value={row.notes}
@@ -464,32 +471,12 @@ export function AssignmentEditor({
                             </label>
                           </>
                         )}
-                        {target.kind === "team" && draft.rows.length > 1 && (
-                          <button
-                            type="button"
-                            className={button}
-                            onClick={() =>
-                              work.setDraft((value) =>
-                                value
-                                  ? {
-                                      ...value,
-                                      rows: value.rows.filter(
-                                        (item) => item.key !== row.key,
-                                      ),
-                                    }
-                                  : value,
-                              )
-                            }
-                          >
-                            Remove position {index + 1}
-                          </button>
-                        )}
                       </div>
                     ))}
                     {target.kind === "team" && draft.rows.length < 50 && (
                       <button
                         type="button"
-                        className={button}
+                        className="-mt-1 inline-flex h-7 items-center gap-1.5 self-start rounded-md px-2.5 text-xs font-medium text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)] hover:text-board-text"
                         onClick={() =>
                           work.setDraft((value) =>
                             value
@@ -498,31 +485,35 @@ export function AssignmentEditor({
                           )
                         }
                       >
-                        Add another person
+                        <Plus className="h-3.5 w-3.5" />
+                        Add row
                       </button>
                     )}
                   </>
-                )}
-                {!work.attempt && (
-                  <button
-                    type="submit"
-                    disabled={locked}
-                    className={`${button} w-full ${target.kind === "delete" ? "border-red-500/40 text-red-300" : "bg-fire-500 font-semibold text-black"}`}
-                  >
-                    {target.kind === "delete"
-                      ? "Remove assignment"
-                      : target.kind === "edit"
-                        ? "Save assignment"
-                        : target.kind === "team"
-                          ? "Add team & send invitations"
-                          : "Add position"}
-                  </button>
                 )}
               </fieldset>
               {error && (
                 <p role="alert" className="text-sm text-red-300">
                   {plainFailure(error)}
                 </p>
+              )}
+              {!work.attempt && (
+                <div className={modalFooter}>
+                  <button type="button" className={modalCancel} onClick={onClose}>Cancel</button>
+                  <button
+                    type="submit"
+                    disabled={locked}
+                    className={target.kind === "delete" ? modalDanger : modalPrimary}
+                  >
+                    {target.kind === "delete"
+                      ? "Remove assignment"
+                      : target.kind === "edit"
+                        ? "Save assignment"
+                        : target.kind === "team"
+                          ? `Add team & invite ${draft.rows.filter(row => row.crewMemberId).length}`
+                          : "Add position"}
+                  </button>
+                </div>
               )}
             </form>
           )}
@@ -606,7 +597,7 @@ export function AssignmentEditor({
             </div>
           )}
         </div>
-      </DialogContent>
+      </ModalAContent>
     </Dialog>
   );
 }

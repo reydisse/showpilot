@@ -66,9 +66,9 @@ await withLocalSmokeFixture(
         };
         const dialogs = [
           ["Manage source", "Scheduling source"],
-          ["Inventory", "Show inventory"],
+          ["Inventory", "Saved shows"],
           ["New service", "New service"],
-          ["Edit Assignment keyboard fixture", "Show details"],
+          ["Edit details", "Show details"],
           ["Build a team", "Build a team"],
           ["Add position", "Add position"],
           ["Edit Camera operator", "Edit assignment"],
