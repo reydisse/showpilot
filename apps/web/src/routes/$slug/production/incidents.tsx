@@ -144,6 +144,7 @@ export function IncidentsWorkspace({ initial, slug, openReport = false }: { init
   const writeLocked = writes.state.kind !== "idle";
   const [showQuery, setShowQuery] = useState("");
   const [showUntitled, setShowUntitled] = useState(false);
+  const [pastLimit, setPastLimit] = useState(6);
   const [showForm, setShowForm] = useState(openReport);
   const [form, setForm] = useState<ReportFields>(() => ({ ...emptyReport, reportedBy: user.name }));
   const [savedNotice, setSavedNotice] = useState("");
@@ -245,7 +246,8 @@ export function IncidentsWorkspace({ initial, slug, openReport = false }: { init
             </SectionCard>
           </div>
 
-          <aside aria-label="Shows" className={`${card} overflow-hidden`}>
+          {/* The rail scrolls on its own beside the log; past shows start capped so the page never runs on. */}
+          <aside aria-label="Shows" className={`${card} flex flex-col overflow-hidden lg:sticky lg:top-6 lg:max-h-[calc(100dvh-7rem)]`}>
             <div className="flex flex-col gap-3 p-4">
               <h2 className="text-[13px] font-semibold text-board-text">Shows</h2>
               <label className="relative block">
@@ -253,11 +255,16 @@ export function IncidentsWorkspace({ initial, slug, openReport = false }: { init
                 <input aria-label="Find a show or date" placeholder="Find a show or date" value={showQuery} onChange={event => setShowQuery(event.target.value)} className="h-9 w-full rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] pl-9 pr-3 text-[13px] max-lg:h-11 max-lg:text-base text-board-text outline-none placeholder:text-[var(--sa-ink-3)] focus:border-fire-500" />
               </label>
             </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {(["Upcoming", "Past"] as const).map(group => {
-              const list = visibleShows.filter(show => group === "Upcoming" ? show.serviceDate >= today : show.serviceDate < today);
-              if (!list.length) return null;
+              const all = visibleShows.filter(show => group === "Upcoming" ? show.serviceDate >= today : show.serviceDate < today)
+                .sort((a, b) => group === "Upcoming" ? a.serviceDate.localeCompare(b.serviceDate) : b.serviceDate.localeCompare(a.serviceDate));
+              if (!all.length) return null;
+              // Past: the most recent first, a handful at a time (the selected show always stays visible).
+              const capped = group === "Past" && !showQuery.trim() && all.length > pastLimit;
+              const list = capped ? all.filter((show, index) => index < pastLimit || show.id === showId) : all;
               return <div key={group} className="px-2 pb-2">
-                <h3 className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--sa-ink-3)]">{group}</h3>
+                <h3 className="flex items-baseline justify-between px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-[0.07em] text-[var(--sa-ink-3)]">{group}<span className="font-normal normal-case tracking-normal tabular-nums">{all.length}</span></h3>
                 {list.map(show => {
                   const active = show.id === showId, count = counts[show.id] ?? 0;
                   const meta = group === "Upcoming" ? (relative(show.serviceDate) ?? longDate(dateOf(show.serviceDate), "UTC")) : count ? `${count} ${count === 1 ? "incident" : "incidents"}` : "No incidents";
@@ -267,8 +274,10 @@ export function IncidentsWorkspace({ initial, slug, openReport = false }: { init
                     <span className="flex min-w-0 flex-col gap-0.5"><span className="truncate text-[13px] font-medium text-board-text">{show.name || "Untitled show"}</span><span className="text-xs text-[var(--sa-ink-3)]">{meta}</span></span>
                   </button>;
                 })}
+                {capped ? <button type="button" onClick={() => setPastLimit(limit => limit + 12)} className="mt-1 flex min-h-9 w-full items-center justify-center rounded-lg text-xs font-medium text-[var(--sa-ink-2)] hover:bg-[var(--sa-surface-2)] hover:text-board-text max-lg:min-h-11">Show {Math.min(12, all.length - pastLimit)} more past {all.length - pastLimit === 1 ? "show" : "shows"}</button> : null}
               </div>;
             })}
+            </div>
             {hiddenUntitled ? <div className="flex items-center justify-between gap-2 border-t border-[var(--sa-border)] px-4 py-3 text-xs text-[var(--sa-ink-3)]">
               <span>{showUntitled ? `${hiddenUntitled} untitled ${hiddenUntitled === 1 ? "show" : "shows"} shown` : `${hiddenUntitled} untitled ${hiddenUntitled === 1 ? "show" : "shows"} hidden`}</span>
               <button type="button" onClick={() => setShowUntitled(value => !value)} className="rounded-md px-2 py-1 font-medium text-board-text hover:bg-[var(--sa-surface-2)]">{showUntitled ? "Hide" : "Show"}</button>
