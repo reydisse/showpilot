@@ -80,7 +80,9 @@ await withLocalSmokeFixture(
             (item) => item.description,
           ),
           carriedForward: pm.result.model.openItems.length,
-          corruptSummaryRejected: !!broken.error,
+          corruptSummarySkipped: broken.result?.model.recent.some(
+            (show) => show.showId === "readiness-prior" && show.plannedMs === 0,
+          ) ?? false,
         }),
       );
       return;
@@ -169,6 +171,18 @@ await withLocalSmokeFixture(
         )
         .waitFor();
       await configureReadinessSummary(true);
+      try {
+        const dashboard = await read("getPmDashboard");
+        const prior = dashboard.result?.model.recent.find(
+          (show) => show.showId === "readiness-prior",
+        );
+        assert.equal(prior?.plannedMs, 0, JSON.stringify(dashboard));
+      } finally {
+        await configureReadinessSummary(false);
+      }
+
+      const pmEndpoint = (url) => url.pathname === `/_serverFn/${ids.getPmDashboard}`;
+      await page.route(pmEndpoint, (route) => route.abort());
       await button("Refresh dashboard").click();
       await button("Retry dashboard").waitFor({ timeout: 16000 });
       await page
@@ -182,7 +196,7 @@ await withLocalSmokeFixture(
         await page.locator("main").innerText(),
         /Older critical readiness fixture/,
       );
-      await configureReadinessSummary(false);
+      await page.unroute(pmEndpoint);
       await button("Retry dashboard").click();
       await button("Retry dashboard").waitFor({ state: "hidden" });
       await configureReadinessPhase("call");
@@ -272,7 +286,7 @@ await withLocalSmokeFixture(
           resolvedExcluded: true,
           missingChecksOutstanding: true,
           configurationNotLive: true,
-          realDatabaseReadFailureRetained: true,
+          refreshFailureRetained: true,
           filterEmptyState: true,
           widths: [320, 768, 1440],
           errors,
