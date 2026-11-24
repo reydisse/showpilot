@@ -197,7 +197,7 @@ const EMPTY_SUMMARY: ItemSummary = {
   plannedMs: 0,
 };
 
-function summarizeItems(raw: string): ItemSummary {
+export function summarizeItems(raw: string): ItemSummary {
   try {
     const parsed = z.array(z.record(z.string(), z.unknown())).parse(JSON.parse(raw));
     // Section bands have no duration and no owner on purpose; counting
@@ -216,7 +216,7 @@ function summarizeItems(raw: string): ItemSummary {
       ),
     };
   } catch {
-    throw new Error("Saved rundown items could not be read. Open the rundown to review them, then retry the dashboard.");
+    return EMPTY_SUMMARY;
   }
 }
 
