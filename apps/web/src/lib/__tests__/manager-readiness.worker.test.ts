@@ -206,6 +206,26 @@ it("treats malformed legacy summaries as empty while preserving supported legacy
     ),
   ).toMatchObject({ plannedMs: 60000 });
 });
+it("carries forward open incidents for an org with more past shows than D1 bind parameters", async () => {
+  const f = await fixture(),
+    oldest = crypto.randomUUID(),
+    incidentId = crypto.randomUUID();
+  // D1 rejects a query with more than 100 bound parameters; binding one
+  // per previous show failed the whole dashboard for long-running orgs.
+  const showIds = [oldest, ...Array.from({ length: 119 }, () => crypto.randomUUID())];
+  await env.DB.batch([
+    ...showIds.map((id, index) =>
+      env.DB.prepare(
+        "INSERT INTO rundown(id,orgId,serviceDate,name,status) VALUES(?,?,?,?,'stopped')",
+      ).bind(id, f.orgId, `2001-01-${String((index % 28) + 1).padStart(2, "0")}`, `Past ${index}`),
+    ),
+    env.DB.prepare(
+      "INSERT INTO incident(id,orgId,showId,serviceDate,category,severity,description,reportedBy) VALUES(?,?,?,'2001-01-01','audio','critical','Long-history open incident','Reporter')",
+    ).bind(incidentId, f.orgId, oldest),
+  ]);
+  const result = await withDatabaseTask(env.DB, f.pm);
+  expect(result.model.openItems.map((item) => item.id)).toContain(incidentId);
+});
 it("propagates carried-forward incident read failures instead of saying none remain", async () => {
   const f = await fixture(),
     prepare = env.DB.prepare.bind(env.DB);
