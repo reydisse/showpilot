@@ -391,10 +391,6 @@
     "count": 1,
     "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
   },
-  "src/lib/pm-dashboard.ts:previous": {
-    "count": 1,
-    "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."
-  },
   "src/lib/propresenter-output.server.ts:guard": {
     "count": 2,
     "reason": "Fixed SQL fragments composed from code constants; runtime values are bound separately."

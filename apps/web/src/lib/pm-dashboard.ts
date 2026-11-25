@@ -168,17 +168,22 @@ interface OpenIncidentRow {
   description: string;
 }
 
-/** Incidents left open on any service before the one on screen. */
+/**
+ * Incidents left open on any service before the one on screen.
+ *
+ * Previous show IDs travel as one JSON-array parameter. D1 caps a query
+ * at 100 bound parameters, so one placeholder per show broke the
+ * dashboard for any org with ~100 past shows.
+ */
 async function loadOpenItems(
   orgId: string,
   serviceDate: string,
   previousShowIds: string[],
 ): Promise<OpenIncidentRow[]> {
-  const previous = previousShowIds.length ? `showId IN (${previousShowIds.map(() => "?").join(",")}) OR ` : "";
   const { results } = await getD1().prepare(`SELECT id,serviceDate,category,severity,description FROM incident
-    WHERE orgId=? AND (${previous}(showId IS NULL AND serviceDate<?)) AND status='open'
+    WHERE orgId=? AND (showId IN (SELECT value FROM json_each(?)) OR (showId IS NULL AND serviceDate<?)) AND status='open'
     ORDER BY CASE lower(severity) WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC, timestamp DESC LIMIT ?`)
-    .bind(orgId, ...previousShowIds, serviceDate, OPEN_ITEM_LIMIT + 1).all<OpenIncidentRow>();
+    .bind(orgId, JSON.stringify(previousShowIds), serviceDate, OPEN_ITEM_LIMIT + 1).all<OpenIncidentRow>();
   return results;
 }
 
