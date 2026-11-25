@@ -173,17 +173,19 @@ it("does not hide a critical backlog behind recent low-severity incidents", asyn
     detail: "More incidents need review in the log",
   });
 });
-it("treats malformed legacy summaries as unavailable, while preserving supported legacy values", async () => {
+it("treats malformed legacy summaries as empty while preserving supported legacy values", async () => {
   const f = await fixture(),
-    key = `rundown-items:${f.showId}`;
+    key = `rundown-items:${f.priorShowId}`;
   await env.DB.prepare(
     "INSERT INTO app_setting(id,orgId,key,value) VALUES(?,?,?,'broken')",
   )
     .bind(crypto.randomUUID(), f.orgId, key)
     .run();
-  await expect(withDatabaseTask(env.DB, f.pm)).rejects.toThrow(
-    "Saved rundown items could not be read",
-  );
+  expect(
+    (await withDatabaseTask(env.DB, f.pm)).model.recent.find(
+      (show) => show.showId === f.priorShowId,
+    ),
+  ).toMatchObject({ plannedMs: 0 });
   await env.DB.prepare("UPDATE app_setting SET value=? WHERE orgId=? AND key=?")
     .bind(
       JSON.stringify([
@@ -199,8 +201,10 @@ it("treats malformed legacy summaries as unavailable, while preserving supported
     )
     .run();
   expect(
-    (await withDatabaseTask(env.DB, f.pm)).model.rundownHealth,
-  ).toMatchObject({ itemCount: 1, plannedMs: 60000 });
+    (await withDatabaseTask(env.DB, f.pm)).model.recent.find(
+      (show) => show.showId === f.priorShowId,
+    ),
+  ).toMatchObject({ plannedMs: 60000 });
 });
 it("propagates carried-forward incident read failures instead of saying none remain", async () => {
   const f = await fixture(),
