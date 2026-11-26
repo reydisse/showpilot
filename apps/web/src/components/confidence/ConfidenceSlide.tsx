@@ -18,6 +18,11 @@ import { splitScriptureText } from "@/lib/scripture-text";
 
 const ConfidenceContext = createContext(DEFAULT_CONFIDENCE_LAYOUT);
 
+/** The org's Confidence layout, for screens rendered inside a ConfidenceScreen. */
+export function useConfidenceLayout(): ConfidenceLayout {
+  return useContext(ConfidenceContext);
+}
+
 export function ConfidenceScreen({
   layout,
   clean = false,
