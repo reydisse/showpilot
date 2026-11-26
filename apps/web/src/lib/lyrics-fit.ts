@@ -22,3 +22,12 @@ export function chooseLyricFit(unwrappedSize: number, wrappedSize: number): { wr
     ? { wrap: false, size: unwrappedSize }
     : { wrap: true, size: wrappedSize };
 }
+
+/**
+ * The Confidence "text size" setting. Above 100% it raises the size cap so text may
+ * grow where there is room; below 100% it shrinks the fitted size, so the operator
+ * always sees the change even when the slide is already limited by space.
+ */
+export function applyLyricSizeSetting(fit: (cap: number) => number, cap: number, setting: number): number {
+  return fit(cap * Math.max(setting, 1)) * Math.min(setting, 1);
+}

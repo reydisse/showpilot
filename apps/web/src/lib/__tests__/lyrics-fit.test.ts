@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chooseLyricFit, KEEP_LINES_MIN_RATIO, largestFittingSize } from "@/lib/lyrics-fit";
+import { applyLyricSizeSetting, chooseLyricFit, KEEP_LINES_MIN_RATIO, largestFittingSize } from "@/lib/lyrics-fit";
 
 describe("largestFittingSize", () => {
   it("finds the boundary within a quarter pixel", () => {
@@ -28,5 +28,23 @@ describe("chooseLyricFit", () => {
   it("switches exactly at the configured ratio", () => {
     expect(chooseLyricFit(100 * KEEP_LINES_MIN_RATIO, 100).wrap).toBe(false);
     expect(chooseLyricFit(100 * KEEP_LINES_MIN_RATIO - 0.01, 100).wrap).toBe(true);
+  });
+});
+
+describe("applyLyricSizeSetting", () => {
+  // A slide limited by space: fits at 92px whatever the cap.
+  const spaceLimited = (cap: number) => Math.min(cap, 92);
+
+  it("leaves the default size unchanged", () => {
+    expect(applyLyricSizeSetting(spaceLimited, 144, 1)).toBe(92);
+  });
+
+  it("shrinks visibly below 100% even when space is the limit", () => {
+    expect(applyLyricSizeSetting(spaceLimited, 144, 0.75)).toBe(69);
+  });
+
+  it("raises the cap above 100% so short slides can grow", () => {
+    const short = (cap: number) => Math.min(cap, 400);
+    expect(applyLyricSizeSetting(short, 144, 1.5)).toBe(216);
   });
 });
