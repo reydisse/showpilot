@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { withLocalSmokeFixture } from "./local-smoke-fixture.mjs";
 import { poll } from "./real-browser-fixture.mjs";
 
-await withLocalSmokeFixture(async ({ origin, orgId, browser, pass, operatorEmail, operatorPassword, operatorCookie }) => {
+await withLocalSmokeFixture(async ({ origin, orgId, date, browser, pass, operatorEmail, operatorPassword, operatorCookie }) => {
   const click = name => browser("find", "role", "button", "click", "--name", name, "--exact");
   await browser("open", `${origin}/login`);
   await browser("fill", "#email", operatorEmail);
@@ -28,8 +28,23 @@ await withLocalSmokeFixture(async ({ origin, orgId, browser, pass, operatorEmail
     assert.equal(response.status, 200); return response.json();
   };
   await poll(async () => (await state()).lyrics?.lyrics === "Verse line one\nVerse line two", "initial live verse");
+  // The stage still needs the running countdown and producer messages while a song is up.
+  const rundown = async (action, payload) => {
+    const response = await fetch(`${origin}/api/rundown/${orgId}/command?showId=smoke-show&serviceDate=${date}`, {
+      method: "POST", headers: { Cookie: operatorCookie, Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ action, payload }),
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+  };
+  await rundown("seed", { items: [{ id: "song", title: "Worship", type: "segment", duration: 600000, notes: "", assignee: "", cue: "", status: "upcoming", sortOrder: 0, hardStop: false }] });
+  await rundown("timer-start", { itemId: "song" });
+  await rundown("stage-message", { message: "Wrap up" });
   await browser("tab", "new", `${origin}/timer/${orgId}?displayPass=${pass("timer")}&view=stage`);
   await browser("wait", "text=Verse line one");
+  await browser("wait", "--fn", `document.querySelector('[role=status] [data-stage-message-text]')?.textContent === 'Wrap up'`);
+  const countdown = (await browser("eval", `document.querySelector('[data-lyrics-countdown]')?.textContent ?? ''`)).result;
+  assert.match(countdown, /^Worship\d{1,2}:\d{2}/, "Lyrics must keep the running countdown visible");
+  await rundown("stage-clear", {});
+  await browser("wait", "--fn", `document.querySelector('[data-stage-message-text]') === null`);
   await browser("eval", `(() => {
     const lyric = [...document.querySelectorAll('p')].find(node => node.textContent === 'Verse line one\\nVerse line two');
     if (!lyric) throw new Error('Live lyric node missing');

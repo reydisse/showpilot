@@ -8,6 +8,7 @@ import { closeConfidenceOutputWindow, confidenceOutputReady } from "@/lib/confid
 import { isDesktopRuntime } from "@/lib/desktop-runtime";
 import { ConfidenceSlide, ConfidenceScreen } from "@/components/confidence/ConfidenceSlide";
 import { DEFAULT_CONFIDENCE_LAYOUT } from "@/lib/confidence-layout";
+import { chooseLyricFit, largestFittingSize } from "@/lib/lyrics-fit";
 import { createFileRoute } from "@tanstack/react-router";
 import { DisplayAccessGate } from "@/components/display/DisplayAccessGate";
 import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "react";
@@ -664,7 +665,12 @@ function TimerKioskPage() {
   // ── Render by view mode ──
 
   if (lyrics) {
-    return frame(<div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1"><LyricsKiosk lyrics={lyrics} timecode={lyricsTimecode} connected={timecodeConnected} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} /></div>
+    // Lyrics take the screen, but the stage still needs the running countdown and
+    // any producer message ("Wrap up") while a song is up.
+    const lyricStatus: LyricStatus | null = timer && timer.playback !== "stop" && (currentItem || timer.mode === "clock")
+      ? { label: currentItem ? `${currentItem.title}${timer.playback === "pause" ? " · Paused" : ""}` : "Clock", time: displayTime, phase, color: phaseColors.timer }
+      : null;
+    return frame(<div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1"><LyricsKiosk lyrics={lyrics} timecode={lyricsTimecode} connected={timecodeConnected} status={lyricStatus} stageMessage={stageMessage} isFullscreen={isFullscreen} toggleFullscreen={toggleFullscreen} /></div>
       {!cleanOutput && relayShowId && <ConfidenceLyricsControls key={`${orgSlug}:${relayShowId}`} orgSlug={orgSlug} showId={relayShowId} lyrics={lyrics} connected={timecodeConnected} />}
     </div>);
   }
@@ -715,7 +721,9 @@ function TimerKioskPage() {
   );
 }
 
-function LyricsKiosk({ lyrics, timecode, connected, isFullscreen, toggleFullscreen }: { lyrics: LyricsDisplayState; timecode: TimecodePresentationSample | null; connected: boolean; isFullscreen: boolean; toggleFullscreen: () => void }) {
+type LyricStatus = { label: string; time: string; phase: TimerPhase; color: string };
+
+function LyricsKiosk({ lyrics, timecode, connected, status, stageMessage, isFullscreen, toggleFullscreen }: { lyrics: LyricsDisplayState; timecode: TimecodePresentationSample | null; connected: boolean; status: LyricStatus | null; stageMessage: string; isFullscreen: boolean; toggleFullscreen: () => void }) {
   const lyricAreaRef = useRef<HTMLDivElement>(null);
   const lyricTextRef = useRef<HTMLParagraphElement>(null);
   useLayoutEffect(() => {
@@ -726,15 +734,17 @@ function LyricsKiosk({ lyrics, timecode, connected, isFullscreen, toggleFullscre
     // editing can both produce more than four lines; never discard their text.
     const fit = () => {
       if (!area.clientWidth || !area.clientHeight) return;
-      let low = 1;
-      let high = Math.min(window.innerWidth * 0.08, 144);
-      while (high - low > 0.25) {
-        const size = (low + high) / 2;
-        text.style.fontSize = `${size}px`;
-        if (text.scrollHeight <= area.clientHeight && text.scrollWidth <= area.clientWidth) low = size;
-        else high = size;
-      }
-      text.style.fontSize = `${low}px`;
+      const max = Math.min(window.innerWidth * 0.08, 144);
+      const largest = (wrap: boolean) => {
+        text.style.whiteSpace = wrap ? "pre-line" : "pre";
+        return largestFittingSize((size) => {
+          text.style.fontSize = `${size}px`;
+          return text.scrollHeight <= area.clientHeight && text.scrollWidth <= area.clientWidth;
+        }, max);
+      };
+      const choice = chooseLyricFit(largest(false), largest(true));
+      text.style.whiteSpace = choice.wrap ? "pre-line" : "pre";
+      text.style.fontSize = `${choice.size}px`;
     };
     fit();
     const observer = new ResizeObserver(fit);
@@ -745,9 +755,21 @@ function LyricsKiosk({ lyrics, timecode, connected, isFullscreen, toggleFullscre
   }, [lyrics.lyrics]);
   return <main className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-black px-[5vw] py-[4vh] text-white">
     <style>{TIMER_CSS}</style>
-    <header className="flex items-start justify-between gap-4"><div><p className="text-[clamp(.7rem,1.4vw,1.25rem)] font-bold uppercase tracking-[.18em] text-amber-400">{lyrics.sectionLabel}</p><h1 className="mt-1 text-[clamp(1rem,2vw,2rem)] font-semibold text-white/70">{lyrics.songTitle}</h1></div><button type="button" aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} onClick={toggleFullscreen} className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/50">{isFullscreen ? "Exit" : "Fullscreen"}</button></header>
+    <header className="flex items-start justify-between gap-4">
+      <div className="min-w-0"><p className="text-[clamp(.7rem,1.4vw,1.25rem)] font-bold uppercase tracking-[.18em] text-amber-400">{lyrics.sectionLabel}</p><h1 className="mt-1 text-[clamp(1rem,2vw,2rem)] font-semibold text-white/70">{lyrics.songTitle}</h1></div>
+      <div className="flex shrink-0 items-start gap-4">
+        {status && <div data-lyrics-countdown className="max-w-[40vw] text-right">
+          <p className="truncate text-[clamp(.65rem,1.1vw,1rem)] font-semibold uppercase tracking-[.14em] text-white/55">{status.label}</p>
+          <p className={`phase-${status.phase} font-bold leading-none tracking-[-.02em] text-[clamp(1.75rem,4.5vw,4.5rem)]`} style={{ color: status.color, fontVariantNumeric: "tabular-nums" }}>{status.time}</p>
+        </div>}
+        <button type="button" aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} onClick={toggleFullscreen} className="rounded-xl border border-white/10 px-3 py-2 text-xs text-white/50">{isFullscreen ? "Exit" : "Fullscreen"}</button>
+      </div>
+    </header>
+    {stageMessage && <div role="status" className="message-bar mt-[2vh] rounded-xl border-2 px-[3vw] py-[1.5vh] text-center" style={{ borderColor: "rgba(255, 193, 7, 0.5)", background: "rgba(255, 193, 7, 0.15)" }}>
+      <p data-stage-message-text className="whitespace-pre-line text-balance font-bold leading-tight text-[clamp(1.25rem,4vw,4rem)]" style={{ color: COLORS.accent, overflowWrap: "anywhere" }}>{stageMessage}</p>
+    </div>}
     <div ref={lyricAreaRef} className="flex min-h-0 flex-1 items-center justify-center text-center"><p ref={lyricTextRef} className="w-full whitespace-pre-line text-balance font-bold leading-[1.08] tracking-[-.025em]" style={{ overflowWrap: "anywhere" }}>{lyrics.lyrics}</p></div>
-    <footer className="flex items-end justify-between gap-4 text-[clamp(.7rem,1.2vw,1.1rem)] text-white/40"><span>{lyrics.nextLabel ? `NEXT · ${lyrics.nextLabel}` : "END OF SONG"}</span>{timecode ? <span className="font-mono"><TimecodeText state={timecode} connected={connected} /></span> : null}</footer>
+    <footer className="flex items-end justify-between gap-4"><span data-lyrics-next className="text-[clamp(.85rem,1.7vw,1.6rem)] font-semibold text-white/65">{lyrics.nextLabel ? `NEXT · ${lyrics.nextLabel}` : "END OF SONG"}</span>{timecode ? <span className="font-mono text-[clamp(.7rem,1.2vw,1.1rem)] text-white/40"><TimecodeText state={timecode} connected={connected} /></span> : null}</footer>
   </main>;
 }
 
