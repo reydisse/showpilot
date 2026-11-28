@@ -138,6 +138,19 @@ it("returns confirmed slides and explicit clears, while offline results contain 
   expect(await getProPresenterFeed({ data: { orgId } })).toMatchObject({ status: "error", event: null, bridgeOnline: false });
 });
 
+it("keeps the Bridge online when only the ProPresenter connection fails", async () => {
+  const { orgId } = await fixture();
+  const bridge = await openTestBridge(orgId);
+  await approveTestBridgeTarget(orgId, "propresenter", target, { apiPort: 1025 });
+  const wire = next(bridge.socket, "connect-device");
+  const reading = getProPresenterFeed({ data: { orgId } });
+  await wire;
+  bridge.socket.send(JSON.stringify({ type: "device-status", target, connected: false }));
+  const feed = await reading;
+  expect(feed).toMatchObject({ status: "error", bridgeOnline: true, event: null, error: "Venue Bridge could not connect to the device" });
+  expect(feed.error).not.toMatch(/offline/i);
+});
+
 it("gives rundown operators a hibernation-safe slide-only socket without device-control authority", async () => {
   const { orgId } = await fixture();
   const bridge = await openTestBridge(orgId);
