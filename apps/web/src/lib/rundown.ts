@@ -369,22 +369,24 @@ async function connectConfiguredProPresenterBridge(
 ) {
   const bindings = env as unknown as RundownRelayEnv;
   if (!bindings.BRIDGE_RELAY) {
-    return { ok: false as const, error: "Venue Bridge is unavailable" };
+    return { ok: false as const, bridgeOnline: false, error: "Venue Bridge is unavailable" };
   }
 
   const relayId = bindings.BRIDGE_RELAY.idFromName(orgId);
   const relay = bindings.BRIDGE_RELAY.get(relayId);
   const status = await relay.getBridgeStatus();
   if (!status.bridgeOnline) {
-    return { ok: false as const, error: "Venue Bridge is offline" };
+    return { ok: false as const, bridgeOnline: false, error: "Venue Bridge is offline" };
   }
 
   const bridgeTarget = `propresenter:${target.host}:${target.stagePort}`;
   if (applySavedSettings || !status.connectedTargets.includes(bridgeTarget)) {
     const connection = await relay.dispatchBridgeMessage(proPresenterConnection(target), { source: "operator", actorUserId });
     if (!connection.success) {
+      // The Bridge answered; only the ProPresenter connection failed.
       return {
         ok: false as const,
+        bridgeOnline: true,
         error: connection.error ?? "ProPresenter connection failed",
       };
     }
@@ -818,7 +820,7 @@ export const getProPresenterFeed = createServerFn({ method: "GET" })
       const relay = bindings.BRIDGE_RELAY.get(bindings.BRIDGE_RELAY.idFromName(data.orgId));
       if (target) {
         const connection = await connectConfiguredProPresenterBridge(data.orgId, target, user.id);
-        if (!connection.ok) return { status: "error", target: proPresenterConnection(target).target, bridgeOnline: false, event: null, error: connection.error };
+        if (!connection.ok) return { status: "error", target: proPresenterConnection(target).target, bridgeOnline: connection.bridgeOnline, event: null, error: connection.error };
       }
       const status = await relay.getBridgeStatus();
       const localTargets = status.connectedTargets.filter(address => address.startsWith("propresenter:"));
@@ -869,7 +871,7 @@ export const testProPresenterConnection = createServerFn({ method: "POST" })
         user.id,
         true,
       );
-      return connection.ok ? { ok: true } : connection;
+      return connection.ok ? { ok: true } : { ok: false, error: connection.error };
     } catch {
       return {
         ok: false,
