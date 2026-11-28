@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { runBridgeUpdate } from "./updates";
 import { enable } from "@tauri-apps/plugin-autostart";
-import { Activity, CheckCircle2, Eye, EyeOff, RefreshCw, Server, ShieldCheck, Square, XCircle } from "lucide-react";
+import { Activity, CheckCircle2, Eye, EyeOff, PauseCircle, RefreshCw, Server, ShieldCheck, Square, XCircle } from "lucide-react";
 import { getBridgeConfig, getBridgeStatus, startBridge, stopBridge, type BridgeConfig, type BridgeStatus } from "./desktop";
 import { TimecodeInputs } from "./TimecodeInputs";
 
@@ -99,6 +99,10 @@ export function App() {
       title: "Connected to ShowPilot",
       detail: `Process ${status.pid ?? "—"} · cloud connection active`,
     },
+    standby: {
+      title: "Connected on standby",
+      detail: "Another Bridge controls venue devices. To use this computer, choose Take control in ShowPilot Settings → Bridge installations.",
+    },
     disconnected: {
       title: "Disconnected from ShowPilot",
       detail: "The Bridge process is running but the cloud connection closed. See the output below.",
@@ -123,8 +127,8 @@ export function App() {
         <button className="refresh" onClick={() => void refresh()} aria-label="Refresh bridge status"><RefreshCw /></button>
       </header>
 
-      <section className={`status ${isConnected ? "online" : connection === "connecting" ? "connecting" : "offline"}`}>
-        {isConnected ? <CheckCircle2 /> : connection === "connecting" ? <RefreshCw className="spin" /> : <XCircle />}
+      <section className={`status ${isConnected ? "online" : connection === "connecting" || connection === "standby" ? "connecting" : "offline"}`}>
+        {isConnected ? <CheckCircle2 /> : connection === "connecting" ? <RefreshCw className="spin" /> : connection === "standby" ? <PauseCircle /> : <XCircle />}
         <div><strong>{connectionStatus.title}</strong><small>{connectionStatus.detail}</small></div>
       </section>
 

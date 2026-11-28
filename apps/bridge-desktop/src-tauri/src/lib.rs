@@ -147,6 +147,8 @@ enum BridgeConnection {
     Offline,
     Connecting,
     Connected,
+    /// Connected to ShowPilot, but another installation controls venue devices.
+    Standby,
     Disconnected,
     Unauthorized,
     Error,
@@ -161,7 +163,11 @@ fn connection_from_log(current: BridgeConnection, line: &str) -> BridgeConnectio
     if !normalized.starts_with("[bridge]") {
         return current;
     }
-    if normalized.contains("connecting to") {
+    if normalized.starts_with("[bridge] standby.") {
+        BridgeConnection::Standby
+    } else if normalized.starts_with("[bridge] active.") {
+        BridgeConnection::Connected
+    } else if normalized.contains("connecting to") {
         BridgeConnection::Connecting
     } else if normalized.contains("connected to showpilot") {
         BridgeConnection::Connected
@@ -1255,6 +1261,29 @@ mod tests {
         let state = connection_from_log(state, "[bridge] Connected to ShowPilot");
         assert_eq!(state, BridgeConnection::Connected);
         let state = connection_from_log(state, "[bridge] Disconnected (code 1006)");
+        assert_eq!(state, BridgeConnection::Disconnected);
+    }
+
+    #[test]
+    fn reports_standby_until_this_installation_becomes_active() {
+        let state = connection_from_log(
+            BridgeConnection::Connecting,
+            "[bridge] Connected to ShowPilot",
+        );
+        let state = connection_from_log(
+            state,
+            "[bridge] STANDBY. Existing Bridge controls venue devices. Use ShowPilot settings to take control.",
+        );
+        assert_eq!(state, BridgeConnection::Standby);
+        let state = connection_from_log(
+            state,
+            "[bridge] ACTIVE. This installation controls venue devices.",
+        );
+        assert_eq!(state, BridgeConnection::Connected);
+        let state = connection_from_log(
+            BridgeConnection::Standby,
+            "[bridge] Disconnected (code 1006)",
+        );
         assert_eq!(state, BridgeConnection::Disconnected);
     }
 

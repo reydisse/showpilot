@@ -41,7 +41,7 @@ export type MtcStatus = { connected: boolean; inputName: string | null; timecode
 export type BridgeStatus = {
   configured: boolean;
   running: boolean;
-  connection: "offline" | "connecting" | "connected" | "disconnected" | "unauthorized" | "error";
+  connection: "offline" | "connecting" | "connected" | "standby" | "disconnected" | "unauthorized" | "error";
   pid: number | null;
   logs: string[];
 };
