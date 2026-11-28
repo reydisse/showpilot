@@ -1,6 +1,6 @@
 import { workspaceCopy, type WorkspaceTerms } from "@showpilot/shared";
 /**
- * Tech manager widgets.
+ * Tech manager widgets — A (Doop canvas aneicgaHqk, "Tech Manager").
  *
  * Same registry and shell as the PM dashboard; the difference is what
  * earns a place. Faults are the main column rather than a card, because
@@ -11,14 +11,35 @@ import { workspaceCopy, type WorkspaceTerms } from "@showpilot/shared";
 
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowLeft, ArrowRight, Check, CircleDot, Cpu, ExternalLink, Radio, UserMinus, Wrench } from "lucide-react";
 import {
-  HealthChip,
-  WidgetCard,
-  WidgetEmpty,
-  type WidgetDefinition,
-} from "@/components/dashboard/widget";
+  ArrowRight,
+  Box,
+  ChevronLeft,
+  ChevronRight,
+  CircleCheck,
+  CircleX,
+  Cpu,
+  ExternalLink,
+  ListChecks,
+  MoreHorizontal,
+  Radio,
+  TriangleAlert,
+  Users,
+} from "lucide-react";
+import type { WidgetDefinition } from "@/components/dashboard/widget";
 import type { Fault, TmDashboardModel } from "@/lib/tm-dashboard-derive";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Callout, StatusWord, TmPanel, initials, tmIconButton, tmLink, tmSecondary } from "./tm-a";
 
 export interface TmWidgetModel {
   terms: WorkspaceTerms;
@@ -52,52 +73,54 @@ const signalPathWidget: TmWidget = {
   isRelevant: ({ model }) => model.signalPath.status !== null,
   render: ({ model }) => {
     const path = model.signalPath;
+    const word = path.status === "fail"
+      ? <StatusWord tone="danger" icon={CircleX}>Failing</StatusWord>
+      : path.status === "warn"
+        ? <StatusWord tone="warn" icon={TriangleAlert}>Needs review</StatusWord>
+        : <StatusWord tone="ok" icon={CircleCheck}>Configured</StatusWord>;
     return (
-      <section
-        className={`rounded-xl border bg-board-card overflow-hidden ${
-          path.status === "fail"
-            ? "border-red-500/40"
-            : path.status === "warn"
-              ? "border-yellow-400/40"
-              : "border-board-border"
-        }`}
-      >
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-board-border">
-          <span className={`w-8 h-8 rounded-lg flex items-center justify-center ${path.status === "fail" ? "bg-red-500/15 text-red-400" : path.status === "warn" ? "bg-yellow-400/15 text-yellow-400" : "bg-green-500/15 text-green-400"}`}><Radio className="w-4 h-4" /></span>
-          <div><h2 className="text-xs font-semibold text-board-text">Stream setup</h2><p className="text-xs text-board-muted mt-0.5">{path.detail || "Saved inputs and destination selections"}</p></div>
-          <HealthChip className="ml-auto" status={path.status ?? "ok"} label={path.status === "ok" ? "configured" : path.status === "warn" ? "review setup" : "setup needed"} />
+      <section aria-label="Stream setup" className="flex flex-col gap-4 rounded-xl border border-[var(--sa-border)] bg-[var(--sa-surface)] p-4 lg:flex-row lg:items-center">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--sa-border)] bg-[var(--sa-surface-2)] text-[var(--sa-ink-3)]"><Radio className="h-4 w-4" strokeWidth={1.75} /></span>
+          <div className="min-w-0">
+            <h2 className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[13px] font-semibold text-board-text">Stream setup {word}</h2>
+            <p className="mt-0.5 text-xs leading-[1.5] text-[var(--sa-ink-2)]">{path.detail || "Saved inputs and destination selections"}</p>
+          </div>
         </div>
-        <div className="flex items-stretch gap-2 p-3 overflow-x-auto">
-          {path.inputs.map((input, index) => (
-            <SignalNode key={input.id} ok={input.ok} eyebrow={index === 0 ? "Input" : "Source"} label={input.name} detail={input.label} />
-          ))}
-          {path.inputs.length > 0 && path.destinations.length > 0 ? (
-            <ArrowRight className="w-4 h-4 text-board-muted self-center shrink-0" />
-          ) : null}
-          {path.destinations.map((destination) => (
-            <SignalNode key={destination.id} ok={destination.ok} eyebrow="Destination" label={destination.name} detail={destination.label} />
-          ))}
-        </div>
+        {path.inputs.length || path.destinations.length ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {path.inputs.map((input, index) => (
+              <SignalNode key={input.id} ok={input.ok} eyebrow={index === 0 ? "Input" : "Source"} label={input.name} detail={input.label} />
+            ))}
+            {path.inputs.length > 0 && path.destinations.length > 0 ? <ArrowRight aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[var(--sa-ink-3)]" /> : null}
+            {path.destinations.map((destination) => (
+              <SignalNode key={destination.id} ok={destination.ok} eyebrow="Destination" label={destination.name} detail={destination.label} />
+            ))}
+          </div>
+        ) : null}
       </section>
     );
   },
 };
 
-function SignalNode({ ok, eyebrow, label, detail }: {
-  ok: boolean;
-  eyebrow: string;
-  label: string;
-  detail: string;
-}) {
+function SignalNode({ ok, eyebrow, label, detail }: { ok: boolean; eyebrow: string; label: string; detail: string }) {
+  const Icon = ok ? CircleCheck : CircleX;
   return (
-    <div className={`min-w-40 flex-1 rounded-lg border px-3 py-2.5 ${ok ? "border-board-border bg-board-bg/50" : "border-red-500/35 bg-red-500/5"}`}>
-      <div className="flex items-center gap-2"><CircleDot className={`w-3.5 h-3.5 ${ok ? "text-green-400" : "text-red-400"}`} /><span className="text-xs uppercase tracking-[0.12em] text-board-muted">{eyebrow}</span></div>
-      <p className="text-xs font-medium text-board-text mt-2 truncate">{label}</p><p className={`text-xs mt-0.5 ${ok ? "text-board-muted" : "text-red-400"}`}>{detail}</p>
+    <div className={`min-w-0 flex-1 rounded-lg border px-3 py-2 sm:w-[180px] sm:flex-none ${ok ? "border-[var(--sa-border-strong)] bg-board-bg/40" : "border-[var(--sa-danger)]/40 bg-[var(--sa-danger)]/[0.05]"}`}>
+      <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--sa-ink-3)]"><Icon aria-hidden="true" className={`h-3 w-3 ${ok ? "text-[var(--sa-ok)]" : "text-[var(--sa-danger)]"}`} />{eyebrow}</p>
+      <p className="mt-0.5 truncate text-[13px] font-semibold text-board-text">{label}</p>
+      <p className={`truncate text-xs ${ok ? "text-[var(--sa-ink-2)]" : "text-[var(--sa-danger)]"}`}>{detail}</p>
     </div>
   );
 }
 
 // ─── Faults ──────────────────────────────────────────────────
+
+const SEVERITY_TAG: Record<Fault["severity"], { label: string; className: string }> = {
+  critical: { label: "Critical", className: "border-[var(--sa-danger)]/40 bg-[var(--sa-danger)]/10 text-[var(--sa-danger)]" },
+  warning: { label: "Warning", className: "border-[var(--sa-warn)]/35 bg-[var(--sa-warn)]/10 text-[var(--sa-warn)]" },
+  info: { label: "Info", className: "border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] text-[var(--sa-ink-2)]" },
+};
 
 const faultQueueWidget: TmWidget = {
   id: "faults",
@@ -107,47 +130,33 @@ const faultQueueWidget: TmWidget = {
   render: (widget) => {
     const { model } = widget;
     const listLimit = model.incidentsTruncated ? (
-      <p className="text-xs text-board-muted mb-2">
+      <p className="mb-2 text-xs text-[var(--sa-ink-2)]">
         Showing the 25 highest-priority incidents. Filters and ownership counts apply to those shown.{" "}
-        <Link to={`/${widget.slug}/production/incidents` as never} className="min-h-11 inline-flex items-center underline">
-          Review the full incident log
-        </Link>
+        <Link to={`/${widget.slug}/production/incidents` as never} className={tmLink}>Review the full incident log</Link>
       </p>
     ) : null;
     if (model.faults.length === 0) {
       return (
-        <WidgetCard title="Incidents">
-          {listLimit}
-          <WidgetEmpty>
-            {workspaceCopy(
-              model.openCount > 0 ? "No incidents match this view. Change the filter or search." : "Nothing open. Anything logged during the service lands here.",
-              widget.terms,
-            )}
-          </WidgetEmpty>
-        </WidgetCard>
+        <div className="flex items-center gap-2.5 rounded-xl border border-dashed border-[var(--sa-border-strong)] px-4 py-3.5">
+          <TriangleAlert aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--sa-ink-3)]" strokeWidth={1.75} />
+          <p className="text-[13px] text-[var(--sa-ink-2)]">
+            <span className="font-semibold text-board-text">Incidents.</span>{" "}
+            {workspaceCopy(model.openCount > 0 ? "No incidents match this view. Change the filter or search." : "Nothing open. Anything logged during the service lands here.", widget.terms)}
+          </p>
+        </div>
       );
     }
     return (
-      <div>
-        <div className="flex items-baseline gap-2 mb-2 px-1">
-          <h2 className="text-xs font-semibold text-board-text">Incidents</h2>
-          <span className="text-xs text-board-muted">
-            {model.openCount}{model.incidentsTruncated ? "+" : ""} open
-            {model.unownedCount > 0 && (
-              <span className="text-red-400"> · {model.unownedCount} unowned</span>
-            )}
-            {model.mineCount > 0 && <span> · {model.mineCount} mine</span>}
-          </span>
-        </div>
+      <TmPanel icon={TriangleAlert} title="Incidents" label="Incidents" subtitle={<>
+        <span className="tabular-nums">{model.openCount}{model.incidentsTruncated ? "+" : ""}</span> open
+        {model.unownedCount > 0 ? <span className="text-[var(--sa-danger)]"> · <span className="tabular-nums">{model.unownedCount}</span> unowned</span> : null}
+        {model.mineCount > 0 ? <> · <span className="tabular-nums">{model.mineCount}</span> mine</> : null}
+      </>}>
         {listLimit}
-        <ul className="space-y-2">
-          {model.faults.map((fault) => (
-            <li key={fault.id}>
-              <FaultRow fault={fault} widget={widget} />
-            </li>
-          ))}
+        <ul className="-mt-1 divide-y divide-[var(--sa-border)]">
+          {model.faults.map((fault) => <li key={fault.id}><FaultRow fault={fault} widget={widget} /></li>)}
         </ul>
-      </div>
+      </TmPanel>
     );
   },
 };
@@ -155,79 +164,49 @@ const faultQueueWidget: TmWidget = {
 function FaultRow({ fault, widget }: { fault: Fault; widget: TmWidgetModel }) {
   const unowned = fault.ownership === "unassigned" || fault.stale;
   const busy = widget.busyId === fault.id || widget.readUnavailable || !widget.canClaimFaults;
-
+  const tag = SEVERITY_TAG[fault.severity];
+  const owner = fault.ownership === "unassigned" ? "Unowned" : fault.stale ? `${fault.assignedName} · not acknowledged` : fault.ownership === "mine" ? `You · ${age(fault.ageMinutes)}` : `${fault.assignedName} · ${age(fault.ageMinutes)}`;
+  const canRelease = fault.ownership !== "unassigned" && (widget.canAssignPeople || fault.ownership === "mine");
+  const primary = !widget.canClaimFaults ? null
+    : fault.ownership !== "mine" ? <button type="button" onClick={() => widget.onClaim(fault.id)} disabled={busy} className={tmSecondary}>Assign to me</button>
+      : !fault.acknowledged ? <button type="button" onClick={() => widget.onAcknowledge(fault.id)} disabled={busy} className={tmSecondary}>Acknowledge</button>
+        : <button type="button" onClick={() => widget.onResolve(fault.id)} disabled={busy} className={tmSecondary}>Resolve</button>;
   return (
-    <div
-      className={`border border-board-border bg-board-card/60 px-3 py-2.5 border-l-2 ${
-        fault.severity === "critical"
-          ? "border-l-red-500"
-          : fault.severity === "warning"
-            ? "border-l-yellow-400"
-            : "border-l-board-muted"
-      }`}
-    >
-      <div className="flex items-baseline gap-2 flex-wrap">
-        <span className="text-xs px-1.5 py-0.5 rounded bg-board-border text-board-text shrink-0">
-          {fault.departmentLabel}
-        </span>
-        <p className="text-[13px] text-board-text flex-1 min-w-[180px]">{fault.description}</p>
-        {/* Ownership is the thing the eye should find first: an unowned
-            fault is the one that gets dropped. */}
-        <span className={`text-xs shrink-0 ${unowned ? "text-red-400" : "text-board-muted"}`}>
-          {fault.ownership === "unassigned"
-            ? "Unassigned"
-            : fault.stale
-              ? `${fault.assignedName} · not acknowledged`
-              : `${fault.assignedName} · ${age(fault.ageMinutes)}`}
-        </span>
+    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
+      <span className={`self-start rounded-md border px-1.5 py-0.5 text-xs font-medium ${tag.className}`}>{tag.label}</span>
+      <div className="min-w-0">
+        <p className="break-words text-[13px] font-semibold text-board-text">{fault.description}</p>
+        <p className="mt-0.5 text-xs text-[var(--sa-ink-2)]">{fault.departmentLabel} · {tag.label} · <span className="tabular-nums">{age(fault.ageMinutes)}</span> · {fault.carriedForward ? "carried forward" : `reported by ${fault.reportedBy}`}</p>
       </div>
-
-      <div className="flex items-center gap-2 mt-2 flex-wrap">
-        {widget.canClaimFaults && fault.ownership !== "mine" && (
-          <button
-            onClick={() => widget.onClaim(fault.id)}
-            disabled={busy}
-            className="min-h-11 min-w-11 text-xs px-2.5 py-1 rounded-lg bg-fire-500/15 border border-fire-500/30 text-fire-400 hover:bg-fire-500/25 disabled:opacity-50 transition-colors"
-          >
-            Take it
-          </button>
-        )}
-        {fault.ownership === "mine" && !fault.acknowledged && (
-          <button onClick={() => widget.onAcknowledge(fault.id)} disabled={busy} className="min-h-11 min-w-11 inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-yellow-400/10 border border-yellow-400/25 text-yellow-300 hover:bg-yellow-400/20 disabled:opacity-50 transition-colors"><Check className="w-3 h-3" />Acknowledge</button>
-        )}
-        <button
-          onClick={() => widget.onResolve(fault.id)}
-          disabled={busy}
-          className="min-h-11 min-w-11 text-xs px-2.5 py-1 rounded-lg border border-board-border text-board-muted hover:text-board-text disabled:opacity-50 transition-colors"
-        >
-          Resolve
-        </button>
-        {fault.ownership !== "unassigned" && (widget.canAssignPeople || fault.ownership === "mine") && (
-          <button onClick={() => widget.onRelease(fault.id)} disabled={busy} title="Return incident to the unassigned queue" className="min-h-11 min-w-11 inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg text-board-muted hover:text-board-text disabled:opacity-50"><UserMinus className="w-3 h-3" />Release</button>
-        )}
-        {widget.canAssignPeople ? (
-          <>
-            <label className="sr-only" htmlFor={`assign-${fault.id}`}>Assign an operator</label>
-            <select
-              id={`assign-${fault.id}`}
-              value=""
-              disabled={busy || widget.members.length === 0}
-              onChange={(event) => {
-                const member = widget.members.find((m) => m.id === event.target.value);
-                if (member) widget.onAssign(fault.id, member.id, member.name);
-              }}
-              className="min-h-11 min-w-11 max-w-full text-xs bg-transparent border border-board-border rounded-lg px-2 py-1 text-board-muted hover:text-board-text outline-none disabled:opacity-50"
-            >
-              <option value="">{widget.members.length ? "Assign person…" : "No eligible people"}</option>
-              {widget.members.map((member) => (
-                <option key={member.id} value={member.id}>{member.name} · {member.roleLabel}</option>
-              ))}
-            </select>
-          </>
+      <div className="col-span-2 flex flex-wrap items-center justify-end gap-2 sm:col-span-1">
+        <span className={`text-xs ${unowned ? "text-[var(--sa-danger)]" : "text-[var(--sa-ink-2)]"}`}>{owner}</span>
+        {primary}
+        {widget.canClaimFaults ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button type="button" disabled={busy} aria-label={`More actions for ${fault.description}`} className={tmIconButton}><MoreHorizontal className="h-4 w-4" /></button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="schedule-a min-w-[200px]">
+              {fault.ownership === "mine" && !fault.acknowledged ? <DropdownMenuItem onSelect={() => widget.onResolve(fault.id)}>Resolve</DropdownMenuItem> : null}
+              {fault.ownership !== "mine" ? <DropdownMenuItem onSelect={() => widget.onResolve(fault.id)}>Resolve</DropdownMenuItem> : null}
+              {canRelease ? <DropdownMenuItem onSelect={() => widget.onRelease(fault.id)}>Release</DropdownMenuItem> : null}
+              {widget.canAssignPeople ? <>
+                <DropdownMenuSeparator />
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger disabled={widget.members.length === 0}>{widget.members.length ? "Assign person…" : "No eligible people"}</DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="schedule-a max-h-72 overflow-y-auto">
+                    <DropdownMenuLabel className="text-xs text-[var(--sa-ink-3)]">Assign an operator</DropdownMenuLabel>
+                    {widget.members.map((member) => (
+                      <DropdownMenuItem key={member.id} onSelect={() => widget.onAssign(fault.id, member.id, member.name)}>
+                        {member.name} <span className="ml-auto pl-3 text-xs text-[var(--sa-ink-3)]">{member.roleLabel}</span>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              </> : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
         ) : null}
-        <span className="text-xs text-board-muted/60 ml-auto">
-          {fault.carriedForward ? "carried forward" : `reported by ${fault.reportedBy}`}
-        </span>
       </div>
     </div>
   );
@@ -247,30 +226,18 @@ const prepWidget: TmWidget = {
   region: "main",
   isRelevant: ({ model }) => model.prep.length > 0,
   render: ({ terms: workspaceTerms, model, slug }) => (
-    <WidgetCard title={workspaceCopy("Before the service", workspaceTerms)}>
-      <ul className="divide-y divide-board-border/60 -my-1">
+    <TmPanel icon={ListChecks} title={workspaceCopy("Before the service", workspaceTerms)} label="Before the service" subtitle="Planning and Prep only">
+      <ul className="flex flex-col gap-2">
         {model.prep.map((item) => (
-          <li key={item.id} className="flex items-start gap-3 py-2.5">
-            <span
-              className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${
-                item.severity === "critical" ? "bg-red-500" : "bg-yellow-400"
-              }`}
-              aria-hidden="true"
-            />
-            <div className="min-w-0 flex-1">
-              <p className="text-[13px] text-board-text">{item.title}</p>
-              <p className="text-xs text-board-muted mt-0.5">{item.detail}</p>
-            </div>
-            <Link
-              to={`/${slug}/${item.actionPath}` as never}
-              className="min-h-11 min-w-11 inline-flex items-center shrink-0 text-xs px-2.5 py-1 rounded-lg border border-board-border text-board-muted hover:text-board-text transition-colors"
-            >
-              {item.actionLabel}
-            </Link>
+          <li key={item.id}>
+            <Callout tone={item.severity === "critical" ? "danger" : "warn"} icon={TriangleAlert} title={item.title}
+              action={<Link to={`/${slug}/${item.actionPath}` as never} className={tmSecondary}>{item.actionLabel === "Open" ? "Open checklist" : item.actionLabel}</Link>}>
+              {item.detail}
+            </Callout>
           </li>
         ))}
       </ul>
-    </WidgetCard>
+    </TmPanel>
   ),
 };
 
@@ -283,25 +250,20 @@ const checksWidget: TmWidget = {
   region: "rail",
   isRelevant: ({ model }) => model.checks.length > 0,
   render: ({ model, slug }) => (
-    <WidgetCard title="Checks">
-      <ul className="space-y-1.5">
+    <TmPanel icon={ListChecks} title="Checks" label="Checks" subtitle="Call and Live only"
+      footer={<Link to={`/${slug}/production/checklist` as never} className={tmLink}>Open the checklist</Link>}>
+      <ul className="-mt-1 divide-y divide-[var(--sa-border)]">
         {model.checks.map((check) => (
-          <li key={check.key} className="flex items-center justify-between text-xs">
-            <span className="text-board-text">{check.label}</span>
-            <HealthChip
-              status={check.status}
-              label={check.outstanding === 0 ? "done" : `${check.outstanding} left`}
-            />
+          <li key={check.key} className="flex min-h-10 items-center justify-between gap-3 text-[13px]">
+            <span className="font-medium text-board-text">{check.label}</span>
+            {check.outstanding === 0
+              ? <StatusWord tone="ok" icon={CircleCheck}>Done</StatusWord>
+              : <StatusWord tone={check.status === "fail" ? "danger" : "warn"} icon={check.status === "fail" ? CircleX : TriangleAlert}><span className="tabular-nums">{check.outstanding}</span> left</StatusWord>}
           </li>
         ))}
       </ul>
-      <Link
-        to={`/${slug}/production/checklist` as never}
-        className="min-h-11 min-w-11 items-center flex mt-3 text-xs text-board-muted hover:text-board-text transition-colors"
-      >
-        Open the checklist
-      </Link>
-    </WidgetCard>
+      <p className="mt-2 text-xs leading-[1.5] text-[var(--sa-ink-3)]">Per department, from call time.</p>
+    </TmPanel>
   ),
 };
 
@@ -314,26 +276,18 @@ const equipmentWidget: TmWidget = {
   region: "rail",
   isRelevant: ({ model }) => model.equipmentFaults.length > 0,
   render: ({ model, slug }) => (
-    <WidgetCard title="Equipment">
+    <TmPanel icon={Box} title="Equipment" label="Equipment"
+      subtitle={<><span className="tabular-nums">{model.equipmentFaults.length}</span> not operational</>}
+      action={<Link to={`/${slug}/production/assets` as never} className={tmLink}>Register</Link>}>
       <EquipmentRotator items={model.equipmentFaults} />
-      <Link
-        to={`/${slug}/production/assets` as never}
-        className="min-h-11 min-w-11 items-center flex mt-3 text-xs text-board-muted hover:text-board-text transition-colors"
-      >
-        Equipment register
-      </Link>
-    </WidgetCard>
+    </TmPanel>
   ),
 };
 
 const EQUIPMENT_PAGE_SIZE = 3;
 const EQUIPMENT_ROTATION_MS = 5_000;
 
-function EquipmentRotator({
-  items,
-}: {
-  items: TmDashboardModel["equipmentFaults"];
-}) {
+function EquipmentRotator({ items }: { items: TmDashboardModel["equipmentFaults"] }) {
   const pageCount = Math.ceil(items.length / EQUIPMENT_PAGE_SIZE);
   const [page, setPage] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -349,24 +303,22 @@ function EquipmentRotator({
   const visible = items.slice(page * EQUIPMENT_PAGE_SIZE, (page + 1) * EQUIPMENT_PAGE_SIZE);
   return (
     <div onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)} onFocusCapture={() => setPaused(true)} onBlurCapture={() => setPaused(false)}>
-      <ul key={page} className="space-y-2 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-300">
+      <ul key={page} className="-mt-1 divide-y divide-[var(--sa-border)] motion-safe:animate-in motion-safe:fade-in motion-safe:duration-300">
         {visible.map((item) => (
-          <li key={item.id} className="text-xs">
-            <p className="text-board-text flex items-center gap-1.5"><Wrench className="w-3 h-3 text-board-muted shrink-0" aria-hidden="true" />{item.name}</p>
-            <p className={item.status === "out-of-service" ? "text-red-400 mt-0.5" : "text-yellow-400 mt-0.5"}>
-              {item.status === "out-of-service"
-                ? "Out of service"
-                : item.status === "in-repair" ? "In repair" : "Needs repair"}
-            </p>
+          <li key={item.id} className="flex min-h-10 items-center justify-between gap-3">
+            <span className="min-w-0 truncate text-[13px] font-medium text-board-text">{item.name}</span>
+            <StatusWord tone={item.status === "out-of-service" ? "danger" : "warn"} icon={item.status === "out-of-service" ? CircleX : TriangleAlert}>
+              {item.status === "out-of-service" ? "Out of service" : item.status === "in-repair" ? "In repair" : "Needs repair"}
+            </StatusWord>
           </li>
         ))}
       </ul>
       {pageCount > 1 ? (
-        <div className="flex items-center justify-between mt-3 pt-2 border-t border-board-border/60">
-          <span className="text-xs text-board-muted">{page * EQUIPMENT_PAGE_SIZE + 1}–{Math.min((page + 1) * EQUIPMENT_PAGE_SIZE, items.length)} of {items.length}</span>
-          <div className="flex items-center gap-1">
-            <button type="button" aria-label="Previous equipment" onClick={() => setPage((current) => (current - 1 + pageCount) % pageCount)} className="min-h-11 min-w-11 rounded text-board-muted hover:text-board-text hover:bg-board-border flex items-center justify-center"><ArrowLeft className="w-3 h-3" /></button>
-            <button type="button" aria-label="Next equipment" onClick={() => setPage((current) => (current + 1) % pageCount)} className="min-h-11 min-w-11 rounded text-board-muted hover:text-board-text hover:bg-board-border flex items-center justify-center"><ArrowRight className="w-3 h-3" /></button>
+        <div className="-mx-4 -mb-4 mt-3 flex items-center justify-between border-t border-[var(--sa-border)] px-4 py-1.5">
+          <span className="text-xs text-[var(--sa-ink-3)]"><span className="tabular-nums">{page * EQUIPMENT_PAGE_SIZE + 1}–{Math.min((page + 1) * EQUIPMENT_PAGE_SIZE, items.length)} of {items.length}</span> · {paused ? "Paused" : "Rotates every 5s"}</span>
+          <div className="flex items-center">
+            <button type="button" aria-label="Previous equipment" onClick={() => setPage((current) => (current - 1 + pageCount) % pageCount)} className={tmIconButton}><ChevronLeft className="h-3.5 w-3.5" /></button>
+            <button type="button" aria-label="Next equipment" onClick={() => setPage((current) => (current + 1) % pageCount)} className={tmIconButton}><ChevronRight className="h-3.5 w-3.5" /></button>
           </div>
         </div>
       ) : null}
@@ -385,18 +337,19 @@ const devicesWidget: TmWidget = {
   // in the codebase but was never set up is not a device that is down.
   isRelevant: ({ model }) => model.devices.length > 0,
   render: ({ model, slug }) => (
-    <WidgetCard title="Devices">
-      <ul className="space-y-1.5">
+    <TmPanel icon={Cpu} title="Devices" label="Devices" subtitle="Configured">
+      <ul className="-mt-1 flex flex-col">
         {model.devices.map((device) => (
-          <li key={device.id} className="group flex items-center gap-2.5 text-xs rounded-lg px-2 py-2 -mx-2 hover:bg-board-bg/70">
-            <Cpu className="w-3.5 h-3.5 text-green-400" />
-            <span className="text-board-text truncate">{device.name}</span>
-            <span className="ml-auto text-xs text-board-muted uppercase tracking-wide">{device.kind}</span>
-            <Link to={`/${slug}/dashboard/devices/${device.id}` as never} aria-label={`Open ${device.name}`} className="min-h-11 min-w-11 inline-flex items-center justify-center text-board-muted opacity-50 group-hover:opacity-100 hover:text-board-text"><ExternalLink className="w-3 h-3" /></Link>
+          <li key={device.id} className="flex min-h-10 items-center gap-2.5">
+            <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full shadow-[inset_0_0_0_1.5px_var(--sa-ink-3)]" />
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-board-text" title={device.name}>{device.name}</span>
+            <span className="shrink-0 rounded border border-[var(--sa-border-strong)] px-1.5 text-xs text-[var(--sa-ink-2)]">{device.kind}</span>
+            <Link to={`/${slug}/dashboard/devices/${device.id}` as never} aria-label={`Open ${device.name}`} className={tmIconButton}><ExternalLink className="h-3.5 w-3.5" /></Link>
           </li>
         ))}
       </ul>
-    </WidgetCard>
+      <p className="mt-2 text-xs leading-[1.5] text-[var(--sa-ink-3)]">Configured only. Open a device for its live status.</p>
+    </TmPanel>
   ),
 };
 
@@ -407,9 +360,7 @@ const devicesWidget: TmWidget = {
  *
  * Always rendered, and both slots always shown. An unnamed slot is the
  * useful information — a Sunday with no technical manager is a problem
- * worth seeing, not an absent row — which is the same rule the PM
- * dashboard states and this widget was quietly breaking by hiding
- * itself whenever nobody was assigned.
+ * worth seeing, not an absent row.
  *
  * Read-only: the production manager sets duty. Giving two dashboards a
  * control over one field is how the cue sheet drifted from the rundown.
@@ -420,44 +371,23 @@ const dutyWidget: TmWidget = {
   phases: "all",
   region: "rail",
   render: ({ model, slug }) => (
-    <WidgetCard title="On duty">
-      <ul className="space-y-2.5">
+    <TmPanel icon={Users} title="On duty" label="On duty" subtitle="This week's rota">
+      <ul className="flex flex-col gap-3">
         {model.duty.map((officer) => (
-          <li key={officer.key} className="flex items-center gap-2.5 text-xs">
-            <span
-              className={`w-7 h-7 rounded-full text-xs flex items-center justify-center shrink-0 ${
-                officer.name
-                  ? "bg-board-border text-board-text"
-                  : "bg-yellow-400/10 text-yellow-400 border border-dashed border-yellow-400/40"
-              }`}
-            >
-              {officer.name ? (
-                initials(officer.name)
-              ) : (
-                <UserMinus className="w-3 h-3" />
-              )}
-            </span>
+          <li key={officer.key} className="flex items-center gap-3">
+            {officer.name
+              ? <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--sa-surface-3)] text-xs font-semibold text-board-text">{initials(officer.name)}</span>
+              : <span aria-hidden="true" className="h-8 w-8 shrink-0 rounded-full border border-dashed border-[var(--sa-border-strong)]" />}
             <span className="min-w-0">
-              <span
-                className={`block truncate ${officer.name ? "text-board-text" : "text-yellow-400"}`}
-              >
-                {officer.name ?? "Nobody assigned"}
-              </span>
-              <span className="block text-xs text-board-muted mt-0.5">{officer.label}</span>
+              {officer.name
+                ? <span className="block truncate text-[13px] font-semibold text-board-text">{officer.name}</span>
+                : <Link to={`/${slug}/dashboard/prod-manager` as never} className="inline-flex min-h-6 items-center text-[13px] font-semibold text-board-text underline decoration-[var(--sa-border-strong)] underline-offset-[3px] max-lg:min-h-11 max-lg:min-w-11 max-lg:items-center">Set the rota</Link>}
+              <span className="block text-xs text-[var(--sa-ink-2)]">{officer.label}</span>
             </span>
           </li>
         ))}
       </ul>
-      {model.duty.some((officer) => !officer.name) && (
-        <Link
-          to={`/${slug}/dashboard/prod-manager` as never}
-          className="min-h-11 min-w-11 inline-flex items-center gap-1 mt-3 text-xs text-board-muted hover:text-board-text transition-colors"
-        >
-          Set the rota
-          <ExternalLink className="w-3 h-3" />
-        </Link>
-      )}
-    </WidgetCard>
+    </TmPanel>
   ),
 };
 
@@ -473,46 +403,13 @@ function age(minutes: number): string {
   return `${Math.round(hours / 24)}d`;
 }
 
-function initials(name: string | null): string {
-  if (!name) return "—";
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-}
-
-// ─── Nothing to do ───────────────────────────────────────────
-
-const allClearWidget: TmWidget = {
-  id: "all-clear",
-  title: "Recorded checks clear",
-  phases: ["call", "live"],
-  region: "main",
-  // The one exception to "never report a healthy count". Mid-service,
-  // an empty page is ambiguous — it could mean nothing is wrong or it
-  // could mean the page is broken. Say which.
-  isRelevant: ({ model }) =>
-    model.readiness === "ok",
-  render: ({ terms: workspaceTerms }) => (
-    <WidgetCard title="Recorded checks clear">
-      <p className="text-xs text-board-muted flex items-center gap-2">
-        <AlertTriangle className="w-3.5 h-3.5 text-green-400" aria-hidden="true" />
-        {workspaceCopy(
-          "\n        No open incidents. Anything logged during the service appears here.\n      ",
-          workspaceTerms,
-        )}
-      </p>
-    </WidgetCard>
-  ),
-};
-
+// "Recorded checks clear" used to be its own card. Readiness in the
+// overview now says "Checks clear", and the empty incident line says the
+// rest, so the card is gone; its id stays valid in saved layouts.
 export const TM_WIDGETS: TmWidget[] = [
   signalPathWidget,
   prepWidget,
   faultQueueWidget,
-  allClearWidget,
   dutyWidget,
   checksWidget,
   equipmentWidget,

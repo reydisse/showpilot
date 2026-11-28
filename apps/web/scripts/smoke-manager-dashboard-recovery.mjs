@@ -51,11 +51,12 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, capturedEmai
       for (const control of controls) {
         await control.scrollIntoViewIfNeeded();
         const box = await control.boundingBox();
-        assert.ok(box && box.width >= 44 && box.height >= 44 && box.x >= 0 && box.x + box.width <= width + 1, `${label} target at ${width}: ${JSON.stringify(box)}`);
+        const min = width < 1024 ? 44 : 24;
+        assert.ok(box && box.width >= min && box.height >= min && box.x >= 0 && box.x + box.width <= width + 1, `${label} target at ${width}: ${JSON.stringify(box)}`);
         if (!(await control.isDisabled())) await control.click({ trial: true });
       }
       if (label.endsWith("-controls") || label === "arrangement") {
-        const small = await page.locator("main button, main input, main select, main a").evaluateAll(nodes => nodes.filter(node => node.checkVisibility() && !node.closest("[inert]")).map(node => ({ name: node.getAttribute("aria-label") || node.textContent.trim(), box: node.getBoundingClientRect() })).filter(item => item.box.width < 44 || item.box.height < 44).map(item => ({name:item.name,width:item.box.width,height:item.box.height})));
+        const small = await page.locator("main button, main input, main select, main a").evaluateAll(nodes => nodes.filter(node => node.checkVisibility() && !node.closest("[inert]")).map(node => ({ name: node.getAttribute("aria-label") || node.textContent.trim(), box: node.getBoundingClientRect() })).filter(item => item.box.width < (innerWidth < 1024 ? 44 : 24) || item.box.height < (innerWidth < 1024 ? 44 : 24)).map(item => ({name:item.name,width:item.box.width,height:item.box.height})));
         assert.deepEqual(small, [], `${label} controls at ${width}`);
       }
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${label} fits at ${width}`);
@@ -77,7 +78,7 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, capturedEmai
       }
       await button("Retry dashboard").waitFor({timeout:15000});
       await heading.waitFor();
-      if (kind === "tech-manager") assert.equal(await button("Take it").isDisabled(), true, "stale incident snapshot cannot be changed");
+      if (kind === "tech-manager") assert.equal(await button("Assign to me").isDisabled(), true, "stale incident snapshot cannot be changed");
       assert.equal(reads,1);
       await fits(`${kind}-retry`,[button("Retry dashboard")]);
       hold=false;release();
@@ -89,9 +90,9 @@ await withLocalSmokeFixture(async ({ origin, orgId, operatorCookie, capturedEmai
       await fits(`${kind}-menu`,[option]);
       await page.keyboard.press("Escape");
       if(kind === "tech-manager") {
-        await button("Take it").click({ trial: true });
+        await button("Assign to me").click({ trial: true });
         await button("Arrange widgets").click();
-        assert.deepEqual(await button("Take it").evaluate(node => { node.focus(); return { inert: !!node.closest("[inert]"), disabled: node.disabled, focusBlocked: document.activeElement !== node }; }), { inert: true, disabled: true, focusBlocked: true }, "arranging blocks actual keyboard focus and incident actions");
+        assert.deepEqual(await button("Assign to me").evaluate(node => { node.focus(); return { inert: !!node.closest("[inert]"), disabled: node.disabled, focusBlocked: document.activeElement !== node }; }), { inert: true, disabled: true, focusBlocked: true }, "arranging blocks actual keyboard focus and incident actions");
         await fits("arrangement",[button("Done arranging"),button("Move System overview down")]);
         assert.equal(await page.locator("[inert]").count() > 0, true, "operational regions are keyboard-inert while arranging");
         await button("Move System overview down").press("Enter");

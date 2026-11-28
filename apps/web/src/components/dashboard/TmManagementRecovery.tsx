@@ -9,8 +9,10 @@ import {
 } from "@/components/ui/dialog";
 import type { TmManagementController } from "@/hooks/useTmManagement";
 import type { TmDashboardLayout } from "@/lib/tm-management-contract";
-const buttonClass =
-  "min-h-11 min-w-11 px-3 rounded-lg border border-board-border text-sm disabled:opacity-50";
+import { RefreshCw, TriangleAlert } from "lucide-react";
+import { tmSecondary } from "./tm-a";
+const buttonClass = tmSecondary;
+const box = "rounded-lg border border-[var(--sa-warn)]/30 bg-[var(--sa-warn)]/[0.06] px-3.5 py-3";
 const names: Record<string, string> = {
   overview: "System overview",
   "signal-path": "Stream setup",
@@ -30,8 +32,11 @@ function Order({ layout }: { layout: TmDashboardLayout }) {
 }
 export function TmManagementRecovery({
   control,
+  hideLayout = false,
 }: {
   control: TmManagementController;
+  /** Arrange mode shows layout status in its own bar. */
+  hideLayout?: boolean;
 }) {
   const [review, setReview] = useState<{
     current: TmDashboardLayout;
@@ -39,26 +44,33 @@ export function TmManagementRecovery({
     revision: number;
   } | null>(null);
   return (
-    <div className="px-3 sm:px-6 space-y-2 text-sm break-words">
-      {control.read.isError ? (
-        <div role="alert" className="py-2">
-          <p>{plainFailure(control.read.error.message)}</p>
+    <div className="schedule-a flex flex-col gap-2 break-words text-[13px] text-board-text empty:hidden">
+      {control.read.isError && !hideLayout ? (
+        <div role="alert" className={`${box} flex flex-wrap items-center gap-3`}>
+          <TriangleAlert aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--sa-warn)]" />
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-[var(--sa-warn)]">{control.read.isFetching ? "Still couldn't load dashboard controls" : "Couldn't load dashboard controls"}</p>
+            <p className="text-xs text-[var(--sa-ink-2)]">Incident actions and layout changes are paused. We'll keep trying every 10s.</p>
+            <span className="sr-only">{plainFailure(control.read.error.message)}</span>
+          </div>
           <button
             className={buttonClass}
             disabled={control.read.isFetching}
             onClick={() => void control.read.refetch()}
           >
-            Retry dashboard controls
+            <RefreshCw className={`h-3.5 w-3.5 ${control.read.isFetching ? "animate-spin motion-reduce:animate-none" : ""}`} />
+            {control.read.isFetching ? "Trying again…" : "Retry dashboard controls"}
           </button>
         </div>
       ) : null}
       {control.read.data.layoutUnknown ? (
-        <p role="alert">
+        <p role="alert" className={box}>
           The saved layout could not be read. The default arrangement is shown;
           arranging widgets will replace it.
         </p>
       ) : null}
       {(["incident", "layout"] as const).map((lane) => {
+        if (lane === "layout" && hideLayout) return null;
         const item = control.latest(lane);
         if (!item?.attempt) return null;
         const pending = item.status === "pending",
@@ -70,7 +82,7 @@ export function TmManagementRecovery({
             key={lane}
             hidden={pending}
             role={failed ? "alert" : "status"}
-            className="py-2 border-b border-board-border"
+            className={box}
           >
             <p>
               {item.attempt.label}:{" "}
@@ -137,8 +149,8 @@ export function TmManagementRecovery({
       })}
       {control.read.data.pendingNotifications > 0 ||
       control.notifications.isError ? (
-        <div role="status" className="py-2">
-          <p role="alert">Crew alerts could not be sent.</p>
+        <div role="status" className={`${box} flex flex-wrap items-center gap-3`}>
+          <p role="alert" className="flex-1 font-semibold">Crew alerts could not be sent.</p>
           <button
             className={buttonClass}
             disabled={
@@ -163,7 +175,7 @@ export function TmManagementRecovery({
       >
         <DialogContent
           showCloseButton={false}
-          className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl"
+          className="schedule-a max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-[14px] border-[var(--sa-border-strong)] bg-[var(--sa-surface)] text-board-text sm:max-w-xl"
         >
           <DialogTitle>Review dashboard layout</DialogTitle>
           <DialogDescription>

@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { AlertTriangle } from "lucide-react";
+import { X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -38,51 +38,46 @@ export function ConfirmDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="bg-board-card border-board-border sm:max-w-md"
+        className="schedule-a flex max-h-[calc(100dvh-2rem)] min-w-0 flex-col gap-0 overflow-hidden rounded-[14px] border-[var(--sa-border-strong)] bg-[var(--sa-surface)] p-0 text-board-text shadow-[0_24px_64px_rgba(0,0,0,0.6)] sm:max-w-[440px]"
       >
-        <DialogHeader>
-          <div className="flex items-center gap-3">
-            <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                variant === "danger"
-                  ? "bg-red-500/15 border border-red-500/25"
-                  : "bg-yellow-500/15 border border-yellow-500/25"
-              }`}
-            >
-              <AlertTriangle
-                className={`w-5 h-5 ${
-                  variant === "danger" ? "text-red-400" : "text-yellow-400"
-                }`}
-              />
-            </div>
-            <div>
-              <DialogTitle className="text-board-text text-base">
-                {title}
-              </DialogTitle>
-              <DialogDescription className="text-board-muted text-sm mt-1">
-                {description}
-              </DialogDescription>
-            </div>
+        <DialogHeader className="flex flex-row items-start justify-between gap-4 px-5 pb-4 pt-5 text-left">
+          <div className="flex min-w-0 flex-col gap-2">
+            <DialogTitle className="text-base font-semibold tracking-[-0.01em] text-board-text">{title}</DialogTitle>
+            <DialogDescription className="text-[13px] leading-[1.55] text-[var(--sa-ink-2)]">{description}</DialogDescription>
           </div>
-        </DialogHeader>
-        <DialogFooter className="mt-4 gap-2 sm:gap-2">
           <button
+            type="button"
             onClick={() => onOpenChange(false)}
             disabled={loading}
-            className="min-h-11 px-4 py-2 rounded-xl text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 text-board-text bg-board-bg border border-board-border hover:bg-board-border/50 transition-colors disabled:opacity-50"
+            aria-label={`Close ${title}`}
+            className="-mr-1.5 -mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--sa-ink-3)] hover:bg-[var(--sa-surface-2)] hover:text-board-text max-lg:-mr-3 max-lg:-mt-2.5 max-lg:h-11 max-lg:w-11"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </DialogHeader>
+        <DialogFooter className="flex flex-row flex-wrap items-center justify-end gap-2 border-t border-[var(--sa-border)] bg-board-bg px-5 py-3.5 sm:justify-end">
+          <span className="mr-auto hidden items-center gap-1.5 text-xs text-[var(--sa-ink-3)] sm:inline-flex">
+            <kbd className="rounded border border-[var(--sa-border-strong)] px-1.5 text-xs">Esc</kbd> to cancel
+          </span>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            disabled={loading}
+            className="inline-flex h-8 items-center rounded-lg border border-[var(--sa-border-strong)] bg-[var(--sa-surface-2)] px-3 text-[13px] font-medium text-board-text hover:bg-[var(--sa-surface-3)] focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-40 max-lg:h-11"
           >
             {cancelLabel}
           </button>
           <button
+            type="button"
             onClick={() => {
               onConfirm();
               onOpenChange(false);
             }}
             disabled={loading || confirmDisabled}
-            className={`min-h-11 px-4 py-2 rounded-xl text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 transition-colors disabled:opacity-50 ${
+            className={`inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border px-3 text-[13px] font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-40 max-lg:h-11 ${
               variant === "danger"
-                ? "bg-red-500/15 text-red-400 border border-red-500/25 hover:bg-red-500/25"
-                : "bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 hover:bg-yellow-500/25"
+                ? "border-[var(--sa-danger)]/30 bg-[var(--sa-danger)]/10 text-[var(--sa-danger)] hover:bg-[var(--sa-danger)]/15"
+                : "border-[var(--sa-warn)]/30 bg-[var(--sa-warn)]/10 text-[var(--sa-warn)] hover:bg-[var(--sa-warn)]/15"
             }`}
           >
             {loading ? "..." : confirmLabel}

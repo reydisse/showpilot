@@ -103,7 +103,7 @@ function control(client = cache(), userId = "user", orgId = "org") {
 async function blank() {
   fireEvent.click(screen.getByRole("button", { name: "Blank all displays" }));
   await settle();
-  fireEvent.click(screen.getByRole("button", { name: "Blank displays" }));
+  fireEvent.click(screen.getByRole("button", { name: "Blank all displays" }));
   await settle();
 }
 const result = (
@@ -182,7 +182,7 @@ it("keeps the revision reviewed when confirmation opens, even when polling finds
   rpc.write.mockImplementationOnce(({ data }) =>
     Promise.resolve(result(data.requestId, false, "conflict")),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Blank displays" }));
+  fireEvent.click(screen.getByRole("button", { name: "Blank all displays" }));
   await settle();
   expect(rpc.write.mock.calls[0][0].data.expectedRevision).toBeNull();
   expect(screen.getByRole("alert").textContent).toContain(

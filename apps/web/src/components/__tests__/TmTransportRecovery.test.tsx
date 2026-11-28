@@ -66,7 +66,7 @@ async function view() {
   return result;
 }
 const next = () =>
-  screen.getByRole("button", { name: /Next Advance rundown item/ });
+  screen.getByRole("button", { name: /^Next / });
 it("bounds a stalled rundown feedback read and offers a retry", async () => {
   rpc.read.mockImplementation(() => new Promise(() => {}));
   await view();

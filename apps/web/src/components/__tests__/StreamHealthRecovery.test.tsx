@@ -61,7 +61,7 @@ it("bounds health reads, retains last confirmed values and ignores their late re
 });
 
 it("never reports cached input state or hardcoded Online as fresh TM telemetry",async()=>{
- vi.useFakeTimers();api.health.mockReturnValueOnce(new Promise(()=>{}));render(<StreamHealthPanel orgId="fixture" slug="fixture" inputs={[row]} destinations={[]} compact />);await settle();
+ vi.useFakeTimers();api.health.mockReturnValueOnce(new Promise(()=>{}));render(<StreamHealthPanel orgId="fixture" slug="fixture" inputs={[row]} destinations={[]} />);await settle();
  expect(screen.queryByText("Online")).toBeNull();expect(screen.getByText("0/1")).toBeTruthy();
  await act(()=>vi.advanceTimersByTimeAsync(8_001));expect(screen.getByRole("button",{name:"Retry input health"})).toBeTruthy();expect(screen.queryByText("streaming")).toBeNull();
 });
