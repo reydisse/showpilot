@@ -199,7 +199,7 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
   return (
     <div className="schedule-a h-full overflow-auto bg-board-bg">
       <RelaySyncNotice error={syncError} occurredAt={syncErrorAt} status={syncStatus} onRetry={retrySync} />
-      <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-5 px-4 pb-12 pt-6 md:px-7">
+      <div className="mx-auto flex w-full max-w-[1180px] flex-col gap-5 px-4 pb-12 pt-6 md:px-7 min-[1800px]:max-w-[1880px] min-[1800px]:px-10">
         <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div className="flex min-w-0 items-center gap-3.5">
             <span aria-hidden="true" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-[var(--sa-border-strong)] bg-[var(--sa-surface)] text-[var(--sa-ink-2)]"><Wrench className="h-4 w-4" strokeWidth={1.75} /></span>
@@ -451,8 +451,9 @@ function ReorderableSections({ order, sections, rail, editing, locked, onReorder
     <div className="flex flex-col gap-5">
       {top.map((id) => render(id, visible.indexOf(id)))}
       {rest.length ? (
-        <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <div className="flex min-w-0 flex-col gap-5">{rest.map((id) => render(id, visible.indexOf(id)))}</div>
+        <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px] min-[1800px]:grid-cols-[minmax(0,1fr)_380px]">
+          {/* Wide screens: incidents and live operations sit side by side. */}
+          <div className={`flex min-w-0 flex-col gap-5 ${editing || rest.length < 2 ? "" : "min-[1800px]:grid min-[1800px]:grid-cols-2 min-[1800px]:items-start"}`}>{rest.map((id) => render(id, visible.indexOf(id)))}</div>
           {rail ? <div className={`min-w-0 xl:sticky xl:top-6 ${editing ? "" : "xl:pt-[26px]"}`}>{rail}</div> : null}
         </div>
       ) : null}
