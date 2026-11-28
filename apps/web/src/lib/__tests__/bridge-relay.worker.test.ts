@@ -248,6 +248,60 @@ describe("BridgeRelay device dispatch", () => {
     await expect(stub.getBridgeStatus()).resolves.toMatchObject({ bridgeOnline: false });
   });
 
+  it("activates a new installation when the saved active installation was revoked", async () => {
+    const orgId = "revoked-active-bridge-org";
+    const first = await openBridge(orgId);
+    const closed = nextClose(first.socket);
+    await revokeBridgeInstallation(env.DB, { orgId, installationId: first.credential.installationId, actorUserId: "test-owner" });
+    await first.stub.refreshCredentialAuthority();
+    await expect(closed).resolves.toMatchObject({ code: 4403 });
+    await expect(first.stub.getBridgeStatus()).resolves.toMatchObject({ bridgeOnline: false, activeInstallation: null });
+
+    const replacement = await openBridge(orgId);
+    await expect(replacement.stub.getBridgeStatus()).resolves.toMatchObject({
+      bridgeOnline: true,
+      activeInstallation: { installationId: replacement.credential.installationId },
+      connections: [{ installationId: replacement.credential.installationId, role: "active" }],
+    });
+  });
+
+  it("releases a revoked selection saved before revocations cleared it", async () => {
+    const orgId = "stale-revoked-active-bridge-org";
+    const first = await openBridge(orgId);
+    const closed = nextClose(first.socket);
+    first.socket.close(1000, "Venue computer shut down");
+    await closed;
+    // Simulate a relay that kept the selection when the installation was revoked.
+    await env.DB.prepare("UPDATE bridge_installation SET revokedAt = ? WHERE orgId = ? AND id = ?")
+      .bind(Date.now(), orgId, first.credential.installationId).run();
+    await runInDurableObject(first.stub, async (_instance, state) => {
+      expect(await state.storage.get("active-installation")).toMatchObject({ installationId: first.credential.installationId });
+    });
+
+    const replacement = await openBridge(orgId);
+    await expect(replacement.stub.getBridgeStatus()).resolves.toMatchObject({
+      bridgeOnline: true,
+      activeInstallation: { installationId: replacement.credential.installationId },
+    });
+  });
+
+  it("keeps a connected standby waiting when the active installation is revoked", async () => {
+    const orgId = "revoked-active-with-standby-org";
+    const first = await openBridge(orgId);
+    const second = await openBridge(orgId);
+    const closed = nextClose(first.socket);
+    await revokeBridgeInstallation(env.DB, { orgId, installationId: first.credential.installationId, actorUserId: "test-owner" });
+    await first.stub.refreshCredentialAuthority();
+    await closed;
+    await expect(second.stub.getBridgeStatus()).resolves.toMatchObject({
+      bridgeOnline: false,
+      activeInstallation: null,
+      connections: [{ installationId: second.credential.installationId, role: "standby" }],
+    });
+    await second.stub.selectInstallation({ orgId, installationId: second.credential.installationId, expectedActiveInstallationId: null, actorUserId: "operator" });
+    await expect(second.stub.getBridgeStatus()).resolves.toMatchObject({ bridgeOnline: true, activeInstallation: { installationId: second.credential.installationId } });
+  });
+
   it("expires an idle socket when its rotation overlap ends", async () => {
     const orgId = "expired-bridge-key-org";
     const { stub, socket, credential } = await openBridge(orgId);
