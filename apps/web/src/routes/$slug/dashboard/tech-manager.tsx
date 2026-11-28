@@ -120,12 +120,15 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
     read.invalidate();
   });
   const queuedAction = useRef<(() => void) | null>(null);
+  const [heldDropped, setHeldDropped] = useState(false);
   const controlsFetching = control.read.isFetching;
   useEffect(() => {
     if (controlsFetching || !queuedAction.current) return;
     const run = queuedAction.current;
     queuedAction.current = null;
-    if (!control.read.isError) run();
+    // Never drop a held tap silently: if the controls read failed, say so.
+    if (control.read.isError) setHeldDropped(true);
+    else run();
   }, [controlsFetching]); // eslint-disable-line react-hooks/exhaustive-deps
   const layout = control.layout;
   const layoutLocked = control.unresolved("layout") || control.unavailable;
@@ -141,6 +144,7 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
     const run = () => control.send(operation, `${action === "assign" ? assignedTo ? "Assign" : "Release" : action === "resolve" ? "Resolve" : "Acknowledge"} incident: ${fault.description}`);
     // The controls read refreshes every 10s and commands wait for it, so a
     // click in that moment is held and sent when the read lands.
+    setHeldDropped(false);
     if (control.read.isFetching) queuedAction.current = run;
     else run();
   };
@@ -222,6 +226,13 @@ function TechManagerWorkspace({ initial }: { initial: Awaited<ReturnType<typeof 
 
         <ReadFailureNotice variant="panel" error={read.error} refreshing={read.refreshing} retry={read.retry} label="Retry dashboard" title="We couldn't refresh the dashboard." description="Last confirmed values are shown. Retry before changing incidents." />
         <TmManagementRecovery control={control} />
+        {heldDropped ? (
+          <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--sa-warn)]/30 bg-[var(--sa-warn)]/[0.06] px-3.5 py-3 text-[13px]">
+            <TriangleAlert aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--sa-warn)]" />
+            <span className="min-w-0 flex-1 text-board-text">Your last incident action wasn't sent — dashboard controls couldn't load. Retry the controls, then try it again.</span>
+            <button type="button" onClick={() => setHeldDropped(false)} className={tmSecondary}>Dismiss</button>
+          </div>
+        ) : null}
 
         {editingLayout ? (
           <ArrangeBar text="Arrange the major dashboard zones. Operational controls are locked while arranging." status={layoutStatus}

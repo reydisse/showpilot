@@ -59,7 +59,7 @@ function GraphicsControls({
             : result.relay === "expired"
               ? "Program cleared, but the lower-third clear expired. Review current output before trying again."
               : "";
-  const reason = !state ? null : !hasOutput ? "Nothing on air" : !state.canClear ? "Needs lowerthird:trigger (owner/admin or Tech Manager)." : readFailure ? "Couldn't read graphics. Retry first." : stale ? "Graphics list is more than 8 seconds old." : control.unfinished ? "Wait for the current request to finish." : null;
+  const reason = !state ? null : !hasOutput ? "Nothing on air" : !state.canClear ? null : readFailure ? "Couldn't read graphics. Retry first." : stale ? "Graphics list is more than 8 seconds old." : control.unfinished ? "Wait for the current request to finish." : null;
   const confirmClear = () => {
     if (review && state && !disabled)
       control.send({
