@@ -168,7 +168,7 @@ function ReportsPage() {
 
   return (
     <div ref={listRoot} className="schedule-a h-full min-w-0 overflow-auto bg-board-bg">
-      <div className="mx-auto flex max-w-[1280px] flex-col gap-5 px-4 pb-12 pt-6 md:px-8">
+      <div className="mx-auto flex max-w-[1280px] min-[1800px]:max-w-[1680px] flex-col gap-5 px-4 pb-12 pt-6 md:px-8">
         <header className="flex items-center gap-2">
           <h1 className="text-[26px] font-semibold leading-[1.15] tracking-[-0.02em] text-board-text">Reports &amp; notes</h1>
           <ContextHelp title="Reports & notes" description="Everyone on the team can review show outcomes here. Production and Technical Managers can add optional notes, and exports include every saved note." className="size-11 lg:size-8" />
@@ -506,7 +506,7 @@ function ReportsSkeleton() {
   const bar = (width: string) => <span className={`block h-2.5 rounded bg-[var(--sa-surface-3)] ${width}`} />;
   return <div className="schedule-a h-full bg-board-bg">
     <p role="status" className="sr-only">Loading reports…</p>
-    <div aria-hidden="true" className="schedule-skeleton mx-auto flex max-w-[1280px] flex-col gap-5 px-4 pt-6 md:px-8">
+    <div aria-hidden="true" className="schedule-skeleton mx-auto flex max-w-[1280px] min-[1800px]:max-w-[1680px] flex-col gap-5 px-4 pt-6 md:px-8">
       <span className="block h-7 w-56 rounded bg-[var(--sa-surface-3)]" />
       <div className="flex gap-2">{["w-56", "w-36", "w-36", "w-28", "w-28"].map((w, i) => <span key={i} className={`block h-9 rounded-lg bg-[var(--sa-surface-2)] ${w}`} />)}</div>
       <div className="overflow-hidden rounded-xl border border-[var(--sa-border)] bg-[var(--sa-surface)]">

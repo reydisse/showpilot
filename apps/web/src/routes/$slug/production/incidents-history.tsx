@@ -133,7 +133,7 @@ function IncidentHistoryPage() {
 
   return (
     <div className="schedule-a h-full overflow-auto bg-board-bg [overflow-wrap:anywhere]">
-      <div className="mx-auto flex max-w-[1180px] flex-col gap-5 px-4 pb-12 pt-6 md:px-8">
+      <div className="mx-auto flex max-w-[1180px] min-[1800px]:max-w-[1680px] flex-col gap-5 px-4 pb-12 pt-6 md:px-8">
         <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
           <div className="flex min-w-0 flex-col gap-1.5">
             <Link to="/$slug/production/incidents" params={{ slug }} search={{ incident: undefined, date: undefined, show: undefined, report: undefined }} className="inline-flex w-fit items-center gap-1 text-[13px] text-[var(--sa-ink-2)] hover:text-board-text"><ChevronLeft className="h-3.5 w-3.5" />Incident log</Link>
@@ -244,7 +244,7 @@ function HistorySkeleton() {
   const bar = (width: string) => <span className={`block h-2.5 rounded bg-[#222226] ${width}`} />;
   return <div className="h-full bg-board-bg">
     <p role="status" className="sr-only">Loading incident history…</p>
-    <div aria-hidden="true" className="schedule-skeleton mx-auto flex max-w-[1180px] flex-col gap-5 px-4 pt-6 md:px-8">
+    <div aria-hidden="true" className="schedule-skeleton mx-auto flex max-w-[1180px] min-[1800px]:max-w-[1680px] flex-col gap-5 px-4 pt-6 md:px-8">
       <div className="flex flex-col gap-2">{bar("w-24")}<span className="block h-6 w-56 rounded bg-[#222226]" />{bar("w-80")}</div>
       <div className="flex gap-2">{["w-64", "w-24", "w-28", "w-28", "w-32", "w-28"].map((width, index) => <span key={index} className={`block h-9 rounded-lg bg-[#1a1a1d] ${width}`} />)}</div>
       <div className="overflow-hidden rounded-xl border border-[#242428] bg-[#131315]">

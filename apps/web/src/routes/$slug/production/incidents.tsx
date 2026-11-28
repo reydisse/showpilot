@@ -205,7 +205,7 @@ export function IncidentsWorkspace({ initial, slug, openReport = false }: { init
   return (
     <div className="schedule-a h-full overflow-auto bg-board-bg [overflow-wrap:anywhere]">
       <RelaySyncNotice error={syncError} occurredAt={syncErrorAt} status={syncStatus} onRetry={retrySync} />
-      <div className="mx-auto flex max-w-[1180px] flex-col gap-6 px-4 pb-12 pt-6 md:px-8">
+      <div className="mx-auto flex max-w-[1180px] min-[1800px]:max-w-[1680px] flex-col gap-6 px-4 pb-12 pt-6 md:px-8">
         <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
           <div className="flex min-w-0 flex-col gap-1.5">
             <p className="text-xs uppercase tracking-[0.04em] tabular-nums text-[var(--sa-ink-3)]">{dateLine}</p>
