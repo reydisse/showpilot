@@ -33,13 +33,13 @@ jobs:
             label: linux
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.30.3
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -152,7 +152,7 @@ jobs:
           [IO.File]::WriteAllText($configPath, $config, [Text.UTF8Encoding]::new($false))
 
       - name: Build and publish release assets
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # linuxdeploy's bundled strip cannot handle newer ELF sections in
@@ -238,7 +238,7 @@ jobs:
 
       - name: Upload Windows signing disclosure
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-signing-disclosure-desktop
           retention-days: 14
