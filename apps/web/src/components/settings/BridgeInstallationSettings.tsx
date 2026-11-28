@@ -83,7 +83,9 @@ function InstallationSettings({ orgId }: { orgId: string }) {
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-board-border p-3">
       <p role="status" className="text-sm text-board-text">{selection.activeInstallation
         ? `Active: ${selection.activeInstallation.label}${selection.connections.some(connection => connection.role === "active") ? " · Connected" : " · Offline. Choose a connected standby to take control."}`
-        : "No active Bridge. The first installation to connect becomes active."}</p>
+        : selection.connections.length > 0
+          ? "No active Bridge. Choose a connected standby to take control."
+          : "No active Bridge. The first installation to connect becomes active."}</p>
       <button type="button" disabled={busy} onClick={() => { void refreshSelection(); }} className="min-h-11 rounded-lg border border-board-border px-3 text-xs text-board-text disabled:opacity-40">Refresh status</button>
     </div>
     {error && <p role="alert" className="text-sm text-red-300">{plainFailure(error)}</p>}

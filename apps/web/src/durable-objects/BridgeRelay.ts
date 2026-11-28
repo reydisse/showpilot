@@ -13,7 +13,7 @@ import { BridgeTargetError, type BridgeEndpoint } from "@showpilot/shared/bridge
 import { SerialCommandExecutor } from "@/lib/serial-command-executor";
 import { renewSocketReadLease, socketReadLeaseAllows, refreshSocketReadLeases, scheduleSocketReadRefresh } from "@/lib/socket-read-authority.server";
 import { rundownInternalRequest } from "@/lib/rundown-internal-request.server";
-import { getBridgeCredentialAuthority, recordBridgeWrite, type BridgeAuditAction } from "@/lib/bridge-credentials.server";
+import { getBridgeCredentialAuthority, isBridgeInstallationLive, recordBridgeWrite, type BridgeAuditAction } from "@/lib/bridge-credentials.server";
 import { parseRelayPPSlide } from "../lib/rundown-relay-payload";
 import { DurableObject } from "cloudflare:workers";
 import { getActiveRundownRelayTarget } from "@/lib/active-rundown-relay";
@@ -271,6 +271,11 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
         const attachment = parseSocketAttachment(ws.deserializeAttachment?.());
         if (!attachment) continue;
         this.orgId ||= attachment.orgId;
+      }
+      await this.releaseRevokedActiveInstallation();
+      for (const ws of ctx.getWebSockets()) {
+        const attachment = parseSocketAttachment(ws.deserializeAttachment?.());
+        if (!attachment) continue;
         if (attachment.role === "bridge") {
           const authority = attachment.credentialId
             ? await getBridgeCredentialAuthority(this.env.DB, this.orgId, attachment.credentialId) : null;
@@ -413,6 +418,8 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
             server.close(4403, "Bridge credential unavailable"); this.bridges.delete(server);
             return new Response("Unauthorized", { status: 401 });
           }
+          // A revoked selection can never return. Let this live installation take its place.
+          await this.releaseRevokedActiveInstallation();
           if (!this.activeInstallation) {
             await this.ctx.storage.put("active-installation", installation);
             this.activeInstallation = installation;
@@ -1290,7 +1297,30 @@ export class BridgeRelay extends DurableObject<BridgeRelayRuntimeEnv> {
 
   /** Called by settings after rotation/revocation and by the expiry alarm. */
   refreshCredentialAuthority(): Promise<void> {
-    return this.ownership.run(() => this.refreshConnections());
+    return this.ownership.run(async () => {
+      await this.refreshConnections();
+      // Revoking the active installation clears the selection. A connected
+      // standby still waits for an operator to take control explicitly.
+      if (await this.releaseRevokedActiveInstallation()) {
+        await this.sendBridgeRoles();
+        this.broadcastStatus();
+      }
+    });
+  }
+
+  /** Clears a selection whose installation was revoked or deleted. Returns true when it changed. */
+  private async releaseRevokedActiveInstallation(): Promise<boolean> {
+    const active = this.activeInstallation;
+    if (!active || !this.orgId) return false;
+    try {
+      if (await isBridgeInstallationLive(this.env.DB, this.orgId, active.installationId)) return false;
+    } catch {
+      return false; // Keep the existing selection when authority cannot be checked.
+    }
+    if (this.activeInstallation?.installationId !== active.installationId) return false;
+    await this.ctx.storage.delete("active-installation");
+    this.activeInstallation = null;
+    return true;
   }
 
   private async refreshConnections(): Promise<void> {

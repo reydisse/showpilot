@@ -86,6 +86,13 @@ export async function revokeBridgeInstallation(db: D1Database, input: Installati
   ]);
 }
 
+/** A revoked or deleted installation can never reconnect, so it must not hold the active selection. */
+export async function isBridgeInstallationLive(db: D1Database, orgId: string, installationId: string): Promise<boolean> {
+  const row = await db.prepare("SELECT 1 AS live FROM bridge_installation WHERE orgId = ? AND id = ? AND revokedAt IS NULL")
+    .bind(orgId, installationId).first();
+  return row !== null;
+}
+
 export async function listBridgeInstallations(db: D1Database, orgId: string): Promise<BridgeInstallationSummary[]> {
   const result = await db.prepare(`SELECT id, label, createdAt, lastUsedAt, revokedAt
     FROM bridge_installation WHERE orgId = ? ORDER BY createdAt DESC, id`)
