@@ -1,5 +1,4 @@
 import type React from "react";
-import { QuietActivity } from "@/components/ui/QuietActivity";
 import { refreshRetainedResult } from "@/lib/retained-refresh";
 import {
   useQuery,
@@ -10,7 +9,6 @@ import { useRouteContext } from "@tanstack/react-router";
 import { sendScheduleReminders } from "@/lib/schedule-reminder";
 import { runRouteLoad } from "@/lib/route-load-deadlines";
 import {
-  reminderMessage,
   scheduleReminderResultSchema,
   type ReminderTarget,
   type ScheduleReminderCommand,
@@ -182,6 +180,10 @@ export function ReminderControl({
     (attempt?.kind === "confirmed" && attempt.refresh === "pending");
   const result =
     attempt?.kind === "confirmed" ? attempt.result : attempt?.previous;
+  const failedItems =
+    result?.items.filter(
+      (item) => item.email === "failed" && item.reason !== "status-check-failed",
+    ) ?? [];
   const retryable = result?.items.some((item) =>
     ["failed", "uncertain", "sending", "unavailable"].includes(item.email),
   );
@@ -198,23 +200,17 @@ export function ReminderControl({
   };
   return (
     <div className="min-w-0 space-y-2 text-xs normal-case">
-      {!attempt && (
+      {(!attempt || pending) && (
         <button
           type="button"
           className={className ?? button}
-          disabled={disabled}
+          disabled={disabled || pending}
+          aria-busy={pending}
           onClick={start}
         >
           {icon}
           {label}
         </button>
-      )}
-      {pending && (
-        <p role="status" className="text-board-muted">
-          {attempt?.kind === "pending"
-            ? <QuietActivity label="Checking reminder delivery…" />
-            : ""}
-        </p>
       )}
       {attempt?.kind === "failed" && (
         <div
@@ -233,23 +229,22 @@ export function ReminderControl({
           </button>
         </div>
       )}
-      {result && (
-        <div className="space-y-2" role="status">
-          <p>
-            {attempt?.kind !== "confirmed" ? "Previous result:" : ""}
-            {result.items.length
-              ? `${result.items.filter((item) => item.email === "accepted").length} of ${result.items.length} emails accepted.`
-              : "No pending assignments in this selection."}
-          </p>
-          {result.items
-            .filter((item) => item.email !== "accepted")
-            .map((item) => (
-              <p key={item.id} className="break-words text-amber-300">
-                <strong className="font-medium">{item.label}: </strong>
-                {reminderMessage(item)}
-              </p>
+      {result?.items.length === 0 && (
+        <p role="status">No pending assignments in this selection.</p>
+      )}
+      {failedItems.length > 0 && (
+        <div
+          role="alert"
+          className="space-y-2 rounded-lg border border-amber-500/30 p-2"
+        >
+          <p>Some reminders could not be sent.</p>
+          <ul className="list-disc pl-4">
+            {failedItems.map((item) => (
+              <li key={item.id} className="break-words">
+                {item.label}
+              </li>
             ))}
-          {attempt?.kind === "confirmed" && <Time at={attempt.at} />}
+          </ul>
         </div>
       )}
       {attempt?.kind === "confirmed" && attempt.refresh === "failed" && (
@@ -286,8 +281,7 @@ export function ReminderControl({
           )}
           {review && (
             <p className="text-board-muted">
-              Review the current assignments before sending again. A previous
-              email may already have arrived.
+              Review the current assignments before sending again.
             </p>
           )}
           {!retryable && (
