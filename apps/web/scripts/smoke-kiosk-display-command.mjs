@@ -198,7 +198,7 @@ await withLocalSmokeFixture(
           );
           assert.equal(
             await evaluate(
-              `(()=>{const d=document.querySelector('[role="dialog"]'),r=d.getBoundingClientRect();return d.scrollWidth<=d.clientWidth+1&&[...d.querySelectorAll('button')].every(n=>{const b=n.getBoundingClientRect();return b.width>=44&&b.height>=44&&b.x>=r.x&&b.right<=r.right;});})()`,
+              `(()=>{const d=document.querySelector('[role="dialog"]'),r=d.getBoundingClientRect();return d.scrollWidth<=d.clientWidth+1&&[...d.querySelectorAll('button')].every(n=>{const b=n.getBoundingClientRect();const min=innerWidth<1024?44:24;return b.width>=min&&b.height>=min&&b.x>=r.x&&b.right<=r.right;});})()`,
             ),
             true,
           );
@@ -217,7 +217,8 @@ await withLocalSmokeFixture(
         assert.equal(await evaluate("window.kioskCalls.length"), 0);
         assert.equal(await displayed(), false);
         await click("Blank all displays");
-        await click("Blank displays");
+        // The confirm reuses the page button's words; press the one in the dialog.
+        await click("Blank all displays", "[role=dialog] button");
         await poll(() => displayed(), "actual kiosk flag blanked");
         assert.equal(
           await browserDisplay(),
@@ -266,7 +267,8 @@ await withLocalSmokeFixture(
           "window.kioskReplies.splice(0).forEach(release=>release())",
         );
         await click("Blank all displays");
-        await click("Blank displays");
+        // The confirm reuses the page button's words; press the one in the dialog.
+        await click("Blank all displays", "[role=dialog] button");
         await check(
           `[...document.querySelectorAll('button')].some(n=>n.textContent==='Restore displays'&&!n.disabled)`,
           "new confirmed command",

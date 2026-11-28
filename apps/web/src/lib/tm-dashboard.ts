@@ -27,7 +27,7 @@ import { ROLE_META, type Role } from "@/lib/permissions";
 import { idSchema, parseOrThrow, serviceDateSchema } from "@/lib/validation";
 import { getTodayDateString } from "@/lib/utils";
 import { loadRosterDuty } from "@/lib/pm-dashboard";
-import { readPhaseSettings, getServicePhase } from "@/lib/service-phase";
+import { readPhaseSettings, getServicePhase, getServiceTiming } from "@/lib/service-phase";
 import { rundownPhaseStatus } from "@/lib/rundown-status";
 import { resolveRundownOpeningShow } from "@/lib/rundown-opening";
 import {
@@ -56,6 +56,8 @@ export interface TmDashboardResult {
   showId: string | null;
   serviceDate: string;
   orgTimezone: string;
+  /** Call, scheduled start and expected end, for the phase strip. */
+  timing: { scheduledStartMs: number | null; callTimeMs: number | null; expectedEndMs: number | null };
   shows: Array<{
     id: string;
     serviceDate: string;
@@ -169,18 +171,18 @@ export const getTmDashboard = createServerFn({ method: "GET" })
       readPhaseSettings(settingMap);
     const now = Date.now();
     void serviceWindowConfigured;
-    const phase = getServicePhase(
-      {
-        scheduledStartTime: rundownRow?.scheduledStartTime ?? null,
-        scheduledCallTime: rundownRow?.scheduledCallTime ?? null,
-        callLeadMinutes,
-        serviceWindowMinutes,
-        // The column is a plain string in D1; narrow it rather than
-        // trusting whatever happens to be in the row.
-        status: rundownPhaseStatus(rundownRow?.status ?? "stopped"),
-      },
-      now,
-    );
+    const phaseInput = {
+      scheduledStartTime: rundownRow?.scheduledStartTime ?? null,
+      scheduledCallTime: rundownRow?.scheduledCallTime ?? null,
+      callLeadMinutes,
+      serviceWindowMinutes,
+      // The column is a plain string in D1; narrow it rather than
+      // trusting whatever happens to be in the row.
+      status: rundownPhaseStatus(rundownRow?.status ?? "stopped"),
+    };
+    const phase = getServicePhase(phaseInput, now);
+    // Call, start and expected end for the phase strip.
+    const timing = getServiceTiming(phaseInput);
 
     const checkedByTemplate = new Map(entries.map(entry => [entry.templateId, entry.checked]));
     const snapshot: TmSnapshot = {
@@ -258,6 +260,7 @@ export const getTmDashboard = createServerFn({ method: "GET" })
       showId: showId ?? null,
       serviceDate,
       orgTimezone,
+      timing,
       shows: shows.map((show) => ({
         id: show.id,
         serviceDate: show.serviceDate,

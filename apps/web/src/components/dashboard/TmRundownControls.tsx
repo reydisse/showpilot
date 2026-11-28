@@ -3,17 +3,21 @@ import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   Captions,
+  CaptionsOff,
   ChevronLeft,
   ChevronRight,
   CircleStop,
+  Lock,
   Play,
+  RefreshCw,
   RotateCcw,
   TimerReset,
+  TriangleAlert,
 } from "lucide-react";
+import { Callout, ControlTile, Spinner, TmPanel, tmLink, tmSecondary } from "./tm-a";
 import { useTmRundown } from "@/hooks/useTmRundown";
 import { useShowEndConfirmation } from "@/hooks/useShowEndConfirmation";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { ReadFailureNotice } from "@/components/layout/ReadFailureNotice";
 import type {
   TmRundownAction,
   TmRundownSnapshot,
@@ -33,7 +37,7 @@ const controls: Array<{
   {
     action: "timer-stop",
     label: "End show",
-    detail: "Confirm before stopping",
+    detail: "Confirms before stopping",
     icon: CircleStop,
   },
   {
@@ -69,8 +73,8 @@ const controls: Array<{
   {
     action: "lyrics-off",
     label: "Lyrics off",
-    detail: "Confirm before hiding lyrics",
-    icon: Captions,
+    detail: "Confirms before hiding lyrics",
+    icon: CaptionsOff,
   },
 ];
 const outcomes = {
@@ -167,10 +171,38 @@ export function TmRundownControls({
   const readFailure =
     read.isError ||
     (read.isFetching && read.errorUpdatedAt > read.dataUpdatedAt);
+  const playback = state?.timer.playback;
+  // One short reason under every tile that cannot act right now.
+  const blanket = readFailure ? "Paused" : stale ? "Out of date" : control.unfinished ? "Waiting for the last command" : state && !state.initialized ? "Rundown not prepared" : state && !state.canControl ? "Locked" : !state ? "Waiting" : null;
+  const tileState = (action: TmRundownAction): { disabled: boolean; detail?: string } => {
+    if (disabledReason) return { disabled: true, detail: blanket ?? undefined };
+    switch (action) {
+      case "timer-start": return playback === "play" ? { disabled: true, detail: "Already playing" } : !state?.currentItem && !state?.firstItem ? { disabled: true, detail: "No item to start" } : { disabled: false };
+      case "timer-stop": return { disabled: playback === "stop" };
+      case "rundown-previous": return state?.hasPrevious ? { disabled: false } : { disabled: true, detail: "No previous item" };
+      case "timer-add":
+      case "timer-subtract": return playback === "stop" ? { disabled: true, detail: "Stopped" } : { disabled: false };
+      case "rundown-next": return !state?.nextItem && playback === "stop" ? { disabled: true, detail: "No next item" } : { disabled: false };
+      case "lyrics-on": return state?.lyricsEnabled ? { disabled: true, detail: "Lyrics are on" } : { disabled: false };
+      case "lyrics-off": return !state?.lyricsEnabled ? { disabled: true, detail: "Already off" } : { disabled: false };
+    }
+  };
+  const pill = readFailure || stale || !state ? null : playback === "play"
+    ? <span className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[var(--sa-ok)]/40 bg-[var(--sa-ok)]/10 px-2.5 text-xs font-medium text-[var(--sa-ok)]"><span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[var(--sa-ok)]" />Playing</span>
+    : <span className="inline-flex h-7 items-center gap-1.5 rounded-full border border-[var(--sa-border-strong)] px-2.5 text-xs font-medium text-[var(--sa-ink-2)]"><span aria-hidden="true" className="h-1.5 w-1.5 rounded-full shadow-[inset_0_0_0_1.5px_currentColor]" />{playback === "pause" ? "Paused" : "Stopped"}</span>;
   return (
-    <section
-      aria-label="Rundown controls"
-      className="min-w-0 rounded-xl border border-board-border bg-board-card overflow-hidden"
+    <TmPanel
+      icon={Play}
+      title="Rundown controls"
+      label="Rundown controls"
+      action={pill}
+      footer={<>
+        <p className="min-w-0 flex-1 text-[13px] text-[var(--sa-ink-2)]">
+          Next: {state?.nextItem?.title ?? "—"} · Lyrics:{" "}
+          {state ? (state.lyricsEnabled ? "On" : "Off") : "—"}
+        </p>
+        <Link to="/$slug/rundown" params={{ slug }} className={tmLink}>Open rundown</Link>
+      </>}
     >
       {endShowDialog}
       <ConfirmDialog
@@ -179,7 +211,7 @@ export function TmRundownControls({
           if (!open) setLyricsReview(null);
         }}
         title="Hide lyrics from displays?"
-        description="This removes the current ProPresenter lyrics from connected ShowPilot displays. You can turn lyrics on again when ready."
+        description="ProPresenter lyrics stop showing on connected ShowPilot displays. You can turn lyrics on again when ready."
         confirmLabel="Hide lyrics"
         confirmDisabled={!!disabledReason}
         onConfirm={() => {
@@ -188,118 +220,61 @@ export function TmRundownControls({
           setLyricsReview(null);
         }}
       />
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-board-border p-4">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold text-board-text">
-            Rundown controls
-          </h2>
-          <p className="break-words text-sm text-board-muted">
-            {state?.currentItem?.title ??
-              (state ? "No active item" : <QuietActivity label="Waiting for rundown feedback" />)}
+      <div className="flex flex-col gap-3">
+        {state?.currentItem && playback !== "stop" ? (
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.08em] text-[var(--sa-ink-3)]">Now running</p>
+            <p className="break-words text-[15px] font-semibold text-board-text">{state.currentItem.title}</p>
+          </div>
+        ) : (
+          <p className="break-words text-[13px] text-[var(--sa-ink-2)]">
+            {state?.currentItem?.title ?? (state ? "No active item" : <QuietActivity label="Waiting for rundown feedback" />)}
           </p>
+        )}
+        {readFailure ? (
+          <Callout tone="warn" icon={TriangleAlert} role="alert" title="Couldn't load rundown status"
+            action={<button type="button" disabled={read.isFetching} onClick={() => void read.refetch()} className={tmSecondary} aria-label="Retry rundown feedback">
+              <RefreshCw className={`h-3.5 w-3.5 ${read.isFetching ? "animate-spin motion-reduce:animate-none" : ""}`} />{read.isFetching ? "Retrying…" : "Retry rundown feedback"}
+            </button>}>
+            Controls are paused. We'll keep trying.
+          </Callout>
+        ) : disabledReason && stale ? (
+          <Callout tone="warn" icon={TriangleAlert} role="status" title="Rundown status is out of date">Controls are off until a fresh read arrives.</Callout>
+        ) : disabledReason && state && !state.canControl ? (
+          <Callout tone="muted" icon={Lock} role="status" title={disabledReason} />
+        ) : disabledReason ? (
+          <p role="status" className="text-[13px] text-[var(--sa-warn)]">{disabledReason}</p>
+        ) : null}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {controls.map(({ action, label, detail, icon }) => {
+            const tile = tileState(action);
+            const resume = action === "timer-start" && playback === "pause";
+            return (
+              <ControlTile
+                key={action}
+                icon={icon}
+                label={resume ? "Resume timer" : label}
+                detail={resume && !tile.disabled ? "Timer is paused" : tile.detail ?? detail}
+                disabled={tile.disabled}
+                danger={action === "timer-stop" && playback !== "stop"}
+                onClick={() => run(action)}
+              />
+            );
+          })}
         </div>
-        <span className="text-sm text-board-muted">
-          {read.isError || stale
-            ? ""
-            : state
-              ? state.timer.playback === "play"
-                ? "Running"
-                : state.timer.playback === "pause"
-                  ? "Paused"
-                  : "Stopped"
-              : "Needs attention"}
-        </span>
-
-      </header>
-      <ReadFailureNotice
-        error={
-          readFailure
-            ? {
-                message:
-                  read.error?.message ?? "The rundown could not be updated.",
-                occurredAt: read.errorUpdatedAt,
-              }
-            : null
-        }
-        refreshing={read.isFetching}
-        retry={() => void read.refetch()}
-        label="Retry rundown feedback"
-      />
-      {disabledReason && !readFailure ? (
-        <p role="status" className="px-4 pt-3 text-sm text-amber-200">
-          {disabledReason}
-        </p>
-      ) : null}
-      <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4">
-        {controls.map(({ action, label, detail, icon: Icon }) => {
-          const inactive =
-            !!disabledReason ||
-            (action === "timer-start" &&
-              (state?.timer.playback === "play" ||
-                (!state?.currentItem && !state?.firstItem))) ||
-            (action === "timer-stop" && state?.timer.playback === "stop") ||
-            (action === "rundown-previous" && !state?.hasPrevious) ||
-            ((action === "timer-add" || action === "timer-subtract") &&
-              state?.timer.playback === "stop") ||
-            (action === "rundown-next" &&
-              !state?.nextItem &&
-              state?.timer.playback === "stop") ||
-            (action === "lyrics-on" && state?.lyricsEnabled) ||
-            (action === "lyrics-off" && !state?.lyricsEnabled);
-          const resume =
-            action === "timer-start" && state?.timer.playback === "pause";
-          return (
-            <button
-              key={action}
-              type="button"
-              disabled={inactive}
-              onClick={() => run(action)}
-              className="min-h-24 rounded-lg border border-board-border bg-board-bg/40 p-3 text-left text-board-text hover:border-fire-500/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-fire-400 disabled:opacity-50"
-            >
-              <Icon className="mb-2 size-4" />
-              <span className="block text-sm font-medium">
-                {resume ? "Resume timer" : label}
-              </span>{" "}
-              <span className="mt-1 block text-xs text-board-muted">
-                {resume ? "Continue the paused item" : detail}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <div className="space-y-2 border-t border-board-border p-4 text-sm">
-        <p className="text-board-muted">
-          Next: {state?.nextItem?.title ?? "—"} · Lyrics:{" "}
-          {state ? (state.lyricsEnabled ? "On" : "Off") : "Needs attention"}
-        </p>
-        <div aria-live="polite">
+        <div aria-live="polite" className="empty:hidden">
           {control.pending ? (
-            <QuietActivity label="Sending command…" />
+            <p className="inline-flex items-center gap-2 text-[13px] text-[var(--sa-ink-2)]"><Spinner /><QuietActivity label="Sending command…" /></p>
           ) : control.latest?.status === "error" ? (
-            <div role="alert" className="text-amber-200"><p>This rundown change needs attention.</p>
-
-              <button
-                type="button"
-                className="mt-2 min-h-11 rounded-lg border px-3"
-                onClick={control.retry}
-              >
-                Retry rundown command
-              </button>
-            </div>
-          ) : control.latest?.result ? (
-            <p role="status" className="text-board-text">
+            <Callout tone="danger" icon={TriangleAlert} role="alert" title="This rundown change needs attention."
+              action={<button type="button" className={tmSecondary} onClick={control.retry}><RefreshCw className="h-3.5 w-3.5" />Retry rundown command</button>} />
+          ) : control.latest?.result && outcomes[control.latest.result.outcome] ? (
+            <p role="status" className="text-[13px] text-board-text">
               {outcomes[control.latest.result.outcome]}
             </p>
           ) : null}
         </div>
-        <Link
-          to="/$slug/rundown"
-          params={{ slug }}
-          className="inline-flex min-h-11 items-center text-fire-400 underline"
-        >
-          Open rundown
-        </Link>
       </div>
-    </section>
+    </TmPanel>
   );
 }

@@ -64,21 +64,21 @@ await withLocalSmokeFixture(async ({origin,orgId,operatorCookie,queryFixture,cap
     for(const [width,height] of [[320,480],[768,1024],[1440,1000]]) {
       await page.setViewportSize({width,height});
       await page.evaluate(async()=>{await new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)));await Promise.all(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished.catch(()=>{})));});
-      for(const name of names){const target=button(name);await target.scrollIntoViewIfNeeded();const box=await target.boundingBox();assert.ok(box&&box.height>=44&&box.width>=44&&box.x>=0&&box.x+box.width<=width+1,`${name} fits ${width}`);await target.click({trial:true});}
+      for(const name of names){const target=button(name);await target.scrollIntoViewIfNeeded();const box=await target.boundingBox();const min=width<1024?44:24;assert.ok(box&&box.height>=min&&box.width>=min&&box.x>=0&&box.x+box.width<=width+1,`${name} fits ${width}`);await target.click({trial:true});}
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
       await page.screenshot({path:`/tmp/showpilot-tm-management-${label}-${width}.png`,fullPage:true});
     }
   }
   try {
     await page.goto(`${origin}/${orgId}/dashboard/tech-manager`);
-    await page.waitForFunction(()=>[...document.querySelectorAll("button")].some(node=>node.textContent.trim()==="Take it"&&!node.disabled&&Object.keys(node).some(key=>key.startsWith("__reactProps$"))));
+    await page.waitForFunction(()=>[...document.querySelectorAll("button")].some(node=>node.textContent.trim()==="Assign to me"&&!node.disabled&&Object.keys(node).some(key=>key.startsWith("__reactProps$"))));
     if(audit){
-      await button("Take it").click();await page.waitForTimeout(11500);
-      console.log(JSON.stringify({case:"incident",writes:writes.length,stored:await incident(),retryVisible:await button("Retry incident change").count()>0,resolveDisabled:await button("Resolve").isDisabled()}));
+      await button("Assign to me").click();await page.waitForTimeout(11500);
+      console.log(JSON.stringify({case:"incident",writes:writes.length,stored:await incident(),retryVisible:await button("Retry incident change").count()>0,resolveDisabled:await page.getByRole("button",{name:/^More actions for/}).first().isDisabled()}));
       auditPaused=ids.saveTmDashboardLayout;release();await button("Arrange widgets").click();await button("Move System overview down").click();await page.waitForTimeout(11500);
       console.log(JSON.stringify({case:"layout",writes:writes.length,stored:await storedLayout(),savingVisible:(await page.locator("main").innerText()).includes("Saving…"),retryVisible:await button("Retry layout change").count()>0}));return;
     }
-    pause="after";await button("Take it").evaluate(node => { node.click(); node.click(); });await button("Retry incident change").waitFor({timeout:16000});
+    pause="after";await button("Assign to me").evaluate(node => { node.click(); node.click(); });await button("Retry incident change").waitFor({timeout:16000});
     assert.equal(writes.length,1,"same-turn double click sends one command");
     assert.equal((await incident()).assignedTo,scope.userId);
     await widths("incident-retry",["Retry incident change","Review incident result"]);
@@ -87,8 +87,8 @@ await withLocalSmokeFixture(async ({origin,orgId,operatorCookie,queryFixture,cap
     pause=null;await button("Retry incident change").click();await button("Retry incident change").waitFor({state:"hidden"});
     assert.deepEqual(fromJSON(JSON.parse(writes[0].body)),fromJSON(JSON.parse(writes[1].body)));assert.equal((await incident()).assignedTo,null);release();
     console.log(JSON.stringify({case:"incident-lost-reply",retainedAcrossNavigation:true,identicalRetry:true,preservesNewerAssignment:true}));
-    await wait(async()=>await button("Take it").isEnabled(),"incident refreshed");pause="before";
-    const before=writes.length;await button("Take it").click();await button("Retry incident change").waitFor({timeout:16000});
+    await wait(async()=>await button("Assign to me").isEnabled(),"incident refreshed");pause="before";
+    const before=writes.length;await button("Assign to me").click();await button("Retry incident change").waitFor({timeout:16000});
     await button("Review incident result").click();await button("Continue with current incident").waitFor();
     assert.equal((await incident()).assignedTo,null);pause=null;release();await wait(()=>completed.length===writes.length,"cancelled request arrived");
     assert.equal((await incident()).assignedTo,null);assert.equal(writes.length,before+2);

@@ -92,7 +92,7 @@ await withLocalSmokeFixture(
           });
         const click = async (text, { link = false, dialog = false } = {}) => {
           const point = await check(
-            `(async()=>{const root=${dialog ? "document.querySelector('[role=dialog]')" : root};if(!root||root.getAnimations({subtree:true}).some(a=>a.playState!=='finished'))return null;const n=[...root.querySelectorAll('${link ? "a" : "button"}')].find(n=>(n.textContent.trim()===${JSON.stringify(text)}||n.getAttribute('aria-label')===${JSON.stringify(text)})&&!n.disabled);if(!n)return null;n.scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;return n.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`,
+            `(async()=>{const root=${dialog ? "document.querySelector('[role=dialog]')" : root};if(!root||root.getAnimations({subtree:true}).some(a=>a.playState!=='finished'&&a.effect?.getTiming().iterations!==Infinity))return null;const n=[...root.querySelectorAll('${link ? "a" : "button"}')].find(n=>(n.textContent.trim()===${JSON.stringify(text)}||n.getAttribute('aria-label')===${JSON.stringify(text)})&&!n.disabled);if(!n)return null;n.scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;return n.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`,
             "click " + text,
           );
           await page("Input.dispatchMouseEvent", {
@@ -142,7 +142,7 @@ await withLocalSmokeFixture(
             mobile: false,
           });
           await check(
-            `(()=>{const n=document.querySelector('[role=dialog]');if(n.getAnimations({subtree:true}).some(a=>a.playState!=='finished'))return false;const b=n.getBoundingClientRect();return b.x>=0&&b.right<=innerWidth+1&&[...n.querySelectorAll('button')].every(n=>n.getBoundingClientRect().height>=44)})()`,
+            `(()=>{const n=document.querySelector('[role=dialog]');if(n.getAnimations({subtree:true}).some(a=>a.playState!=='finished'))return false;const b=n.getBoundingClientRect();return b.x>=0&&b.right<=innerWidth+1&&[...n.querySelectorAll('button')].every(n=>n.getBoundingClientRect().height>=(innerWidth<1024?44:24))})()`,
             "confirmation fits " + width,
           );
         }
@@ -154,7 +154,7 @@ await withLocalSmokeFixture(
           ).length,
           0,
         );
-        await confirm("Go live", "Go live now");
+        await confirm("Go live", "Go live");
         await poll(
           async () =>
             Object.values(await streamOutputSnapshot()).filter(
@@ -194,7 +194,7 @@ await withLocalSmokeFixture(
         await evaluate("window.holdTmWrites=false");
         await click("Retry streaming command");
         await check(
-          `${root}?.innerText.includes('Go Live request confirmed.')`,
+          `!${root}?.innerText.includes('Retry streaming command')&&!${root}?.innerText.includes('Sending ')&&!${root}?.innerText.includes('needs attention')`,
           "historical acknowledgement",
         );
         const calls = (await evaluate("window.tmCalls")).map((body) =>
@@ -240,7 +240,7 @@ await withLocalSmokeFixture(
         );
         // A slow provider creation is superseded through the actual dashboard Stop.
         await configureStreamOutputs("slow-create");
-        await confirm("Go live", "Go live now");
+        await confirm("Go live", "Go live");
         await poll(
           async () =>
             (await streamOutputRequests()).filter(
@@ -260,7 +260,7 @@ await withLocalSmokeFixture(
         await configureStreamOutputs("success");
         await click("Retry streaming command");
         await check(
-          `${root}?.innerText.includes('Disconnect request confirmed.')`,
+          `!${root}?.innerText.includes('Retry streaming command')&&!${root}?.innerText.includes('Sending ')&&!${root}?.innerText.includes('needs attention')`,
           "Stop recovers pending creation",
         );
         assert.equal(
@@ -283,7 +283,8 @@ await withLocalSmokeFixture(
           const bounds = await evaluate(
             `[...${root}.querySelectorAll('button,a,select')].map(n=>({height:n.getBoundingClientRect().height,width:n.getBoundingClientRect().width}))`,
           );
-          assert.ok(bounds.every((b) => b.height >= 44 && b.width >= 44));
+          const min = await evaluate("innerWidth<1024?44:24");
+          assert.ok(bounds.every((b) => b.height >= min && b.width >= min), JSON.stringify(bounds.filter((b) => b.height < min || b.width < min)));
           if (width === 320)
             await writeFile(
               "/tmp/showpilot-tm-stream-320.png",

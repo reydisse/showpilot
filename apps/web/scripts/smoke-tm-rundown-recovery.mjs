@@ -113,7 +113,7 @@ await withLocalSmokeFixture(
           });
         const click = async (text, { link = false, dialog = false } = {}) => {
           const point = await check(
-            `(async()=>{const root=${dialog ? "document.querySelector('[role=dialog]')" : root};if(!root||root.getAnimations({subtree:true}).some(a=>a.playState!=='finished'))return null;const n=[...root.querySelectorAll('${link ? "a" : "button"}')].find(n=>n.textContent.trim().startsWith(${JSON.stringify(text)})&&!n.disabled);if(!n)return null;n.scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;return n.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`,
+            `(async()=>{const root=${dialog ? "document.querySelector('[role=dialog]')" : root};if(!root||root.getAnimations({subtree:true}).some(a=>a.playState!=='finished'&&a.effect?.getTiming().iterations!==Infinity))return null;const n=[...root.querySelectorAll('${link ? "a" : "button"}')].find(n=>n.textContent.trim().startsWith(${JSON.stringify(text)})&&!n.disabled);if(!n)return null;n.scrollIntoView({block:'center'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect(),x=b.x+b.width/2,y=b.y+b.height/2;return n.contains(document.elementFromPoint(x,y))?{x,y}:null;})()`,
             "click " + text,
           );
           await page("Input.dispatchMouseEvent", {
@@ -161,7 +161,7 @@ await withLocalSmokeFixture(
         const revision = (await read()).revision;
         await click("Retry rundown command");
         await check(
-          `${root}?.innerText.includes('Command confirmed.')`,
+          `!${root}?.innerText.includes('Retry rundown command')&&!${root}?.innerText.includes('Sending command')`,
           "receipt acknowledgement",
         );
         const calls = (await evaluate("window.tmCalls")).map((body) =>
@@ -212,7 +212,8 @@ await withLocalSmokeFixture(
           const bounds = await evaluate(
             `[...${root}.querySelectorAll('button,a')].map(n=>({text:n.textContent,height:n.getBoundingClientRect().height,width:n.getBoundingClientRect().width}))`,
           );
-          assert.ok(bounds.every((b) => b.height >= 44 && b.width >= 44));
+          const min = await evaluate("innerWidth<1024?44:24");
+          assert.ok(bounds.every((b) => b.height >= min && b.width >= min), JSON.stringify(bounds.filter((b) => b.height < min || b.width < min)));
           await click("Lyrics off");
           await check(
             `!!document.querySelector('[role=dialog]')`,

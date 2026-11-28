@@ -21,7 +21,8 @@ import {
 } from "@/lib/kiosk-display-contract";
 import { withOperationTimeout } from "@/lib/operation-timeout";
 import { useConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Button } from "@/components/ui/button";
+import { CircleCheck, Monitor, RefreshCw, TriangleAlert } from "lucide-react";
+import { Callout, Spinner, StatusWord, tmSecondary } from "@/components/dashboard/tm-a";
 
 type Props = {
   orgId: string;
@@ -148,11 +149,11 @@ function ScopedKioskDisplayControl({
     if (!reviewed.blanked) {
       setConfirming(true);
       const accepted = await confirm({
-        title: "Blank all kiosk displays?",
+        title: "Blank all displays?",
         description:
           "Every kiosk in this organization will show a blank slate on its next poll. Use Restore displays to show content again.",
-        confirmLabel: "Blank displays",
-        variant: "warning",
+        confirmLabel: "Blank all displays",
+        variant: "danger",
       });
       setConfirming(false);
       if (!accepted) return;
@@ -164,102 +165,74 @@ function ScopedKioskDisplayControl({
       blanked: !reviewed.blanked,
     });
   };
+  const sendingBlank = pending && latest?.command?.blanked === true;
   return (
     <section
       aria-label="Kiosk display control"
-      className="mb-5 space-y-3 rounded-xl border border-board-border bg-board-card p-4"
+      className={`schedule-a min-w-0 rounded-xl border border-[var(--sa-border)] bg-[var(--sa-surface)] p-4 ${surface === "settings" ? "mb-5" : ""}`}
     >
       {ConfirmDialogEl}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <h2 className="text-sm font-medium text-board-text">
-            Kiosk displays
+          <h2 className="flex items-center gap-2.5 text-[15px] font-semibold text-board-text">
+            <Monitor aria-hidden="true" className="h-4 w-4 text-[var(--sa-ink-3)]" strokeWidth={1.75} />Kiosk displays
           </h2>
-          <p role="status" className="text-sm text-board-muted">
-            {!state.data
-              ? state.isError
-                ? "Display details could not be loaded."
-                : <QuietActivity label="Loading display" />
-              : `${state.isError ? "" : ""}${state.data.blanked ? "Displays are set to show a blank slate." : "Displays are set to show their content."}`}
-          </p>
-          <p className="mt-1 text-xs text-board-muted">
-            Connected kiosks apply this setting on their next poll.
-          </p>
+          <div role="status" className="mt-2 text-[13px] text-[var(--sa-ink-2)]">
+            {pending ? (
+              <span className="inline-flex items-center gap-2 text-board-text"><Spinner />{sendingBlank ? "Blanking displays…" : "Restoring displays…"}</span>
+            ) : !state.data ? (
+              state.isError ? "Display details could not be loaded." : <QuietActivity label="Loading display" />
+            ) : (
+              <>
+                {state.data.blanked
+                  ? <StatusWord tone="muted" icon={Monitor} className="text-board-text">Blank slate</StatusWord>
+                  : <StatusWord tone="ok" icon={CircleCheck}>Showing content</StatusWord>}
+                <p className="mt-1">{state.data.blanked ? "Displays are set to show a blank slate. Connected kiosks apply this setting on their next poll." : "Displays show their normal content. Connected kiosks apply changes on their next poll."}</p>
+              </>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-[var(--sa-ink-3)]">Dashboard re-checks every 5s · kiosks poll about once a minute</p>
         </div>
-        <Button
+        <button
           type="button"
-          variant="outline"
-          className="h-auto min-h-11 whitespace-normal"
-          disabled={
-            !state.data || state.isError || Boolean(unfinished) || confirming
-          }
+          className={`${tmSecondary} shrink-0 self-start sm:self-center`}
+          disabled={!state.data || state.isError || Boolean(unfinished) || confirming}
           onClick={() => void change()}
         >
           {state.data?.blanked ? "Restore displays" : "Blank all displays"}
-        </Button>
+        </button>
       </div>
-      {readFailure ? (
-        <div
-          role="alert"
-          aria-label="Display state error"
-          className="space-y-2 text-sm text-amber-200"
-        >
-          <p>
-            {plainFailure((state.error instanceof Error
-              ? state.error.message
-              : "Display state could not be read.") ?? "")}
-          </p>
-
-          <Button
-            className="h-auto min-h-11 whitespace-normal"
-            variant="outline"
-            aria-label="Retry display state"
-            disabled={state.isFetching}
-            onClick={() => void state.refetch()}
-          >
-            {state.isFetching ? <QuietActivity label="Retrying…" /> : "Retry display state"}
-          </Button>
-        </div>
-      ) : null}
-      {pending ? (
-        <QuietActivity />
-      ) : null}
-      {unfinished && !pending ? (
-        <div
-          role="alert"
-          aria-label="Display command error"
-          className="space-y-2 text-sm text-amber-200"
-        >
-          <p>
-            {plainFailure((latest?.error instanceof Error
-              ? latest.error.message
-              : "This change needs attention.") ?? "")}{" "}
-            Retry checks the original command and will not overwrite a later
-            controller change.
-          </p>
-          {latest ? (
-            null
+      {readFailure || (unfinished && !pending) || (!unfinished && latest?.result) ? (
+        <div className="mt-3 flex flex-col gap-2">
+          {readFailure ? (
+            <div role="alert" aria-label="Display state error">
+              <Callout tone="warn" icon={TriangleAlert} title="Couldn't read display state"
+                action={<button type="button" className={tmSecondary} aria-label="Retry display state" disabled={state.isFetching} onClick={() => void state.refetch()}>
+                  {state.isFetching ? <QuietActivity label="Retrying…" /> : <><RefreshCw className="h-3.5 w-3.5" />Retry display state</>}
+                </button>}>
+                {plainFailure((state.error instanceof Error ? state.error.message : "Display state could not be read.") ?? "")}
+              </Callout>
+            </div>
           ) : null}
-          <Button
-            className="h-auto min-h-11 whitespace-normal"
-            variant="outline"
-            onClick={() => mutation.mutate(unfinished)}
-          >
-            Retry display command
-          </Button>
+          {unfinished && !pending ? (
+            <div role="alert" aria-label="Display command error">
+              <Callout tone="danger" icon={TriangleAlert} title="This display change needs attention."
+                action={<button type="button" className={tmSecondary} onClick={() => mutation.mutate(unfinished)}><RefreshCw className="h-3.5 w-3.5" />Retry display command</button>}>
+                {plainFailure((latest?.error instanceof Error ? latest.error.message : "This change needs attention.") ?? "")}{" "}
+                Retry checks the original command and will not overwrite a later controller change.
+              </Callout>
+            </div>
+          ) : null}
+          {!unfinished && latest?.result ? (
+            <p role={latest.result.outcome === "applied" ? "status" : "alert"} className="text-[13px] text-[var(--sa-ink-2)]">
+              {latest.result.outcome === "applied"
+                ? "Display command saved. Kiosks apply it when connected."
+                : latest.result.outcome === "superseded"
+                  ? "The original command was saved, then another controller changed the display setting. The latest state is shown above."
+                  : "The display setting changed after you reviewed it. Your command was not applied. Review the latest state above before trying again."}
+            </p>
+          ) : null}
         </div>
-      ) : null}
-      {!unfinished && latest?.result ? (
-        <p
-          role={latest.result.outcome === "applied" ? "status" : "alert"}
-          className="text-sm text-board-muted"
-        >
-          {latest.result.outcome === "applied"
-            ? "Display command saved. Kiosks apply it when connected."
-            : latest.result.outcome === "superseded"
-              ? "The original command was saved, then another controller changed the display setting. The latest state is shown above."
-              : "The display setting changed after you reviewed it. Your command was not applied. Review the latest state above before trying again."}
-        </p>
       ) : null}
     </section>
   );

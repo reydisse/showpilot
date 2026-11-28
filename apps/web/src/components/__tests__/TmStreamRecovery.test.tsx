@@ -64,7 +64,7 @@ async function view() {
   await tick();
   return mounted;
 }
-async function confirm(action = "Go live", confirm = "Go live now") {
+async function confirm(action = "Go live", confirm = "Go live") {
   fireEvent.click(screen.getByRole("button", { name: action }));
   await tick();
   fireEvent.click(
@@ -113,7 +113,7 @@ it("confirms the original input and destinations even if polling changes the sel
   await tick(5100);
   fireEvent.click(
     within(screen.getByRole("dialog")).getByRole("button", {
-      name: "Go live now",
+      name: "Go live",
     }),
   );
   await tick();

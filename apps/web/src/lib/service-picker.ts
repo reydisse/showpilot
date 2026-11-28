@@ -9,7 +9,7 @@ interface ServicePickerLabelOptions {
   today?: string;
 }
 
-function formatServiceDate(serviceDate: string): string {
+export function formatServiceDate(serviceDate: string): string {
   const date = new Date(`${serviceDate}T12:00:00`);
   if (Number.isNaN(date.getTime())) return serviceDate;
 
