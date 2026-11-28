@@ -120,7 +120,7 @@ function StreamControls({
   const stopping = review?.command.action === "stream-stop",
     latest = control.latest;
   const failures = !control.pending && latest?.result ? latest.result.results.filter((result) => !result.success) : [];
-  const liveReason = !state ? null : !state.canControl ? "Needs stream_health:manage (owner/admin or Tech Manager)." : readFailure ? "Couldn't read stream status. Retry first." : stale ? "Status is more than 10 seconds old. Waiting for a fresh read." : unknown ? "One destination's status is unknown." : control.unfinished ? "Wait for the current request to finish." : !input ? "Choose a live input." : !state.destinations.some((destination) => destination.enabled) ? "Turn on a destination in Manage destinations." : null;
+  const liveReason = !state ? null : !state.canControl ? "Streaming management permission is required." : readFailure ? "Couldn't read stream status. Retry first." : stale ? "Status is more than 10 seconds old. Waiting for a fresh read." : unknown ? "One destination's status is unknown." : control.unfinished ? "Wait for the current request to finish." : !input ? "Choose a live input." : !state.destinations.some((destination) => destination.enabled) ? "Turn on a destination in Manage destinations." : null;
   return (
     <TmPanel
       icon={Radio}
