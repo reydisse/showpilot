@@ -288,7 +288,7 @@ function AssetsPage() {
 
   return (
     <div className="schedule-a min-h-full bg-board-bg">
-      <div className="mx-auto flex max-w-[1180px] flex-col gap-5 px-4 pb-24 pt-6 md:px-8">
+      <div className="mx-auto flex max-w-[1180px] min-[1800px]:max-w-[1680px] flex-col gap-5 px-4 pb-24 pt-6 md:px-8">
         <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
           <div className="flex min-w-0 flex-col gap-1.5">
             <h1 className="text-[26px] font-semibold leading-[1.15] tracking-[-0.02em] text-board-text">Asset Inventory</h1>
@@ -602,7 +602,7 @@ function AssetsSkeleton() {
   const bar = (width: string) => <span className={`block h-2.5 rounded bg-[var(--sa-surface-3)] ${width}`} />;
   return <div className="schedule-a min-h-full bg-board-bg">
     <p role="status" className="sr-only">Loading inventory…</p>
-    <div aria-hidden="true" className="schedule-skeleton mx-auto flex max-w-[1180px] flex-col gap-5 px-4 pt-6 md:px-8">
+    <div aria-hidden="true" className="schedule-skeleton mx-auto flex max-w-[1180px] min-[1800px]:max-w-[1680px] flex-col gap-5 px-4 pt-6 md:px-8">
       <div className="flex flex-col gap-2">{bar("h-6 w-48")}{bar("w-80")}</div>
       <div className="h-[76px] rounded-xl border border-[var(--sa-border)] bg-[var(--sa-surface)]" />
       <div className="overflow-hidden rounded-xl border border-[var(--sa-border)] bg-[var(--sa-surface)]">

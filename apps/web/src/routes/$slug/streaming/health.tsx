@@ -137,7 +137,7 @@ export function StreamHealthWorkspace({ orgId, initialInputs, canManageStreamHea
     return <div className="schedule-a h-full overflow-auto bg-board-bg">
       {input ? <ConnectEncoder input={input} status={statusOf(input)} encoder={connect.encoder} checkedAt={healthRead.confirmedAt} now={now} polling={polling}
         onEncoder={encoder => onConnect(input.id, encoder)} onBack={() => onConnect(null, "atem")} workspaceTerms={workspaceTerms} /> : (
-        <div className="mx-auto flex max-w-[1180px] flex-col items-start gap-3 px-4 pt-8 md:px-8">
+        <div className="mx-auto flex max-w-[1180px] min-[1800px]:max-w-[1680px] flex-col items-start gap-3 px-4 pt-8 md:px-8">
           <h1 className="text-xl font-semibold text-board-text">This input is no longer here</h1>
           <p className="text-[13px] text-[var(--sa-ink-2)]">It may have been deleted. Your other inputs are unchanged.</p>
           <button type="button" className={secondary} onClick={() => onConnect(null, "atem")}>Back to Stream</button>
@@ -148,7 +148,7 @@ export function StreamHealthWorkspace({ orgId, initialInputs, canManageStreamHea
 
   return (
     <div className="schedule-a h-full overflow-auto bg-board-bg">
-      <div className="mx-auto flex max-w-[1180px] flex-col gap-5 px-4 pb-12 pt-6 md:px-8">
+      <div className="mx-auto flex max-w-[1180px] min-[1800px]:max-w-[1680px] flex-col gap-5 px-4 pb-12 pt-6 md:px-8">
         <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
           <div className="flex min-w-0 flex-col gap-1.5">
             <h1 className="text-[26px] font-semibold leading-[1.15] tracking-[-0.02em] text-board-text">Stream</h1>
@@ -428,7 +428,7 @@ function ConnectEncoder({ input, status, encoder, checkedAt, now, polling, onEnc
   ];
   const live = asStatus(status) === "streaming", connecting = asStatus(status) === "connecting";
   const current = steps.findIndex((_, index) => !done.has(index));
-  return <div className="mx-auto flex max-w-[1180px] flex-col gap-5 px-4 pb-12 pt-6 md:px-8">
+  return <div className="mx-auto flex max-w-[1180px] min-[1800px]:max-w-[1680px] flex-col gap-5 px-4 pb-12 pt-6 md:px-8">
     <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1.5 text-[13px] text-[var(--sa-ink-3)]">
       <button type="button" onClick={onBack} className="inline-flex min-h-9 items-center gap-1 hover:text-board-text max-lg:min-h-11"><ChevronLeft className="h-3.5 w-3.5" />Stream</button>
       <span aria-hidden="true">/</span><span className="text-[var(--sa-ink-2)]">{input.name}</span><span aria-hidden="true">/</span><span>Connect an encoder</span>
@@ -499,7 +499,7 @@ function StreamSkeleton() {
   const bar = (className: string) => <span className={`block rounded bg-[var(--sa-surface-3)] ${className}`} />;
   return <div className="schedule-a h-full bg-board-bg">
     <p role="status" className="sr-only">Loading inputs…</p>
-    <div aria-hidden="true" className="schedule-skeleton mx-auto flex max-w-[1180px] flex-col gap-5 px-4 pt-6 md:px-8">
+    <div aria-hidden="true" className="schedule-skeleton mx-auto flex max-w-[1180px] min-[1800px]:max-w-[1680px] flex-col gap-5 px-4 pt-6 md:px-8">
       <div className="flex flex-col gap-2">{bar("h-7 w-32")}{bar("h-3 w-72")}</div>
       <div className="flex h-12 items-center gap-6 rounded-xl border border-[var(--sa-border)] bg-[var(--sa-surface)] px-4">{bar("h-2.5 w-32")}{bar("h-2.5 w-24")}{bar("h-2.5 w-28")}</div>
       <div className="grid gap-5 rounded-xl border border-[var(--sa-border)] bg-[var(--sa-surface)] p-5 lg:grid-cols-2">

@@ -1686,7 +1686,7 @@ function RundownPage() {
   return (
     <div data-unconfirmed={unconfirmedCount > 0 || undefined} className="rundown-page schedule-a relative h-full flex flex-col overflow-x-hidden overflow-y-auto bg-board-bg">
       <div className="relative z-10 shrink-0">
-        <div className="mx-auto flex w-full max-w-[1400px] flex-wrap items-end justify-between gap-x-6 gap-y-3 px-4 pb-1 pt-6 sm:px-6 lg:px-7">
+        <div className="mx-auto flex w-full max-w-[1400px] min-[1800px]:max-w-[1880px] flex-wrap items-end justify-between gap-x-6 gap-y-3 px-4 pb-1 pt-6 sm:px-6 lg:px-7">
           <div className="flex min-w-0 flex-col gap-1">
             <p className={eyebrow}>Rundown</p>
             <h1 className="truncate text-[22px] font-semibold leading-[1.2] tracking-[-0.02em] text-board-text">
@@ -1838,7 +1838,7 @@ function RundownPage() {
       </div>
 
       {showId && !selectedShowIsLive && !loading ? (
-        <div className="mx-auto w-full max-w-[1400px] shrink-0 px-4 pt-4 sm:px-6 lg:px-7">
+        <div className="mx-auto w-full max-w-[1400px] min-[1800px]:max-w-[1880px] shrink-0 px-4 pt-4 sm:px-6 lg:px-7">
           {takeLiveResult?.kind === "failed" && takeLiveResult.scope === rundownScope ? (
             <div role="alert" className="flex flex-wrap items-center gap-3 rounded-xl border border-[var(--sa-danger)]/30 bg-[var(--sa-danger)]/[0.07] px-4 py-3 text-[13px]">
               <X aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--sa-danger)]" />
@@ -1852,13 +1852,13 @@ function RundownPage() {
           ) : null}
         </div>
       ) : selectedShowIsLive && takeLiveResult?.kind === "success" && takeLiveResult.scope === rundownScope ? (
-        <div className="mx-auto w-full max-w-[1400px] shrink-0 px-4 pt-4 sm:px-6 lg:px-7">
+        <div className="mx-auto w-full max-w-[1400px] min-[1800px]:max-w-[1880px] shrink-0 px-4 pt-4 sm:px-6 lg:px-7">
           <p role="status" className="flex items-center gap-3 rounded-xl border border-[var(--sa-ok)]/35 bg-[var(--sa-ok)]/[0.07] px-4 py-3 text-[13px] text-[var(--sa-ink-2)]"><Tv aria-hidden="true" className="h-4 w-4 shrink-0 text-[var(--sa-ok)]" /><span><span className="font-semibold text-[var(--sa-ok)]">Live: {selectedShowName}</span> · Timer, lyrics, kiosk, Show Flow and other venue outputs now follow this show.</span></p>
         </div>
       ) : null}
 
       {(selectionError || saveError || syncError) && (
-        <div className="mx-auto w-full max-w-[1400px] shrink-0 px-4 pt-4 sm:px-6 lg:px-7">
+        <div className="mx-auto w-full max-w-[1400px] min-[1800px]:max-w-[1880px] shrink-0 px-4 pt-4 sm:px-6 lg:px-7">
           <div role="alert" className="flex flex-wrap items-start gap-3 rounded-xl border border-[var(--sa-danger)]/30 bg-[var(--sa-danger)]/[0.07] p-4">
             <X aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[var(--sa-danger)]" />
             <div className="min-w-0 flex-1">
@@ -1919,7 +1919,7 @@ function RundownPage() {
         {loading ? (
           <RundownSkeleton />
         ) : (
-          <div className="rundown-columns flex-1 overflow-hidden flex flex-row gap-5 px-4 pt-5 sm:px-6 lg:px-7 max-w-[1400px] mx-auto w-full min-h-0">
+          <div className="rundown-columns flex-1 overflow-hidden flex flex-row gap-5 px-4 pt-5 sm:px-6 lg:px-7 max-w-[1400px] min-[1800px]:max-w-[1880px] mx-auto w-full min-h-0">
             {/* Left: Timer + Controls + Message */}
             <div className="rundown-panel-left w-[420px] shrink-0 flex flex-col gap-4 overflow-y-auto hide-scrollbar min-h-0 pb-6">
               <RundownTimerCard timer={timer} current={currentItem} next={nextItem} first={firstPlayable}
